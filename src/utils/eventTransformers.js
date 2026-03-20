@@ -182,6 +182,8 @@ export function transformEventToFlatStructure(event) {
   const doorOpenTime = getField(event, 'doorOpenTime') || '';
   const rawTeardownTime = getField(event, 'teardownTime') || '';
   const rawDoorCloseTime = getField(event, 'doorCloseTime') || '';
+  const reservationStartTime = getField(event, 'reservationStartTime') || '';
+  const reservationEndTime = getField(event, 'reservationEndTime') || '';
 
   // Use raw values without auto-population - null means user hasn't set it
   const doorCloseTime = rawDoorCloseTime;
@@ -257,6 +259,10 @@ export function transformEventToFlatStructure(event) {
     doorCloseTime,
     setupTimeMinutes: getField(event, 'setupTimeMinutes', 0),
     teardownTimeMinutes: getField(event, 'teardownTimeMinutes', 0),
+    reservationStartTime,
+    reservationEndTime,
+    reservationStartMinutes: getField(event, 'reservationStartMinutes', 0),
+    reservationEndMinutes: getField(event, 'reservationEndMinutes', 0),
 
     // Internal notes from calendarData (authoritative) or roomReservationData
     setupNotes: getField(event, 'setupNotes') || event.roomReservationData?.internalNotes?.setupNotes || '',

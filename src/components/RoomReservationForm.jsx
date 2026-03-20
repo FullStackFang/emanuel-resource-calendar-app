@@ -68,6 +68,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           attendeeCount: editingDraft.attendeeCount || '',
           setupTime: editingDraft.setupTime || '',
           teardownTime: editingDraft.teardownTime || '',
+          reservationStartTime: editingDraft.reservationStartTime || '',
+          reservationEndTime: editingDraft.reservationEndTime || '',
           doorOpenTime: editingDraft.doorOpenTime || '',
           doorCloseTime: editingDraft.doorCloseTime || '',
           categories: editingDraft.categories || editingDraft.mecCategories || [],  // categories is the correct field, mecCategories is deprecated
@@ -134,14 +136,18 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       ? `${formData.endDate}T${formData.endTime}`
       : null;
 
-    let setupTimeMinutes = formData.setupTimeMinutes || 0;
-    let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+    let reservationStartMinutes = formData.reservationStartMinutes || 0;
+    let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-    if (formData.setupTime && formData.startTime) {
-      setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    if (formData.reservationStartTime && formData.startTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+    } else if (formData.setupTime && formData.startTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
     }
-    if (formData.teardownTime && formData.endTime) {
-      teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    if (formData.reservationEndTime && formData.endTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+    } else if (formData.teardownTime && formData.endTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
     }
 
     return {
@@ -155,8 +161,12 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       specialRequirements: formData.specialRequirements || '',
       department: formData.department || '',
       phone: formData.phone || '',
-      setupTimeMinutes,
-      teardownTimeMinutes,
+      setupTimeMinutes: reservationStartMinutes,
+      teardownTimeMinutes: reservationEndMinutes,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime: formData.reservationStartTime || null,
+      reservationEndTime: formData.reservationEndTime || null,
       setupTime: formData.setupTime || null,
       teardownTime: formData.teardownTime || null,
       doorOpenTime: formData.doorOpenTime || null,
@@ -330,16 +340,19 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
 
-      // Calculate setup/teardown minutes from time fields (for backward compatibility)
-      let setupTimeMinutes = formData.setupTimeMinutes || 0;
-      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      // Calculate reservation time buffer minutes
+      let reservationStartMinutes = formData.reservationStartMinutes || 0;
+      let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-      // If new time-based setup/teardown is provided, calculate minutes
-      if (formData.setupTime) {
-        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      if (formData.reservationStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+      } else if (formData.setupTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
       }
-      if (formData.teardownTime) {
-        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      if (formData.reservationEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+      } else if (formData.teardownTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
       }
 
       const payload = {
@@ -347,9 +360,13 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         startDateTime,
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
-        // Include both new time fields and converted minutes for compatibility
-        setupTimeMinutes,
-        teardownTimeMinutes
+        // Include both old and new field names for backward compatibility
+        setupTimeMinutes: reservationStartMinutes,
+        teardownTimeMinutes: reservationEndMinutes,
+        reservationStartMinutes,
+        reservationEndMinutes,
+        reservationStartTime: formData.reservationStartTime || null,
+        reservationEndTime: formData.reservationEndTime || null
       };
 
       // Remove separate date/time fields from payload

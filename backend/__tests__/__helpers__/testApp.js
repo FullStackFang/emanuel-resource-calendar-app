@@ -183,6 +183,8 @@ function buildEffectiveEditData(event) {
     endDateTime: proposed.endDateTime || cd.endDateTime,
     setupTimeMinutes: proposed.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
     teardownTimeMinutes: proposed.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+    reservationStartMinutes: proposed.reservationStartMinutes ?? cd.reservationStartMinutes ?? proposed.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+    reservationEndMinutes: proposed.reservationEndMinutes ?? cd.reservationEndMinutes ?? proposed.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
     eventTitle: proposed.eventTitle || cd.eventTitle,
   };
 }
@@ -381,8 +383,12 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
   const {
     startDateTime, endDateTime, recurrence, roomIds,
     setupTimeMinutes = 0, teardownTimeMinutes = 0,
+    reservationStartMinutes, reservationEndMinutes,
     excludeEventId = null, isAllowedConcurrent = false,
   } = params;
+
+  const effectiveSetupMinutes = reservationStartMinutes ?? setupTimeMinutes ?? 0;
+  const effectiveTeardownMinutes = reservationEndMinutes ?? teardownTimeMinutes ?? 0;
 
   if (!roomIds || roomIds.length === 0 || !recurrence?.pattern || !recurrence?.range) {
     return { totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] };
@@ -400,8 +406,8 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
   const occurrenceWindows = allOccurrences.map(occ => {
     const start = new Date(occ.startDateTime);
     const end = new Date(occ.endDateTime);
-    const effStart = new Date(start.getTime() - (setupTimeMinutes * 60 * 1000));
-    const effEnd = new Date(end.getTime() + (teardownTimeMinutes * 60 * 1000));
+    const effStart = new Date(start.getTime() - (effectiveSetupMinutes * 60 * 1000));
+    const effEnd = new Date(end.getTime() + (effectiveTeardownMinutes * 60 * 1000));
     return { ...occ, effectiveStart: toLocalISOString(effStart), effectiveEnd: toLocalISOString(effEnd) };
   });
 
@@ -656,6 +662,8 @@ function createTestApp(options = {}) {
         services,
         setupTime,
         doorOpenTime,
+        reservationStartTime,
+        reservationEndTime,
       } = req.body;
 
       // Validate required fields
@@ -685,6 +693,8 @@ function createTestApp(options = {}) {
         services: services || [],
         setupTime: setupTime || null,
         doorOpenTime: doorOpenTime || null,
+        reservationStartTime: reservationStartTime || '',
+        reservationEndTime: reservationEndTime || '',
 
         // calendarData (nested structure matching production)
         calendarData: {
@@ -697,6 +707,8 @@ function createTestApp(options = {}) {
           categories: categories || [],
           setupTime: setupTime || null,
           doorOpenTime: doorOpenTime || null,
+          reservationStartTime: reservationStartTime || '',
+          reservationEndTime: reservationEndTime || '',
         },
 
         // Room reservation data
@@ -808,6 +820,8 @@ function createTestApp(options = {}) {
         if (req.body.endTime) overrideFields.endDateTime = `${dateKey}T${req.body.endTime}`;
         if (req.body.setupTime !== undefined) overrideFields.setupTime = req.body.setupTime;
         if (req.body.teardownTime !== undefined) overrideFields.teardownTime = req.body.teardownTime;
+        if (req.body.reservationStartTime !== undefined) overrideFields.reservationStartTime = req.body.reservationStartTime;
+        if (req.body.reservationEndTime !== undefined) overrideFields.reservationEndTime = req.body.reservationEndTime;
         if (req.body.doorOpenTime !== undefined) overrideFields.doorOpenTime = req.body.doorOpenTime;
         if (req.body.doorCloseTime !== undefined) overrideFields.doorCloseTime = req.body.doorCloseTime;
         if (req.body.categories !== undefined || req.body.mecCategories !== undefined) overrideFields.categories = req.body.categories || req.body.mecCategories;
@@ -1014,6 +1028,8 @@ function createTestApp(options = {}) {
               roomIds,
               setupTimeMinutes: cd.setupTimeMinutes || 0,
               teardownTimeMinutes: cd.teardownTimeMinutes || 0,
+              reservationStartMinutes: cd.reservationStartMinutes ?? cd.setupTimeMinutes ?? 0,
+              reservationEndMinutes: cd.reservationEndMinutes ?? cd.teardownTimeMinutes ?? 0,
               excludeEventId: draft._id.toString(),
             }, testCollections.events);
           } catch (err) {
@@ -1485,6 +1501,8 @@ function createTestApp(options = {}) {
                 roomIds,
                 setupTimeMinutes: event.calendarData?.setupTimeMinutes || 0,
                 teardownTimeMinutes: event.calendarData?.teardownTimeMinutes || 0,
+                reservationStartMinutes: event.calendarData?.reservationStartMinutes ?? event.calendarData?.setupTimeMinutes ?? 0,
+                reservationEndMinutes: event.calendarData?.reservationEndMinutes ?? event.calendarData?.teardownTimeMinutes ?? 0,
                 excludeEventId: event._id.toString(),
               }, testCollections.events);
             } catch (err) {
@@ -3506,6 +3524,8 @@ function createTestApp(options = {}) {
         if (updates.endTime) overrideFields.endDateTime = `${dateKey}T${updates.endTime}`;
         if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
         if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
+        if (updates.reservationStartTime !== undefined) overrideFields.reservationStartTime = updates.reservationStartTime;
+        if (updates.reservationEndTime !== undefined) overrideFields.reservationEndTime = updates.reservationEndTime;
         if (updates.doorOpenTime !== undefined) overrideFields.doorOpenTime = updates.doorOpenTime;
         if (updates.doorCloseTime !== undefined) overrideFields.doorCloseTime = updates.doorCloseTime;
         if (updates.categories !== undefined) overrideFields.categories = updates.categories;
@@ -3759,7 +3779,7 @@ function createTestApp(options = {}) {
         'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
         'startDate', 'startTime', 'endDate', 'endTime',
         'locations', 'locationDisplayNames', 'categories',
-        'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime',
+        'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime',
         'services', 'assignedTo',
       ];
 
@@ -4164,6 +4184,8 @@ function createTestApp(options = {}) {
         phone,
         setupTime,
         doorOpenTime,
+        reservationStartTime,
+        reservationEndTime,
       } = req.body;
 
       // Validate required fields
@@ -4192,6 +4214,8 @@ function createTestApp(options = {}) {
         locationDisplayNames: [],
         categories: categories || [],
         services: services || [],
+        reservationStartTime: reservationStartTime || '',
+        reservationEndTime: reservationEndTime || '',
         calendarData: {
           eventTitle,
           eventDescription: eventDescription || '',
@@ -4204,6 +4228,8 @@ function createTestApp(options = {}) {
           services: services || [],
           setupTime: setupTime || null,
           doorOpenTime: doorOpenTime || null,
+          reservationStartTime: reservationStartTime || '',
+          reservationEndTime: reservationEndTime || '',
         },
         roomReservationData: {
           requestedBy: {
@@ -4589,6 +4615,7 @@ function createTestApp(options = {}) {
       const {
         startDateTime, endDateTime, recurrence, roomIds,
         setupTimeMinutes = 0, teardownTimeMinutes = 0,
+        reservationStartMinutes, reservationEndMinutes,
         excludeEventId = null, isAllowedConcurrent = false, categories = [],
       } = req.body;
 
@@ -4610,6 +4637,8 @@ function createTestApp(options = {}) {
         startDateTime, endDateTime, recurrence, roomIds: roomObjectIds,
         setupTimeMinutes: parseInt(setupTimeMinutes) || 0,
         teardownTimeMinutes: parseInt(teardownTimeMinutes) || 0,
+        reservationStartMinutes: reservationStartMinutes ?? (parseInt(setupTimeMinutes) || 0),
+        reservationEndMinutes: reservationEndMinutes ?? (parseInt(teardownTimeMinutes) || 0),
         excludeEventId, isAllowedConcurrent, categories,
       }, testCollections.events);
 

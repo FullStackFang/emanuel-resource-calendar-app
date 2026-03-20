@@ -132,6 +132,8 @@ const EventSearchExport = ({
           // Maintenance times (setup/teardown)
           setupTime: event.calendarData?.setupTime || event.setupTime || '',
           teardownTime: event.calendarData?.teardownTime || event.teardownTime || '',
+          reservationStartTime: event.calendarData?.reservationStartTime || event.reservationStartTime || '',
+          reservationEndTime: event.calendarData?.reservationEndTime || event.reservationEndTime || '',
           // Security times (door open/close)
           doorOpenTime: event.calendarData?.doorOpenTime || event.doorOpenTime || '',
           doorCloseTime: event.calendarData?.doorCloseTime || event.doorCloseTime || '',

@@ -362,6 +362,8 @@ export default function RecurrenceTabContent({
           roomIds,
           setupTimeMinutes: formData?.setupTimeMinutes || reservation?.calendarData?.setupTimeMinutes || 0,
           teardownTimeMinutes: formData?.teardownTimeMinutes || reservation?.calendarData?.teardownTimeMinutes || 0,
+          reservationStartMinutes: formData?.reservationStartMinutes || reservation?.calendarData?.reservationStartMinutes || 0,
+          reservationEndMinutes: formData?.reservationEndMinutes || reservation?.calendarData?.reservationEndMinutes || 0,
           excludeEventId: reservation?._id?.toString?.() || reservation?.id || null,
           isAllowedConcurrent: formData?.isAllowedConcurrent || reservation?.isAllowedConcurrent || false,
           categories: formData?.categories || reservation?.calendarData?.categories || [],
@@ -542,6 +544,8 @@ export default function RecurrenceTabContent({
       endTime: formData?.endTime || reservation?.calendarData?.endTime || '',
       setupTime: formData?.setupTime || reservation?.calendarData?.setupTime || '',
       teardownTime: formData?.teardownTime || reservation?.calendarData?.teardownTime || '',
+      reservationStartTime: formData?.reservationStartTime || reservation?.calendarData?.reservationStartTime || '',
+      reservationEndTime: formData?.reservationEndTime || reservation?.calendarData?.reservationEndTime || '',
       doorOpenTime: formData?.doorOpenTime || reservation?.calendarData?.doorOpenTime || '',
       doorCloseTime: formData?.doorCloseTime || reservation?.calendarData?.doorCloseTime || '',
       categories: formData?.categories || reservation?.calendarData?.categories || [],
@@ -561,7 +565,7 @@ export default function RecurrenceTabContent({
     const override = overridesByDate[dateStr];
     if (override) {
       const edits = {};
-      for (const field of ['eventTitle', 'eventDescription', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'categories', 'locations', 'locationDisplayNames']) {
+      for (const field of ['eventTitle', 'eventDescription', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime', 'categories', 'locations', 'locationDisplayNames']) {
         if (override[field] !== undefined) edits[field] = override[field];
       }
       setOccurrenceEdits(edits);
@@ -864,6 +868,8 @@ export default function RecurrenceTabContent({
             const hasSecondaryTimes = Boolean(
               getEffectiveValue(selectedOccurrence, 'setupTime') ||
               getEffectiveValue(selectedOccurrence, 'teardownTime') ||
+              getEffectiveValue(selectedOccurrence, 'reservationStartTime') ||
+              getEffectiveValue(selectedOccurrence, 'reservationEndTime') ||
               getEffectiveValue(selectedOccurrence, 'doorOpenTime') ||
               getEffectiveValue(selectedOccurrence, 'doorCloseTime')
             );
@@ -897,6 +903,28 @@ export default function RecurrenceTabContent({
 
                 <div className={`recurrence-detail-collapsible ${isOpen ? 'expanded' : ''}`}>
                   <div className="recurrence-detail-collapsible-inner">
+                    <div className="recurrence-detail-row">
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Reservation Start</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'reservationStartTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('reservationStartTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Reservation End</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'reservationEndTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('reservationEndTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                    </div>
                     <div className="recurrence-detail-row">
                       <div className="recurrence-detail-field recurrence-detail-field--inline">
                         <label>Setup</label>

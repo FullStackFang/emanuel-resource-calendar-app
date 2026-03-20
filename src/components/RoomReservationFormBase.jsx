@@ -130,12 +130,16 @@ export default function RoomReservationFormBase({
     doorCloseTime: '',
     setupTime: '',
     teardownTime: '',
+    reservationStartTime: '',
+    reservationEndTime: '',
     setupNotes: '',
     doorNotes: '',
     attendeeCount: '',
     requestedRooms: [],
     setupTimeMinutes: 0,
     teardownTimeMinutes: 0,
+    reservationStartMinutes: 0,
+    reservationEndMinutes: 0,
     contactEmail: '',
     contactName: '',
     isOnBehalfOf: false,
@@ -278,6 +282,8 @@ export default function RoomReservationFormBase({
         endTime: initialData.endTime || initialData.eventEndTime || prev.endTime,
         setupTime: initialData.setupTime || prev.setupTime,
         teardownTime: initialData.teardownTime || prev.teardownTime,
+        reservationStartTime: initialData.reservationStartTime || prev.reservationStartTime,
+        reservationEndTime: initialData.reservationEndTime || prev.reservationEndTime,
         doorOpenTime: initialData.doorOpenTime || prev.doorOpenTime,
         doorCloseTime: initialData.doorCloseTime || prev.doorCloseTime,
         // Support both naming conventions: requestedRooms and selectedLocations
@@ -593,21 +599,23 @@ export default function RoomReservationFormBase({
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
 
-      let setupTimeMinutes = formData.setupTimeMinutes || 0;
-      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      let reservationStartMinutes = formData.reservationStartMinutes || 0;
+      let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-      if (formData.setupTime) {
-        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      if (formData.reservationStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
       }
-      if (formData.teardownTime) {
-        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      if (formData.reservationEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
       }
 
       const params = new URLSearchParams({
         startDateTime,
         endDateTime,
-        setupTimeMinutes,
-        teardownTimeMinutes
+        setupTimeMinutes: reservationStartMinutes,
+        teardownTimeMinutes: reservationEndMinutes,
+        reservationStartMinutes,
+        reservationEndMinutes
       });
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
@@ -703,7 +711,7 @@ export default function RoomReservationFormBase({
     if (formData.startDate && formData.startTime && formData.endDate && formData.endTime && assistantRooms.length === 0) {
       checkAvailability();
     }
-  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.setupTimeMinutes, formData.teardownTimeMinutes, formData.setupTime, formData.teardownTime, assistantRooms.length]);
+  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartMinutes, formData.reservationEndMinutes, formData.reservationStartTime, formData.reservationEndTime, assistantRooms.length]);
 
   // Check day availability when assistant rooms or date changes
   useEffect(() => {
@@ -780,13 +788,15 @@ export default function RoomReservationFormBase({
   }, [assistantRooms]);
 
   // Validate time fields are in chronological order
+  // Validated chronology: reservationStartTime -> doorOpen -> start -> end -> doorClose -> reservationEndTime
+  // setupTime and teardownTime are NOT validated (staff-only internal fields)
   const validateTimes = useCallback(() => {
     if (formData.isAllDayEvent) {
       setTimeErrors([]);
       return true;
     }
     const errors = [];
-    const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime, startDate, endDate } = formData;
+    const { reservationStartTime, doorOpenTime, startTime, endTime, doorCloseTime, reservationEndTime, startDate, endDate } = formData;
 
     const createDateTime = (date, timeStr) => {
       if (!date || !timeStr) return null;
@@ -809,16 +819,16 @@ export default function RoomReservationFormBase({
       return minutes;
     };
 
-    const setup = timeToMinutes(setupTime);
+    const reservationStart = timeToMinutes(reservationStartTime);
     const doorOpen = timeToMinutes(doorOpenTime);
     const eventStartMinutes = timeToMinutes(startTime);
     const eventEndMinutes = timeToMinutes(endTime);
     const doorCloseRaw = timeToMinutes(doorCloseTime);
-    const teardownRaw = timeToMinutes(teardownTime);
+    const reservationEndRaw = timeToMinutes(reservationEndTime);
 
-    // Adjust doorClose and teardown for midnight edge case
+    // Adjust doorClose and reservationEnd for midnight edge case
     const doorClose = adjustForMidnight(doorCloseRaw, eventEndMinutes);
-    const teardown = adjustForMidnight(teardownRaw, doorCloseRaw !== null ? Math.max(eventEndMinutes || 0, doorCloseRaw) : eventEndMinutes);
+    const reservationEnd = adjustForMidnight(reservationEndRaw, doorCloseRaw !== null ? Math.max(eventEndMinutes || 0, doorCloseRaw) : eventEndMinutes);
 
     const eventStartDateTime = createDateTime(startDate, startTime);
     const eventEndDateTime = createDateTime(endDate, endTime);
@@ -834,12 +844,12 @@ export default function RoomReservationFormBase({
       errors.push('Event End Time must be after Event Start Time');
     }
 
-    if (setup !== null && doorOpen !== null && setup > doorOpen) {
-      errors.push('Door Open Time must be after Setup Start Time');
+    if (reservationStart !== null && doorOpen !== null && reservationStart > doorOpen) {
+      errors.push('Door Open Time must be after Reservation Start Time');
     }
 
-    if (setup !== null && eventStartMinutes !== null && setup > eventStartMinutes) {
-      errors.push('Event Start Time must be after Setup Start Time');
+    if (reservationStart !== null && eventStartMinutes !== null && reservationStart > eventStartMinutes) {
+      errors.push('Event Start Time must be after Reservation Start Time');
     }
 
     if (doorOpen !== null && eventStartMinutes !== null && doorOpen > eventStartMinutes) {
@@ -850,12 +860,12 @@ export default function RoomReservationFormBase({
       errors.push('Door Close Time must be after Event End Time');
     }
 
-    if (eventEndMinutes !== null && teardown !== null && eventEndMinutes > teardown) {
-      errors.push('Teardown End Time must be after Event End Time');
+    if (eventEndMinutes !== null && reservationEnd !== null && eventEndMinutes > reservationEnd) {
+      errors.push('Reservation End Time must be after Event End Time');
     }
 
-    if (doorClose !== null && teardown !== null && doorClose > teardown) {
-      errors.push('Teardown End Time must be after Door Close Time');
+    if (doorClose !== null && reservationEnd !== null && doorClose > reservationEnd) {
+      errors.push('Reservation End Time must be after Door Close Time');
     }
 
     setTimeErrors(errors);
@@ -869,7 +879,7 @@ export default function RoomReservationFormBase({
     } else {
       setTimeErrors([]);
     }
-  }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime, validateTimes]);
+  }, [formData.reservationStartTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.reservationEndTime, validateTimes]);
 
   // Required field validation
   const isFieldValid = useCallback((fieldName) => {
@@ -950,14 +960,14 @@ export default function RoomReservationFormBase({
               updatedData.doorCloseTime = newEndTime;
             }
           }
-          // Cascade: push teardownTime if it's now at or before new endTime
-          if (formData.teardownTime) {
-            const [tdH, tdM] = formData.teardownTime.split(':').map(Number);
+          // Cascade: push reservationEndTime if it's now at or before new endTime
+          if (formData.reservationEndTime) {
+            const [tdH, tdM] = formData.reservationEndTime.split(':').map(Number);
             const tdMins = tdH * 60 + tdM;
             if (tdMins <= newEndMins) {
               const newTdMins = newEndMins + 30;
               if (newTdMins < 24 * 60) {
-                updatedData.teardownTime = `${String(Math.floor(newTdMins / 60)).padStart(2, '0')}:${String(newTdMins % 60).padStart(2, '0')}`;
+                updatedData.reservationEndTime = `${String(Math.floor(newTdMins / 60)).padStart(2, '0')}:${String(newTdMins % 60).padStart(2, '0')}`;
               }
             }
           }
@@ -1001,6 +1011,8 @@ export default function RoomReservationFormBase({
     if ('endTime' in updatedTimes) updatedData.endTime = updatedTimes.endTime;
     if ('setupTime' in updatedTimes) updatedData.setupTime = updatedTimes.setupTime;
     if ('teardownTime' in updatedTimes) updatedData.teardownTime = updatedTimes.teardownTime;
+    if ('reservationStartTime' in updatedTimes) updatedData.reservationStartTime = updatedTimes.reservationStartTime;
+    if ('reservationEndTime' in updatedTimes) updatedData.reservationEndTime = updatedTimes.reservationEndTime;
     if ('doorOpenTime' in updatedTimes) updatedData.doorOpenTime = updatedTimes.doorOpenTime;
     if ('doorCloseTime' in updatedTimes) updatedData.doorCloseTime = updatedTimes.doorCloseTime;
 
@@ -1018,6 +1030,10 @@ export default function RoomReservationFormBase({
       endTime: '',
       setupTime: '',
       teardownTime: '',
+      reservationStartTime: '',
+      reservationEndTime: '',
+      reservationStartMinutes: 0,
+      reservationEndMinutes: 0,
       doorOpenTime: '',
       doorCloseTime: '',
     };
@@ -1493,20 +1509,20 @@ export default function RoomReservationFormBase({
                       isAllDayEvent: turningOn,
                       ...(turningOn
                         ? {
-                            setupTime: '00:00',
+                            reservationStartTime: '00:00',
                             doorOpenTime: '00:00',
                             startTime: '00:00',
                             endTime: '23:59',
                             doorCloseTime: '23:59',
-                            teardownTime: '23:59',
+                            reservationEndTime: '23:59',
                           }
                         : {
-                            setupTime: '',
+                            reservationStartTime: '',
                             doorOpenTime: '',
                             startTime: '',
                             endTime: '',
                             doorCloseTime: '',
-                            teardownTime: '',
+                            reservationEndTime: '',
                           }
                       ),
                     }));
@@ -1664,23 +1680,23 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
-              <div className={`form-group ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="setupTime">Setup Start Time</label>
-                {hasFieldChanged('setupTime') && (
+              <div className={`form-group ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
+                <label htmlFor="reservationStartTime">Reservation Start Time</label>
+                {hasFieldChanged('reservationStartTime') && (
                   <div className="inline-diff">
-                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('setupTime'))}</span>
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationStartTime'))}</span>
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
                 <TimePickerInput
-                  id="setupTime"
-                  name="setupTime"
-                  value={formData.setupTime}
+                  id="reservationStartTime"
+                  name="reservationStartTime"
+                  value={formData.reservationStartTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
-                  className={hasFieldChanged('setupTime') ? 'input-changed' : ''}
+                  className={hasFieldChanged('reservationStartTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When setup can begin</div>
+                <div className="help-text">When the room reservation begins</div>
               </div>
 
               <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
@@ -1761,23 +1777,23 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When doors will be locked at end of event</div>
               </div>
 
-              <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="teardownTime">Teardown End Time</label>
-                {hasFieldChanged('teardownTime') && (
+              <div className={`form-group ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
+                <label htmlFor="reservationEndTime">Reservation End Time</label>
+                {hasFieldChanged('reservationEndTime') && (
                   <div className="inline-diff">
-                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('teardownTime'))}</span>
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationEndTime'))}</span>
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
                 <TimePickerInput
-                  id="teardownTime"
-                  name="teardownTime"
-                  value={formData.teardownTime}
+                  id="reservationEndTime"
+                  name="reservationEndTime"
+                  value={formData.reservationEndTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
-                  className={hasFieldChanged('teardownTime') ? 'input-changed' : ''}
+                  className={hasFieldChanged('reservationEndTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When cleanup must be completed</div>
+                <div className="help-text">When the room reservation ends</div>
               </div>
             </div>
 
@@ -1791,7 +1807,7 @@ export default function RoomReservationFormBase({
                   ))}
                 </ul>
                 <p className="validation-help">
-                  Times should follow this order: Setup Start → Door Open → Event Start → Event End → Door Close → Teardown End
+                  Times should follow this order: Reservation Start → Door Open → Event Start → Event End → Door Close → Reservation End
                 </p>
               </div>
             )}
@@ -1821,14 +1837,14 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {(formData.setupTime || formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
+            {(formData.reservationStartTime || formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
               <div className="event-summary-pill">
-                {formData.setupTime && formData.teardownTime && (
+                {formData.reservationStartTime && formData.reservationEndTime && (
                   <span className="summary-time">
-                    {formatTimeString(formData.setupTime)} to {formatTimeString(formData.teardownTime)}
+                    {formatTimeString(formData.reservationStartTime)} to {formatTimeString(formData.reservationEndTime)}
                   </span>
                 )}
-                {formData.setupTime && formData.teardownTime && (formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
+                {formData.reservationStartTime && formData.reservationEndTime && (formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
                   <span className="summary-separator">•</span>
                 )}
                 {/* Virtual Meeting - show platform name */}
@@ -1941,8 +1957,8 @@ export default function RoomReservationFormBase({
                     selectedDate={formData.startDate}
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
-                    setupTime={formData.setupTime}
-                    teardownTime={formData.teardownTime}
+                    setupTime={formData.reservationStartTime}
+                    teardownTime={formData.reservationEndTime}
                     doorOpenTime={formData.doorOpenTime}
                     doorCloseTime={formData.doorCloseTime}
                     eventTitle={formData.eventTitle}
@@ -1987,6 +2003,31 @@ export default function RoomReservationFormBase({
               </h4>
               <div className="internal-notes-disclaimer">
                 These notes are for internal staff coordination and will not be visible to the requester.
+              </div>
+
+              <div className="time-field-row">
+                <div className="form-group">
+                  <label htmlFor="setupTime">Setup Time</label>
+                  <TimePickerInput
+                    id="setupTime"
+                    name="setupTime"
+                    value={formData.setupTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                  />
+                  <div className="help-text">When staff setup work begins (no validation)</div>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="teardownTime">Teardown Time</label>
+                  <TimePickerInput
+                    id="teardownTime"
+                    name="teardownTime"
+                    value={formData.teardownTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                  />
+                  <div className="help-text">When staff teardown work ends (no validation)</div>
+                </div>
               </div>
 
               <div className="form-group">

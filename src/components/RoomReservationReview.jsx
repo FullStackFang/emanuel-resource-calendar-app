@@ -197,15 +197,15 @@ export default function RoomReservationReview({
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
 
-      // Calculate setup/teardown minutes
-      let setupTimeMinutes = formData.setupTimeMinutes || 0;
-      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      // Calculate reservation time buffer minutes
+      let reservationStartMinutes = formData.reservationStartMinutes || 0;
+      let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-      if (formData.setupTime) {
-        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      if (formData.reservationStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
       }
-      if (formData.teardownTime) {
-        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      if (formData.reservationEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
       }
 
       const updatedData = {
@@ -213,8 +213,10 @@ export default function RoomReservationReview({
         startDateTime,
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
-        setupTimeMinutes,
-        teardownTimeMinutes,
+        setupTimeMinutes: reservationStartMinutes,
+        teardownTimeMinutes: reservationEndMinutes,
+        reservationStartMinutes,
+        reservationEndMinutes,
         locations: formData.requestedRooms,  // Use locations field as single source of truth
         // Include Graph token for calendar updates
         graphToken: graphToken,
@@ -329,15 +331,15 @@ export default function RoomReservationReview({
     const endDateTime = formData.endDate && formData.endTime
       ? `${formData.endDate}T${formData.endTime}` : null;
 
-    // Calculate setup/teardown minutes
-    let setupTimeMinutes = formData.setupTimeMinutes || 0;
-    let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+    // Calculate reservation time buffer minutes
+    let reservationStartMinutes = formData.reservationStartMinutes || 0;
+    let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-    if (formData.setupTime) {
-      setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    if (formData.reservationStartTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
     }
-    if (formData.teardownTime) {
-      teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    if (formData.reservationEndTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
     }
 
     const processedData = {
@@ -345,8 +347,10 @@ export default function RoomReservationReview({
       startDateTime,
       endDateTime,
       attendeeCount: parseInt(formData.attendeeCount) || 0,
-      setupTimeMinutes,
-      teardownTimeMinutes,
+      setupTimeMinutes: reservationStartMinutes,
+      teardownTimeMinutes: reservationEndMinutes,
+      reservationStartMinutes,
+      reservationEndMinutes,
       locations: formData.requestedRooms, // Use locations field as single source of truth
       _version: eventVersion,
       // Explicitly use refs for recurrence data (bypasses stale FormBase getter closures)
@@ -397,15 +401,15 @@ export default function RoomReservationReview({
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
 
-      // Calculate setup/teardown minutes
-      let setupTimeMinutes = formData.setupTimeMinutes || 0;
-      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      // Calculate reservation time buffer minutes
+      let reservationStartMinutes = formData.reservationStartMinutes || 0;
+      let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-      if (formData.setupTime) {
-        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      if (formData.reservationStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
       }
-      if (formData.teardownTime) {
-        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      if (formData.reservationEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
       }
 
       const updatedData = {
@@ -413,8 +417,10 @@ export default function RoomReservationReview({
         startDateTime,
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
-        setupTimeMinutes,
-        teardownTimeMinutes,
+        setupTimeMinutes: reservationStartMinutes,
+        teardownTimeMinutes: reservationEndMinutes,
+        reservationStartMinutes,
+        reservationEndMinutes,
         _version: eventVersion
       };
 

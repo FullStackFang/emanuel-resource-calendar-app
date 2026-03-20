@@ -39,6 +39,8 @@ export default function EditRequestForm({
     specialRequirements: '',
     setupTime: '',
     teardownTime: '',
+    reservationStartTime: '',
+    reservationEndTime: '',
     doorOpenTime: '',
     doorCloseTime: '',
     setupNotes: '',
@@ -104,6 +106,8 @@ export default function EditRequestForm({
         specialRequirements: eventData.specialRequirements || '',
         setupTime: eventData.setupTime || '',
         teardownTime: eventData.teardownTime || '',
+        reservationStartTime: eventData.reservationStartTime || '',
+        reservationEndTime: eventData.reservationEndTime || '',
         doorOpenTime: eventData.doorOpenTime || '',
         doorCloseTime: eventData.doorCloseTime || '',
         setupNotes: eventData.setupNotes || '',
@@ -210,6 +214,8 @@ export default function EditRequestForm({
         specialRequirements: formData.specialRequirements,
         setupTime: formData.setupTime,
         teardownTime: formData.teardownTime,
+        reservationStartTime: formData.reservationStartTime,
+        reservationEndTime: formData.reservationEndTime,
         doorOpenTime: formData.doorOpenTime,
         doorCloseTime: formData.doorCloseTime,
         setupNotes: formData.setupNotes,
@@ -409,6 +415,26 @@ export default function EditRequestForm({
               </div>
 
               <div className="form-grid">
+                <div className="form-row">
+                  <label htmlFor="reservationStartTime">Reservation Start Time</label>
+                  <TimePickerInput
+                    id="reservationStartTime"
+                    name="reservationStartTime"
+                    value={formData.reservationStartTime}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+
+                <div className="form-row">
+                  <label htmlFor="reservationEndTime">Reservation End Time</label>
+                  <TimePickerInput
+                    id="reservationEndTime"
+                    name="reservationEndTime"
+                    value={formData.reservationEndTime}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+
                 <div className="form-row">
                   <label htmlFor="setupTime">Setup Time</label>
                   <TimePickerInput

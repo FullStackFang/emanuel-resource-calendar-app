@@ -14,6 +14,8 @@ const FIELD_LABELS = {
   endTime: 'End Time',
   setupTime: 'Setup Time',
   teardownTime: 'Teardown Time',
+  reservationStartTime: 'Reservation Start Time',
+  reservationEndTime: 'Reservation End Time',
   doorOpenTime: 'Door Open',
   doorCloseTime: 'Door Close',
   locationDisplayNames: 'Location',

@@ -28,6 +28,8 @@ export default function RecurringConflictSummary({
   endDateTime,
   setupTimeMinutes = 0,
   teardownTimeMinutes = 0,
+  reservationStartMinutes = 0,
+  reservationEndMinutes = 0,
   excludeEventId = null,
   readOnly = false,
   apiToken = null,
@@ -74,6 +76,8 @@ export default function RecurringConflictSummary({
           roomIds,
           setupTimeMinutes,
           teardownTimeMinutes,
+          reservationStartMinutes,
+          reservationEndMinutes,
           excludeEventId,
           isAllowedConcurrent,
           categories,
@@ -94,7 +98,7 @@ export default function RecurringConflictSummary({
     } finally {
       setLoading(false);
     }
-  }, [recurrence, roomIds, startDateTime, endDateTime, setupTimeMinutes, teardownTimeMinutes, excludeEventId, apiToken, isAllowedConcurrent, categories]);
+  }, [recurrence, roomIds, startDateTime, endDateTime, setupTimeMinutes, teardownTimeMinutes, reservationStartMinutes, reservationEndMinutes, excludeEventId, apiToken, isAllowedConcurrent, categories]);
 
   useEffect(() => {
     if (readOnly) {

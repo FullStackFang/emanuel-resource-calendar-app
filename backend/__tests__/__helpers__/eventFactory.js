@@ -69,6 +69,8 @@ function createBaseEvent(options = {}) {
     // Timing fields (use undefined check to allow explicit null)
     setupTime: options.setupTime !== undefined ? options.setupTime : '15 minutes',
     teardownTime: options.teardownTime || null,
+    reservationStartTime: options.reservationStartTime !== undefined ? options.reservationStartTime : '',
+    reservationEndTime: options.reservationEndTime !== undefined ? options.reservationEndTime : '',
     doorOpenTime: options.doorOpenTime !== undefined ? options.doorOpenTime : '09:00',
     doorCloseTime: options.doorCloseTime || null,
 
@@ -129,10 +131,14 @@ function createBaseEvent(options = {}) {
       categories: options.categories || ['Meeting'],
       setupTime: options.setupTime !== undefined ? options.setupTime : '15 minutes',
       teardownTime: options.teardownTime || null,
+      reservationStartTime: options.reservationStartTime !== undefined ? options.reservationStartTime : '',
+      reservationEndTime: options.reservationEndTime !== undefined ? options.reservationEndTime : '',
       doorOpenTime: options.doorOpenTime !== undefined ? options.doorOpenTime : '09:00',
       doorCloseTime: options.doorCloseTime || null,
       setupTimeMinutes: options.setupTimeMinutes || 0,
       teardownTimeMinutes: options.teardownTimeMinutes || 0,
+      reservationStartMinutes: options.reservationStartMinutes || 0,
+      reservationEndMinutes: options.reservationEndMinutes || 0,
     },
 
     // Optional nested structures

@@ -154,6 +154,8 @@ function EventForm({
   const [useTimeInputs, setUseTimeInputs] = useState(true); // Toggle between minutes and time inputs - default to time
   const [setupTime, setSetupTime] = useState(''); // Setup time in HH:MM format
   const [teardownTime, setTeardownTime] = useState(''); // Teardown time in HH:MM format
+  const [reservationStartTime, setReservationStartTime] = useState(''); // Reservation start time in HH:MM format
+  const [reservationEndTime, setReservationEndTime] = useState(''); // Reservation end time in HH:MM format
 
   // Offsite location state
   const [isOffsite, setIsOffsite] = useState(false);

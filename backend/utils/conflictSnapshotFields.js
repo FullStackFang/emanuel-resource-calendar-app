@@ -19,6 +19,8 @@ const CONFLICT_SNAPSHOT_FIELDS = [
   { key: 'endTime', path: 'calendarData.endTime', label: 'End Time' },
   { key: 'setupTime', path: 'calendarData.setupTime', label: 'Setup Time' },
   { key: 'teardownTime', path: 'calendarData.teardownTime', label: 'Teardown Time' },
+  { key: 'reservationStartTime', path: 'calendarData.reservationStartTime', label: 'Reservation Start Time' },
+  { key: 'reservationEndTime', path: 'calendarData.reservationEndTime', label: 'Reservation End Time' },
   { key: 'doorOpenTime', path: 'calendarData.doorOpenTime', label: 'Door Open' },
   { key: 'doorCloseTime', path: 'calendarData.doorCloseTime', label: 'Door Close' },
   { key: 'locationDisplayNames', path: 'calendarData.locationDisplayNames', label: 'Location' },

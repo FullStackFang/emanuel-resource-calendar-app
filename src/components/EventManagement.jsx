@@ -624,6 +624,8 @@ export default function EventManagement({ apiToken }) {
         const categories = event.calendarData?.categories || event.categories || [];
         const setupTime = event.calendarData?.setupTime || event.setupTime || '';
         const teardownTime = event.calendarData?.teardownTime || event.teardownTime || '';
+        const reservationStartTime = event.calendarData?.reservationStartTime || event.reservationStartTime || '';
+        const reservationEndTime = event.calendarData?.reservationEndTime || event.reservationEndTime || '';
         const doorOpenTime = event.calendarData?.doorOpenTime || event.doorOpenTime || '';
         const doorCloseTime = event.calendarData?.doorCloseTime || event.doorCloseTime || '';
         const notes = event.roomReservationData?.internalNotes?.eventNotes || event.calendarData?.eventNotes || event.eventNotes || '';
@@ -697,6 +699,16 @@ export default function EventManagement({ apiToken }) {
                 )}
 
                 {/* Timing */}
+                {(reservationStartTime || reservationEndTime) && (
+                  <div className="em-detail-row">
+                    <label>Reservation</label>
+                    <span>
+                      {reservationStartTime && `Start: ${formatTime(reservationStartTime)}`}
+                      {reservationStartTime && reservationEndTime && ' · '}
+                      {reservationEndTime && `End: ${formatTime(reservationEndTime)}`}
+                    </span>
+                  </div>
+                )}
                 {(setupTime || teardownTime) && (
                   <div className="em-detail-row">
                     <label>Setup / Teardown</label>

@@ -370,7 +370,8 @@ export function generateCalendarPdf({
 
     if (showMaintenanceTimes || showSecurityTimes) {
       let extraLines = 0;
-      if (showMaintenanceTimes && (event.setupTime || event.teardownTime)) extraLines++;
+      if (showMaintenanceTimes && (event.reservationStartTime || event.reservationEndTime || event.setupTime || event.teardownTime)) extraLines++;
+      if (showMaintenanceTimes && (event.reservationStartTime || event.reservationEndTime) && (event.setupTime || event.teardownTime)) extraLines++;
       if (showSecurityTimes && (event.doorOpenTime || event.doorCloseTime)) extraLines++;
       rowHeight = Math.max(rowHeight, 8 + extraLines * 3.5);
     }
@@ -443,6 +444,17 @@ export function generateCalendarPdf({
 
     let timeY = y + 3.5;
     if (showMaintenanceTimes) {
+      const resStartStr = formatTimeString(event.reservationStartTime);
+      const resEndStr = formatTimeString(event.reservationEndTime);
+      if (resStartStr || resEndStr) {
+        doc.setFontSize(fontSize.tiny);
+        doc.setTextColor(...colors.warning);
+        const resStr = resStartStr && resEndStr
+          ? `Res ${resStartStr} - ${resEndStr}`
+          : resStartStr ? `Res Start ${resStartStr}` : `Res End ${resEndStr}`;
+        doc.text(resStr, colPositions[1] + 2, timeY);
+        timeY += 3;
+      }
       const setupStr = formatTimeString(event.setupTime);
       const teardownStr = formatTimeString(event.teardownTime);
       if (setupStr || teardownStr) {

@@ -166,7 +166,12 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
     SetupMinutes,
     TeardownMinutes,
     SetupTime,
-    TeardownTime
+    TeardownTime,
+    // Reservation time fields (if present in CSV)
+    ReservationStartMinutes,
+    ReservationEndMinutes,
+    ReservationStartTime,
+    ReservationEndTime
   } = csvRow;
   
   // Clean and process rsId - enhanced processing for negative numbers
@@ -248,10 +253,16 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
   const description = cleanCSVText(Description);
 
   // Handle setup/teardown times
-  const setupMinutes = (SetupMinutes !== undefined && SetupMinutes !== '') ? parseInt(SetupMinutes) : 
+  const setupMinutes = (SetupMinutes !== undefined && SetupMinutes !== '') ? parseInt(SetupMinutes) :
                       (SetupTime !== undefined && SetupTime !== '') ? parseInt(SetupTime) : 0;
-  const teardownMinutes = (TeardownMinutes !== undefined && TeardownMinutes !== '') ? parseInt(TeardownMinutes) : 
+  const teardownMinutes = (TeardownMinutes !== undefined && TeardownMinutes !== '') ? parseInt(TeardownMinutes) :
                          (TeardownTime !== undefined && TeardownTime !== '') ? parseInt(TeardownTime) : 0;
+
+  // Handle reservation start/end times
+  const reservationStartMins = (ReservationStartMinutes !== undefined && ReservationStartMinutes !== '') ? parseInt(ReservationStartMinutes) :
+                               (ReservationStartTime !== undefined && ReservationStartTime !== '') ? parseInt(ReservationStartTime) : 0;
+  const reservationEndMins = (ReservationEndMinutes !== undefined && ReservationEndMinutes !== '') ? parseInt(ReservationEndMinutes) :
+                             (ReservationEndTime !== undefined && ReservationEndTime !== '') ? parseInt(ReservationEndTime) : 0;
   
   // Determine if registration event should be created (following UI pattern)
   const createRegistrationEvent = setupMinutes > 0 || teardownMinutes > 0;
@@ -273,6 +284,10 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
       categories: categories,
       setupTimeMinutes: setupMinutes,
       teardownTimeMinutes: teardownMinutes,
+      reservationStartTime: ReservationStartTime || '',
+      reservationEndTime: ReservationEndTime || '',
+      reservationStartMinutes: reservationStartMins,
+      reservationEndMinutes: reservationEndMins,
       createRegistrationEvent: createRegistrationEvent,
       registrationNotes: description,
       assignedTo: '',
@@ -297,6 +312,10 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
     doorCloseTime: '',
     setupTimeMinutes: setupMinutes,
     teardownTimeMinutes: teardownMinutes,
+    reservationStartTime: ReservationStartTime || '',
+    reservationEndTime: ReservationEndTime || '',
+    reservationStartMinutes: reservationStartMins,
+    reservationEndMinutes: reservationEndMins,
     setupNotes: '',
     doorNotes: '',
     eventNotes: description,
@@ -340,7 +359,8 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
 function validateCSVHeaders(headers) {
   const requiredHeaders = ['Subject'];
   const recommendedHeaders = ['StartDate', 'EndDate', 'Location', 'Categories'];
-  const optionalHeaders = ['SetupMinutes', 'TeardownMinutes', 'SetupTime', 'TeardownTime'];
+  const optionalHeaders = ['SetupMinutes', 'TeardownMinutes', 'SetupTime', 'TeardownTime',
+                           'ReservationStartMinutes', 'ReservationEndMinutes', 'ReservationStartTime', 'ReservationEndTime'];
   
   const missing = requiredHeaders.filter(header => !headers.includes(header));
   const missingRecommended = recommendedHeaders.filter(header => !headers.includes(header));

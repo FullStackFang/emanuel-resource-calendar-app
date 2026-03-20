@@ -34,7 +34,9 @@ const ROLE_HIERARCHY = {
 const DEPARTMENT_EDITABLE_FIELDS = {
   security: ['doorOpenTime', 'doorCloseTime', 'doorNotes'],
   maintenance: ['setupTime', 'teardownTime', 'setupNotes', 'eventNotes',
-                'setupTimeMinutes', 'teardownTimeMinutes']
+                'setupTimeMinutes', 'teardownTimeMinutes',
+                'reservationStartTime', 'reservationEndTime',
+                'reservationStartMinutes', 'reservationEndMinutes']
 };
 
 // Complete permission set for each role

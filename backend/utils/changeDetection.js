@@ -21,6 +21,8 @@ const NOTIFIABLE_FIELDS = [
   'categories',
   'setupTime',
   'teardownTime',
+  'reservationStartTime',
+  'reservationEndTime',
   'doorOpenTime',
   'doorCloseTime',
   'isOffsite',
@@ -44,6 +46,8 @@ const FIELD_DISPLAY_NAMES = {
   categories: 'Categories',
   setupTime: 'Setup Time',
   teardownTime: 'Teardown Time',
+  reservationStartTime: 'Reservation Start Time',
+  reservationEndTime: 'Reservation End Time',
   doorOpenTime: 'Door Open Time',
   doorCloseTime: 'Door Close Time',
   isOffsite: 'Offsite Event',
@@ -81,7 +85,7 @@ function formatChangeValue(fieldName, value, options = {}) {
   }
 
   // Time-only fields
-  if (['startTime', 'endTime', 'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime'].includes(fieldName)) {
+  if (['startTime', 'endTime', 'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime'].includes(fieldName)) {
     return value;
   }
 

@@ -901,14 +901,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       ? `${formData.endDate}T${formData.endTime}`
       : null;
 
-    let setupTimeMinutes = formData.setupTimeMinutes || 0;
-    let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+    let reservationStartMinutes = formData.reservationStartMinutes || 0;
+    let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-    if (formData.setupTime && formData.startTime) {
-      setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    if (formData.reservationStartTime && formData.startTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
     }
-    if (formData.teardownTime && formData.endTime) {
-      teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    if (formData.reservationEndTime && formData.endTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
     }
 
     return {
@@ -922,8 +922,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       specialRequirements: formData.specialRequirements || '',
       department: formData.department || '',
       phone: formData.phone || '',
-      setupTimeMinutes,
-      teardownTimeMinutes,
+      setupTimeMinutes: reservationStartMinutes,
+      teardownTimeMinutes: reservationEndMinutes,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime: formData.reservationStartTime || null,
+      reservationEndTime: formData.reservationEndTime || null,
       setupTime: formData.setupTime || null,
       teardownTime: formData.teardownTime || null,
       doorOpenTime: formData.doorOpenTime || null,

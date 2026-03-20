@@ -96,6 +96,10 @@ const ReservationAuditHistory = ({ reservationId, apiToken, refreshTrigger }) =>
       'teardownTimeMinutes': 'Teardown Time',
       'setupTime': 'Setup Time',
       'teardownTime': 'Teardown Time',
+      'reservationStartMinutes': 'Reservation Start Time',
+      'reservationEndMinutes': 'Reservation End Time',
+      'reservationStartTime': 'Reservation Start Time',
+      'reservationEndTime': 'Reservation End Time',
       'doorOpenTime': 'Door Open Time',
       'doorCloseTime': 'Door Close Time'
     };

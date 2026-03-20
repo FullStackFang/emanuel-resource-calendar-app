@@ -180,6 +180,14 @@ const toolDefinitions = [
         attendeeCount: {
           type: 'number',
           description: 'Expected number of attendees'
+        },
+        reservationStartTime: {
+          type: 'string',
+          description: 'Reservation start time in HH:MM format (optional, when room reservation begins)'
+        },
+        reservationEndTime: {
+          type: 'string',
+          description: 'Reservation end time in HH:MM format (optional, when room reservation ends)'
         }
       },
       required: ['eventTitle', 'category', 'date', 'eventStartTime', 'eventEndTime', 'locationId']
@@ -667,6 +675,8 @@ class MCPToolExecutor {
           services: enabledServices.length > 0 ? enabledServices : undefined,
           setupTime: e.setupTime || e.calendarData?.setupTime || undefined,
           teardownTime: e.teardownTime || e.calendarData?.teardownTime || undefined,
+          reservationStartTime: e.reservationStartTime || e.calendarData?.reservationStartTime || undefined,
+          reservationEndTime: e.reservationEndTime || e.calendarData?.reservationEndTime || undefined,
           doorOpenTime: e.doorOpenTime || e.calendarData?.doorOpenTime || undefined,
           doorCloseTime: e.doorCloseTime || e.calendarData?.doorCloseTime || undefined,
           status: e.status,
@@ -1035,7 +1045,9 @@ class MCPToolExecutor {
       doorCloseTime,
       teardownTime,
       locationId,
-      attendeeCount
+      attendeeCount,
+      reservationStartTime,
+      reservationEndTime
     } = input;
 
     // Validate required fields
@@ -1121,7 +1133,9 @@ class MCPToolExecutor {
         teardownTime: teardownTime || '',
         locationId: location._id.toString(),
         locationName,
-        attendeeCount: attendeeCount || 0
+        attendeeCount: attendeeCount || 0,
+        reservationStartTime: reservationStartTime || '',
+        reservationEndTime: reservationEndTime || ''
       },
       summary: {
         title: eventTitle,
@@ -1153,7 +1167,9 @@ class MCPToolExecutor {
       doorCloseTime,
       teardownTime,
       locationId,
-      attendeeCount
+      attendeeCount,
+      reservationStartTime,
+      reservationEndTime
     } = input;
 
     // Validate required fields
@@ -1293,6 +1309,8 @@ class MCPToolExecutor {
       endTime: eventEndTime,
       setupTime,
       teardownTime: teardownTime || '',
+      reservationStartTime: reservationStartTime || '',
+      reservationEndTime: reservationEndTime || '',
       doorOpenTime,
       doorCloseTime: doorCloseTime || eventEndTime,
       setupTimeMinutes: 0,

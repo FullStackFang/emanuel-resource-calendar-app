@@ -218,6 +218,8 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       mecCategories: event.calendarData?.categories || event.categories || [],
       setupMinutes: event.calendarData?.setupTimeMinutes || event.setupTimeMinutes || 0,
       teardownMinutes: event.calendarData?.teardownTimeMinutes || event.teardownTimeMinutes || 0,
+      reservationStartMinutes: event.calendarData?.reservationStartMinutes || event.reservationStartMinutes || 0,
+      reservationEndMinutes: event.calendarData?.reservationEndMinutes || event.reservationEndMinutes || 0,
       assignedTo: event.calendarData?.assignedTo || event.assignedTo || '',
       estimatedCost: event.calendarData?.estimatedCost || event.estimatedCost,
       actualCost: event.calendarData?.actualCost || event.actualCost,
@@ -230,6 +232,8 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       endDateTime: event.endDateTime,
       setupTime: event.setupTime,
       teardownTime: event.teardownTime,
+      reservationStartTime: event.calendarData?.reservationStartTime || event.reservationStartTime || '',
+      reservationEndTime: event.calendarData?.reservationEndTime || event.reservationEndTime || '',
       doorOpenTime: event.doorOpenTime,
       doorCloseTime: event.doorCloseTime,
       eventDescription: event.eventDescription,
@@ -1037,11 +1041,11 @@ function EventSearch({
                 <div className="summary-row">
                   <div className="form-icon">🕒</div>
                   <div className="summary-time-grid">
-                    {/* Row 1: Setup Time | Door Open | Event Start */}
+                    {/* Row 1: Reservation Start | Door Open | Event Start */}
                     <div className="time-cell">
-                      <span className="time-label">Setup Time</span>
-                      <span className={`time-value ${!selectedEvent.setupTime ? 'placeholder' : ''}`}>
-                        {formatTimeOrPlaceholder(selectedEvent.setupTime)}
+                      <span className="time-label">Reservation Start</span>
+                      <span className={`time-value ${!(selectedEvent.reservationStartTime || selectedEvent.setupTime) ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.reservationStartTime || selectedEvent.setupTime)}
                       </span>
                     </div>
                     <div className="time-cell">
@@ -1056,7 +1060,7 @@ function EventSearch({
                         {formatEventTime(selectedEvent.start?.dateTime, userTimezone, selectedEvent.subject, selectedEvent.start?.timeZone || selectedEvent.graphData?.start?.timeZone)}
                       </span>
                     </div>
-                    {/* Row 2: Event End | Door Close | Teardown */}
+                    {/* Row 2: Event End | Door Close | Reservation End */}
                     <div className="time-cell">
                       <span className="time-label">Event End</span>
                       <span className="time-value">
@@ -1070,11 +1074,29 @@ function EventSearch({
                       </span>
                     </div>
                     <div className="time-cell">
-                      <span className="time-label">Teardown</span>
-                      <span className={`time-value ${!selectedEvent.teardownTime ? 'placeholder' : ''}`}>
-                        {formatTimeOrPlaceholder(selectedEvent.teardownTime)}
+                      <span className="time-label">Reservation End</span>
+                      <span className={`time-value ${!(selectedEvent.reservationEndTime || selectedEvent.teardownTime) ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.reservationEndTime || selectedEvent.teardownTime)}
                       </span>
                     </div>
+                    {/* Row 3: Setup Time | Teardown (only if they have values) */}
+                    {(selectedEvent.setupTime || selectedEvent.teardownTime) && (selectedEvent.reservationStartTime || selectedEvent.reservationEndTime) && (
+                      <>
+                        <div className="time-cell">
+                          <span className="time-label">Setup Time</span>
+                          <span className={`time-value ${!selectedEvent.setupTime ? 'placeholder' : ''}`}>
+                            {formatTimeOrPlaceholder(selectedEvent.setupTime)}
+                          </span>
+                        </div>
+                        <div className="time-cell">
+                          <span className="time-label">Teardown</span>
+                          <span className={`time-value ${!selectedEvent.teardownTime ? 'placeholder' : ''}`}>
+                            {formatTimeOrPlaceholder(selectedEvent.teardownTime)}
+                          </span>
+                        </div>
+                        <div className="time-cell" />
+                      </>
+                    )}
                   </div>
                 </div>
 

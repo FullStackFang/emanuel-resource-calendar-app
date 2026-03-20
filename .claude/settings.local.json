@@ -84,7 +84,13 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(git show:*)",
       "Read(//tmp/**)",
-      "Bash(head -c 500000 /home/fullstackfang/.claude/projects/-mnt-c-Users-Stephen-Fang-OneDrive-Documents-workspace-github-com-fullstackfang-emanuel-resource-calendar-app/275bdad9-e452-40f6-a514-b0020354711e.jsonl)"
+      "Bash(head -c 500000 /home/fullstackfang/.claude/projects/-mnt-c-Users-Stephen-Fang-OneDrive-Documents-workspace-github-com-fullstackfang-emanuel-resource-calendar-app/275bdad9-e452-40f6-a514-b0020354711e.jsonl)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outfile=/dev/null src/components/RoomReservationReview.jsx)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/RoomReservationReview.jsx)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/hooks/useReviewModal.jsx)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/RoomReservationForm.jsx)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/MyReservations.jsx)",
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/Calendar.jsx)"
     ],
     "deny": []
   }

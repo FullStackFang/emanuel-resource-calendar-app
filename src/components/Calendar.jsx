@@ -565,6 +565,8 @@ import ConflictDialog from './shared/ConflictDialog';
           phone: formData.phone || '',
           setupTime: formData.setupTime || null,
           teardownTime: formData.teardownTime || null,
+          reservationStartTime: formData.reservationStartTime || null,
+          reservationEndTime: formData.reservationEndTime || null,
           doorOpenTime: formData.doorOpenTime || null,
           doorCloseTime: formData.doorCloseTime || null,
           categories: formData.categories || [],
@@ -637,6 +639,8 @@ import ConflictDialog from './shared/ConflictDialog';
           phone: formData.phone || '',
           setupTime: formData.setupTime || null,
           teardownTime: formData.teardownTime || null,
+          reservationStartTime: formData.reservationStartTime || null,
+          reservationEndTime: formData.reservationEndTime || null,
           doorOpenTime: formData.doorOpenTime || null,
           doorCloseTime: formData.doorCloseTime || null,
           categories: formData.categories || [],
@@ -1919,6 +1923,8 @@ import ConflictDialog from './shared/ConflictDialog';
                       ...(occurrence.locationDisplayNames !== undefined && { locationDisplayNames: occurrence.locationDisplayNames }),
                       ...(occurrence.setupTime !== undefined && { setupTime: occurrence.setupTime }),
                       ...(occurrence.teardownTime !== undefined && { teardownTime: occurrence.teardownTime }),
+                      ...(occurrence.reservationStartTime !== undefined && { reservationStartTime: occurrence.reservationStartTime }),
+                      ...(occurrence.reservationEndTime !== undefined && { reservationEndTime: occurrence.reservationEndTime }),
                       ...(occurrence.doorOpenTime !== undefined && { doorOpenTime: occurrence.doorOpenTime }),
                       ...(occurrence.doorCloseTime !== undefined && { doorCloseTime: occurrence.doorCloseTime }),
                       ...(occurrence.categories !== undefined && { categories: occurrence.categories }),
@@ -3816,10 +3822,14 @@ import ConflictDialog from './shared/ConflictDialog';
         requestedRooms: [],
         setupTime: '',
         teardownTime: '',
+        reservationStartTime: '',
+        reservationEndTime: '',
         doorOpenTime: '',
         doorCloseTime: '',
         setupTimeMinutes: 0,
         teardownTimeMinutes: 0,
+        reservationStartMinutes: 0,
+        reservationEndMinutes: 0,
         setupNotes: '',
         doorNotes: '',
         eventNotes: '',
@@ -4039,10 +4049,14 @@ import ConflictDialog from './shared/ConflictDialog';
         })(),
         setupTime: '',
         teardownTime: '',
+        reservationStartTime: '',
+        reservationEndTime: '',
         doorOpenTime: '',
         doorCloseTime: '',
         setupTimeMinutes: 0,
         teardownTimeMinutes: 0,
+        reservationStartMinutes: 0,
+        reservationEndMinutes: 0,
         setupNotes: '',
         doorNotes: '',
         eventNotes: '',
@@ -4115,10 +4129,14 @@ import ConflictDialog from './shared/ConflictDialog';
         locations: locationId ? [locationId] : [],
         setupTime: '',
         teardownTime: '',
+        reservationStartTime: '',
+        reservationEndTime: '',
         doorOpenTime: '',
         doorCloseTime: '',
         setupTimeMinutes: 0,
         teardownTimeMinutes: 0,
+        reservationStartMinutes: 0,
+        reservationEndMinutes: 0,
         setupNotes: '',
         doorNotes: '',
         eventNotes: '',
@@ -4783,6 +4801,8 @@ import ConflictDialog from './shared/ConflictDialog';
           teardownMinutes: data.teardownMinutes || 0,
           setupTime: data.setupTime || '',
           teardownTime: data.teardownTime || '',
+          reservationStartTime: data.reservationStartTime || '',
+          reservationEndTime: data.reservationEndTime || '',
           doorOpenTime: data.doorOpenTime || '',
           doorCloseTime: data.doorCloseTime || '',
           setupNotes: data.setupNotes || '',
@@ -4977,6 +4997,8 @@ import ConflictDialog from './shared/ConflictDialog';
               teardownMinutes: data.teardownMinutes || 0,
               setupTime: data.setupTime || '',
               teardownTime: data.teardownTime || '',
+              reservationStartTime: data.reservationStartTime || '',
+              reservationEndTime: data.reservationEndTime || '',
               doorOpenTime: data.doorOpenTime || '',
               doorCloseTime: data.doorCloseTime || '',
               setupNotes: data.setupNotes || '',
@@ -5287,10 +5309,10 @@ import ConflictDialog from './shared/ConflictDialog';
                 calendarId: reservationData.calendarId,
                 // Include internal enrichments (use whichever field exists)
                 locationIds: multiDayRoomIds, // Internal room IDs for database storage
-                setupMinutes: reservationData.setupTimeMinutes || 0,
-                teardownMinutes: reservationData.teardownTimeMinutes || 0,
-                setupTime: reservationData.setupTime || '',
-                teardownTime: reservationData.teardownTime || '',
+                setupMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
+                teardownMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
+                setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
+                teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
                 doorOpenTime: reservationData.doorOpenTime || '',
                 doorCloseTime: reservationData.doorCloseTime || '',
                 setupNotes: reservationData.setupNotes || '',
@@ -5411,10 +5433,10 @@ import ConflictDialog from './shared/ConflictDialog';
               recurrence: reservationData.recurrence || null,
               // Include internal enrichments (use whichever field exists)
               locationIds: roomIds, // Internal room IDs for database storage
-              setupMinutes: reservationData.setupTimeMinutes || 0,
-              teardownMinutes: reservationData.teardownTimeMinutes || 0,
-              setupTime: reservationData.setupTime || '',
-              teardownTime: reservationData.teardownTime || '',
+              setupMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
+              teardownMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
+              setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
+              teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
               doorOpenTime: reservationData.doorOpenTime || '',
               doorCloseTime: reservationData.doorCloseTime || '',
               setupNotes: reservationData.setupNotes || '',
@@ -5470,10 +5492,14 @@ import ConflictDialog from './shared/ConflictDialog';
               department: reservationData.department || '',
               phone: reservationData.phone || '',
               specialRequirements: reservationData.specialRequirements || '',
-              setupTimeMinutes: reservationData.setupTimeMinutes || 0,
-              teardownTimeMinutes: reservationData.teardownTimeMinutes || 0,
-              setupTime: reservationData.setupTime || '',
-              teardownTime: reservationData.teardownTime || '',
+              setupTimeMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
+              teardownTimeMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
+              reservationStartMinutes: reservationData.reservationStartMinutes || 0,
+              reservationEndMinutes: reservationData.reservationEndMinutes || 0,
+              setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
+              teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
+              reservationStartTime: reservationData.reservationStartTime || '',
+              reservationEndTime: reservationData.reservationEndTime || '',
               doorOpenTime: reservationData.doorOpenTime || '',
               doorCloseTime: reservationData.doorCloseTime || '',
               setupNotes: reservationData.setupNotes || '',
@@ -5611,8 +5637,12 @@ import ConflictDialog from './shared/ConflictDialog';
             services: pendingReq.proposedChanges?.services || getEventField(event, 'services', {}),
             setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? getEventField(event, 'setupTimeMinutes'),
             teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? getEventField(event, 'teardownTimeMinutes'),
+            reservationStartMinutes: pendingReq.proposedChanges?.reservationStartMinutes ?? getEventField(event, 'reservationStartMinutes'),
+            reservationEndMinutes: pendingReq.proposedChanges?.reservationEndMinutes ?? getEventField(event, 'reservationEndMinutes'),
             setupTime: pendingReq.proposedChanges?.setupTime || getEventField(event, 'setupTime', ''),
             teardownTime: pendingReq.proposedChanges?.teardownTime || getEventField(event, 'teardownTime', ''),
+            reservationStartTime: pendingReq.proposedChanges?.reservationStartTime || getEventField(event, 'reservationStartTime', ''),
+            reservationEndTime: pendingReq.proposedChanges?.reservationEndTime || getEventField(event, 'reservationEndTime', ''),
             doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || getEventField(event, 'doorOpenTime', ''),
             doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || getEventField(event, 'doorCloseTime', ''),
             setupNotes: pendingReq.proposedChanges?.setupNotes ?? getEventField(event, 'setupNotes'),
@@ -6001,6 +6031,8 @@ import ConflictDialog from './shared/ConflictDialog';
         { key: 'specialRequirements', label: 'Special Requirements' },
         { key: 'setupTime', label: 'Setup Time' },
         { key: 'teardownTime', label: 'Teardown Time' },
+        { key: 'reservationStartTime', label: 'Reservation Start Time' },
+        { key: 'reservationEndTime', label: 'Reservation End Time' },
         { key: 'doorOpenTime', label: 'Door Open Time' },
         { key: 'doorCloseTime', label: 'Door Close Time' },
       ];
@@ -6097,6 +6129,8 @@ import ConflictDialog from './shared/ConflictDialog';
           specialRequirements: liveFormData.specialRequirements,
           setupTime: liveFormData.setupTime,
           teardownTime: liveFormData.teardownTime,
+          reservationStartTime: liveFormData.reservationStartTime,
+          reservationEndTime: liveFormData.reservationEndTime,
           doorOpenTime: liveFormData.doorOpenTime,
           doorCloseTime: liveFormData.doorCloseTime,
           categories: liveFormData.categories || liveFormData.mecCategories || [],
@@ -6168,14 +6202,18 @@ import ConflictDialog from './shared/ConflictDialog';
         ? `${eventData.endDate}T${eventData.endTime}`
         : null;
 
-      let setupTimeMinutes = eventData.setupTimeMinutes || 0;
-      let teardownTimeMinutes = eventData.teardownTimeMinutes || 0;
+      let reservationStartMinutes = eventData.reservationStartMinutes || 0;
+      let reservationEndMinutes = eventData.reservationEndMinutes || 0;
 
-      if (eventData.setupTime && eventData.startTime) {
-        setupTimeMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.setupTime);
+      if (eventData.reservationStartTime && eventData.startTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.reservationStartTime);
+      } else if (eventData.setupTime && eventData.startTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.setupTime);
       }
-      if (eventData.teardownTime && eventData.endTime) {
-        teardownTimeMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.teardownTime);
+      if (eventData.reservationEndTime && eventData.endTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.reservationEndTime);
+      } else if (eventData.teardownTime && eventData.endTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.teardownTime);
       }
 
       return {
@@ -6189,8 +6227,12 @@ import ConflictDialog from './shared/ConflictDialog';
         specialRequirements: eventData.specialRequirements || '',
         department: eventData.department || '',
         phone: eventData.phone || '',
-        setupTimeMinutes,
-        teardownTimeMinutes,
+        setupTimeMinutes: reservationStartMinutes,
+        teardownTimeMinutes: reservationEndMinutes,
+        reservationStartMinutes,
+        reservationEndMinutes,
+        reservationStartTime: eventData.reservationStartTime || null,
+        reservationEndTime: eventData.reservationEndTime || null,
         setupTime: eventData.setupTime || null,
         teardownTime: eventData.teardownTime || null,
         doorOpenTime: eventData.doorOpenTime || null,

@@ -1772,8 +1772,12 @@ function buildEffectiveEditData(event) {
     endDateTime: proposed.endDateTime || cd.endDateTime,
     setupTimeMinutes: proposed.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
     teardownTimeMinutes: proposed.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+    reservationStartMinutes: proposed.reservationStartMinutes ?? cd.reservationStartMinutes ?? proposed.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+    reservationEndMinutes: proposed.reservationEndMinutes ?? cd.reservationEndMinutes ?? proposed.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
     setupTime: proposed.setupTime || cd.setupTime,
     teardownTime: proposed.teardownTime || cd.teardownTime,
+    reservationStartTime: proposed.reservationStartTime || cd.reservationStartTime || proposed.setupTime || cd.setupTime,
+    reservationEndTime: proposed.reservationEndTime || cd.reservationEndTime || proposed.teardownTime || cd.teardownTime,
     eventTitle: proposed.eventTitle || cd.eventTitle,
     locationDisplayNames: proposed.locationDisplayNames || cd.locationDisplayNames,
   };
@@ -2030,8 +2034,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
   try {
     // Calculate the full time window including setup and teardown
     // Fall back to calendarData paths since room reservations store fields there
-    const setupMinutes = reservation.setupTimeMinutes ?? reservation.calendarData?.setupTimeMinutes ?? 0;
-    const teardownMinutes = reservation.teardownTimeMinutes ?? reservation.calendarData?.teardownTimeMinutes ?? 0;
+    const setupMinutes = reservation.reservationStartMinutes ?? reservation.calendarData?.reservationStartMinutes ?? reservation.setupTimeMinutes ?? reservation.calendarData?.setupTimeMinutes ?? 0;
+    const teardownMinutes = reservation.reservationEndMinutes ?? reservation.calendarData?.reservationEndMinutes ?? reservation.teardownTimeMinutes ?? reservation.calendarData?.teardownTimeMinutes ?? 0;
 
     const startTime = new Date(reservation.startDateTime || reservation.calendarData?.startDateTime);
     const endTime = new Date(reservation.endDateTime || reservation.calendarData?.endDateTime);
@@ -2389,6 +2393,8 @@ async function checkRecurringRoomConflicts(params) {
     roomIds,
     setupTimeMinutes = 0,
     teardownTimeMinutes = 0,
+    reservationStartMinutes,
+    reservationEndMinutes,
     excludeEventId = null,
     isAllowedConcurrent = false,
     categories = [],
@@ -2409,11 +2415,13 @@ async function checkRecurringRoomConflicts(params) {
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
   // Compute effective windows (with setup/teardown) for all occurrences
+  const effectiveSetupMinutes = reservationStartMinutes ?? setupTimeMinutes ?? 0;
+  const effectiveTeardownMinutes = reservationEndMinutes ?? teardownTimeMinutes ?? 0;
   const occurrenceWindows = allOccurrences.map(occ => {
     const start = new Date(occ.startDateTime);
     const end = new Date(occ.endDateTime);
-    const effStart = new Date(start.getTime() - (setupTimeMinutes * 60 * 1000));
-    const effEnd = new Date(end.getTime() + (teardownTimeMinutes * 60 * 1000));
+    const effStart = new Date(start.getTime() - (effectiveSetupMinutes * 60 * 1000));
+    const effEnd = new Date(end.getTime() + (effectiveTeardownMinutes * 60 * 1000));
     return {
       ...occ,
       effectiveStart: toLocalISOString(effStart),
@@ -13055,15 +13063,15 @@ app.get('/api/locations', async (req, res) => {
  */
 app.get('/api/rooms/availability', async (req, res) => {
   try {
-    const { startDateTime, endDateTime, roomIds, setupTimeMinutes = 0, teardownTimeMinutes = 0 } = req.query;
-    
+    const { startDateTime, endDateTime, roomIds, setupTimeMinutes = 0, teardownTimeMinutes = 0, reservationStartMinutes, reservationEndMinutes } = req.query;
+
     if (!startDateTime || !endDateTime) {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
-    
-    // Calculate buffer times
-    const setupMinutes = parseInt(setupTimeMinutes) || 0;
-    const teardownMinutes = parseInt(teardownTimeMinutes) || 0;
+
+    // Calculate buffer times (new reservation fields take precedence over legacy setup/teardown)
+    const setupMinutes = parseInt(reservationStartMinutes) || parseInt(setupTimeMinutes) || 0;
+    const teardownMinutes = parseInt(reservationEndMinutes) || parseInt(teardownTimeMinutes) || 0;
 
     // Extended time window including setup/teardown buffers (keep as ISO strings for string comparison)
     const start = new Date(new Date(startDateTime).getTime() - (setupMinutes * 60 * 1000)).toISOString();
@@ -13473,6 +13481,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       teardownTimeMinutes,
       setupTime,
       teardownTime,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime,
+      reservationEndTime,
       doorOpenTime,
       doorCloseTime,
       setupNotes,
@@ -13594,6 +13606,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         teardownTime: teardownTime || null,
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
+        reservationStartTime: reservationStartTime || null,
+        reservationEndTime: reservationEndTime || null,
+        reservationStartMinutes: reservationStartMinutes || 0,
+        reservationEndMinutes: reservationEndMinutes || 0,
         doorOpenTime: doorOpenTime || null,
         doorCloseTime: doorCloseTime || null,
         // Notes
@@ -13703,6 +13719,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       teardownTimeMinutes,
       setupTime,
       teardownTime,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime,
+      reservationEndTime,
       doorOpenTime,
       doorCloseTime,
       setupNotes,
@@ -13756,6 +13776,8 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (endTime) overrideFields.endDateTime = `${dateKey}T${endTime}`;
       if (setupTime !== undefined) overrideFields.setupTime = setupTime;
       if (teardownTime !== undefined) overrideFields.teardownTime = teardownTime;
+      if (reservationStartTime !== undefined) overrideFields.reservationStartTime = reservationStartTime;
+      if (reservationEndTime !== undefined) overrideFields.reservationEndTime = reservationEndTime;
       if (doorOpenTime !== undefined) overrideFields.doorOpenTime = doorOpenTime;
       if (doorCloseTime !== undefined) overrideFields.doorCloseTime = doorCloseTime;
       if (categories !== undefined || mecCategories !== undefined) overrideFields.categories = categories || mecCategories;
@@ -13865,6 +13887,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       'calendarData.offsiteLon': offsiteLon || null,
       'calendarData.setupTimeMinutes': setupTimeMinutes || 0,
       'calendarData.teardownTimeMinutes': teardownTimeMinutes || 0,
+      'calendarData.reservationStartTime': reservationStartTime || null,
+      'calendarData.reservationEndTime': reservationEndTime || null,
+      'calendarData.reservationStartMinutes': reservationStartMinutes || 0,
+      'calendarData.reservationEndMinutes': reservationEndMinutes || 0,
       'calendarData.setupTime': setupTime || null,
       'calendarData.teardownTime': teardownTime || null,
       'calendarData.doorOpenTime': doorOpenTime || null,
@@ -14951,6 +14977,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
+      // Reservation blocking times (new fields with backward compat)
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime,
+      reservationEndTime,
       // Access & Operations Times
       setupTime,
       teardownTime,
@@ -14992,21 +15023,29 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       }
     }
 
-    // Calculate effective blocking times (setup to teardown)
+    // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
     const baseStart = new Date(startDateTime);
     const baseEnd = new Date(endDateTime);
 
-    // If setup time is provided, use it as the effective start
+    // If reservation start time is provided, use it; else fall back to setup time
     let effectiveStart = baseStart;
-    if (setupTime) {
+    if (reservationStartTime) {
+      const [resStartHours, resStartMinutes] = reservationStartTime.split(':').map(Number);
+      effectiveStart = new Date(baseStart);
+      effectiveStart.setHours(resStartHours, resStartMinutes, 0, 0);
+    } else if (setupTime) {
       const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
       effectiveStart = new Date(baseStart);
       effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
     }
 
-    // If teardown time is provided, use it as the effective end
+    // If reservation end time is provided, use it; else fall back to teardown time
     let effectiveEnd = baseEnd;
-    if (teardownTime) {
+    if (reservationEndTime) {
+      const [resEndHours, resEndMinutes] = reservationEndTime.split(':').map(Number);
+      effectiveEnd = new Date(baseEnd);
+      effectiveEnd.setHours(resEndHours, resEndMinutes, 0, 0);
+    } else if (teardownTime) {
       const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
       effectiveEnd = new Date(baseEnd);
       effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
@@ -15038,7 +15077,9 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       department: reservationData.department,
       phone: reservationData.phone,
       setupTimeMinutes: reservationData.setupTimeMinutes,
-      teardownTimeMinutes: reservationData.teardownTimeMinutes
+      teardownTimeMinutes: reservationData.teardownTimeMinutes,
+      reservationStartMinutes: reservationData.reservationStartMinutes,
+      reservationEndMinutes: reservationData.reservationEndMinutes
     });
 
     // Create initial communication history entry
@@ -15063,8 +15104,12 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         phone: phone || '',
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
+        reservationStartMinutes: reservationStartMinutes || 0,
+        reservationEndMinutes: reservationEndMinutes || 0,
         setupTime: setupTime || null,
         teardownTime: teardownTime || null,
+        reservationStartTime: reservationStartTime || null,
+        reservationEndTime: reservationEndTime || null,
         doorOpenTime: doorOpenTime || null,
         doorCloseTime: doorCloseTime || null,
         setupNotes: setupNotes || '',
@@ -15158,6 +15203,10 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         teardownTime: teardownTime || null,
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
+        reservationStartTime: reservationStartTime || null,
+        reservationEndTime: reservationEndTime || null,
+        reservationStartMinutes: reservationStartMinutes || 0,
+        reservationEndMinutes: reservationEndMinutes || 0,
         doorOpenTime: doorOpenTime || null,
         doorCloseTime: doorCloseTime || null,
         // Internal Notes (staff use only)
@@ -15691,6 +15740,10 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       teardownTimeMinutes,
       setupTime,
       teardownTime,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime,
+      reservationEndTime,
       doorOpenTime,
       doorCloseTime,
       setupNotes,
@@ -15740,6 +15793,8 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         endDateTime: computedEndDateTime,
         setupTimeMinutes: setupTimeMinutes || event.calendarData?.setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || event.calendarData?.teardownTimeMinutes || 0,
+        reservationStartMinutes: reservationStartMinutes || event.calendarData?.reservationStartMinutes || 0,
+        reservationEndMinutes: reservationEndMinutes || event.calendarData?.reservationEndMinutes || 0,
         calendarData: { locations: editedRoomIds },
         isAllowedConcurrent: event.isAllowedConcurrent ?? false,
         categories: categories || event.calendarData?.categories || []
@@ -15790,6 +15845,10 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         'calendarData.offsiteLon': offsiteLon || null,
         'calendarData.setupTimeMinutes': setupTimeMinutes || 0,
         'calendarData.teardownTimeMinutes': teardownTimeMinutes || 0,
+        'calendarData.reservationStartTime': reservationStartTime || null,
+        'calendarData.reservationEndTime': reservationEndTime || null,
+        'calendarData.reservationStartMinutes': reservationStartMinutes || 0,
+        'calendarData.reservationEndMinutes': reservationEndMinutes || 0,
         'calendarData.setupTime': setupTime || null,
         'calendarData.teardownTime': teardownTime || null,
         'calendarData.doorOpenTime': doorOpenTime || null,
@@ -18464,6 +18523,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       teardownTimeMinutes,
       setupTime,
       teardownTime,
+      reservationStartMinutes,
+      reservationEndMinutes,
+      reservationStartTime,
+      reservationEndTime,
       doorOpenTime,
       doorCloseTime,
       setupNotes,
@@ -18571,19 +18634,27 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       ? `${offsiteName} (Offsite) - ${offsiteAddress}`
       : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
 
-    // Calculate effective blocking times (setup to teardown) for room conflict detection
+    // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
     const baseStart = new Date(startDateTime);
     const baseEnd = new Date(endDateTime);
 
     let effectiveStart = baseStart;
-    if (setupTime) {
+    if (reservationStartTime) {
+      const [resStartHours, resStartMinutes] = reservationStartTime.split(':').map(Number);
+      effectiveStart = new Date(baseStart);
+      effectiveStart.setHours(resStartHours, resStartMinutes, 0, 0);
+    } else if (setupTime) {
       const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
       effectiveStart = new Date(baseStart);
       effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
     }
 
     let effectiveEnd = baseEnd;
-    if (teardownTime) {
+    if (reservationEndTime) {
+      const [resEndHours, resEndMinutes] = reservationEndTime.split(':').map(Number);
+      effectiveEnd = new Date(baseEnd);
+      effectiveEnd.setHours(resEndHours, resEndMinutes, 0, 0);
+    } else if (teardownTime) {
       const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
       effectiveEnd = new Date(baseEnd);
       effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
@@ -18667,6 +18738,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         doorCloseTime: doorCloseTime || '',
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
+        reservationStartTime: reservationStartTime || null,
+        reservationEndTime: reservationEndTime || null,
+        reservationStartMinutes: reservationStartMinutes || 0,
+        reservationEndMinutes: reservationEndMinutes || 0,
         setupNotes: setupNotes || '',
         doorNotes: doorNotes || '',
         eventNotes: eventNotes || '',
@@ -20179,7 +20254,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     // Check if the effective (merged) rooms/times conflict with other events
     const hasTimeOrRoomChange = finalChanges.startDateTime || finalChanges.endDateTime ||
       finalChanges.locations || finalChanges.requestedRooms ||
-      finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined;
+      finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined ||
+      finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined;
 
     if (hasTimeOrRoomChange && !forcePublishEdit) {
       const effectiveData = buildEffectiveEditData({ ...event, pendingEditRequest: { ...pendingEditRequest, proposedChanges: finalChanges } });
@@ -20972,6 +21048,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       if (updates.endTime) overrideFields.endDateTime = `${dateKey}T${updates.endTime}`;
       if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
       if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
+      if (updates.reservationStartTime !== undefined) overrideFields.reservationStartTime = updates.reservationStartTime;
+      if (updates.reservationEndTime !== undefined) overrideFields.reservationEndTime = updates.reservationEndTime;
       if (updates.doorOpenTime !== undefined) overrideFields.doorOpenTime = updates.doorOpenTime;
       if (updates.doorCloseTime !== undefined) overrideFields.doorCloseTime = updates.doorCloseTime;
       if (updates.categories !== undefined) overrideFields.categories = updates.categories;
@@ -21248,7 +21326,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
 
     // Check for scheduling conflicts when time/room fields change on active events
-    const timeOrRoomChanged = graphChanges.startDateTime || graphChanges.endDateTime || graphChanges.locations;
+    const bufferChanged = hasFieldChanged('reservationStartMinutes', updates.reservationStartMinutes, cd.reservationStartMinutes) ||
+                           hasFieldChanged('reservationEndMinutes', updates.reservationEndMinutes, cd.reservationEndMinutes) ||
+                           hasFieldChanged('setupTimeMinutes', updates.setupTimeMinutes, cd.setupTimeMinutes) ||
+                           hasFieldChanged('teardownTimeMinutes', updates.teardownTimeMinutes, cd.teardownTimeMinutes);
+    const timeOrRoomChanged = graphChanges.startDateTime || graphChanges.endDateTime || graphChanges.locations || bufferChanged;
     const activeStatuses = ['pending', 'published'];
     if (timeOrRoomChanged && activeStatuses.includes(event.status) && !updates.forceUpdate) {
       const roomIds = updates.locations || updates.requestedRooms || cd.locations || [];
