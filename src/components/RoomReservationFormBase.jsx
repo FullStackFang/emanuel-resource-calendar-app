@@ -790,15 +790,15 @@ export default function RoomReservationFormBase({
   }, [assistantRooms]);
 
   // Validate time fields are in chronological order
-  // Validated chronology: reservationStartTime -> doorOpen -> start -> end -> doorClose -> reservationEndTime
-  // setupTime and teardownTime are NOT validated (staff-only internal fields)
+  // Validated chronology: reservationStartTime -> start -> end -> reservationEndTime
+  // setupTime, teardownTime, doorOpenTime, doorCloseTime are NOT validated (staff-only internal fields)
   const validateTimes = useCallback(() => {
     if (formData.isAllDayEvent) {
       setTimeErrors([]);
       return true;
     }
     const errors = [];
-    const { reservationStartTime, doorOpenTime, startTime, endTime, doorCloseTime, reservationEndTime, startDate, endDate } = formData;
+    const { reservationStartTime, startTime, endTime, reservationEndTime, startDate, endDate } = formData;
 
     const createDateTime = (date, timeStr) => {
       if (!date || !timeStr) return null;
@@ -813,8 +813,6 @@ export default function RoomReservationFormBase({
 
     // Helper to adjust midnight (00:00) to end-of-day (1440) when comparing end times
     const adjustForMidnight = (minutes, referenceMinutes) => {
-      // If this time is 00:00 (midnight) and the reference time is later in the day,
-      // treat midnight as end-of-day (24:00 = 1440 minutes)
       if (minutes === 0 && referenceMinutes !== null && referenceMinutes > 0) {
         return 1440; // 24 hours in minutes
       }
@@ -822,15 +820,12 @@ export default function RoomReservationFormBase({
     };
 
     const reservationStart = timeToMinutes(reservationStartTime);
-    const doorOpen = timeToMinutes(doorOpenTime);
     const eventStartMinutes = timeToMinutes(startTime);
     const eventEndMinutes = timeToMinutes(endTime);
-    const doorCloseRaw = timeToMinutes(doorCloseTime);
     const reservationEndRaw = timeToMinutes(reservationEndTime);
 
-    // Adjust doorClose and reservationEnd for midnight edge case
-    const doorClose = adjustForMidnight(doorCloseRaw, eventEndMinutes);
-    const reservationEnd = adjustForMidnight(reservationEndRaw, doorCloseRaw !== null ? Math.max(eventEndMinutes || 0, doorCloseRaw) : eventEndMinutes);
+    // Adjust reservationEnd for midnight edge case
+    const reservationEnd = adjustForMidnight(reservationEndRaw, eventEndMinutes);
 
     const eventStartDateTime = createDateTime(startDate, startTime);
     const eventEndDateTime = createDateTime(endDate, endTime);
@@ -847,29 +842,13 @@ export default function RoomReservationFormBase({
       errors.push('Event End Time must be after Event Start Time');
     }
 
-    if (reservationStart !== null && doorOpen !== null && reservationStart > doorOpen) {
-      errors.push('Door Open Time must be after Reservation Start Time');
-    }
-
     // Only validate event-vs-reservation ordering when event times are present
     if (reservationStart !== null && eventStartMinutes !== null && reservationStart > eventStartMinutes) {
       errors.push('Event Start Time must be after Reservation Start Time');
     }
 
-    if (doorOpen !== null && eventStartMinutes !== null && doorOpen > eventStartMinutes) {
-      errors.push('Event Start Time must be after Door Open Time');
-    }
-
-    if (eventEndMinutes !== null && doorClose !== null && eventEndMinutes > doorClose) {
-      errors.push('Door Close Time must be after Event End Time');
-    }
-
     if (eventEndMinutes !== null && reservationEnd !== null && eventEndMinutes > reservationEnd) {
       errors.push('Reservation End Time must be after Event End Time');
-    }
-
-    if (doorClose !== null && reservationEnd !== null && doorClose > reservationEnd) {
-      errors.push('Reservation End Time must be after Door Close Time');
     }
 
     setTimeErrors(errors);
@@ -883,7 +862,7 @@ export default function RoomReservationFormBase({
     } else {
       setTimeErrors([]);
     }
-  }, [formData.reservationStartTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.reservationEndTime, validateTimes]);
+  }, [formData.reservationStartTime, formData.startTime, formData.endTime, formData.reservationEndTime, validateTimes]);
 
   // Required field validation
   const isFieldValid = useCallback((fieldName) => {
@@ -953,17 +932,6 @@ export default function RoomReservationFormBase({
         if (newEndMins < 24 * 60) {
           const newEndTime = `${String(Math.floor(newEndMins / 60)).padStart(2, '0')}:${String(newEndMins % 60).padStart(2, '0')}`;
           updatedData.endTime = newEndTime;
-          // Cascade: only auto-update doorCloseTime if user hasn't customized it
-          if (!formData.doorCloseTime || formData.doorCloseTime === formData.endTime) {
-            updatedData.doorCloseTime = newEndTime;
-          } else {
-            // If user has a custom doorCloseTime, ensure it's still >= new endTime
-            const [dcH, dcM] = formData.doorCloseTime.split(':').map(Number);
-            const dcMins = dcH * 60 + dcM;
-            if (dcMins < newEndMins + 30) {
-              updatedData.doorCloseTime = newEndTime;
-            }
-          }
           // Cascade: push reservationEndTime if it's now at or before new endTime
           if (formData.reservationEndTime) {
             const [tdH, tdM] = formData.reservationEndTime.split(':').map(Number);
@@ -1017,8 +985,6 @@ export default function RoomReservationFormBase({
     if ('teardownTime' in updatedTimes) updatedData.teardownTime = updatedTimes.teardownTime;
     if ('reservationStartTime' in updatedTimes) updatedData.reservationStartTime = updatedTimes.reservationStartTime;
     if ('reservationEndTime' in updatedTimes) updatedData.reservationEndTime = updatedTimes.reservationEndTime;
-    if ('doorOpenTime' in updatedTimes) updatedData.doorOpenTime = updatedTimes.doorOpenTime;
-    if ('doorCloseTime' in updatedTimes) updatedData.doorCloseTime = updatedTimes.doorCloseTime;
 
     setFormData(updatedData);
     setHasChanges(true);
@@ -1038,8 +1004,6 @@ export default function RoomReservationFormBase({
       reservationEndTime: '',
       reservationStartMinutes: 0,
       reservationEndMinutes: 0,
-      doorOpenTime: '',
-      doorCloseTime: '',
     };
     setFormData(updatedData);
     setHasChanges(true);
@@ -1514,18 +1478,14 @@ export default function RoomReservationFormBase({
                       ...(turningOn
                         ? {
                             reservationStartTime: '00:00',
-                            doorOpenTime: '00:00',
                             startTime: '00:00',
                             endTime: '23:59',
-                            doorCloseTime: '23:59',
                             reservationEndTime: '23:59',
                           }
                         : {
                             reservationStartTime: '',
-                            doorOpenTime: '',
                             startTime: '',
                             endTime: '',
-                            doorCloseTime: '',
                             reservationEndTime: '',
                           }
                       ),
@@ -1704,25 +1664,6 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When the room reservation begins</div>
               </div>
 
-              <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="doorOpenTime">Door Open Time</label>
-                {hasFieldChanged('doorOpenTime') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorOpenTime'))}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <TimePickerInput
-                  id="doorOpenTime"
-                  name="doorOpenTime"
-                  value={formData.doorOpenTime}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled || formData.isAllDayEvent}
-                  className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
-                />
-                <div className="help-text">When attendees can start entering</div>
-              </div>
-
               <div className={`form-group ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="startTime">Event Start Time</label>
                 {hasFieldChanged('startTime') && (
@@ -1761,25 +1702,6 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When the event ends (optional)</div>
               </div>
 
-              <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="doorCloseTime">Door Close Time</label>
-                {hasFieldChanged('doorCloseTime') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorCloseTime'))}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <TimePickerInput
-                  id="doorCloseTime"
-                  name="doorCloseTime"
-                  value={formData.doorCloseTime}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled || formData.isAllDayEvent}
-                  className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
-                />
-                <div className="help-text">When doors will be locked at end of event</div>
-              </div>
-
               <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="reservationEndTime">Reservation End Time</label>
                 {hasFieldChanged('reservationEndTime') && (
@@ -1811,7 +1733,7 @@ export default function RoomReservationFormBase({
                   ))}
                 </ul>
                 <p className="validation-help">
-                  Times should follow this order: Reservation Start → Door Open → Event Start → Event End → Door Close → Reservation End
+                  Times should follow this order: Reservation Start → Event Start → Event End → Reservation End
                 </p>
               </div>
             )}
@@ -1963,8 +1885,6 @@ export default function RoomReservationFormBase({
                     eventEndTime={formData.endTime}
                     setupTime={formData.reservationStartTime}
                     teardownTime={formData.reservationEndTime}
-                    doorOpenTime={formData.doorOpenTime}
-                    doorCloseTime={formData.doorCloseTime}
                     eventTitle={formData.eventTitle}
                     availability={availability}
                     availabilityLoading={availabilityLoading}
@@ -2031,6 +1951,45 @@ export default function RoomReservationFormBase({
                     disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
                   />
                   <div className="help-text">When staff teardown work ends (no validation)</div>
+                </div>
+              </div>
+
+              <div className="time-field-row">
+                <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="doorOpenTime">Door Open Time</label>
+                  {hasFieldChanged('doorOpenTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorOpenTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
+                  <TimePickerInput
+                    id="doorOpenTime"
+                    name="doorOpenTime"
+                    value={formData.doorOpenTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
+                  />
+                  <div className="help-text">When attendees can start entering (no validation)</div>
+                </div>
+                <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="doorCloseTime">Door Close Time</label>
+                  {hasFieldChanged('doorCloseTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorCloseTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
+                  <TimePickerInput
+                    id="doorCloseTime"
+                    name="doorCloseTime"
+                    value={formData.doorCloseTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
+                  />
+                  <div className="help-text">When doors will be locked at end of event (no validation)</div>
                 </div>
               </div>
 

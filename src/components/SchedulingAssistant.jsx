@@ -10,8 +10,6 @@ export default function SchedulingAssistant({
   eventEndTime,
   setupTime, // Setup start time for room blocking
   teardownTime, // Teardown end time for room blocking
-  doorOpenTime, // Door open time (optional)
-  doorCloseTime, // Door close time (optional)
   eventTitle, // Title of the event being created/edited
   availability,
   availabilityLoading = false, // True when availability data is being fetched
@@ -483,7 +481,7 @@ export default function SchedulingAssistant({
 
     setEventBlocks(blocks);
     setRoomStats(stats);
-  }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
+  }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, eventTitle]);
 
   // Stable ref for onConflictChange to avoid infinite render loops
   // (parent components may pass unstable inline arrow functions)
@@ -517,7 +515,7 @@ export default function SchedulingAssistant({
   useEffect(() => {
     // Clear the drag adjustment so we use the new prop values
     userEventAdjustment.current = null;
-  }, [eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime]);
+  }, [eventStartTime, eventEndTime, setupTime, teardownTime]);
 
   // Reset scroll flag when current reservation changes (for navigation between reservations)
   useEffect(() => {
@@ -1135,15 +1133,6 @@ export default function SchedulingAssistant({
             const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
             updatedTimes.endTime = formatTime(new Date(eventEnd.getTime() + delta));
           }
-          if (doorOpenTime) {
-            const doorOpen = new Date(`${effectiveDate}T${doorOpenTime}`);
-            updatedTimes.doorOpenTime = formatTime(new Date(doorOpen.getTime() + delta));
-          }
-          if (doorCloseTime) {
-            const doorClose = new Date(`${effectiveDate}T${doorCloseTime}`);
-            updatedTimes.doorCloseTime = formatTime(new Date(doorClose.getTime() + delta));
-          }
-
           logger.debug('[Drag] User event time calculation:', {
             delta: delta / 1000 / 60,
             newBlockStart: newStartTime.toLocaleTimeString(),
@@ -1215,7 +1204,7 @@ export default function SchedulingAssistant({
     lastMouseY.current = 0;
     setDraggingEventId(null);
     setDragOffsets({});
-  }, [draggingEventId, dragOffsets, eventBlocks, PIXELS_PER_HOUR, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, onEventTimeChange, currentReservationId, stopAutoScroll, setEventBlocks, setDraggingEventId, setDragOffsets, calculateEventPosition, END_HOUR, START_HOUR]);
+  }, [draggingEventId, dragOffsets, eventBlocks, PIXELS_PER_HOUR, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, onEventTimeChange, currentReservationId, stopAutoScroll, setEventBlocks, setDraggingEventId, setDragOffsets, calculateEventPosition, END_HOUR, START_HOUR]);
 
   // Global mouse event listeners for drag (replaces HTML5 drag API)
   useEffect(() => {
