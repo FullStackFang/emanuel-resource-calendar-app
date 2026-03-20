@@ -13588,13 +13588,13 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         eventTitle: eventTitle.trim(),
         eventDescription: eventDescription || '',
         // Store datetime as ISO strings (local time)
-        // Default times to 00:00/23:59 if dates are present but times are missing
+        // Event times fall back to reservation times, then to defaults
         startDateTime: startDateTime
           ? startDateTime.replace(/Z$/, '')
-          : (startDate ? `${startDate}T00:00:00` : null),
+          : (startDate ? `${startDate}T${startTime || reservationStartTime || '00:00'}:00` : null),
         endDateTime: endDateTime
           ? endDateTime.replace(/Z$/, '')
-          : (endDate ? `${endDate}T23:59:00` : null),
+          : (endDate ? `${endDate}T${endTime || reservationEndTime || '23:59'}:00` : null),
         // Date and time components for partial draft support
         startDate: startDate || null,
         startTime: startTime || null,
@@ -13847,13 +13847,13 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
     }
 
     // Update draft — all calendar fields go inside calendarData (source of truth)
-    // Default times to 00:00/23:59 if dates are present but times are missing
+    // Event times fall back to reservation times, then to defaults
     const computedStartDateTime = startDateTime
       ? startDateTime.replace(/Z$/, '')
-      : (startDate ? `${startDate}T00:00:00` : null);
+      : (startDate ? `${startDate}T${startTime || reservationStartTime || '00:00'}:00` : null);
     const computedEndDateTime = endDateTime
       ? endDateTime.replace(/Z$/, '')
-      : (endDate ? `${endDate}T23:59:00` : null);
+      : (endDate ? `${endDate}T${endTime || reservationEndTime || '23:59'}:00` : null);
 
     // Resolve location display names from ObjectIds
     let draftLocationDisplayNames = '';
@@ -14016,6 +14016,12 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     }
     if (!cd.endDateTime) {
       validationErrors.push('End date and time are required');
+    }
+    if (!cd.reservationStartTime) {
+      validationErrors.push('Reservation start time is required');
+    }
+    if (!cd.reservationEndTime) {
+      validationErrors.push('Reservation end time is required');
     }
     if (!cd.locations || cd.locations.length === 0) {
       validationErrors.push('At least one room must be selected');
@@ -15771,19 +15777,22 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required' });
     }
-    if (!startTime || !endTime) {
-      return res.status(400).json({ error: 'Start time and end time are required' });
+    if (!reservationStartTime || !reservationEndTime) {
+      return res.status(400).json({ error: 'Reservation start time and end time are required' });
     }
 
     const now = new Date();
 
     // Compute datetime strings (local time, no Z suffix)
+    // Event times fall back to reservation times when absent
+    const effectiveStartTime = startTime || reservationStartTime;
+    const effectiveEndTime = endTime || reservationEndTime;
     const computedStartDateTime = startDateTime
       ? startDateTime.replace(/Z$/, '')
-      : `${startDate}T${startTime}:00`;
+      : `${startDate}T${effectiveStartTime}:00`;
     const computedEndDateTime = endDateTime
       ? endDateTime.replace(/Z$/, '')
-      : `${endDate}T${endTime}:00`;
+      : `${endDate}T${effectiveEndTime}:00`;
 
     // Check for scheduling conflicts (owners cannot force override)
     const editedRoomIds = requestedRooms || event.calendarData?.locations || [];

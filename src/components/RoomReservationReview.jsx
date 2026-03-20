@@ -194,18 +194,20 @@ export default function RoomReservationReview({
 
     setIsSaving(true);
     try {
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+      const startDateTime = `${formData.startDate}T${effectiveStartTime}`;
+      const endDateTime = `${formData.endDate}T${effectiveEndTime}`;
 
       // Calculate reservation time buffer minutes
       let reservationStartMinutes = formData.reservationStartMinutes || 0;
       let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
       if (formData.reservationStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
       }
       if (formData.reservationEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
       }
 
       const updatedData = {
@@ -326,20 +328,22 @@ export default function RoomReservationReview({
       }
     }
 
-    const startDateTime = formData.startDate && formData.startTime
-      ? `${formData.startDate}T${formData.startTime}` : null;
-    const endDateTime = formData.endDate && formData.endTime
-      ? `${formData.endDate}T${formData.endTime}` : null;
+    const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+    const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+    const startDateTime = formData.startDate && effectiveStartTime
+      ? `${formData.startDate}T${effectiveStartTime}` : null;
+    const endDateTime = formData.endDate && effectiveEndTime
+      ? `${formData.endDate}T${effectiveEndTime}` : null;
 
     // Calculate reservation time buffer minutes
     let reservationStartMinutes = formData.reservationStartMinutes || 0;
     let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
     if (formData.reservationStartTime) {
-      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+      reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
     }
     if (formData.reservationEndTime) {
-      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+      reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
     }
 
     const processedData = {
@@ -398,18 +402,20 @@ export default function RoomReservationReview({
     }
 
     if (onApprove) {
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+      const startDateTime = `${formData.startDate}T${effectiveStartTime}`;
+      const endDateTime = `${formData.endDate}T${effectiveEndTime}`;
 
       // Calculate reservation time buffer minutes
       let reservationStartMinutes = formData.reservationStartMinutes || 0;
       let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
       if (formData.reservationStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
       }
       if (formData.reservationEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
       }
 
       const updatedData = {

@@ -596,17 +596,19 @@ export default function RoomReservationFormBase({
     try {
       setCheckingAvailability(true);
 
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+      const startDateTime = `${formData.startDate}T${effectiveStartTime}`;
+      const endDateTime = `${formData.endDate}T${effectiveEndTime}`;
 
       let reservationStartMinutes = formData.reservationStartMinutes || 0;
       let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
       if (formData.reservationStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
       }
       if (formData.reservationEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
       }
 
       const params = new URLSearchParams({
@@ -708,7 +710,7 @@ export default function RoomReservationFormBase({
       usedPrefetchedData.current = false; // Clear flag so future changes trigger fetch
       return;
     }
-    if (formData.startDate && formData.startTime && formData.endDate && formData.endTime && assistantRooms.length === 0) {
+    if (formData.startDate && (formData.startTime || formData.reservationStartTime) && formData.endDate && (formData.endTime || formData.reservationEndTime) && assistantRooms.length === 0) {
       checkAvailability();
     }
   }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartMinutes, formData.reservationEndMinutes, formData.reservationStartTime, formData.reservationEndTime, assistantRooms.length]);
@@ -763,7 +765,7 @@ export default function RoomReservationFormBase({
   // Ensures conflict detection stays current during long form sessions
   useEffect(() => {
     if (readOnly) return;
-    if (!formData.startDate || !formData.startTime || !formData.endDate || !formData.endTime) return;
+    if (!formData.startDate || !(formData.startTime || formData.reservationStartTime) || !formData.endDate || !(formData.endTime || formData.reservationEndTime)) return;
 
     const interval = setInterval(() => {
       if (assistantRoomsRef.current.length > 0) {
@@ -780,7 +782,7 @@ export default function RoomReservationFormBase({
     }, 30_000);
 
     return () => clearInterval(interval);
-  }, [readOnly, formData.startDate, formData.startTime, formData.endDate, formData.endTime]);
+  }, [readOnly, formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
 
   // Keep assistantRoomsRef in sync for reliable access in async functions (prevents stale closures)
   useEffect(() => {
@@ -833,13 +835,14 @@ export default function RoomReservationFormBase({
     const eventStartDateTime = createDateTime(startDate, startTime);
     const eventEndDateTime = createDateTime(endDate, endTime);
 
-    if (!startTime) {
-      errors.push('Event Start Time is required');
+    if (!reservationStartTime) {
+      errors.push('Reservation Start Time is required');
     }
-    if (!endTime) {
-      errors.push('Event End Time is required');
+    if (!reservationEndTime) {
+      errors.push('Reservation End Time is required');
     }
 
+    // Event start/end ordering (only when both are present)
     if (eventStartDateTime && eventEndDateTime && eventStartDateTime >= eventEndDateTime) {
       errors.push('Event End Time must be after Event Start Time');
     }
@@ -848,6 +851,7 @@ export default function RoomReservationFormBase({
       errors.push('Door Open Time must be after Reservation Start Time');
     }
 
+    // Only validate event-vs-reservation ordering when event times are present
     if (reservationStart !== null && eventStartMinutes !== null && reservationStart > eventStartMinutes) {
       errors.push('Event Start Time must be after Reservation Start Time');
     }
@@ -874,7 +878,7 @@ export default function RoomReservationFormBase({
 
   // Validate times whenever time fields change
   useEffect(() => {
-    if (formData.startTime || formData.endTime) {
+    if (formData.reservationStartTime || formData.reservationEndTime || formData.startTime || formData.endTime) {
       validateTimes();
     } else {
       setTimeErrors([]);
@@ -890,7 +894,7 @@ export default function RoomReservationFormBase({
   const isFormValid = useMemo(() => {
     const requiredFields = formData.isAllDayEvent
       ? ['eventTitle', 'startDate', 'endDate']
-      : ['eventTitle', 'startDate', 'endDate', 'startTime', 'endTime'];
+      : ['eventTitle', 'startDate', 'endDate', 'reservationStartTime', 'reservationEndTime'];
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
   }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
@@ -1680,7 +1684,7 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
-              <div className={`form-group ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('reservationStartTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="reservationStartTime">Reservation Start Time</label>
                 {hasFieldChanged('reservationStartTime') && (
                   <div className="inline-diff">
@@ -1694,6 +1698,7 @@ export default function RoomReservationFormBase({
                   value={formData.reservationStartTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
+                  required
                   className={hasFieldChanged('reservationStartTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the room reservation begins</div>
@@ -1718,7 +1723,7 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When attendees can start entering</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('startTime') ? 'field-valid' : ''} ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="startTime">Event Start Time</label>
                 {hasFieldChanged('startTime') && (
                   <div className="inline-diff">
@@ -1732,13 +1737,12 @@ export default function RoomReservationFormBase({
                   value={formData.startTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
-                  required
                   className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the event begins</div>
+                <div className="help-text">When the event begins (optional)</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('endTime') ? 'field-valid' : ''} ${hasFieldChanged('endTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group ${hasFieldChanged('endTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="endTime">Event End Time</label>
                 {hasFieldChanged('endTime') && (
                   <div className="inline-diff">
@@ -1752,10 +1756,9 @@ export default function RoomReservationFormBase({
                   value={formData.endTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
-                  required
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the event ends</div>
+                <div className="help-text">When the event ends (optional)</div>
               </div>
 
               <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
@@ -1777,7 +1780,7 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When doors will be locked at end of event</div>
               </div>
 
-              <div className={`form-group ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="reservationEndTime">Reservation End Time</label>
                 {hasFieldChanged('reservationEndTime') && (
                   <div className="inline-diff">
@@ -1791,6 +1794,7 @@ export default function RoomReservationFormBase({
                   value={formData.reservationEndTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
+                  required
                   className={hasFieldChanged('reservationEndTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the room reservation ends</div>

@@ -128,26 +128,28 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
 
   // Build draft payload from form data
   const buildDraftPayload = (formData) => {
-    // Combine date and time if both exist
-    const startDateTime = formData.startDate && formData.startTime
-      ? `${formData.startDate}T${formData.startTime}`
+    // Combine date and time if both exist (event times fall back to reservation times)
+    const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+    const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+    const startDateTime = formData.startDate && effectiveStartTime
+      ? `${formData.startDate}T${effectiveStartTime}`
       : null;
-    const endDateTime = formData.endDate && formData.endTime
-      ? `${formData.endDate}T${formData.endTime}`
+    const endDateTime = formData.endDate && effectiveEndTime
+      ? `${formData.endDate}T${effectiveEndTime}`
       : null;
 
     let reservationStartMinutes = formData.reservationStartMinutes || 0;
     let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-    if (formData.reservationStartTime && formData.startTime) {
-      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
-    } else if (formData.setupTime && formData.startTime) {
-      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    if (formData.reservationStartTime && effectiveStartTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
+    } else if (formData.setupTime && effectiveStartTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.setupTime);
     }
-    if (formData.reservationEndTime && formData.endTime) {
-      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
-    } else if (formData.teardownTime && formData.endTime) {
-      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    if (formData.reservationEndTime && effectiveEndTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
+    } else if (formData.teardownTime && effectiveEndTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.teardownTime);
     }
 
     return {
@@ -336,23 +338,25 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }
 
     try {
-      // Combine date and time
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      // Combine date and time (event times fall back to reservation times)
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+      const startDateTime = `${formData.startDate}T${effectiveStartTime}`;
+      const endDateTime = `${formData.endDate}T${effectiveEndTime}`;
 
       // Calculate reservation time buffer minutes
       let reservationStartMinutes = formData.reservationStartMinutes || 0;
       let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
       if (formData.reservationStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
       } else if (formData.setupTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.setupTime);
       }
       if (formData.reservationEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
       } else if (formData.teardownTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.teardownTime);
       }
 
       const payload = {

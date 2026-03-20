@@ -156,7 +156,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsOpen(true);
 
     // Fetch availability and series events in background (non-blocking)
-    const hasDates = item.startDate && item.startTime && item.endDate && item.endTime;
+    const effectiveStartTime = item.startTime || item.reservationStartTime;
+    const effectiveEndTime = item.endTime || item.reservationEndTime;
+    const hasDates = item.startDate && effectiveStartTime && item.endDate && effectiveEndTime;
     const hasSeriesId = !!item.eventSeriesId;
 
     if (hasDates || hasSeriesId) {
@@ -168,8 +170,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       if (hasDates) {
         const availabilityPromise = (async () => {
           try {
-            const startDateTime = `${item.startDate}T${item.startTime}`;
-            const endDateTime = `${item.endDate}T${item.endTime}`;
+            const startDateTime = `${item.startDate}T${effectiveStartTime}`;
+            const endDateTime = `${item.endDate}T${effectiveEndTime}`;
             const params = new URLSearchParams({
               startDateTime,
               endDateTime,
@@ -893,22 +895,24 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       return Math.floor(diffMs / (1000 * 60));
     };
 
-    // Combine date and time if both exist
-    const startDateTime = formData.startDate && formData.startTime
-      ? `${formData.startDate}T${formData.startTime}`
+    // Combine date and time if both exist (event times fall back to reservation times)
+    const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+    const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+    const startDateTime = formData.startDate && effectiveStartTime
+      ? `${formData.startDate}T${effectiveStartTime}`
       : null;
-    const endDateTime = formData.endDate && formData.endTime
-      ? `${formData.endDate}T${formData.endTime}`
+    const endDateTime = formData.endDate && effectiveEndTime
+      ? `${formData.endDate}T${effectiveEndTime}`
       : null;
 
     let reservationStartMinutes = formData.reservationStartMinutes || 0;
     let reservationEndMinutes = formData.reservationEndMinutes || 0;
 
-    if (formData.reservationStartTime && formData.startTime) {
-      reservationStartMinutes = calculateTimeBufferMinutes(formData.startTime, formData.reservationStartTime);
+    if (formData.reservationStartTime && effectiveStartTime) {
+      reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
     }
-    if (formData.reservationEndTime && formData.endTime) {
-      reservationEndMinutes = calculateTimeBufferMinutes(formData.endTime, formData.reservationEndTime);
+    if (formData.reservationEndTime && effectiveEndTime) {
+      reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
     }
 
     return {

@@ -674,19 +674,21 @@ export default function MyReservations({ apiToken }) {
       showWarning('Start date and end date are required');
       return;
     }
-    if (!formData.startTime || !formData.endTime) {
-      showWarning('Start time and end time are required');
+    if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) {
+      showWarning('Reservation start time and end time are required');
       return;
     }
 
     setSavingPendingEdit(true);
     try {
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
       const payload = {
         _version: reviewModal.eventVersion,
         eventTitle: formData.eventTitle || '',
         eventDescription: formData.eventDescription || '',
-        startDateTime: `${formData.startDate}T${formData.startTime}`,
-        endDateTime: `${formData.endDate}T${formData.endTime}`,
+        startDateTime: `${formData.startDate}T${effectiveStartTime}`,
+        endDateTime: `${formData.endDate}T${effectiveEndTime}`,
         startDate: formData.startDate,
         startTime: formData.startTime,
         endDate: formData.endDate,
@@ -761,19 +763,21 @@ export default function MyReservations({ apiToken }) {
       showWarning('Start date and end date are required');
       return;
     }
-    if (!formData.startTime || !formData.endTime) {
-      showWarning('Start time and end time are required');
+    if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) {
+      showWarning('Reservation start time and end time are required');
       return;
     }
 
     setSavingRejectedEdit(true);
     try {
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
       const payload = {
         _version: reviewModal.eventVersion,
         eventTitle: formData.eventTitle || '',
         eventDescription: formData.eventDescription || '',
-        startDateTime: `${formData.startDate}T${formData.startTime}`,
-        endDateTime: `${formData.endDate}T${formData.endTime}`,
+        startDateTime: `${formData.startDate}T${effectiveStartTime}`,
+        endDateTime: `${formData.endDate}T${effectiveEndTime}`,
         startDate: formData.startDate,
         startTime: formData.startTime,
         endDate: formData.endDate,

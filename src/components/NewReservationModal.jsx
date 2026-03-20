@@ -124,11 +124,11 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     return {
       eventTitle: data.eventTitle || '',
       eventDescription: data.eventDescription || '',
-      startDateTime: data.startDate && data.startTime
-        ? `${data.startDate}T${data.startTime}`
+      startDateTime: data.startDate && (data.startTime || data.reservationStartTime)
+        ? `${data.startDate}T${data.startTime || data.reservationStartTime}`
         : null,
-      endDateTime: data.endDate && data.endTime
-        ? `${data.endDate}T${data.endTime}`
+      endDateTime: data.endDate && (data.endTime || data.reservationEndTime)
+        ? `${data.endDate}T${data.endTime || data.reservationEndTime}`
         : null,
       startDate: data.startDate || null,
       startTime: data.startTime || null,
@@ -171,10 +171,12 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       const calendarOwner = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
       // Build datetime strings
-      const startDateTime = formData.startDate && formData.startTime
-        ? `${formData.startDate}T${formData.startTime}:00` : '';
-      const endDateTime = formData.endDate && formData.endTime
-        ? `${formData.endDate}T${formData.endTime}:00` : '';
+      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+      const startDateTime = formData.startDate && effectiveStartTime
+        ? `${formData.startDate}T${effectiveStartTime}:00` : '';
+      const endDateTime = formData.endDate && effectiveEndTime
+        ? `${formData.endDate}T${effectiveEndTime}:00` : '';
 
       // Graph fields — the backend resolves room IDs to display names automatically
       const graphFields = {
@@ -250,10 +252,10 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setIsSaving(true);
     setIsConfirming(false);
     try {
-      const startDateTime = formData.startDate && formData.startTime
-        ? `${formData.startDate}T${formData.startTime}` : '';
-      const endDateTime = formData.endDate && formData.endTime
-        ? `${formData.endDate}T${formData.endTime}` : '';
+      const startDateTime = formData.startDate && (formData.startTime || formData.reservationStartTime)
+        ? `${formData.startDate}T${formData.startTime || formData.reservationStartTime}` : '';
+      const endDateTime = formData.endDate && (formData.endTime || formData.reservationEndTime)
+        ? `${formData.endDate}T${formData.endTime || formData.reservationEndTime}` : '';
 
       const payload = {
         ...formData,

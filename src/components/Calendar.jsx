@@ -544,16 +544,18 @@ import ConflictDialog from './shared/ConflictDialog';
 
       if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
       if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
-      if (!formData.startTime || !formData.endTime) { showWarning('Start time and end time are required'); return; }
+      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showWarning('Reservation start time and end time are required'); return; }
 
       setSavingPendingEdit(true);
       try {
+        const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+        const effectiveEndTime = formData.endTime || formData.reservationEndTime;
         const payload = {
           _version: reviewModal.eventVersion,
           eventTitle: formData.eventTitle || '',
           eventDescription: formData.eventDescription || '',
-          startDateTime: `${formData.startDate}T${formData.startTime}`,
-          endDateTime: `${formData.endDate}T${formData.endTime}`,
+          startDateTime: `${formData.startDate}T${effectiveStartTime}`,
+          endDateTime: `${formData.endDate}T${effectiveEndTime}`,
           startDate: formData.startDate,
           startTime: formData.startTime,
           endDate: formData.endDate,
@@ -618,16 +620,18 @@ import ConflictDialog from './shared/ConflictDialog';
 
       if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
       if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
-      if (!formData.startTime || !formData.endTime) { showWarning('Start time and end time are required'); return; }
+      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showWarning('Reservation start time and end time are required'); return; }
 
       setSavingRejectedEdit(true);
       try {
+        const effectiveStartTime = formData.startTime || formData.reservationStartTime;
+        const effectiveEndTime = formData.endTime || formData.reservationEndTime;
         const payload = {
           _version: reviewModal.eventVersion,
           eventTitle: formData.eventTitle || '',
           eventDescription: formData.eventDescription || '',
-          startDateTime: `${formData.startDate}T${formData.startTime}`,
-          endDateTime: `${formData.endDate}T${formData.endTime}`,
+          startDateTime: `${formData.startDate}T${effectiveStartTime}`,
+          endDateTime: `${formData.endDate}T${effectiveEndTime}`,
           startDate: formData.startDate,
           startTime: formData.startTime,
           endDate: formData.endDate,
@@ -5279,8 +5283,8 @@ import ConflictDialog from './shared/ConflictDialog';
 
             // Prepare all events data
             const eventsData = dates.map((dateStr, i) => {
-              const startDateTime = `${dateStr}T${reservationData.startTime}:00`;
-              const endDateTime = `${dateStr}T${reservationData.endTime}:00`;
+              const startDateTime = `${dateStr}T${reservationData.startTime || reservationData.reservationStartTime}:00`;
+              const endDateTime = `${dateStr}T${reservationData.endTime || reservationData.reservationEndTime}:00`;
 
               return {
                 subject: reservationData.eventTitle || 'Untitled Event',
@@ -5369,14 +5373,14 @@ import ConflictDialog from './shared/ConflictDialog';
             // Single day event - existing logic
             let startDateTime, endDateTime;
 
-            if (reservationData.startDate && reservationData.startTime) {
-              startDateTime = `${reservationData.startDate}T${reservationData.startTime}:00`;
+            if (reservationData.startDate && (reservationData.startTime || reservationData.reservationStartTime)) {
+              startDateTime = `${reservationData.startDate}T${reservationData.startTime || reservationData.reservationStartTime}:00`;
             } else if (reservationData.startDateTime) {
               startDateTime = reservationData.startDateTime;
             }
 
-            if (reservationData.endDate && reservationData.endTime) {
-              endDateTime = `${reservationData.endDate}T${reservationData.endTime}:00`;
+            if (reservationData.endDate && (reservationData.endTime || reservationData.reservationEndTime)) {
+              endDateTime = `${reservationData.endDate}T${reservationData.endTime || reservationData.reservationEndTime}:00`;
             } else if (reservationData.endDateTime) {
               endDateTime = reservationData.endDateTime;
             }
@@ -5484,8 +5488,8 @@ import ConflictDialog from './shared/ConflictDialog';
               eventTitle: reservationData.eventTitle || reservationData.subject || '',
               eventDescription: reservationData.eventDescription || reservationData.description || '',
               // Combine date + time into ISO datetime format expected by API
-              startDateTime: `${reservationData.startDate}T${reservationData.startTime}:00`,
-              endDateTime: `${reservationData.endDate}T${reservationData.endTime}:00`,
+              startDateTime: `${reservationData.startDate}T${reservationData.startTime || reservationData.reservationStartTime}:00`,
+              endDateTime: `${reservationData.endDate}T${reservationData.endTime || reservationData.reservationEndTime}:00`,
               // Ensure requestedRooms is passed (API requires this field)
               requestedRooms: reservationData.requestedRooms || reservationData.locations || [],
               attendeeCount: reservationData.attendeeCount || 0,
@@ -6194,26 +6198,28 @@ import ConflictDialog from './shared/ConflictDialog';
         return Math.floor(diffMs / (1000 * 60));
       };
 
-      // Combine date and time if both exist
-      const startDateTime = eventData.startDate && eventData.startTime
-        ? `${eventData.startDate}T${eventData.startTime}`
+      // Combine date and time if both exist (event times fall back to reservation times)
+      const effectiveStartTime = eventData.startTime || eventData.reservationStartTime;
+      const effectiveEndTime = eventData.endTime || eventData.reservationEndTime;
+      const startDateTime = eventData.startDate && effectiveStartTime
+        ? `${eventData.startDate}T${effectiveStartTime}`
         : null;
-      const endDateTime = eventData.endDate && eventData.endTime
-        ? `${eventData.endDate}T${eventData.endTime}`
+      const endDateTime = eventData.endDate && effectiveEndTime
+        ? `${eventData.endDate}T${effectiveEndTime}`
         : null;
 
       let reservationStartMinutes = eventData.reservationStartMinutes || 0;
       let reservationEndMinutes = eventData.reservationEndMinutes || 0;
 
-      if (eventData.reservationStartTime && eventData.startTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.reservationStartTime);
-      } else if (eventData.setupTime && eventData.startTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.setupTime);
+      if (eventData.reservationStartTime && effectiveStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, eventData.reservationStartTime);
+      } else if (eventData.setupTime && effectiveStartTime) {
+        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, eventData.setupTime);
       }
-      if (eventData.reservationEndTime && eventData.endTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.reservationEndTime);
-      } else if (eventData.teardownTime && eventData.endTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.teardownTime);
+      if (eventData.reservationEndTime && effectiveEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, eventData.reservationEndTime);
+      } else if (eventData.teardownTime && effectiveEndTime) {
+        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, eventData.teardownTime);
       }
 
       return {

@@ -329,11 +329,13 @@ export default function RecurrenceTabContent({
   const fetchConflicts = useCallback(async () => {
     if (!hasPattern || !apiToken) return;
 
-    const startDateTime = formData?.startDate && formData?.startTime
-      ? `${formData.startDate}T${formData.startTime}:00`
+    const effectiveStartTime = formData?.startTime || formData?.reservationStartTime;
+    const effectiveEndTime = formData?.endTime || formData?.reservationEndTime;
+    const startDateTime = formData?.startDate && effectiveStartTime
+      ? `${formData.startDate}T${effectiveStartTime}:00`
       : reservation?.calendarData?.startDateTime || reservation?.startDateTime;
-    const endDateTime = formData?.endDate && formData?.endTime
-      ? `${formData.endDate}T${formData.endTime}:00`
+    const endDateTime = formData?.endDate && effectiveEndTime
+      ? `${formData.endDate}T${effectiveEndTime}:00`
       : reservation?.calendarData?.endDateTime || reservation?.endDateTime;
     const roomIds = (formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [])
       .map(id => id?.toString?.() || id);

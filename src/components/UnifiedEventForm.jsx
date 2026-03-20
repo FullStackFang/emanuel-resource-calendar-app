@@ -243,8 +243,8 @@ export default function UnifiedEventForm({
     }
 
     try {
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const startDateTime = `${formData.startDate}T${formData.startTime || formData.reservationStartTime}`;
+      const endDateTime = `${formData.endDate}T${formData.endTime || formData.reservationEndTime}`;
 
       const payload = {
         ...formData,
@@ -316,8 +316,8 @@ export default function UnifiedEventForm({
 
     setIsSaving(true);
     try {
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const startDateTime = `${formData.startDate}T${formData.startTime || formData.reservationStartTime}`;
+      const endDateTime = `${formData.endDate}T${formData.endTime || formData.reservationEndTime}`;
 
       const updatedData = {
         ...formData,
@@ -400,8 +400,8 @@ export default function UnifiedEventForm({
     }
 
     if (onApprove) {
-      const startDateTime = `${formData.startDate}T${formData.startTime}`;
-      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+      const startDateTime = `${formData.startDate}T${formData.startTime || formData.reservationStartTime}`;
+      const endDateTime = `${formData.endDate}T${formData.endTime || formData.reservationEndTime}`;
 
       const updatedData = {
         ...formData,
@@ -438,11 +438,11 @@ export default function UnifiedEventForm({
         subject: formData.eventTitle,
         body: { content: formData.eventDescription, contentType: 'Text' },
         start: {
-          dateTime: `${formData.startDate}T${formData.startTime}`,
+          dateTime: `${formData.startDate}T${formData.startTime || formData.reservationStartTime}`,
           timeZone: userTimeZone || 'America/New_York'
         },
         end: {
-          dateTime: `${formData.endDate}T${formData.endTime}`,
+          dateTime: `${formData.endDate}T${formData.endTime || formData.reservationEndTime}`,
           timeZone: userTimeZone || 'America/New_York'
         },
         location: (() => {
