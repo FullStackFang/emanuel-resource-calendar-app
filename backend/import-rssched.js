@@ -678,6 +678,11 @@ async function importRsSched() {
     }
     console.log(`Loaded ${locations.length} locations (${locationByRsKey.size} with rsKey)\n`);
 
+    // Derive calendarOwner from calendarConfig (reverse-lookup: email key → calendar ID value)
+    const calendarOwner = Object.entries(calendarConfig)
+      .filter(([k]) => !k.startsWith('_'))
+      .find(([, id]) => id === TARGET_CALENDAR_ID)?.[0] || '';
+
     // Clear existing events for target calendar only
     if (CLEAR_EVENTS) {
       const existingCount = await eventsCollection.countDocuments({ calendarId: TARGET_CALENDAR_ID });
@@ -861,6 +866,17 @@ async function importRsSched() {
           linkedMainEventId: null
         },
 
+        // Status and versioning
+        status: 'published',
+        _version: 1,
+        calendarOwner,
+        statusHistory: [{
+          status: 'published',
+          changedAt: new Date(),
+          changedBy: IMPORT_USER_ID,
+          reason: 'Imported from Resource Scheduler'
+        }],
+
         // Metadata
         lastModifiedDateTime: new Date(),
         lastSyncedAt: new Date(),
@@ -907,7 +923,9 @@ async function importRsSched() {
           locations: sample.locations.map(id => id.toString()),
           locationDisplayNames: sample.locationDisplayNames,
           rschedData: sample.rschedData,
-          'graphData.subject': sample.graphData.subject
+          eventTitle: sample.eventTitle,
+          status: sample.status,
+          calendarOwner: sample.calendarOwner
         }, null, 2));
       }
       console.log('\n[DRY RUN] Complete. Run without --dry-run to import.');

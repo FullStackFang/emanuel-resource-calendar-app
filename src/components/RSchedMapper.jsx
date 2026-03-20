@@ -26,6 +26,7 @@ export default function RSchedMapper({ apiToken }) {
   // State
   const [step, setStep] = useState('upload'); // 'upload' | 'review'
   const [parsedData, setParsedData] = useState(null);
+  const [fileName, setFileName] = useState('');
   const [locationMappings, setLocationMappings] = useState({});
   const [categoryMappings, setCategoryMappings] = useState({});
   const [activeTab, setActiveTab] = useState('locations');
@@ -100,6 +101,11 @@ export default function RSchedMapper({ apiToken }) {
           return;
         }
 
+        if (parsed.uniqueLocationTokens.length === 0 && parsed.uniqueCategoryTokens.length === 0) {
+          showError(`No location or category data found. Detected columns: ${parsed.headers.join(', ')}`);
+          return;
+        }
+
         // Auto-match locations
         const locMappings = {};
         for (const token of parsed.uniqueLocationTokens) {
@@ -113,6 +119,7 @@ export default function RSchedMapper({ apiToken }) {
         }
 
         setParsedData(parsed);
+        setFileName(file.name);
         setLocationMappings(locMappings);
         setCategoryMappings(catMappings);
         setStep('review');
@@ -190,7 +197,7 @@ export default function RSchedMapper({ apiToken }) {
   // Export
   const handleExport = useCallback(() => {
     if (!parsedData) return;
-    const csv = buildMappedCSV(parsedData.headers, parsedData.rows, locationMappings, categoryMappings);
+    const csv = buildMappedCSV(parsedData.headers, parsedData.rows, locationMappings, categoryMappings, parsedData.detectedColumns);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -205,6 +212,7 @@ export default function RSchedMapper({ apiToken }) {
   const handleBack = useCallback(() => {
     setStep('upload');
     setParsedData(null);
+    setFileName('');
     setLocationMappings({});
     setCategoryMappings({});
     setActiveFilter('all');
@@ -235,134 +243,77 @@ export default function RSchedMapper({ apiToken }) {
   };
 
   const getBadgeLabel = (match) => {
-    if (!match) return 'Unmatched';
+    if (!match) return 'archive';
     const pct = Math.round(match.score * 100);
     switch (match.method) {
-      case 'exact': return `Exact ${pct}%`;
-      case 'alias': return `Alias ${pct}%`;
-      case 'fuzzy': return `Fuzzy ${pct}%`;
-      case 'manual': return 'Manual';
+      case 'exact': return 'exact';
+      case 'alias': return 'exact';
+      case 'fuzzy': return `close ${pct}%`;
+      case 'manual': return 'manual';
       default: return `${pct}%`;
     }
   };
 
-  const getMatchedName = (match) => {
+  const getIdentifier = (match) => {
     if (!match) return '-';
-    if (match.location) {
-      const loc = match.location;
-      return loc.rsKey ? `${loc.name} (${loc.rsKey})` : loc.name;
-    }
+    if (match.location) return match.location.rsKey || '-';
     if (match.category) return match.category.name;
     return '-';
   };
 
+  const getDisplayName = (match) => {
+    if (!match) return '-';
+    if (match.location) return match.location.name || '-';
+    if (match.category) return match.category.name;
+    return '-';
+  };
+
+  const filterLabels = { all: 'All', exact: 'Exact', fuzzy: 'Close', unmatched: 'Archive' };
+
   return (
     <div className="em-container">
-      <div className="em-page-header">
-        <h2>RSched Mapper</h2>
-        <div className="em-page-header-subtitle">Map RSched CSV locations and categories to database entities</div>
-      </div>
-
       {step === 'upload' && (
         <>
-          <div
-            className={`csv-upload-area ${dragOver ? 'drag-over' : ''} ${dbLoading ? 'disabled' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => !dbLoading && fileInputRef.current?.click()}
-          >
-            <div className="upload-content">
-              <div className="upload-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="12" y1="18" x2="12" y2="12" />
-                  <polyline points="9 15 12 12 15 15" />
-                </svg>
-              </div>
-              <div className="upload-text">
-                <strong>Drop RSched CSV export here</strong>
-                <br />
-                or click to browse
-                <br />
-                <small>Accepts .csv files exported from Resource Scheduler</small>
-              </div>
-            </div>
+          <div className="em-page-header">
+            <h2>RSched Mapper</h2>
+            <div className="em-page-header-subtitle">Map RSched CSV locations and categories to database entities</div>
           </div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-          />
-
-          <div className="rm-db-status">
-            <span className={`rm-db-status-dot ${dbLoading ? 'loading' : ''}`} />
-            {dbLoading
-              ? 'Loading database...'
-              : `${locations.length} locations, ${categories.length} categories loaded`
-            }
+          <div className="rm-tbd-banner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>This feature is under development and not yet functional. Check back soon.</span>
           </div>
         </>
       )}
 
       {step === 'review' && parsedData && (
         <>
-          {/* Stats row */}
-          <div className="rm-stats-row">
-            <div className="em-stat-card total">
-              <div className="em-stat-icon total">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              </div>
-              <div className="em-stat-content">
-                <h4>{parsedData.rows.length}</h4>
-                <p>Total Rows</p>
-              </div>
+          {/* Review header with actions */}
+          <div className="rm-review-header">
+            <div className="rm-review-header-left">
+              <h2>Mapping Review</h2>
+              <div className="em-page-header-subtitle">Verify matches, fix overrides, then export</div>
+              <div className="rm-parse-summary">{parsedData.rows.length} rows parsed from {fileName}</div>
             </div>
-
-            <div className="em-stat-card exact">
-              <div className="em-stat-icon exact">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="20 6 9 17 4 12" />
+            <div className="rm-review-header-right">
+              <button className="rm-header-btn" onClick={handleBack}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15 18 9 12 15 6" />
                 </svg>
-              </div>
-              <div className="em-stat-content">
-                <h4>{currentStats.exact}</h4>
-                <p>Exact Matches</p>
-              </div>
-            </div>
-
-            <div className="em-stat-card fuzzy">
-              <div className="em-stat-icon fuzzy">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                Back
+              </button>
+              <button className="rm-header-btn primary" onClick={handleExport}>
+                Export CSV
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-              </div>
-              <div className="em-stat-content">
-                <h4>{currentStats.fuzzy}</h4>
-                <p>Fuzzy Matches</p>
-              </div>
-            </div>
-
-            <div className="em-stat-card unmatched">
-              <div className="em-stat-icon unmatched">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="15" y1="9" x2="9" y2="15" />
-                  <line x1="9" y1="9" x2="15" y2="15" />
-                </svg>
-              </div>
-              <div className="em-stat-content">
-                <h4>{currentStats.unmatched}</h4>
-                <p>Unmatched</p>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -372,16 +323,34 @@ export default function RSchedMapper({ apiToken }) {
               className={`em-tab ${activeTab === 'locations' ? 'active' : ''}`}
               onClick={() => { setActiveTab('locations'); setActiveFilter('all'); }}
             >
-              Locations
-              <span className="em-tab-count">{locationStats.total}</span>
+              LOCATIONS ({locationStats.total})
             </button>
             <button
               className={`em-tab ${activeTab === 'categories' ? 'active' : ''}`}
               onClick={() => { setActiveTab('categories'); setActiveFilter('all'); }}
             >
-              Categories
-              <span className="em-tab-count">{categoryStats.total}</span>
+              CATEGORIES ({categoryStats.total})
             </button>
+          </div>
+
+          {/* Compact stats */}
+          <div className="rm-compact-stats">
+            <div className="rm-stat-item">
+              <span className="rm-stat-number total">{currentStats.total}</span>
+              <span className="rm-stat-label">TOTAL</span>
+            </div>
+            <div className="rm-stat-item">
+              <span className="rm-stat-number exact">{currentStats.exact}</span>
+              <span className="rm-stat-label">EXACT</span>
+            </div>
+            <div className="rm-stat-item">
+              <span className="rm-stat-number fuzzy">{currentStats.fuzzy}</span>
+              <span className="rm-stat-label">CLOSE</span>
+            </div>
+            <div className="rm-stat-item">
+              <span className="rm-stat-number unmatched">{currentStats.unmatched}</span>
+              <span className="rm-stat-label">ARCHIVE</span>
+            </div>
           </div>
 
           {/* Filter bar */}
@@ -394,7 +363,7 @@ export default function RSchedMapper({ apiToken }) {
                   className={`rm-filter-btn ${activeFilter === filter ? 'active' : ''}`}
                   onClick={() => setActiveFilter(filter)}
                 >
-                  {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                  {filterLabels[filter]}
                   <span className="rm-filter-count">{count}</span>
                 </button>
               );
@@ -406,10 +375,11 @@ export default function RSchedMapper({ apiToken }) {
             <table className="admin-table rm-match-table">
               <thead>
                 <tr>
-                  <th>Token</th>
-                  <th>Confidence</th>
-                  <th>Matched To</th>
-                  <th>Override</th>
+                  <th>CSV TOKEN</th>
+                  <th>CONFIDENCE</th>
+                  <th>{'\u2192 IDENTIFIER'}</th>
+                  <th>{'\u2192 DISPLAY NAME'}</th>
+                  <th>OVERRIDE</th>
                 </tr>
               </thead>
               <tbody>
@@ -425,7 +395,8 @@ export default function RSchedMapper({ apiToken }) {
                           {getBadgeLabel(match)}
                         </span>
                       </td>
-                      <td title={getMatchedName(match)}>{getMatchedName(match)}</td>
+                      <td><span className="rm-identifier">{getIdentifier(match)}</span></td>
+                      <td title={getDisplayName(match)}>{getDisplayName(match)}</td>
                       <td>
                         {activeTab === 'locations' ? (
                           <select
@@ -436,7 +407,7 @@ export default function RSchedMapper({ apiToken }) {
                             <option value="">-- Select location --</option>
                             {locations.map(loc => (
                               <option key={String(loc._id)} value={String(loc._id)}>
-                                {loc.name}{loc.rsKey ? ` (${loc.rsKey})` : ''}
+                                {loc.name}{loc.rsKey ? ` [${loc.rsKey}]` : ''}
                               </option>
                             ))}
                           </select>
@@ -461,31 +432,13 @@ export default function RSchedMapper({ apiToken }) {
 
                 {filteredTokens.length === 0 && (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-tertiary)' }}>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-tertiary)' }}>
                       No tokens match this filter
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          </div>
-
-          {/* Actions bar */}
-          <div className="rm-actions-bar">
-            <button className="rm-back-btn" onClick={handleBack}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-              Back
-            </button>
-            <button className="rm-export-btn" onClick={handleExport}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export Mapped CSV
-            </button>
           </div>
         </>
       )}

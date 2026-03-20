@@ -20,6 +20,7 @@ export function similarity(a, b) {
   const na = normalize(a);
   const nb = normalize(b);
   if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.85;
   if (na.length < 2 || nb.length < 2) return 0;
 
   const bigrams = (s) => {
@@ -47,78 +48,58 @@ export function similarity(a, b) {
  * Fallback when DB aliases[] don't cover legacy RSched names.
  */
 export const RSCHED_ALIASES = {
-  // Chapels
-  'Beth-El Chapel': 'CPL',
-  'Greenwald Chapel': 'CPL',
-  'Chapel': 'CPL',
-
-  // Sanctuary
-  'Sanctuary': 'SNC',
-  'Main Sanctuary': 'SNC',
-
-  // Isaac Mayer Wise Hall
-  'Isaac Mayer Wise Hall': 'IMW',
-  'IMW Hall': 'IMW',
-  'Wise Hall': 'IMW',
-  'IMW Kitchen': 'IMWK',
-
-  // Meeting rooms
-  'Board of Trustees Room': '800',
-  'Board Room': '800',
-  'Trustee Room': '800',
-  'Leventritt Room - 402': '402',
-  'Leventritt Room': '402',
-  '4th Floor Conf. Room': '405',
-  '405': '405',
-
-  // Lounges
-  '6th Floor Lounge - 602': '602',
-  '6th Floor Lounge': '602',
-  'Sixth Floor Lounge': '602',
-
-  // Halls
-  'Blumenthal Hall': 'BLU',
-  'Greenwald Hall': 'GRN',
-  'Skirball Hall': 'SKR',
-  'Leon Lowenstein': 'LOW',
-  'Lowenstein': 'LOW',
-  'Lowenstein Lobby': 'LOWL',
-
-  // Floors / Rooftops
-  '3rd Fl Play Roof': '3PR',
-  '9th Floor Rooftop': '9RF',
-
-  // Religious School / Nursery
-  'Nursery School': 'NS',
-  'Religious School': 'RS',
-  'Religious School Classroom': 'RS',
-  'Room 406 - Men\'s Club': '406',
-
-  // Museum
-  'Museum': 'MUS',
-  'Herbert & Eileen Bernard Museum': 'MUS',
-
-  // Library
-  'Library': 'LIB',
-  'Ivan M. Stettenheim Library': 'LIB',
-
-  // Young Families
-  'Young Families Suite': 'YFS',
-
-  // Virtual
-  'Virtual 1': 'VIRTUAL',
-  'Virtual': 'VIRTUAL',
-
-  // Other
-  'Levy Center': 'LEV',
-  'Kitchen': 'KIT',
-  'Lobby': 'LOB',
-  'Downtown': 'DT',
-
-  // Notes (non-room locations in RSched)
-  'Note1': 'NOTE',
-  'Note2': 'NOTE',
-  'Archive': 'ARCHIVE',
+  // Artifact-sourced aliases (lowercase keys, DB rsKey values)
+  'isaac mayer wise hall': 'IMW',
+  'ivan m. stettenheim library': 'LIB',
+  '6th floor lounge - 602': '602',
+  'leventritt room - 402': '402',
+  'little leventritt': '402A',
+  'glb kitchen': 'GLBK',
+  'glb playroom': 'GLB2',
+  'imw kitchen': 'IMWK',
+  'leon lowenstein': 'LOW',
+  'board of trustees room': '800',
+  '5th avenue lobby': '5thAve',
+  '1e65 lobby': '1E65',
+  'tpl choir loft': 'TLOFT',
+  '4th floor conf. room': '4th FL Conference',
+  '66th st': 'LLL',
+  '9th floor rooftop': '9ROOF',
+  'lowenstein lobby': 'LLL',
+  'skirball lounge': 'SKIR',
+  'room 423': 'YF Suite',
+  'room 424': '424',
+  'room 429 \u2013 teen lounge': '429',
+  'room 627': 'SKIR',
+  'young families suite': 'YF Suite',
+  'rabbis robing room': 'RRR',
+  'virtual 1': 'VIRTUAL',
+  'virtual 2': 'Livestream 2',
+  'virtual 3': 'LSGW',
+  'livestream 1': 'Livestream 1',
+  'livestream 2': 'Livestream 2',
+  'livestream 3': 'LSGW',
+  'religious school classroom': 'Religious School',
+  // Legacy aliases not in artifact but useful
+  'beth-el chapel': 'CPL',
+  'greenwald chapel': 'CPL',
+  'chapel': 'CPL',
+  'sanctuary': 'SNC',
+  'main sanctuary': 'SNC',
+  'blumenthal hall': 'BLU',
+  'greenwald hall': 'GRN',
+  'skirball hall': 'SKR',
+  'nursery school': 'NS',
+  'museum': 'MUS',
+  'herbert & eileen bernard museum': 'MUS',
+  'levy center': 'LEV',
+  'library': 'LIB',
+  'kitchen': 'KIT',
+  'lobby': 'LOB',
+  'downtown': 'DT',
+  'note1': 'NOTE',
+  'note2': 'NOTE',
+  'archive': 'ARCHIVE',
 };
 
 /**
@@ -156,7 +137,7 @@ export function buildLocationIndex(locations) {
   // These go into a separate map so DB aliases take priority
   const byHardcodedAlias = new Map();
   for (const [aliasName, rsKey] of Object.entries(RSCHED_ALIASES)) {
-    const loc = byRsKey.get(normalize(rsKey));
+    const loc = byRsKey.get(normalize(rsKey)) || byName.get(normalize(rsKey));
     if (loc) {
       byHardcodedAlias.set(normalize(aliasName), loc);
     }
@@ -207,6 +188,14 @@ export function findBestLocationMatch(token, locationIndex) {
     if (nameScore > bestScore) {
       bestScore = nameScore;
       best = loc;
+    }
+    // Also try rsKey
+    if (loc.rsKey) {
+      const rsKeyScore = similarity(token, loc.rsKey);
+      if (rsKeyScore > bestScore) {
+        bestScore = rsKeyScore;
+        best = loc;
+      }
     }
     // Also try displayName if different
     if (loc.displayName && loc.displayName !== loc.name) {
@@ -269,7 +258,8 @@ export function findBestCategoryMatch(token, categories) {
  * @returns {{ headers: string[], rows: object[], uniqueLocationTokens: string[], uniqueCategoryTokens: string[] }}
  */
 export function parseRSchedCSV(csvText) {
-  if (!csvText) return { headers: [], rows: [], uniqueLocationTokens: [], uniqueCategoryTokens: [] };
+  const empty = { headers: [], rows: [], uniqueLocationTokens: [], uniqueCategoryTokens: [], detectedColumns: { location: null, category: null } };
+  if (!csvText) return empty;
 
   // Strip BOM
   let text = csvText;
@@ -278,11 +268,16 @@ export function parseRSchedCSV(csvText) {
   }
 
   const lines = parseCSVLines(text);
-  if (lines.length === 0) {
-    return { headers: [], rows: [], uniqueLocationTokens: [], uniqueCategoryTokens: [] };
-  }
+  if (lines.length === 0) return empty;
 
   const headers = lines[0];
+
+  // Case-insensitive column detection (support common variants)
+  const LOCATION_NAMES = ['location', 'locations', 'resource', 'room'];
+  const CATEGORY_NAMES = ['categories', 'category'];
+  const locationCol = headers.find(h => LOCATION_NAMES.includes(h.toLowerCase().trim())) || null;
+  const categoryCol = headers.find(h => CATEGORY_NAMES.includes(h.toLowerCase().trim())) || null;
+
   const rows = [];
   const locationSet = new Set();
   const categorySet = new Set();
@@ -302,12 +297,22 @@ export function parseRSchedCSV(csvText) {
 
     rows.push(row);
 
-    // Collect unique tokens
-    const loc = (row.Location || '').trim();
-    if (loc) locationSet.add(loc);
+    // Collect unique tokens (split compound values on comma)
+    const locRaw = locationCol ? (row[locationCol] || '').trim() : '';
+    if (locRaw) {
+      for (const part of locRaw.split(',')) {
+        const trimmed = part.trim();
+        if (trimmed) locationSet.add(trimmed);
+      }
+    }
 
-    const cat = (row.Categories || '').trim();
-    if (cat) categorySet.add(cat);
+    const catRaw = categoryCol ? (row[categoryCol] || '').trim() : '';
+    if (catRaw) {
+      for (const part of catRaw.split(',')) {
+        const trimmed = part.trim();
+        if (trimmed) categorySet.add(trimmed);
+      }
+    }
   }
 
   return {
@@ -315,6 +320,7 @@ export function parseRSchedCSV(csvText) {
     rows,
     uniqueLocationTokens: [...locationSet].sort(),
     uniqueCategoryTokens: [...categorySet].sort(),
+    detectedColumns: { location: locationCol, category: categoryCol },
   };
 }
 
@@ -400,9 +406,13 @@ export function escapeCSV(val) {
  * @param {object[]} rows - parsed row objects
  * @param {object} locationMappings - { [token]: { location, score, method } | null }
  * @param {object} categoryMappings - { [token]: { category, score, method } | null }
+ * @param {object} [detectedColumns] - { location, category } column names from parseRSchedCSV
  * @returns {string} CSV text
  */
-export function buildMappedCSV(headers, rows, locationMappings, categoryMappings) {
+export function buildMappedCSV(headers, rows, locationMappings, categoryMappings, detectedColumns) {
+  const locationCol = detectedColumns?.location || 'Location';
+  const categoryCol = detectedColumns?.category || 'Categories';
+
   // Insert rsKey column after AllDayEvent
   const allDayIdx = headers.indexOf('AllDayEvent');
   const insertIdx = allDayIdx >= 0 ? allDayIdx + 1 : headers.length;
@@ -416,20 +426,30 @@ export function buildMappedCSV(headers, rows, locationMappings, categoryMappings
   const csvLines = [outputHeaders.map(escapeCSV).join(',')];
 
   for (const row of rows) {
-    const locToken = (row.Location || '').trim();
-    const catToken = (row.Categories || '').trim();
+    const locToken = (row[locationCol] || '').trim();
+    // Resolve rsKey from location mapping (handle compound locations)
+    let rsKey = '';
+    if (locToken) {
+      const parts = locToken.split(',');
+      const keys = parts
+        .map(p => {
+          const match = locationMappings[p.trim()];
+          return match?.location?.rsKey || '';
+        })
+        .filter(Boolean);
+      rsKey = keys.join(';');
+    }
 
-    // Resolve rsKey from location mapping
-    const locMatch = locToken ? locationMappings[locToken] : null;
-    const rsKey = locMatch?.location?.rsKey || '';
-
-    // Resolve category from category mapping
-    const catMatch = catToken ? categoryMappings[catToken] : null;
-    const resolvedCategory = catMatch?.category?.name || row.Categories || '';
+    // Resolve each category token independently and rejoin
+    const catTokens = (row[categoryCol] || '').split(',').map(c => c.trim()).filter(c => c);
+    const resolvedCategory = catTokens.map(token => {
+      const m = categoryMappings[token];
+      return m?.category?.name || token;
+    }).join(', ') || row[categoryCol] || '';
 
     const line = outputHeaders.map(h => {
       if (h === 'rsKey') return escapeCSV(rsKey);
-      if (h === 'Categories') return escapeCSV(resolvedCategory);
+      if (h === categoryCol) return escapeCSV(resolvedCategory);
       return escapeCSV(row[h] || '');
     });
 
