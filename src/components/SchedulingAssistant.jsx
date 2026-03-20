@@ -342,7 +342,7 @@ export default function SchedulingAssistant({
 
     // Create user event blocks (one per selected room)
     // This represents the event being created/edited across all locations
-    if (eventStartTime && eventEndTime) {
+    if ((eventStartTime && eventEndTime) || (setupTime && teardownTime)) {
       selectedRooms.forEach((room, roomIndex) => {
         // Check if user event has been manually dragged
         const adjustment = userEventAdjustment.current;
@@ -1023,33 +1023,16 @@ export default function SchedulingAssistant({
         const fmt = (date) =>
           `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
 
-        const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
-        // Treat "00:00" end time as end-of-day (it means midnight, not start-of-day)
-        const eventEnd   = eventEndTime === '00:00'
-          ? new Date(`${effectiveDate}T23:59:00`)
-          : new Date(`${effectiveDate}T${eventEndTime}`);
-        const setupDuration    = eventStart.getTime() - orig.startTime.getTime();
-        const teardownDuration = orig.endTime.getTime() - eventEnd.getTime();
-
         if (edge === 'end') {
           // Bottom handle: start is anchored, only end changes
+          // Block boundaries ARE reservation times — adjust directly
           let newBlockEnd = snapToQuarterHour(new Date(orig.endTime.getTime() + hourDelta * 3600000));
-          // Min end = event start + 15min (not block start, which may include setup)
-          const minEnd = new Date(eventStart.getTime() + 15 * 60 * 1000);
+          const minEnd = new Date(orig.startTime.getTime() + 15 * 60 * 1000);
           newBlockEnd = new Date(Math.max(minEnd.getTime(), Math.min(dayEnd.getTime(), newBlockEnd.getTime())));
 
-          const newEventEnd = new Date(newBlockEnd.getTime() - teardownDuration);
           const updatedTimes = {
-            endTime: fmt(newEventEnd),
+            reservationEndTime: fmt(newBlockEnd),
           };
-          // Only include optional times if they were originally set
-          if (setupTime) updatedTimes.setupTime = setupTime;
-          if (teardownTime) updatedTimes.teardownTime = fmt(newBlockEnd);
-          if (doorOpenTime) updatedTimes.doorOpenTime = doorOpenTime;
-          if (doorCloseTime) {
-            const doorCloseDuration = new Date(`${effectiveDate}T${doorCloseTime}`).getTime() - eventEnd.getTime();
-            updatedTimes.doorCloseTime = fmt(new Date(newEventEnd.getTime() + doorCloseDuration));
-          }
           if (onEventTimeChange) onEventTimeChange(updatedTimes);
 
           // Anchor the block position so the main useEffect rebuild preserves it
@@ -1062,26 +1045,17 @@ export default function SchedulingAssistant({
 
         } else {
           // Top handle: end is anchored, only start changes
+          // Block boundaries ARE reservation times — adjust directly
           let newBlockStart = snapToQuarterHour(new Date(orig.startTime.getTime() + hourDelta * 3600000));
-          // Max start = event end - 15min (not block end, which may include teardown)
-          const maxStart = new Date(eventEnd.getTime() - 15 * 60 * 1000);
+          const maxStart = new Date(orig.endTime.getTime() - 15 * 60 * 1000);
           newBlockStart = new Date(Math.max(dayStart.getTime(), Math.min(maxStart.getTime(), newBlockStart.getTime())));
 
-          const newEventStart = new Date(newBlockStart.getTime() + setupDuration);
           const newTop = (newBlockStart.getHours() + newBlockStart.getMinutes() / 60) * PIXELS_PER_HOUR;
           const newHeight = (orig.endTime.getTime() - newBlockStart.getTime()) / 3600000 * PIXELS_PER_HOUR;
 
           const updatedTimes = {
-            startTime: fmt(newEventStart),
+            reservationStartTime: fmt(newBlockStart),
           };
-          // Only include optional times if they were originally set
-          if (setupTime) updatedTimes.setupTime = fmt(newBlockStart);
-          if (teardownTime) updatedTimes.teardownTime = teardownTime;
-          if (doorCloseTime) updatedTimes.doorCloseTime = doorCloseTime;
-          if (doorOpenTime) {
-            const doorOpenDuration = eventStart.getTime() - new Date(`${effectiveDate}T${doorOpenTime}`).getTime();
-            updatedTimes.doorOpenTime = fmt(new Date(newEventStart.getTime() - doorOpenDuration));
-          }
           if (onEventTimeChange) onEventTimeChange(updatedTimes);
 
           // Anchor the block position so the main useEffect rebuild preserves it
@@ -1143,55 +1117,37 @@ export default function SchedulingAssistant({
 
         // Handle user event differently - sync across all tabs and update form
         if (draggedBlock.isUserEvent) {
-          // Calculate ALL time offsets from the original event times
-          const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
-          const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
+          // Block boundaries ARE reservation times — set them directly.
+          // Shift event/door times by the same delta to preserve their offset.
+          const delta = newStartTime.getTime() - draggedBlock.startTime.getTime();
 
-          // Calculate the original blocking times (from state)
-          const originalBlockStart = draggedBlock.startTime.getTime();
-          const originalBlockEnd = draggedBlock.endTime.getTime();
+          const updatedTimes = {
+            reservationStartTime: formatTime(newStartTime),
+            reservationEndTime: formatTime(newEndTime),
+          };
 
-          // Calculate durations/offsets for ALL time fields relative to event times
-          const setupDuration = eventStart.getTime() - originalBlockStart;
-          const teardownDuration = originalBlockEnd - eventEnd.getTime();
-
-          // Calculate door time offsets (if they exist)
-          let doorOpenDuration = 0;
-          let doorCloseDuration = 0;
-
+          // Shift event times by same delta if present
+          if (eventStartTime) {
+            const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
+            updatedTimes.startTime = formatTime(new Date(eventStart.getTime() + delta));
+          }
+          if (eventEndTime) {
+            const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
+            updatedTimes.endTime = formatTime(new Date(eventEnd.getTime() + delta));
+          }
           if (doorOpenTime) {
             const doorOpen = new Date(`${effectiveDate}T${doorOpenTime}`);
-            doorOpenDuration = eventStart.getTime() - doorOpen.getTime();
+            updatedTimes.doorOpenTime = formatTime(new Date(doorOpen.getTime() + delta));
           }
-
           if (doorCloseTime) {
             const doorClose = new Date(`${effectiveDate}T${doorCloseTime}`);
-            doorCloseDuration = doorClose.getTime() - eventEnd.getTime();
+            updatedTimes.doorCloseTime = formatTime(new Date(doorClose.getTime() + delta));
           }
 
-          // Apply the same durations to the new position to get ALL new times
-          const newEventStart = new Date(newStartTime.getTime() + setupDuration);
-          const newEventEnd = new Date(newEndTime.getTime() - teardownDuration);
-
-          // Calculate new door times by applying the same offsets
-          const newDoorOpenTime = doorOpenTime ? new Date(newEventStart.getTime() - doorOpenDuration) : null;
-          const newDoorCloseTime = doorCloseTime ? new Date(newEventEnd.getTime() + doorCloseDuration) : null;
-
           logger.debug('[Drag] User event time calculation:', {
-            originalBlockStart: new Date(originalBlockStart).toLocaleTimeString(),
-            originalBlockEnd: new Date(originalBlockEnd).toLocaleTimeString(),
-            originalEventStart: eventStart.toLocaleTimeString(),
-            originalEventEnd: eventEnd.toLocaleTimeString(),
-            setupDuration: setupDuration / 1000 / 60,
-            teardownDuration: teardownDuration / 1000 / 60,
-            doorOpenDuration: doorOpenDuration / 1000 / 60,
-            doorCloseDuration: doorCloseDuration / 1000 / 60,
+            delta: delta / 1000 / 60,
             newBlockStart: newStartTime.toLocaleTimeString(),
             newBlockEnd: newEndTime.toLocaleTimeString(),
-            newEventStart: newEventStart.toLocaleTimeString(),
-            newEventEnd: newEventEnd.toLocaleTimeString(),
-            newDoorOpen: newDoorOpenTime ? newDoorOpenTime.toLocaleTimeString() : 'N/A',
-            newDoorClose: newDoorCloseTime ? newDoorCloseTime.toLocaleTimeString() : 'N/A'
           });
 
           // Store adjustment for user event globally
@@ -1200,23 +1156,7 @@ export default function SchedulingAssistant({
             endTime: newEndTime
           };
 
-          // Notify parent form to update ALL time fields (event times AND all blocking/access times)
           if (onEventTimeChange) {
-            const updatedTimes = {
-              startTime: formatTime(newEventStart),
-              endTime: formatTime(newEventEnd),
-            };
-
-            // Only include optional times if they were originally set
-            if (setupTime) updatedTimes.setupTime = formatTime(newStartTime);
-            if (teardownTime) updatedTimes.teardownTime = formatTime(newEndTime);
-            if (doorOpenTime && newDoorOpenTime) {
-              updatedTimes.doorOpenTime = formatTime(newDoorOpenTime);
-            }
-            if (doorCloseTime && newDoorCloseTime) {
-              updatedTimes.doorCloseTime = formatTime(newDoorCloseTime);
-            }
-
             onEventTimeChange(updatedTimes);
           }
 
@@ -1697,20 +1637,20 @@ export default function SchedulingAssistant({
 
   // Handle time slot click
   const handleTimeSlotClick = (hour) => {
-    if (eventStartTime && eventEndTime) return; // Block already created
+    if (setupTime && teardownTime) return; // Block already created
 
     if (onTimeSlotClick) {
       onTimeSlotClick(hour);
     }
 
-    // Also set the event times (1-hour block)
+    // Set reservation times (1-hour block) — reservation times are required, event times are optional
     const startTime = `${String(hour).padStart(2, '0')}:00`;
     const endHour = Math.min(hour + 1, 23);
     const endMinute = hour >= 23 ? '59' : '00';
     const endTime = `${String(endHour).padStart(2, '0')}:${endMinute}`;
 
     if (onEventTimeChange) {
-      onEventTimeChange({ startTime, endTime });
+      onEventTimeChange({ reservationStartTime: startTime, reservationEndTime: endTime });
     }
 
     userEventAdjustment.current = null;
@@ -1720,7 +1660,7 @@ export default function SchedulingAssistant({
   // Handle click on events area (timeline)
   const handleEventsAreaClick = useCallback((e) => {
     if (disabled || draggingEventId) return;
-    if (eventStartTime && eventEndTime) return; // Block already created
+    if (setupTime && teardownTime) return; // Block already created
 
     // Get timeline position
     const timelineRect = timelineRef.current.getBoundingClientRect();
@@ -1752,7 +1692,7 @@ export default function SchedulingAssistant({
     const endTime = `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
 
     if (onEventTimeChange) {
-      onEventTimeChange({ startTime, endTime });
+      onEventTimeChange({ reservationStartTime: startTime, reservationEndTime: endTime });
     }
 
     userEventAdjustment.current = null;
@@ -1762,8 +1702,8 @@ export default function SchedulingAssistant({
   // Handle mouse move on events area for ghost preview
   const handleEventsAreaMouseMove = useCallback((e) => {
     if (disabled || draggingEventId) return;
-    // Only show ghost if event times are not already set (creation mode)
-    if (eventStartTime && eventEndTime) return;
+    // Only show ghost if reservation times are not already set (creation mode)
+    if (setupTime && teardownTime) return;
 
     const timelineRect = timelineRef.current.getBoundingClientRect();
     const cursorYInViewport = e.clientY - timelineRect.top;
@@ -1787,19 +1727,19 @@ export default function SchedulingAssistant({
       hour: hours,
       minute: minutes
     });
-  }, [disabled, draggingEventId, eventStartTime, eventEndTime, effectiveDate, PIXELS_PER_HOUR, END_HOUR, START_HOUR]);
+  }, [disabled, draggingEventId, setupTime, teardownTime, effectiveDate, PIXELS_PER_HOUR, END_HOUR, START_HOUR]);
 
   // Handle mouse leave on events area
   const handleEventsAreaMouseLeave = useCallback(() => {
     setHoverPreview(null);
   }, []);
 
-  // Clear hover preview when times are set
+  // Clear hover preview when reservation times are set
   useEffect(() => {
-    if (eventStartTime && eventEndTime) {
+    if (setupTime && teardownTime) {
       setHoverPreview(null);
     }
-  }, [eventStartTime, eventEndTime]);
+  }, [setupTime, teardownTime]);
 
   // Current time indicator — only shown when selectedDate is today
   const currentTimePosition = useMemo(() => {
