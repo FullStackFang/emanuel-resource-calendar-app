@@ -1653,7 +1653,7 @@ export default function RoomReservationFormBase({
               )}
             </div>
 
-            {/* Time Fields Stacked in Chronological Order */}
+            {/* Time Fields — Reservation times paired, Event times paired */}
             <div className="time-fields-stack">
               <div className={`form-group required-field ${isFieldValid('reservationStartTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="reservationStartTime">Reservation Start Time</label>
@@ -1673,6 +1673,26 @@ export default function RoomReservationFormBase({
                   className={hasFieldChanged('reservationStartTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the room reservation begins</div>
+              </div>
+
+              <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
+                <label htmlFor="reservationEndTime">Reservation End Time</label>
+                {hasFieldChanged('reservationEndTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationEndTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
+                <TimePickerInput
+                  id="reservationEndTime"
+                  name="reservationEndTime"
+                  value={formData.reservationEndTime}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
+                  required
+                  className={hasFieldChanged('reservationEndTime') ? 'input-changed' : ''}
+                />
+                <div className="help-text">When the room reservation ends</div>
               </div>
 
               <div className={`form-group ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
@@ -1711,26 +1731,6 @@ export default function RoomReservationFormBase({
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event ends (optional)</div>
-              </div>
-
-              <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="reservationEndTime">Reservation End Time</label>
-                {hasFieldChanged('reservationEndTime') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationEndTime'))}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <TimePickerInput
-                  id="reservationEndTime"
-                  name="reservationEndTime"
-                  value={formData.reservationEndTime}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled || formData.isAllDayEvent}
-                  required
-                  className={hasFieldChanged('reservationEndTime') ? 'input-changed' : ''}
-                />
-                <div className="help-text">When the room reservation ends</div>
               </div>
             </div>
 
