@@ -988,7 +988,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               {/* Card Header - Event Title + Actions */}
               <div className="rr-card-header">
                 <div className="rr-card-title-row">
-                  <h3 className="rr-card-title">{reservation.eventTitle}</h3>
+                  <h3 className="rr-card-title">{reservation.isHold ? `[Hold] ${reservation.eventTitle}` : reservation.eventTitle}</h3>
                   {(() => {
                     const badge = getStatusBadgeInfo(reservation);
                     return <span className={`rr-status-badge ${badge.className}`}>{badge.label}</span>;
@@ -1210,6 +1210,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+        isHold={reviewModal.isHold}
         // Recurring event data (for Conflicts tab)
         reservation={reviewModal.currentItem}
         // Inline diff data (flat-transformed for comparison with formData)
@@ -1235,6 +1236,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onTargetCalendarChange={setSelectedTargetCalendar}
             createCalendarEvent={createCalendarEvent}
             onCreateCalendarEventChange={setCreateCalendarEvent}
+            onHoldChange={reviewModal.setIsHold}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
               setHasSchedulingConflicts(hasConflicts);
               setSchedulingConflictInfo(conflictInfo || null);

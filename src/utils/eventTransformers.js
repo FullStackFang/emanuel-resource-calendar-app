@@ -263,6 +263,7 @@ export function transformEventToFlatStructure(event) {
     reservationEndTime,
     reservationStartMinutes: getField(event, 'reservationStartMinutes', 0),
     reservationEndMinutes: getField(event, 'reservationEndMinutes', 0),
+    isHold: !startTime && !endTime && !!(reservationStartTime || reservationEndTime),
 
     // Internal notes from calendarData (authoritative) or roomReservationData
     setupNotes: getField(event, 'setupNotes') || event.roomReservationData?.internalNotes?.setupNotes || '',

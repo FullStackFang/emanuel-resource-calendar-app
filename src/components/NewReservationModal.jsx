@@ -35,6 +35,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftId, setDraftId] = useState(null);
   const [isDraftConfirming, setIsDraftConfirming] = useState(false);
+  const [isHold, setIsHold] = useState(false);
 
   // Build reservation object for RoomReservationReview (same pattern as Calendar.jsx handleDayCellClick)
   const newReservation = useMemo(() => {
@@ -415,6 +416,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         isSaving={isSaving}
         isSaveConfirming={isConfirming}
         onCancelSave={() => setIsConfirming(false)}
+        isHold={isHold}
         showTabs={true}
       >
         {isOpen && (
@@ -427,6 +429,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
             }}
             onFormDataReady={(getter) => { formDataGetterRef.current = getter; }}
             onFormValidChange={setIsFormValid}
+            onHoldChange={setIsHold}
             readOnly={false}
           />
         )}

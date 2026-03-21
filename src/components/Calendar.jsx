@@ -7492,6 +7492,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isLoadingData={reviewModal.isLoadingData}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+          isHold={reviewModal.isHold}
           reservation={reviewModal.currentItem}
           onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
           savingPendingEdit={savingPendingEdit}
@@ -7519,6 +7520,7 @@ import ConflictDialog from './shared/ConflictDialog';
                 setHasSchedulingConflicts(hasConflicts);
                 setSchedulingConflictInfo(conflictInfo || null);
               }}
+              onHoldChange={reviewModal.setIsHold}
             />
           )}
         </ReviewModal>

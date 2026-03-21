@@ -265,7 +265,10 @@ export default function EventManagement({ apiToken }) {
 
   // Get event title
   const getTitle = (event) => {
-    return event.calendarData?.eventTitle || event.eventTitle || event.graphData?.subject || 'Untitled Event';
+    const title = event.calendarData?.eventTitle || event.eventTitle || event.graphData?.subject || 'Untitled Event';
+    const cd = event.calendarData;
+    const isHold = cd && !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
+    return isHold ? `[Hold] ${title}` : title;
   };
 
   // Handle delete (admin)

@@ -66,6 +66,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Form validity state (controlled by child form component)
   const [isFormValid, setIsFormValid] = useState(true);
 
+  // Hold status (no event times but has reservation times — event will display as [Hold])
+  const [isHold, setIsHold] = useState(false);
+
   // Draft-specific state
   const [isDraft, setIsDraft] = useState(false);
   const [draftId, setDraftId] = useState(null);
@@ -256,6 +259,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
+    setIsHold(false); // Reset hold state
     setHasUncommittedRecurrence(false); // Reset recurrence warning state
     setShowRecurrenceWarning(false);
   }, [hasChanges, isDraft, currentItem]);
@@ -1226,6 +1230,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     editableData,
     hasChanges,
     isFormValid,
+    isHold,
     isSaving,
     isDeleting,
     isApproving,
@@ -1261,6 +1266,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     updateData,
     updateCurrentItem, // Swap current item (e.g., occurrence -> master) with forced remount
     setIsFormValid,
+    setIsHold,
     setFormDataGetter, // Set form data getter for live form data access
     getFormData, // Get live form data (for edit request handlers in parent components)
     handleSave,

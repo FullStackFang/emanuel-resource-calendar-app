@@ -1092,7 +1092,7 @@ export default function MyReservations({ apiToken }) {
               {/* Card Header - Event Title + Actions */}
               <div className="mr-card-header">
                 <div className="mr-card-title-row">
-                  <h3 className="mr-card-title">{reservation.eventTitle || 'Untitled'}</h3>
+                  <h3 className="mr-card-title">{reservation.isHold ? `[Hold] ${reservation.eventTitle || 'Untitled'}` : reservation.eventTitle || 'Untitled'}</h3>
                   <span className={`status-badge ${getStatusBadgeInfo(reservation).className}`}>
                     {getStatusBadgeInfo(reservation).label}
                   </span>
@@ -1363,6 +1363,7 @@ export default function MyReservations({ apiToken }) {
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+        isHold={reviewModal.isHold}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
       >
@@ -1382,6 +1383,7 @@ export default function MyReservations({ apiToken }) {
               setHasSchedulingConflicts(hasConflicts);
               setSchedulingConflictInfo(conflictInfo || null);
             }}
+            onHoldChange={reviewModal.setIsHold}
           />
         )}
       </ReviewModal>

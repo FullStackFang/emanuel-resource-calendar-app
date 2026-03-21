@@ -55,6 +55,7 @@ export default function RoomReservationReview({
   isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
   originalData = null, // Original form data for comparison in edit request mode (Option C inline diff)
   onSchedulingConflictsChange = null, // Callback when scheduling conflicts change: (hasConflicts) => void
+  onHoldChange = null, // Callback when hold status changes: (isHold) => void
   onRecurrenceExists = null, // Callback when recurrence pattern exists/changes: (hasRecurrence) => void (injected by ReviewModal via cloneElement)
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
   createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
@@ -481,6 +482,7 @@ export default function RoomReservationReview({
           isViewingEditRequest={isViewingEditRequest}
           originalData={originalData}
           onConflictChange={handleConflictChange}
+          onHoldChange={onHoldChange}
           externalRecurrencePattern={recurrencePattern}
           onRecurrencePatternChange={handleRecurrencePatternChange}
           renderAdditionalContent={() => (

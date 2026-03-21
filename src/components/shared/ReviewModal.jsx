@@ -151,6 +151,7 @@ export default function ReviewModal({
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
+  isHold = false, // No event times — will display as [Hold]
   // Recurring event data (for Recurrence tab)
   reservation = null,
   // Recurrence tab props (auto-detected from reservation if not explicitly set)
@@ -334,6 +335,13 @@ export default function ReviewModal({
               >
                 {useUnifiedForm ? 'New Form' : 'Legacy Form'}
               </button>
+            )}
+
+            {/* Hold warning - displayed on left near title/status */}
+            {isHold && (
+              <span className="hold-warning">
+                ⚠ No event times — will display as [Hold]
+              </span>
             )}
           </div>
 
@@ -615,7 +623,7 @@ export default function ReviewModal({
                     onClick={onApprove}
                     disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
                   >
-                    {isApproving ? 'Publishing...' : (isApproveConfirming ? 'Confirm Publish?' : 'Publish')}
+                    {isApproving ? 'Publishing...' : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
                   </button>
                   {isApproveConfirming && onCancelApprove && (
                     <button
@@ -728,7 +736,7 @@ export default function ReviewModal({
                     {isSaving
                       ? 'Submitting...'
                       : localConfirming === 'submitDraft'
-                        ? 'Confirm Submit?'
+                        ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?')
                         : 'Submit Request'}
                   </button>
                   {localConfirming === 'submitDraft' && (
@@ -821,7 +829,7 @@ export default function ReviewModal({
                     onClick={onSave}
                     disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
                   >
-                    {isSaving ? 'Submitting...' : (isSaveConfirming ? 'Confirm Submit?' : 'Submit Request')}
+                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?') : 'Submit Request')}
                   </button>
                   {isSaveConfirming && onCancelSave && (
                     <button
@@ -893,7 +901,6 @@ export default function ReviewModal({
                   ⚠ Pending Edit Conflicts
                 </span>
               )}
-
               <button
                 type="button"
                 className="action-btn cancel-btn"

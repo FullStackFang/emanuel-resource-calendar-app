@@ -179,6 +179,11 @@ function getDefaultCalendarOwner() {
   ).toLowerCase();
 }
 
+function buildGraphSubject(title, startTime, endTime) {
+  const base = title || 'Untitled Event';
+  return (startTime && endTime) ? base : `[Hold] ${base}`;
+}
+
 
 // Middleware
 app.use(compression({ threshold: 1024 })); // Compress responses > 1KB
@@ -5368,9 +5373,11 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
           timeZone: 'America/New_York'
         };
       }
-      // Also populate top-level subject for frontend compatibility
-      if (!event.subject && event.calendarData?.eventTitle) {
-        event.subject = event.calendarData.eventTitle;
+      // Always recompute subject from calendarData to ensure [Hold] prefix is current
+      if (event.calendarData?.eventTitle) {
+        const cd = event.calendarData;
+        const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
+        event.subject = isHold ? `[Hold] ${cd.eventTitle}` : cd.eventTitle;
       }
       // Also populate top-level categories for frontend compatibility
       if (!event.categories && event.calendarData?.categories) {
@@ -5913,7 +5920,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         ...event,  // Spread all MongoDB fields directly
         // Add frontend compatibility wrappers
         id: event.eventId || event._id?.toString(),
-        subject: event.calendarData?.eventTitle || event.graphData?.subject || '(No Subject)',
+        subject: event.subject || event.calendarData?.eventTitle || event.graphData?.subject || '(No Subject)',
         start: {
           dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
           timeZone: eventTimezone
@@ -14117,7 +14124,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       // Create Graph calendar event
       const locationDisplayNames = cd.locationDisplayNames || draft.graphData?.location?.displayName || '';
       const graphEventData = {
-        subject: cd.eventTitle || 'Untitled Event',
+        subject: buildGraphSubject(cd.eventTitle, cd.startTime, cd.endTime),
         start: {
           dateTime: cd.startDateTime instanceof Date ? cd.startDateTime.toISOString() : cd.startDateTime,
           timeZone: 'America/New_York'
@@ -19085,7 +19092,11 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         // Build Graph API format on-the-fly instead of relying on graphData
         const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
         const graphEventData = {
-          subject: event.calendarData?.eventTitle || event.graphData?.subject || 'Untitled Event',
+          subject: buildGraphSubject(
+            event.calendarData?.eventTitle || event.graphData?.subject,
+            event.calendarData?.startTime,
+            event.calendarData?.endTime
+          ),
           start: {
             dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
             timeZone: eventTimezone
@@ -21482,7 +21493,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Build Graph API update with ONLY Graph-compatible fields
         // Use calendarData (cd) as fallback source (defined earlier in this function)
         const graphUpdate = {
-          subject: updates.eventTitle || cd.eventTitle || event.graphData?.subject,
+          subject: buildGraphSubject(
+            updates.eventTitle || cd.eventTitle || event.graphData?.subject,
+            updates.startTime !== undefined ? updates.startTime : cd.startTime,
+            updates.endTime !== undefined ? updates.endTime : cd.endTime
+          ),
           start: {
             dateTime: resolvedStartDateTime,
             timeZone: updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'

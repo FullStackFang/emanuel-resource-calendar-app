@@ -103,6 +103,7 @@ export default function RoomReservationFormBase({
   isViewingEditRequest = false, // When true, show inline diffs but keep form read-only
   originalData = null,          // Original form data for comparison (shows strikethrough when changed)
   onConflictChange = null,      // Callback when scheduling conflicts change: (hasConflicts, totalConflicts) => void
+  onHoldChange = null,          // Callback when hold status changes: (isHold) => void
 
   // Lifted recurrence state (from RoomReservationReview) — when provided, these override internal state
   externalRecurrencePattern = undefined,     // Recurrence pattern object or null
@@ -403,6 +404,16 @@ export default function RoomReservationFormBase({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingEventId]);
+
+  // Notify parent when hold status changes (no event times but has reservation times)
+  useEffect(() => {
+    if (onHoldChange) {
+      const isHold = !formData.startTime && !formData.endTime &&
+                     !!(formData.reservationStartTime || formData.reservationEndTime);
+      onHoldChange(isHold);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.startTime, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
 
   // Notify parent when availability changes
   // Note: callback intentionally excluded from deps to prevent render loop
