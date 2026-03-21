@@ -521,11 +521,6 @@
   color: var(--color-error-700);
 }
 
-.my-reservations .status-cancelled {
-  background: var(--color-neutral-100);
-  color: var(--color-neutral-600);
-}
-
 .my-reservations .status-deleted {
   background: var(--color-neutral-200);
   color: var(--color-neutral-500);

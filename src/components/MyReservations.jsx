@@ -52,8 +52,6 @@ export default function MyReservations({ apiToken }) {
   });
 
   // Local state for requester actions in ReviewModal
-  const [cancelRequestReason, setCancelRequestReason] = useState('');
-  const [isCancellingRequest, setIsCancellingRequest] = useState(false);
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
@@ -220,7 +218,6 @@ export default function MyReservations({ apiToken }) {
     if (!reviewModal.isOpen) {
       setIsEditRequestMode(false);
       setEditRequestChangeReason('');
-      setCancelRequestReason('');
       setHasSchedulingConflicts(false);
       setSavingPendingEdit(false);
       setSubmittingEditRequest(false);
@@ -459,8 +456,6 @@ export default function MyReservations({ apiToken }) {
           return r.status === 'published' && r.pendingEditRequest?.status === 'pending';
         case 'rejected':
           return r.status === 'rejected';
-        case 'cancelled':
-          return r.status === 'cancelled';
         case 'deleted':
           return r.status === 'deleted';
         default:
@@ -526,9 +521,6 @@ export default function MyReservations({ apiToken }) {
     if (reservation.status === 'rejected') {
       return { label: 'Rejected', className: 'status-rejected' };
     }
-    if (reservation.status === 'cancelled') {
-      return { label: 'Cancelled', className: 'status-cancelled' };
-    }
     if (reservation.status === 'deleted') {
       return { label: 'Deleted', className: 'status-deleted' };
     }
@@ -557,40 +549,6 @@ export default function MyReservations({ apiToken }) {
   };
 
   // --- Requester action handlers (local, not in hook) ---
-
-  // Cancel Request (requester, pending events) — used by ReviewModal's onCancelRequest button
-  const handleCancelRequest = useCallback(async () => {
-    const item = reviewModal.currentItem;
-    if (!item) return;
-    if (!cancelRequestReason.trim()) {
-      showWarning('Please enter a cancellation reason');
-      return;
-    }
-
-    setIsCancellingRequest(true);
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/cancel`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ reason: cancelRequestReason, _version: item._version || null })
-      });
-
-      if (!response.ok) throw new Error('Failed to cancel reservation');
-
-      showSuccess(`"${item.eventTitle}" has been cancelled`);
-      setCancelRequestReason('');
-      reviewModal.closeModal(true);
-      loadMyReservations();
-    } catch (err) {
-      logger.error('Error cancelling reservation:', err);
-      showError(err, { context: 'MyReservations.handleCancelRequest' });
-    } finally {
-      setIsCancellingRequest(false);
-    }
-  }, [reviewModal, cancelRequestReason, apiToken, loadMyReservations, showSuccess, showWarning, showError]);
 
   // Resubmit (requester, rejected events) — used by ReviewModal's onResubmit button
   const handleResubmit = useCallback(async () => {
@@ -621,7 +579,7 @@ export default function MyReservations({ apiToken }) {
     }
   }, [reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
 
-  // Restore (owner, deleted/cancelled events) — used by ReviewModal's onRestore button
+  // Restore (owner, deleted events) — used by ReviewModal's onRestore button
   const handleRestore = useCallback(async () => {
     const item = reviewModal.currentItem;
     if (!item) return;
@@ -1046,7 +1004,6 @@ export default function MyReservations({ apiToken }) {
               <option value="published">Published</option>
               <option value="published_edit">Edit Requested</option>
               <option value="rejected">Rejected</option>
-              <option value="cancelled">Cancelled</option>
               <option value="deleted">Deleted</option>
             </select>
           </div>
@@ -1259,7 +1216,7 @@ export default function MyReservations({ apiToken }) {
         onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}
         onReject={!isRequesterOnly ? reviewModal.handleReject : null}
         onSave={!isRequesterOnly && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
-        onDelete={!isRequesterOnly ? reviewModal.handleDelete : null}
+        onDelete={(!isRequesterOnly || reviewModal.currentItem?.status === 'pending') ? reviewModal.handleDelete : null}
         // Mode and status
         mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
         isPending={reviewModal.currentItem?.status === 'pending'}
@@ -1296,14 +1253,13 @@ export default function MyReservations({ apiToken }) {
         onRejectionReasonChange={reviewModal.setRejectionReason}
         isSaveConfirming={reviewModal.pendingSaveConfirmation}
         onCancelSave={reviewModal.cancelSaveConfirmation}
-        // Requester action buttons (Phase 2 props)
-        onCancelRequest={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleCancelRequest : null}
-        isCancellingRequest={isCancellingRequest}
-        cancelRequestReason={cancelRequestReason}
-        onCancelRequestReasonChange={setCancelRequestReason}
+        // Delete reason (for owner-pending delete)
+        deleteReason={reviewModal.deleteReason}
+        onDeleteReasonChange={reviewModal.setDeleteReason}
+        // Requester action buttons
         onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
         isResubmitting={isResubmitting}
-        onRestore={isRequesterOnly && ['deleted', 'cancelled'].includes(reviewModal.currentItem?.status) ? handleRestore : null}
+        onRestore={isRequesterOnly && reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}
         isRestoring={isRestoring}
         // Owner pending edit (requester editing their own pending event)
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}

@@ -544,7 +544,7 @@ class MCPToolExecutor {
     const query = {
       ...dateQuery,
       isDeleted: { $ne: true },
-      status: { $nin: ['rejected', 'deleted', 'cancelled'] }
+      status: { $nin: ['rejected', 'deleted'] }
     };
 
     if (searchText) {
@@ -779,7 +779,7 @@ class MCPToolExecutor {
         }
       ],
       isDeleted: { $ne: true },
-      status: { $nin: ['rejected', 'deleted', 'cancelled', 'draft'] }
+      status: { $nin: ['rejected', 'deleted', 'draft'] }
     }).toArray();
 
     logger.info(`[MCP] checkAvailability found ${conflicts.length} conflicts`);
@@ -899,7 +899,7 @@ class MCPToolExecutor {
         ]}
       ],
       isDeleted: { $ne: true },
-      status: { $nin: ['rejected', 'deleted', 'cancelled', 'draft'] }
+      status: { $nin: ['rejected', 'deleted', 'draft'] }
     };
 
     // Add category filter

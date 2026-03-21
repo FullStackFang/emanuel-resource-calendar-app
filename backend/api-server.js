@@ -5235,7 +5235,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     if (role === 'approver' || role === 'admin') {
       // Approvers and admins can see all pending events + their own drafts
       query.$or = [
-        { status: { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] } },
+        { status: { $nin: ['rejected', 'deleted', 'draft'] } },
         // Include user's own drafts
         ...(ownerEmailConditions.length > 0 ? [{
           status: 'draft',
@@ -5246,7 +5246,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       // Requesters can see published events + their own pending events + their own drafts
       query.$or = [
         // Published events (visible to everyone)
-        { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+        { status: { $nin: ['rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
         // Pending events created by this user
         {
           status: { $in: ['pending', 'room-reservation-request'] },
@@ -5261,7 +5261,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     } else {
       // Viewers can only see published events + their own drafts
       query.$or = [
-        { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+        { status: { $nin: ['rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
         ...(ownerEmailConditions.length > 0 ? [{
           status: 'draft',
           $or: ownerEmailConditions
@@ -6583,15 +6583,14 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
           pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
           published: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'published'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
           rejected: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'rejected'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          cancelled: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'cancelled'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
           draft: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'draft'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
           deleted: { $sum: { $cond: [{ $or: [{ $eq: ['$status', 'deleted'] }, { $eq: ['$isDeleted', true] }] }, 1, 0] } }
         }}
       ];
 
       const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
-      const counts = result || { pending: 0, published: 0, rejected: 0, cancelled: 0, draft: 0, deleted: 0 };
-      const all = counts.pending + counts.published + counts.rejected + counts.cancelled + counts.draft;
+      const counts = result || { pending: 0, published: 0, rejected: 0, draft: 0, deleted: 0 };
+      const all = counts.pending + counts.published + counts.rejected + counts.draft;
       res.json({ all, ...counts });
 
     } else if (view === 'approval-queue') {
@@ -13137,7 +13136,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     if (roomObjectIds.length > 0) {
       allEvents = await unifiedEventsCollection.find({
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
-        status: { $nin: ['draft', 'pending', 'rejected', 'cancelled', 'deleted'] },  // Only published reservations and Graph events (no status) block scheduling
+        status: { $nin: ['draft', 'pending', 'rejected', 'deleted'] },  // Only published reservations and Graph events (no status) block scheduling
         'calendarData.startDateTime': { $lt: end },
         'calendarData.endDateTime': { $gt: start },
         // Match both ObjectId format (room reservations) and string format (unified form events)
@@ -14444,14 +14443,14 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     const { _version } = req.body || {};
 
-    // Find the deleted or cancelled reservation
+    // Find the deleted reservation
     const reservation = await unifiedEventsCollection.findOne({
       _id: new ObjectId(reservationId),
-      status: { $in: ['deleted', 'cancelled'] }
+      status: 'deleted'
     });
 
     if (!reservation) {
-      return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
+      return res.status(404).json({ error: 'Deleted reservation not found' });
     }
 
     // Validate ownership using roomReservationData.requestedBy.email (case-insensitive)
@@ -15451,107 +15450,6 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
   } catch (error) {
     logger.error('Error fetching reservation audit history:', error);
     res.status(500).json({ error: 'Failed to fetch audit history' });
-  }
-});
-
-/**
- * Cancel a room reservation (users can only cancel their own pending reservations)
- * Now queries unified events collection (templeEvents__Events)
- */
-app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
-  try {
-    const reservationId = req.params.id;
-    const userId = req.user.userId;
-    const { reason, _version } = req.body;
-
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: 'Cancellation reason is required' });
-    }
-
-    // Query from unified events collection
-    const event = await unifiedEventsCollection.findOne({
-      _id: new ObjectId(reservationId),
-      roomReservationData: { $exists: true, $ne: null }
-    });
-
-    if (!event) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Only allow users to cancel their own reservations (check unified field path)
-    if (event.roomReservationData?.requestedBy?.userId !== userId) {
-      return res.status(403).json({ error: 'You can only cancel your own reservation requests' });
-    }
-
-    // Only allow cancellation of pending requests (support both status values)
-    if (event.status !== 'pending' && event.status !== 'room-reservation-request') {
-      return res.status(400).json({ error: 'Only pending reservations can be cancelled' });
-    }
-
-    // Atomically cancel with version guard
-    let cancelledEvent;
-    try {
-      cancelledEvent = await conditionalUpdate(
-        unifiedEventsCollection,
-        { _id: new ObjectId(reservationId) },
-        {
-          $set: {
-            status: 'cancelled',
-            'roomReservationData.cancelReason': reason.trim(),
-            'roomReservationData.cancelledAt': new Date(),
-            'roomReservationData.cancelledBy': userId,
-          },
-          $push: {
-            statusHistory: {
-              status: 'cancelled',
-              changedAt: new Date(),
-              changedBy: userId,
-              changedByEmail: req.user.email,
-              reason: reason.trim()
-            }
-          }
-        },
-        {
-          expectedVersion: _version || null,
-          expectedStatus: event.status,
-          modifiedBy: req.user.email,
-          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
-        }
-      );
-    } catch (err) {
-      if (err.statusCode === 409) {
-        return res.status(409).json(err.toJSON());
-      }
-      throw err;
-    }
-
-    // Log audit entry for cancellation
-    await logReservationAudit({
-      reservationId: new ObjectId(reservationId),
-      userId: userId,
-      userEmail: req.user.email,
-      changeType: 'cancel',
-      source: 'User Cancellation',
-      metadata: {
-        reason: reason.trim()
-      }
-    });
-
-    logger.info('Room reservation cancelled:', {
-      reservationId,
-      cancelledBy: userId,
-      reason: reason
-    });
-
-    res.json({
-      message: 'Reservation cancelled successfully',
-      reservationId,
-      status: 'cancelled',
-      _version: cancelledEvent._version
-    });
-  } catch (error) {
-    logger.error('Error cancelling room reservation:', error);
-    res.status(500).json({ error: 'Failed to cancel reservation' });
   }
 });
 
@@ -22370,17 +22268,18 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check permissions (approver+ can delete with scoping rules)
     const user = await usersCollection.findOne({ userId });
     const isAdminUser = isAdmin(user, userEmail);
+    const isApprover = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!isAdminUser && !isApprover) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const id = req.params.id;
     // Note: graphToken is no longer needed - using app-only auth via graphApiService
-    const { editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId, _version } = req.body;
+    const { editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId, _version, reason } = req.body;
 
     logger.log('DELETE request params:', {
       mongoId: id,
@@ -22396,6 +22295,23 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     if (!event) {
       logger.log('❌ Event not found in MongoDB:', id);
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Approver scoping: own events (any status) or any published event
+    // Admins can delete anything
+    if (!isAdminUser) {
+      const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+      const isOwner = ownerEmail === (userEmail || '').toLowerCase();
+      if (!isOwner && event.status !== 'published') {
+        return res.status(403).json({ error: 'Approvers can only delete their own events or published events' });
+      }
+    }
+
+    // Reason required when owner deletes own pending event (replaces old cancel flow)
+    const ownerEmailForReason = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+    const isOwnerForReason = ownerEmailForReason === (userEmail || '').toLowerCase();
+    if (isOwnerForReason && event.status === 'pending' && (!reason || !reason.trim())) {
+      return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
     }
 
     // Validate seriesMasterId matches stored event to prevent targeting arbitrary Graph events
@@ -22703,7 +22619,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
               changedAt: new Date(),
               changedBy: userId,
               changedByEmail: userEmail,
-              reason: 'Deleted by admin'
+              reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : 'Deleted by approver')
             }
           }
         },
@@ -22729,8 +22645,11 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       newStatus: 'deleted'
     });
 
-    // Step 4: Send deletion notification to requester (only for previously-published events)
-    if (event.status === 'published') {
+    // Step 4: Send deletion notification to requester
+    // Fires for published events OR when someone else deletes the requester's event
+    const requesterEmailForNotif = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+    const isThirdPartyDelete = requesterEmailForNotif && requesterEmailForNotif !== (userEmail || '').toLowerCase();
+    if (event.status === 'published' || isThirdPartyDelete) {
       try {
         const cd = event.calendarData || {};
         const requestedBy = event.roomReservationData?.requestedBy || {};
@@ -22770,7 +22689,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           emailResult,
           'deletion_notification',
           [reservationForEmail.requesterEmail],
-          `Event Cancelled: ${reservationForEmail.eventTitle}`
+          `Event Deleted: ${reservationForEmail.eventTitle}`
         );
       } catch (emailError) {
         logger.error('Deletion email notification failed:', {

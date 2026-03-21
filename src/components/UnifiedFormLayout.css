@@ -87,11 +87,6 @@
   color: var(--color-error-600);
 }
 
-.status-cancelled {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
 /* ==========================================================================
    UNSAVED CHANGES INDICATOR
    ========================================================================== */

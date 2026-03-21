@@ -939,16 +939,6 @@
   background: var(--color-error-500);
 }
 
-.status-cancelled {
-  background: var(--color-neutral-100);
-  color: var(--text-secondary);
-  border: 1px solid var(--color-neutral-200);
-}
-
-.status-cancelled::before {
-  background: var(--color-neutral-400);
-}
-
 .status-deleted {
   background: var(--color-neutral-200);
   color: var(--text-tertiary);

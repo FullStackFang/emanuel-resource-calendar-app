@@ -88,12 +88,12 @@ describe('Concurrency Integration Tests', () => {
 
       expect(result.status).toBe('published');
 
-      // Cancel attempt fails (status is no longer 'pending')
+      // Delete attempt fails (status is no longer 'pending')
       await expect(
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { status: 'cancelled', cancelledBy: 'user@test.com' } },
+          { $set: { status: 'deleted', isDeleted: true, deletedBy: 'user@test.com' } },
           { expectedVersion: 1, expectedStatus: 'pending', modifiedBy: 'user@test.com' }
         )
       ).rejects.toMatchObject({

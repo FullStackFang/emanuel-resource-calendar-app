@@ -284,11 +284,6 @@
   color: var(--color-error-700);
 }
 
-.status-cancelled {
-  background-color: var(--color-neutral-100);
-  color: var(--color-neutral-600);
-}
-
 .status-draft {
   background-color: var(--color-neutral-100);
   color: var(--color-neutral-600);

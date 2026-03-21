@@ -122,15 +122,13 @@ export default function ReviewModal({
   isCancelEditRequestConfirming = false,
   onCancelCancelEditRequest = null,
   // Requester action buttons (opt-in, for MyReservations)
-  // Cancel Request (requester, pending events)
-  onCancelRequest = null,
-  isCancellingRequest = false,
-  cancelRequestReason = '',
-  onCancelRequestReasonChange = null,
+  // Delete reason (for owner-pending delete)
+  deleteReason = '',
+  onDeleteReasonChange = null,
   // Resubmit (requester, rejected events)
   onResubmit = null,
   isResubmitting = false,
-  // Restore (owner, deleted/cancelled events)
+  // Restore (owner, deleted events)
   onRestore = null,
   isRestoring = false,
   // Pending edit props (for editing pending events directly)
@@ -201,7 +199,6 @@ export default function ReviewModal({
       case 'pending': return 'status-pending';
       case 'published': return 'status-published';
       case 'rejected': return 'status-rejected';
-      case 'cancelled': return 'status-cancelled';
       case 'draft': return 'status-draft';
       default: return '';
     }
@@ -505,16 +502,16 @@ export default function ReviewModal({
                     </button>
                   )}
 
-              {/* Cancel Request button — requester, pending events */}
-              {isRequesterOnly && itemStatus === 'pending' && onCancelRequest && !isEditRequestMode && !isViewingEditRequest && (
+              {/* Withdraw Request button — requester, pending events (delete with reason) */}
+              {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
                 <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {localConfirming === 'cancelRequest' && (
+                  {isDeleteConfirming && (
                     <input
                       type="text"
-                      placeholder="Cancellation reason (required)"
-                      value={cancelRequestReason}
-                      onChange={(e) => onCancelRequestReasonChange?.(e.target.value)}
-                      disabled={isCancellingRequest}
+                      placeholder="Reason for withdrawal (required)"
+                      value={deleteReason}
+                      onChange={(e) => onDeleteReasonChange?.(e.target.value)}
+                      disabled={isDeleting}
                       style={{
                         padding: '6px 10px',
                         borderRadius: '4px',
@@ -527,17 +524,17 @@ export default function ReviewModal({
                   )}
                   <button
                     type="button"
-                    className={`action-btn reject-btn ${localConfirming === 'cancelRequest' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('cancelRequest', onCancelRequest)}
-                    disabled={isCancellingRequest || (localConfirming === 'cancelRequest' && !cancelRequestReason?.trim()) || (anyConfirming && localConfirming !== 'cancelRequest')}
+                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                    onClick={onDelete}
+                    disabled={isDeleting || (isDeleteConfirming && !deleteReason?.trim()) || (anyConfirming && !isDeleteConfirming)}
                   >
-                    {isCancellingRequest ? 'Cancelling...' : (localConfirming === 'cancelRequest' ? 'Confirm Cancel?' : 'Cancel Request')}
+                    {isDeleting ? 'Withdrawing...' : (isDeleteConfirming ? 'Confirm Withdraw?' : 'Withdraw Request')}
                   </button>
-                  {localConfirming === 'cancelRequest' && (
+                  {isDeleteConfirming && onCancelDelete && (
                     <button
                       type="button"
-                      className="confirm-cancel-x reject-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
+                      className="confirm-cancel-x delete-cancel-x"
+                      onClick={onCancelDelete}
                     >
                       ✕
                     </button>
@@ -591,8 +588,8 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Restore button — owner, deleted/cancelled events */}
-              {isRequesterOnly && ['deleted', 'cancelled'].includes(itemStatus) && onRestore && !isEditRequestMode && !isViewingEditRequest && (
+              {/* Restore button — owner, deleted events */}
+              {isRequesterOnly && itemStatus === 'deleted' && onRestore && !isEditRequestMode && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -677,8 +674,8 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Delete button in review mode - only for admins (not approvers or requesters) */}
-              {!isRequesterOnly && mode === 'review' && isAdmin && onDelete && (
+              {/* Delete button in review mode - for approvers and admins */}
+              {!isRequesterOnly && mode === 'review' && onDelete && (
                 <div className="confirm-button-group">
                   <button
                     type="button"

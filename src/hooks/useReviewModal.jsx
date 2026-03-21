@@ -36,6 +36,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
+  // Delete reason (required for owner deleting own pending)
+  const [deleteReason, setDeleteReason] = useState('');
 
   // Inline confirmation state for approve/reject actions
   const [pendingApproveConfirmation, setPendingApproveConfirmation] = useState(false);
@@ -251,6 +253,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setConflictInfo(null);
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
+    setDeleteReason(''); // Reset delete reason
     setPendingDraftConfirmation(false); // Reset draft confirmation
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
@@ -817,7 +820,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
           seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
           calendarId: currentItem.calendarId,
-          _version: eventVersion
+          _version: eventVersion,
+          reason: deleteReason?.trim() || undefined
         })
       });
 
@@ -854,7 +858,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, editScope, eventVersion, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
+  }, [currentItem, apiToken, graphToken, editScope, eventVersion, onSuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
 
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
@@ -1251,6 +1255,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     // Rejection reason state (for inline input)
     rejectionReason,
     setRejectionReason,
+
+    // Delete reason state (for owner-pending delete)
+    deleteReason,
+    setDeleteReason,
 
     // Draft-specific state
     isDraft,

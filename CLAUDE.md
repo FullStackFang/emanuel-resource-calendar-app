@@ -483,6 +483,12 @@ Every write endpoint uses `conditionalUpdate()` with `_version` field. Clients s
 ### Requester Canonical Source
 Requester info lives in `roomReservationData.requestedBy` (name, email, department, phone, userId). **NOT** in top-level `calendarData` fields. Ownership queries use `roomReservationData.requestedBy.email`.
 
+### Delete Permissions (Scoped by Role)
+- **Admin**: Can delete any event in any status
+- **Approver**: Can delete own events (any status) + any published event. Cannot delete other users' draft/pending/rejected events.
+- **Requester deleting own pending**: Uses the same delete endpoint but reason is required (replaces old cancel flow). UI shows "Withdraw Request" button.
+- **Notification**: Requester is notified when someone else deletes their event.
+
 ### Scheduling Conflict Detection
 `checkRoomConflicts()` runs on publish, admin save, owner edit, and restore endpoints. Returns 409 `SchedulingConflict` with conflict details. Admins can force-override; owners cannot.
 

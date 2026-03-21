@@ -2,7 +2,7 @@
  * Owner Restore Tests (OR-1 to OR-17)
  *
  * Tests the owner restore endpoint PUT /api/room-reservations/:id/restore.
- * Owners can restore their own deleted or cancelled reservations.
+ * Owners can restore their own deleted reservations.
  * OR-3 to OR-4, OR-10 test Graph API republishing on restore.
  * OR-11 to OR-15 test scheduling conflict detection on restore.
  */
@@ -101,19 +101,20 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     });
   });
 
-  describe('OR-2: Restore cancelled reservation to previous status (pending)', () => {
-    it('should restore a cancelled reservation to its previous pending status', async () => {
-      const cancelled = createBaseEvent({
+  describe('OR-2: Restore deleted reservation to previous status (pending)', () => {
+    it('should restore a deleted reservation to its previous pending status', async () => {
+      const deleted = createBaseEvent({
         eventTitle: 'Previously Pending Reservation',
-        status: 'cancelled',
+        status: 'deleted',
+        isDeleted: true,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: 'cancelled', changedAt: new Date('2026-01-02'), changedByEmail: requesterUser.email },
+          { status: 'deleted', changedAt: new Date('2026-01-02'), changedByEmail: requesterUser.email },
         ],
       });
-      const [saved] = await insertEvents(db, [cancelled]);
+      const [saved] = await insertEvents(db, [deleted]);
 
       const res = await request(app)
         .put(ENDPOINTS.OWNER_RESTORE_RESERVATION(saved._id))
@@ -216,7 +217,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     });
   });
 
-  describe('OR-6: Return 404 when event not found or not deleted/cancelled', () => {
+  describe('OR-6: Return 404 when event not found or not deleted', () => {
     it('should return 404 for non-existent event', async () => {
       const fakeId = '507f1f77bcf86cd799439011';
       const res = await request(app)
@@ -227,7 +228,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       expect(res.status).toBe(404);
     });
 
-    it('should return 404 for a published event (not deleted/cancelled)', async () => {
+    it('should return 404 for a published event (not deleted)', async () => {
       const published = createBaseEvent({
         eventTitle: 'Published Reservation',
         status: STATUS.PUBLISHED,
@@ -296,7 +297,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     });
   });
 
-  describe('OR-9: Deletion fields cleaned up when restoring from deleted (not cancelled)', () => {
+  describe('OR-9: Deletion fields cleaned up when restoring from deleted', () => {
     it('should clear isDeleted, deletedAt, deletedBy, deletedByEmail for deleted events', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Cleanup Test Reservation',
@@ -319,32 +320,6 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       expect(restored.deletedBy).toBeUndefined();
       expect(restored.deletedByEmail).toBeUndefined();
       expect(restored.status).toBe(STATUS.PUBLISHED);
-    });
-
-    it('should NOT unset deletion fields when restoring from cancelled', async () => {
-      const cancelled = createBaseEvent({
-        eventTitle: 'Cancelled Reservation',
-        status: 'cancelled',
-        requesterEmail: requesterUser.email,
-        userId: requesterUser.odataId,
-        statusHistory: [
-          { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: 'cancelled', changedAt: new Date('2026-01-02'), changedByEmail: requesterUser.email },
-        ],
-      });
-      const [saved] = await insertEvents(db, [cancelled]);
-
-      const res = await request(app)
-        .put(ENDPOINTS.OWNER_RESTORE_RESERVATION(saved._id))
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .send({ _version: saved._version });
-
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe(STATUS.PENDING);
-
-      // isDeleted should remain whatever it was (false for cancelled)
-      const restored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(restored.status).toBe(STATUS.PENDING);
     });
   });
 
@@ -438,7 +413,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       });
     });
 
-    describe('OR-12: Conflict when restoring cancelled to pending', () => {
+    describe('OR-12: Conflict when restoring deleted (previously pending) to pending', () => {
       it('should return 409 SchedulingConflict', async () => {
         const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
@@ -447,9 +422,10 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
           locations: [roomId],
         });
 
-        const cancelled = createBaseEvent({
-          eventTitle: 'Cancelled Reservation',
-          status: 'cancelled',
+        const deletedEvent = createBaseEvent({
+          eventTitle: 'Deleted Reservation',
+          status: 'deleted',
+          isDeleted: true,
           requesterEmail: requesterUser.email,
           userId: requesterUser.odataId,
           startDateTime: conflictStart,
@@ -457,12 +433,12 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
           locations: [roomId],
           statusHistory: [
             { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-            { status: 'cancelled', changedAt: new Date('2026-01-02'), changedByEmail: requesterUser.email },
+            { status: 'deleted', changedAt: new Date('2026-01-02'), changedByEmail: requesterUser.email },
           ],
         });
 
         await insertEvents(db, [existing]);
-        const [saved] = await insertEvents(db, [cancelled]);
+        const [saved] = await insertEvents(db, [deletedEvent]);
 
         const res = await request(app)
           .put(ENDPOINTS.OWNER_RESTORE_RESERVATION(saved._id))

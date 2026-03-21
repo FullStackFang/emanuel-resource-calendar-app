@@ -212,12 +212,6 @@
   border: 1px solid var(--color-error-100);
 }
 
-.status-pill.status-cancelled {
-  background: var(--color-neutral-100);
-  color: var(--text-secondary);
-  border: 1px solid var(--color-neutral-200);
-}
-
 .version-badge {
   display: inline-flex;
   align-items: center;
@@ -684,12 +678,6 @@
   background: var(--color-error-50);
   color: var(--color-error-600);
   border: 1px solid var(--color-error-100);
-}
-
-.status-badge-action.status-cancelled {
-  background: var(--color-neutral-100);
-  color: var(--text-secondary);
-  border: 1px solid var(--color-neutral-200);
 }
 
 .status-badge-action.status-draft {

@@ -121,8 +121,8 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
     });
   });
 
-  describe('A-19: Delete rejected event', () => {
-    it('should soft delete a rejected event', async () => {
+  describe('A-19: Delete rejected event (admin only for others events)', () => {
+    it('should soft delete a rejected event as admin', async () => {
       const rejected = createRejectedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -132,7 +132,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .delete(`/api/admin/events/${savedRejected._id}`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -140,6 +140,20 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedRejected._id });
       expect(event.isDeleted).toBe(true);
       expect(event.previousStatus).toBe(STATUS.REJECTED);
+    });
+
+    it('should return 403 when approver deletes others rejected event', async () => {
+      const rejected = createRejectedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Rejected Event - Not Mine',
+      });
+      const [savedRejected] = await insertEvents(db, [rejected]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedRejected._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(403);
     });
   });
 
@@ -332,29 +346,30 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(emailTracked.eventTitle).toBe('Published Event for Notification');
     });
 
-    it('DN-2: should NOT trigger notification when deleting a pending event', async () => {
+    it('DN-2: should trigger notification when admin deletes others pending event (third-party delete)', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Pending Event No Notification',
+        eventTitle: 'Pending Event Third Party Delete',
       });
       const [savedPending] = await insertEvents(db, [pending]);
 
       await request(app)
         .delete(`/api/admin/events/${savedPending._id}`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      // Verify no deletion notification was tracked
+      // Third-party delete should trigger notification
       const emailTracked = app.locals.lastDeletionEmail;
-      expect(emailTracked).toBeNull();
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.recipientEmail).toBe(requesterUser.email);
     });
 
-    it('DN-3: should NOT trigger notification when deleting a draft event', async () => {
+    it('DN-3: should NOT trigger notification when owner deletes own draft', async () => {
       const draft = createDraftEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-        eventTitle: 'Draft Event No Notification',
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'My Own Draft',
       });
       const [savedDraft] = await insertEvents(db, [draft]);
 
@@ -363,7 +378,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
-      // Verify no deletion notification was tracked
+      // Owner deleting own event — no notification
       const emailTracked = app.locals.lastDeletionEmail;
       expect(emailTracked).toBeNull();
     });
@@ -431,8 +446,8 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
   describe('Delete idempotency', () => {
     it('should return success when deleting already deleted event', async () => {
       const deleted = createDeletedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
       });
       const [savedDeleted] = await insertEvents(db, [deleted]);
 
@@ -443,6 +458,186 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.message).toMatch(/already deleted/i);
+    });
+  });
+
+  describe('Approver Delete Permissions (AD-1 to AD-11)', () => {
+    let requesterToken;
+
+    beforeEach(async () => {
+      requesterToken = await createMockToken(requesterUser);
+    });
+
+    it('AD-1: Approver can delete own draft', async () => {
+      const draft = createDraftEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Own Draft',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+
+    it('AD-2: Approver can delete own pending with reason', async () => {
+      const pending = createPendingEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Own Pending',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'No longer needed' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+
+    it('AD-3: Approver cannot delete own pending without reason', async () => {
+      const pending = createPendingEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Own Pending No Reason',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(400);
+    });
+
+    it('AD-4: Approver can delete own published', async () => {
+      const published = createPublishedEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Own Published',
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+
+    it('AD-5: Approver can delete others published event', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Others Published Event',
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+
+    it('AD-6: Approver cannot delete others pending event', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Others Pending Event',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(403);
+    });
+
+    it('AD-7: Approver cannot delete others draft event', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Others Draft Event',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(403);
+    });
+
+    it('AD-8: Approver cannot delete others rejected event', async () => {
+      const rejected = createRejectedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Others Rejected Event',
+      });
+      const [saved] = await insertEvents(db, [rejected]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(403);
+    });
+
+    it('AD-9: Requester cannot delete any event', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Requester Own Pending',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(403);
+    });
+
+    it('AD-10: Delete with reason stores reason in statusHistory', async () => {
+      const published = createPublishedEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Event With Reason',
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'Duplicate event' })
+        .expect(200);
+
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      const lastHistory = event.statusHistory[event.statusHistory.length - 1];
+      expect(lastHistory.reason).toBe('Duplicate event');
+    });
+
+    it('AD-11: Third-party delete tracks notification email', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Notify On Third Party Delete',
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.recipientEmail).toBe(requesterUser.email);
     });
   });
 });

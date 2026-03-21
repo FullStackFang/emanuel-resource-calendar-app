@@ -1820,7 +1820,9 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      const isAdminUser = hasRole(userDoc, userEmail, 'admin');
+      const isApprover = hasRole(userDoc, userEmail, 'approver');
+      if (!isApprover) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -1834,6 +1836,16 @@ function createTestApp(options = {}) {
         return res.status(404).json({ error: 'Event not found' });
       }
 
+      // Approver scoping: own events (any status) or any published event
+      // Admins can delete anything
+      if (!isAdminUser) {
+        const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+        const isOwner = ownerEmail === (userEmail || '').toLowerCase();
+        if (!isOwner && event.status !== 'published') {
+          return res.status(403).json({ error: 'Approvers can only delete their own events or published events' });
+        }
+      }
+
       // If already deleted, return early
       if (event.isDeleted) {
         return res.json({
@@ -1842,7 +1854,14 @@ function createTestApp(options = {}) {
         });
       }
 
-      const { editScope, occurrenceDate, _version } = req.body;
+      const { editScope, occurrenceDate, _version, reason } = req.body;
+
+      // Reason required when owner deletes own pending event
+      const ownerEmailForReason = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+      const isOwnerForReason = ownerEmailForReason === (userEmail || '').toLowerCase();
+      if (isOwnerForReason && event.status === 'pending' && (!reason || !reason.trim())) {
+        return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
+      }
 
       // Handle single occurrence deletion for recurring events
       if (editScope === 'thisEvent') {
@@ -1990,7 +2009,7 @@ function createTestApp(options = {}) {
             changedAt: now,
             changedBy: userId,
             changedByEmail: userEmail,
-            reason: 'Deleted by admin'
+            reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : 'Deleted by approver')
           }
         }
       });
@@ -2005,8 +2024,10 @@ function createTestApp(options = {}) {
         changes: { status: { from: event.status, to: 'deleted' } },
       });
 
-      // Track deletion notification (only for previously-published events)
-      if (event.status === 'published') {
+      // Track deletion notification (published events or third-party deletes)
+      const requesterEmailForNotif = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+      const isThirdPartyDelete = requesterEmailForNotif && requesterEmailForNotif !== (userEmail || '').toLowerCase();
+      if (event.status === 'published' || isThirdPartyDelete) {
         const cd = event.calendarData || {};
         const requestedBy = event.roomReservationData?.requestedBy || {};
         req.app.locals.lastDeletionEmail = {
@@ -2282,7 +2303,7 @@ function createTestApp(options = {}) {
   });
 
   /**
-   * PUT /api/room-reservations/:id/restore - Restore a deleted/cancelled reservation (Owner only)
+   * PUT /api/room-reservations/:id/restore - Restore a deleted reservation (Owner only)
    */
   app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     try {
@@ -2298,11 +2319,11 @@ function createTestApp(options = {}) {
       const event = await testCollections.events.findOne(query);
 
       if (!event) {
-        return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
+        return res.status(404).json({ error: 'Deleted reservation not found' });
       }
 
-      if (event.status !== 'deleted' && event.status !== 'cancelled') {
-        return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
+      if (event.status !== 'deleted') {
+        return res.status(404).json({ error: 'Deleted reservation not found' });
       }
 
       // Ownership check
@@ -4111,12 +4132,11 @@ function createTestApp(options = {}) {
           'roomReservationData.requestedBy.email': userEmail,
         };
 
-        const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
+        const [all, pending, published, rejected, draft, deleted] = await Promise.all([
           testCollections.events.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
-          testCollections.events.countDocuments({ ...baseQuery, status: 'cancelled' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
           testCollections.events.countDocuments({
             'roomReservationData.requestedBy.email': userEmail,
@@ -4125,7 +4145,7 @@ function createTestApp(options = {}) {
           }),
         ]);
 
-        res.json({ all, pending, published, rejected, cancelled, draft, deleted });
+        res.json({ all, pending, published, rejected, draft, deleted });
       } else if (view === 'approval-queue') {
         const baseQuery = {
           isDeleted: { $ne: true },
@@ -4306,7 +4326,7 @@ function createTestApp(options = {}) {
 
       if (role === 'approver' || role === 'admin') {
         query.$or = [
-          { status: { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] } },
+          { status: { $nin: ['rejected', 'deleted', 'draft'] } },
           ...(ownerEmailConditions.length > 0 ? [{
             status: 'draft',
             $or: ownerEmailConditions
@@ -4314,7 +4334,7 @@ function createTestApp(options = {}) {
         ];
       } else if (role === 'requester' && userEmail) {
         query.$or = [
-          { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+          { status: { $nin: ['rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
           {
             status: { $in: ['pending', 'room-reservation-request'] },
             $or: ownerEmailConditions
@@ -4326,7 +4346,7 @@ function createTestApp(options = {}) {
         ];
       } else {
         query.$or = [
-          { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+          { status: { $nin: ['rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
           ...(ownerEmailConditions.length > 0 ? [{
             status: 'draft',
             $or: ownerEmailConditions
@@ -4503,7 +4523,7 @@ function createTestApp(options = {}) {
       // Get published events in these rooms
       const allEvents = await testCollections.events.find({
         isDeleted: { $ne: true },
-        status: { $nin: ['draft', 'pending', 'rejected', 'cancelled', 'deleted'] },
+        status: { $nin: ['draft', 'pending', 'rejected', 'deleted'] },
         'calendarData.startDateTime': { $lt: end },
         'calendarData.endDateTime': { $gt: start },
         $or: [

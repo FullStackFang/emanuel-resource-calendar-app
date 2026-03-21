@@ -90,7 +90,10 @@
       "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/hooks/useReviewModal.jsx)",
       "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/RoomReservationForm.jsx)",
       "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/MyReservations.jsx)",
-      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/Calendar.jsx)"
+      "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/Calendar.jsx)",
+      "Bash(xargs basename:*)",
+      "Bash(for endpoint:*)",
+      "Bash(do echo:*)"
     ],
     "deny": []
   }
