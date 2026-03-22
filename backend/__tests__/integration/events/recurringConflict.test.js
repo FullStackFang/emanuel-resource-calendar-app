@@ -6,11 +6,10 @@
  */
 
 const request = require('supertest');
-const { MongoClient, ObjectId } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { ObjectId } = require('mongodb');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
   createAdmin,
@@ -27,7 +26,7 @@ const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConsta
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
 describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)', () => {
-  let mongoServer, mongoClient, db, app;
+  let mongoClient, db, app;
   let requesterUser, adminUser;
   let requesterToken, adminToken;
 
@@ -69,16 +68,7 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)', () => {
 
   beforeAll(async () => {
     await initTestKeys();
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.LOCATIONS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('recurringConflict'));
 
     // Insert shared room as a location
     await db.collection(COLLECTIONS.LOCATIONS).insertOne({
@@ -92,8 +82,7 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)', () => {
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

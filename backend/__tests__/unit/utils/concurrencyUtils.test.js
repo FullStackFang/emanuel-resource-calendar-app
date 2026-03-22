@@ -6,20 +6,20 @@
  */
 
 const { ObjectId } = require('mongodb');
-const { setupTestDatabase, teardownTestDatabase, clearCollections, getDb } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { conditionalUpdate } = require('../../../utils/concurrencyUtils');
 
 let db;
+let mongoClient;
 let collection;
 
 beforeAll(async () => {
-  const setup = await setupTestDatabase();
-  db = setup.db;
+  ({ db, client: mongoClient } = await connectToGlobalServer('concurrencyUtils'));
   collection = db.collection('testConcurrency');
 });
 
 afterAll(async () => {
-  await teardownTestDatabase();
+  await disconnectFromGlobalServer(mongoClient, db);
 });
 
 beforeEach(async () => {

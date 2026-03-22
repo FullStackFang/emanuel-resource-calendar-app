@@ -10,7 +10,7 @@
  */
 
 const { ObjectId } = require('mongodb');
-const { setupTestDatabase, teardownTestDatabase, getDb } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { conditionalUpdate } = require('../../../utils/concurrencyUtils');
 const {
   createPendingEvent,
@@ -21,16 +21,16 @@ const {
 } = require('../../__helpers__/eventFactory');
 
 let db;
+let mongoClient;
 let eventsCollection;
 
 beforeAll(async () => {
-  const setup = await setupTestDatabase();
-  db = setup.db;
+  ({ db, client: mongoClient } = await connectToGlobalServer('concurrency'));
   eventsCollection = db.collection('templeEvents__Events');
 });
 
 afterAll(async () => {
-  await teardownTestDatabase();
+  await disconnectFromGlobalServer(mongoClient, db);
 });
 
 beforeEach(async () => {

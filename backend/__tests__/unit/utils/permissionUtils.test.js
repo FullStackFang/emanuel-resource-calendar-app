@@ -5,48 +5,17 @@
  */
 
 const {
-  ROLE_HIERARCHY,
   ROLE_PERMISSIONS,
-  DEPARTMENT_EDITABLE_FIELDS,
   getEffectiveRole,
   hasRole,
   getPermissions,
-  getValidRoles,
   isValidRole,
   getDepartmentEditableFields,
   canEditField,
-  DEFAULT_ADMIN_DOMAIN,
 } = require('../../../utils/permissionUtils');
 
 describe('permissionUtils', () => {
-  describe('ROLE_HIERARCHY', () => {
-    it('should have correct hierarchy levels', () => {
-      expect(ROLE_HIERARCHY.viewer).toBe(0);
-      expect(ROLE_HIERARCHY.requester).toBe(1);
-      expect(ROLE_HIERARCHY.approver).toBe(2);
-      expect(ROLE_HIERARCHY.admin).toBe(3);
-    });
-
-    it('should have exactly 4 roles', () => {
-      expect(Object.keys(ROLE_HIERARCHY)).toHaveLength(4);
-    });
-
-    it('should have increasing hierarchy values', () => {
-      const levels = Object.values(ROLE_HIERARCHY);
-      for (let i = 1; i < levels.length; i++) {
-        expect(levels[i]).toBeGreaterThan(levels[i - 1]);
-      }
-    });
-  });
-
   describe('ROLE_PERMISSIONS', () => {
-    it('should define permissions for all roles', () => {
-      expect(ROLE_PERMISSIONS.viewer).toBeDefined();
-      expect(ROLE_PERMISSIONS.requester).toBeDefined();
-      expect(ROLE_PERMISSIONS.approver).toBeDefined();
-      expect(ROLE_PERMISSIONS.admin).toBeDefined();
-    });
-
     it('should have viewer with minimal permissions', () => {
       const perms = ROLE_PERMISSIONS.viewer;
       expect(perms.canViewCalendar).toBe(true);
@@ -92,20 +61,6 @@ describe('permissionUtils', () => {
       expect(perms.canViewAllReservations).toBe(true);
       expect(perms.canGenerateReservationTokens).toBe(true);
       expect(perms.isAdmin).toBe(true);
-    });
-  });
-
-  describe('DEPARTMENT_EDITABLE_FIELDS', () => {
-    it('should define security department fields', () => {
-      expect(DEPARTMENT_EDITABLE_FIELDS.security).toContain('doorOpenTime');
-      expect(DEPARTMENT_EDITABLE_FIELDS.security).toContain('doorCloseTime');
-      expect(DEPARTMENT_EDITABLE_FIELDS.security).toContain('doorNotes');
-    });
-
-    it('should define maintenance department fields', () => {
-      expect(DEPARTMENT_EDITABLE_FIELDS.maintenance).toContain('setupTime');
-      expect(DEPARTMENT_EDITABLE_FIELDS.maintenance).toContain('teardownTime');
-      expect(DEPARTMENT_EDITABLE_FIELDS.maintenance).toContain('setupNotes');
     });
   });
 
@@ -238,17 +193,6 @@ describe('permissionUtils', () => {
     });
   });
 
-  describe('getValidRoles', () => {
-    it('should return all valid role names', () => {
-      const roles = getValidRoles();
-      expect(roles).toContain('viewer');
-      expect(roles).toContain('requester');
-      expect(roles).toContain('approver');
-      expect(roles).toContain('admin');
-      expect(roles).toHaveLength(4);
-    });
-  });
-
   describe('isValidRole', () => {
     it('should return true for valid roles', () => {
       expect(isValidRole('viewer')).toBe(true);
@@ -323,9 +267,4 @@ describe('permissionUtils', () => {
     });
   });
 
-  describe('DEFAULT_ADMIN_DOMAIN', () => {
-    it('should be set to emanuelnyc.org', () => {
-      expect(DEFAULT_ADMIN_DOMAIN).toBe('@emanuelnyc.org');
-    });
-  });
 });

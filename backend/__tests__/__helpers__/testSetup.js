@@ -1,56 +1,49 @@
 /**
- * Test database setup using mongodb-memory-server
+ * Test database setup helpers
  *
  * Provides lifecycle management for test databases:
- * - setupTestDatabase(): Start in-memory MongoDB, create collections
- * - teardownTestDatabase(): Cleanup
+ * - connectToGlobalServer(suiteName): Connect to the global MongoMemoryServer, get isolated db
+ * - disconnectFromGlobalServer(client, db): Drop db and close connection
  * - clearCollections(): Reset data between tests
  */
 
-const { MongoMemoryServer } = require('mongodb-memory-server');
 const { MongoClient } = require('mongodb');
 const { COLLECTIONS } = require('./testConstants');
 
-let mongoServer;
-let mongoClient;
-let db;
-
 /**
- * Get MongoDB Memory Server options for the current platform
- * @returns {Object} Server options
- */
-function getServerOptions() {
-  const options = {};
-
-  // For Windows ARM64, force x64 architecture (runs via emulation)
-  const isWindowsArm = process.platform === 'win32' && process.arch === 'arm64';
-  if (isWindowsArm) {
-    options.binary = {
-      version: '6.0.14',
-      arch: 'x64',
-      skipMD5: true,
-    };
-  }
-
-  return options;
-}
-
-/**
- * Start the in-memory MongoDB server and create required collections
+ * Connect to the global MongoMemoryServer (started by globalSetup.js)
+ * and return an isolated database for this test suite.
+ * @param {string} suiteName - Unique name for this test suite (used as database name)
  * @returns {Object} { db, client } - Database and client references
  */
-async function setupTestDatabase() {
-  mongoServer = await MongoMemoryServer.create(getServerOptions());
-  const uri = mongoServer.getUri();
+async function connectToGlobalServer(suiteName) {
+  const uri = process.env.MONGODB_TEST_URI;
+  if (!uri) {
+    throw new Error('MONGODB_TEST_URI not set. Is globalSetup.js configured in jest.config.js?');
+  }
 
-  mongoClient = new MongoClient(uri);
-  await mongoClient.connect();
-  db = mongoClient.db('testdb');
+  const client = new MongoClient(uri);
+  await client.connect();
+  const db = client.db(`test_${suiteName}`);
 
   // Create all required collections with indexes
   await createCollections(db);
 
-  return { db, client: mongoClient };
+  return { db, client };
+}
+
+/**
+ * Disconnect from the global server, dropping the test database
+ * @param {MongoClient} client - MongoDB client to close
+ * @param {Db} db - Database to drop before closing
+ */
+async function disconnectFromGlobalServer(client, db) {
+  if (db) {
+    await db.dropDatabase();
+  }
+  if (client) {
+    await client.close();
+  }
 }
 
 /**
@@ -65,6 +58,8 @@ async function createCollections(database) {
   await database.createCollection(COLLECTIONS.CALENDAR_DELTAS);
   await database.createCollection(COLLECTIONS.RESERVATION_TOKENS);
   await database.createCollection(COLLECTIONS.AUDIT_HISTORY);
+  await database.createCollection(COLLECTIONS.CATEGORIES);
+  await database.createCollection(COLLECTIONS.DEPARTMENTS);
 
   // Create indexes for events collection
   const eventsCollection = database.collection(COLLECTIONS.EVENTS);
@@ -90,62 +85,24 @@ async function createCollections(database) {
 
 /**
  * Clear all data from collections (use between tests)
+ * @param {Db} database - MongoDB database instance
  */
-async function clearCollections() {
-  if (!db) return;
+async function clearCollections(database) {
+  if (!database) return;
 
   const collections = Object.values(COLLECTIONS);
   for (const collectionName of collections) {
     try {
-      await db.collection(collectionName).deleteMany({});
+      await database.collection(collectionName).deleteMany({});
     } catch (err) {
       // Collection might not exist yet, ignore
     }
   }
 }
 
-/**
- * Teardown the test database
- */
-async function teardownTestDatabase() {
-  if (mongoClient) {
-    await mongoClient.close();
-  }
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
-}
-
-/**
- * Get the current database instance
- * @returns {Db} MongoDB database instance
- */
-function getDb() {
-  return db;
-}
-
-/**
- * Get the current client instance
- * @returns {MongoClient} MongoDB client instance
- */
-function getClient() {
-  return mongoClient;
-}
-
-/**
- * Get the MongoDB URI for the test server
- * @returns {string} MongoDB connection URI
- */
-function getUri() {
-  return mongoServer?.getUri();
-}
-
 module.exports = {
-  setupTestDatabase,
-  teardownTestDatabase,
+  connectToGlobalServer,
+  disconnectFromGlobalServer,
+  createCollections,
   clearCollections,
-  getDb,
-  getClient,
-  getUri,
-  getServerOptions,
 };

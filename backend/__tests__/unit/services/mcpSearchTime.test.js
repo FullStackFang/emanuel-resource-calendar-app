@@ -5,24 +5,25 @@
  * both at the MongoDB query level and via post-query safety net.
  */
 
-const { setupTestDatabase, teardownTestDatabase, clearCollections } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer, clearCollections } = require('../../__helpers__/testSetup');
 const { COLLECTIONS } = require('../../__helpers__/testConstants');
 const { MCPToolExecutor } = require('../../../services/mcpTools');
 
 let db;
+let mongoClient;
 let executor;
 
 beforeAll(async () => {
-  ({ db } = await setupTestDatabase());
+  ({ db, client: mongoClient } = await connectToGlobalServer('mcpSearchTime'));
   executor = new MCPToolExecutor(db);
 });
 
 afterAll(async () => {
-  await teardownTestDatabase();
+  await disconnectFromGlobalServer(mongoClient, db);
 });
 
 beforeEach(async () => {
-  await clearCollections();
+  await clearCollections(db);
 });
 
 // Helper to insert test events with known times

@@ -6,11 +6,9 @@
  */
 
 const request = require('supertest');
-const { MongoClient } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPublishedEventWithGraph,
@@ -22,7 +20,6 @@ const { COLLECTIONS, STATUS, TEST_CALENDAR_OWNER } = require('../../__helpers__/
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
 describe('Event Update Tests - Graph Sync Gate', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -33,24 +30,14 @@ describe('Event Update Tests - Graph Sync Gate', () => {
   beforeAll(async () => {
     await initTestKeys();
 
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.LOCATIONS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('eventUpdate'));
 
     setTestDatabase(db);
     app = createTestApp();
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

@@ -6,11 +6,9 @@
  */
 
 const request = require('supertest');
-const { MongoClient } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { createTestApp, setTestDatabase, getTestCollections } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createViewer, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createDraftEvent,
@@ -23,7 +21,6 @@ const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 
 describe('Viewer Role Access Tests (V-1 to V-12)', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -37,18 +34,7 @@ describe('Viewer Role Access Tests (V-1 to V-12)', () => {
     await initTestKeys();
 
     // Start in-memory MongoDB (with platform-specific options for Windows ARM64)
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    // Create collections
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.LOCATIONS);
-    await db.createCollection(COLLECTIONS.RESERVATION_TOKENS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('viewerAccess'));
 
     // Set test database for the app
     setTestDatabase(db);
@@ -58,8 +44,7 @@ describe('Viewer Role Access Tests (V-1 to V-12)', () => {
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

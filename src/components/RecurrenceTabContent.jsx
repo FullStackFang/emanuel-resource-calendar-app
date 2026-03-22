@@ -76,6 +76,12 @@ export default function RecurrenceTabContent({
   const [selectedOccurrence, setSelectedOccurrence] = useState(null); // YYYY-MM-DD or null
   const [occurrenceEdits, setOccurrenceEdits] = useState({}); // { field: value } for current detail
 
+  // ── Calendar popover state (Customize / Exclude on pattern dates) ──
+  const [calendarPopover, setCalendarPopover] = useState(null); // { dateStr, left, top } or null
+  const popoverRef = useRef(null);
+  const calendarContainerRef = useRef(null);
+  const lastClickCell = useRef(null);
+
   // ── Inline picker state ─────────────────────────────────────
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showRoomPicker, setShowRoomPicker] = useState(false);
@@ -394,6 +400,25 @@ export default function RecurrenceTabContent({
     return map;
   }, [conflictData]);
 
+  // ── Calendar popover dismiss (click-outside + Escape) ─────────
+  useEffect(() => {
+    if (!calendarPopover) return;
+    const handleClickOutside = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setCalendarPopover(null);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setCalendarPopover(null);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [calendarPopover]);
+
   // ── Calendar date click (add/exclude toggle) ──────────────────
   const handleCalendarDateClick = useCallback((date) => {
     if (!canEdit) return;
@@ -427,7 +452,19 @@ export default function RecurrenceTabContent({
     if (isExcluded) {
       newPattern = { ...recurrencePattern, exclusions: exclusions.filter(d => d !== dateStr) };
     } else if (isPatternDate) {
-      newPattern = { ...recurrencePattern, exclusions: [...exclusions, dateStr] };
+      // Show popover anchored below the clicked cell, positioned relative to calendar container
+      const cell = lastClickCell.current;
+      const container = calendarContainerRef.current;
+      if (cell && container) {
+        const cellRect = cell.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        setCalendarPopover({
+          dateStr,
+          left: cellRect.left - containerRect.left + cellRect.width / 2,
+          top: cellRect.bottom - containerRect.top,
+        });
+      }
+      return;
     } else if (isAdded) {
       newPattern = { ...recurrencePattern, additions: additions.filter(d => d !== dateStr) };
     } else {
@@ -482,6 +519,11 @@ export default function RecurrenceTabContent({
     for (const o of overrides) map[o.occurrenceDate] = o;
     return map;
   }, [overrides]);
+
+  const handleRemoveOverride = useCallback((dateStr) => {
+    if (!canEdit || !onOccurrenceOverridesChange) return;
+    onOccurrenceOverridesChange(overrides.filter(o => o.occurrenceDate !== dateStr));
+  }, [canEdit, overrides, onOccurrenceOverridesChange]);
 
   // ── Filter to exceptions only (added, excluded, conflicts, overrides) ──
   const filteredOccurrences = useMemo(() => {
@@ -602,6 +644,25 @@ export default function RecurrenceTabContent({
     setShowSecondaryTimes(false);
   }, [selectedOccurrence, occurrenceEdits, overrides, overridesByDate, onOccurrenceOverridesChange]);
 
+  // ── Calendar popover actions ─────────────────────────────────
+  const handlePopoverCustomize = useCallback(() => {
+    if (!calendarPopover || !onOccurrenceOverridesChange) return;
+    const dateStr = calendarPopover.dateStr;
+    setCalendarPopover(null);
+    // Add an empty override so this date appears in the occurrence list for editing
+    if (!overridesByDate[dateStr]) {
+      onOccurrenceOverridesChange([...overrides, { occurrenceDate: dateStr }]);
+    }
+  }, [calendarPopover, overrides, overridesByDate, onOccurrenceOverridesChange]);
+
+  const handlePopoverExclude = useCallback(() => {
+    if (!calendarPopover) return;
+    const dateStr = calendarPopover.dateStr;
+    setCalendarPopover(null);
+    const exclusions = recurrencePattern.exclusions || [];
+    onRecurrencePatternChange({ ...recurrencePattern, exclusions: [...exclusions, dateStr] });
+  }, [calendarPopover, recurrencePattern, onRecurrencePatternChange]);
+
   // ─────────────────────────────────────────────────────────────
   // RENDER: Left Column — Pattern Editor (always shown)
   // ─────────────────────────────────────────────────────────────
@@ -609,12 +670,19 @@ export default function RecurrenceTabContent({
   const renderPatternEditor = () => (
     <div className="recurrence-tab-left">
       {/* Calendar Preview */}
-      <div className="recurrence-tab-calendar">
+      <div
+        className="recurrence-tab-calendar"
+        ref={calendarContainerRef}
+        onMouseDown={(e) => {
+          const cell = e.target.closest('.react-datepicker__day');
+          if (cell) lastClickCell.current = cell;
+        }}
+      >
         <DatePicker
           inline
           selected={null}
           onChange={canEdit ? handleCalendarDateClick : undefined}
-          onMonthChange={setViewMonth}
+          onMonthChange={(date) => { setViewMonth(date); setCalendarPopover(null); }}
           dayClassName={(date) => {
             const dateStr = toDateStr(date);
             if (hasPattern) {
@@ -625,6 +693,24 @@ export default function RecurrenceTabContent({
             return '';
           }}
         />
+        {calendarPopover && (
+          <div
+            ref={popoverRef}
+            className="recurrence-calendar-popover"
+            style={{
+              position: 'absolute',
+              left: calendarPopover.left,
+              top: calendarPopover.top,
+            }}
+          >
+            <button type="button" className="popover-option popover-option--customize" onClick={handlePopoverCustomize}>
+              &#9998; Customize
+            </button>
+            <button type="button" className="popover-option popover-option--exclude" onClick={handlePopoverExclude}>
+              &#10005; Exclude
+            </button>
+          </div>
+        )}
         <div className="calendar-legend">
           <div className="legend-item">
             <div className="legend-color recurrence-pattern-color" />
@@ -1173,7 +1259,7 @@ export default function RecurrenceTabContent({
           return (
             <div
               key={occ.date}
-              className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${conflict ? 'recurrence-occ-row--conflict' : ''}`}
+              className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${hasOverride ? 'recurrence-occ-row--customized' : ''} ${conflict ? 'recurrence-occ-row--conflict' : ''}`}
             >
               <div
                 className="recurrence-occ-main"
@@ -1185,6 +1271,14 @@ export default function RecurrenceTabContent({
                   {occ.type === 'excluded' && '\u2715'}
                   {occ.type === 'pattern' && '\u2713'}
                 </span>
+
+                {occ.type !== 'excluded' && (
+                  <span className="recurrence-occ-edit-hint" title="Edit this occurrence">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                    </svg>
+                  </span>
+                )}
 
                 <span className={`recurrence-occ-date ${occ.type === 'excluded' ? 'recurrence-occ-date--excluded' : ''}`}>
                   {formatDate(occ.date)}
@@ -1224,6 +1318,16 @@ export default function RecurrenceTabContent({
                     className="recurrence-occ-action recurrence-occ-action--remove"
                     onClick={(e) => { e.stopPropagation(); handleRemoveAddition(occ.date); }}
                     title="Remove addition"
+                  >
+                    Remove
+                  </button>
+                )}
+                {canEdit && hasOverride && occ.type === 'pattern' && (
+                  <button
+                    type="button"
+                    className="recurrence-occ-action recurrence-occ-action--remove"
+                    onClick={(e) => { e.stopPropagation(); handleRemoveOverride(occ.date); }}
+                    title="Remove customization"
                   >
                     Remove
                   </button>

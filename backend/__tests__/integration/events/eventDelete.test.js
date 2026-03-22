@@ -5,11 +5,9 @@
  */
 
 const request = require('supertest');
-const { MongoClient } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createDraftEvent,
@@ -24,7 +22,6 @@ const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 const { assertAuditEntry } = require('../../__helpers__/dbHelpers');
 
 describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -37,24 +34,14 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
   beforeAll(async () => {
     await initTestKeys();
 
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    // Create collections
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('eventDelete'));
 
     setTestDatabase(db);
     app = createTestApp();
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

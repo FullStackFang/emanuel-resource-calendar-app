@@ -6,11 +6,10 @@
  */
 
 const request = require('supertest');
-const { MongoClient, ObjectId } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { ObjectId } = require('mongodb');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPendingEvent,
@@ -21,7 +20,6 @@ const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers
 const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
 describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -36,23 +34,14 @@ describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
   beforeAll(async () => {
     await initTestKeys();
 
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('editConflict'));
 
     setTestDatabase(db);
     app = createTestApp();
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

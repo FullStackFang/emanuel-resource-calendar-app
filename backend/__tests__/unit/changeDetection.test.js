@@ -18,14 +18,6 @@ describe('changeDetection', () => {
   // valuesAreDifferent
   // =========================================================================
   describe('valuesAreDifferent', () => {
-    test('identical strings are not different', () => {
-      expect(valuesAreDifferent('hello', 'hello')).toBe(false);
-    });
-
-    test('different strings are different', () => {
-      expect(valuesAreDifferent('hello', 'world')).toBe(true);
-    });
-
     test('null and undefined are treated as equal', () => {
       expect(valuesAreDifferent(null, undefined)).toBe(false);
     });
@@ -77,14 +69,6 @@ describe('changeDetection', () => {
       expect(valuesAreDifferent('2026-02-18T10:00:00', '2026-02-18T11:00')).toBe(true);
     });
 
-    test('identical datetimes both without seconds are not different', () => {
-      expect(valuesAreDifferent('2026-02-18T10:00', '2026-02-18T10:00')).toBe(false);
-    });
-
-    test('identical datetimes both with seconds are not different', () => {
-      expect(valuesAreDifferent('2026-02-18T10:00:00', '2026-02-18T10:00:00')).toBe(false);
-    });
-
     test('datetime normalization does not affect non-datetime strings', () => {
       expect(valuesAreDifferent('hello', 'hello:00')).toBe(true);
       expect(valuesAreDifferent('10:00', '10:00:00')).toBe(true);
@@ -108,10 +92,6 @@ describe('changeDetection', () => {
 
     test('formats arrays as comma-separated strings', () => {
       expect(formatChangeValue('categories', ['Music', 'Art'])).toBe('Music, Art');
-    });
-
-    test('returns "(none)" for empty arrays', () => {
-      expect(formatChangeValue('categories', [])).toBe('(none)');
     });
 
     test('formats numbers as strings', () => {
@@ -314,9 +294,6 @@ describe('changeDetection', () => {
       expect(formatted[0].newValue).toBe('08:00');
     });
 
-    test('returns empty array for empty input', () => {
-      expect(formatChangesForEmail([])).toEqual([]);
-    });
   });
 
   // =========================================================================

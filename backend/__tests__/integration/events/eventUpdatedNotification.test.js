@@ -10,8 +10,6 @@
  */
 
 const request = require('supertest');
-const { MongoClient } = require('mongodb');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const {
   createTestApp,
@@ -19,7 +17,7 @@ const {
   getSentEmailNotifications,
   clearSentEmailNotifications,
 } = require('../../__helpers__/testApp');
-const { getServerOptions } = require('../../__helpers__/testSetup');
+const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPublishedEvent,
@@ -32,7 +30,6 @@ const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
 describe('Published Event Updated Notification Tests (EU-1 to EU-7)', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -43,24 +40,14 @@ describe('Published Event Updated Notification Tests (EU-1 to EU-7)', () => {
   beforeAll(async () => {
     await initTestKeys();
 
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.LOCATIONS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('eventUpdatedNotification'));
 
     setTestDatabase(db);
     app = createTestApp();
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {
@@ -298,7 +285,6 @@ describe('Published Event Updated Notification Tests (EU-1 to EU-7)', () => {
 });
 
 describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
-  let mongoServer;
   let mongoClient;
   let db;
   let app;
@@ -309,24 +295,14 @@ describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
   beforeAll(async () => {
     await initTestKeys();
 
-    mongoServer = await MongoMemoryServer.create(getServerOptions());
-    const uri = mongoServer.getUri();
-    mongoClient = new MongoClient(uri);
-    await mongoClient.connect();
-    db = mongoClient.db('testdb');
-
-    await db.createCollection(COLLECTIONS.USERS);
-    await db.createCollection(COLLECTIONS.EVENTS);
-    await db.createCollection(COLLECTIONS.LOCATIONS);
-    await db.createCollection(COLLECTIONS.AUDIT_HISTORY);
+    ({ db, client: mongoClient } = await connectToGlobalServer('eventUpdatedNotification2'));
 
     setTestDatabase(db);
     app = createTestApp();
   });
 
   afterAll(async () => {
-    if (mongoClient) await mongoClient.close();
-    if (mongoServer) await mongoServer.stop();
+    await disconnectFromGlobalServer(mongoClient, db);
   });
 
   beforeEach(async () => {

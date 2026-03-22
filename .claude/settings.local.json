@@ -93,7 +93,18 @@
       "Bash(npx -y esbuild --bundle --platform=browser --jsx=automatic --format=esm --outdir=/tmp/esbuild-check src/components/Calendar.jsx)",
       "Bash(xargs basename:*)",
       "Bash(for endpoint:*)",
-      "Bash(do echo:*)"
+      "Bash(do echo:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i 's/let mongoServer, mongoClient, db, app;/let mongoClient, db, app;/' \"$f\")",
+      "Bash(echo \"Fixed: $f\")",
+      "Bash(done)",
+      "Bash(mkdir -p /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive)",
+      "Bash(mv /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/expand-recurrence-quick-edit /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive/2026-03-21-expand-recurrence-quick-edit)",
+      "Bash(cp -r /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/expand-recurrence-quick-edit /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive/2026-03-21-expand-recurrence-quick-edit)",
+      "Bash(rm -rf /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/expand-recurrence-quick-edit)",
+      "Bash(cp -r /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/simplify-delete-workflow /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive/2026-03-22-simplify-delete-workflow)",
+      "Bash(rm -rf /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/simplify-delete-workflow)"
     ],
     "deny": []
   }
