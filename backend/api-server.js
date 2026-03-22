@@ -18466,7 +18466,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       requiredFeatures,
       // Concurrent scheduling settings (admin-only)
       isAllowedConcurrent = false,
-      allowedConcurrentCategories = []
+      allowedConcurrentCategories = [],
+      // Recurring event fields
+      recurrence,
+      occurrenceOverrides
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -18687,8 +18690,16 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         // Contact person (for delegation)
         contactName: isOnBehalfOf ? contactName : '',
         contactEmail: isOnBehalfOf ? contactEmail : '',
-        isOnBehalfOf: isOnBehalfOf || false
+        isOnBehalfOf: isOnBehalfOf || false,
+        // Recurring event fields
+        recurrence: recurrence || null,
+        occurrenceOverrides: occurrenceOverrides || null
       },
+
+      // Top-level recurring event fields
+      recurrence: recurrence || null,
+      eventType: recurrence?.pattern ? 'seriesMaster' : 'singleInstance',
+      occurrenceOverrides: occurrenceOverrides || null,
 
       createdAt: new Date(),
       createdBy: userId,

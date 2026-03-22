@@ -5522,7 +5522,10 @@ import ConflictDialog from './shared/ConflictDialog';
               offsiteLon: reservationData.offsiteLon || null,
               // Categories (syncs with Outlook) and Services (internal use only)
               categories: reservationData.categories || [],
-              services: reservationData.services || {}
+              services: reservationData.services || {},
+              // Recurring event fields
+              recurrence: reservationData.recurrence || null,
+              occurrenceOverrides: reservationData.occurrenceOverrides || null
             };
 
             logger.debug('Transformed request payload', requestPayload);

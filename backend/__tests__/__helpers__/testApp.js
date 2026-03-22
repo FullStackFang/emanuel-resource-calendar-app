@@ -4206,6 +4206,8 @@ function createTestApp(options = {}) {
         doorOpenTime,
         reservationStartTime,
         reservationEndTime,
+        recurrence,
+        occurrenceOverrides,
       } = req.body;
 
       // Validate required fields
@@ -4236,6 +4238,9 @@ function createTestApp(options = {}) {
         services: services || [],
         reservationStartTime: reservationStartTime || '',
         reservationEndTime: reservationEndTime || '',
+        recurrence: recurrence || null,
+        eventType: recurrence?.pattern ? 'seriesMaster' : 'singleInstance',
+        occurrenceOverrides: occurrenceOverrides || null,
         calendarData: {
           eventTitle,
           eventDescription: eventDescription || '',
@@ -4250,6 +4255,8 @@ function createTestApp(options = {}) {
           doorOpenTime: doorOpenTime || null,
           reservationStartTime: reservationStartTime || '',
           reservationEndTime: reservationEndTime || '',
+          recurrence: recurrence || null,
+          occurrenceOverrides: occurrenceOverrides || null,
         },
         roomReservationData: {
           requestedBy: {

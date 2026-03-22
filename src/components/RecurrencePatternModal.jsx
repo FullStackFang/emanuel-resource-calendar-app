@@ -81,7 +81,8 @@ export default function RecurrencePatternModal({
       setAdHocExclusions([]);
 
       // Set default start date to event start date or today
-      const defaultStart = eventStartDate || new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const defaultStart = eventStartDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       setStartDate(defaultStart);
       setViewMonth(new Date(defaultStart + 'T00:00:00'));
 
@@ -95,7 +96,7 @@ export default function RecurrencePatternModal({
       // Set default end date to 3 months from start date
       const defaultEnd = new Date(eventStartDate || new Date());
       defaultEnd.setMonth(defaultEnd.getMonth() + 3);
-      setEndDate(defaultEnd.toISOString().split('T')[0]);
+      setEndDate(`${defaultEnd.getFullYear()}-${String(defaultEnd.getMonth() + 1).padStart(2, '0')}-${String(defaultEnd.getDate()).padStart(2, '0')}`);
     }
   }, [initialPattern, eventStartDate, isOpen]);
 
