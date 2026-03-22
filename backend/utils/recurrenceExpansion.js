@@ -124,6 +124,21 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
   let count = 0;
   const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || MAX_OCCURRENCES) : MAX_OCCURRENCES;
 
+  // For numbered ranges, count occurrences before the window to track how many were consumed
+  if (range.type === 'numbered' && windowStart > patternStart) {
+    const preCount = new Date(patternStart);
+    while (preCount < rangeStart && count < maxOcc) {
+      if (isDateInPattern(preCount, pattern, patternStart)) {
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const dateStr2 = `${preCount.getFullYear()}-${pad2(preCount.getMonth() + 1)}-${pad2(preCount.getDate())}`;
+        if (!exclusions.includes(dateStr2)) {
+          count++;
+        }
+      }
+      preCount.setDate(preCount.getDate() + 1);
+    }
+  }
+
   while (current <= rangeEnd && count < maxOcc) {
     if (isDateInPattern(current, pattern, patternStart)) {
       const pad = (n) => String(n).padStart(2, '0');

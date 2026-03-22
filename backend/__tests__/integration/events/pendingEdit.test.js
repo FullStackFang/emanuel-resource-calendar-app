@@ -6,6 +6,7 @@
  */
 
 const request = require('supertest');
+const { ObjectId } = require('mongodb');
 
 const { createTestApp, setTestDatabase, getTestCollections } = require('../../__helpers__/testApp');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
@@ -238,28 +239,34 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
   // PE-10: Room changes persist
   // ============================================
   describe('PE-10: Room changes persist', () => {
-    it('should persist updated rooms in calendarData.locations', async () => {
+    it('should persist updated rooms in calendarData.locations as ObjectIds', async () => {
       const pendingEvent = createPendingEvent({ requesterUser });
       await insertEvents(db, [pendingEvent]);
 
-      const roomIds = ['room-abc', 'room-def'];
+      const roomObjId1 = new ObjectId();
+      const roomObjId2 = new ObjectId();
+      const roomIds = [roomObjId1.toString(), roomObjId2.toString()];
       await request(app)
         .put(`/api/room-reservations/${pendingEvent._id}/edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({ ...editPayload, requestedRooms: roomIds, _version: pendingEvent._version });
 
       const updated = await findEvent(db, pendingEvent._id);
-      expect(updated.calendarData.locations).toEqual(roomIds);
+      expect(updated.calendarData.locations).toHaveLength(2);
+      expect(updated.calendarData.locations[0]).toEqual(roomObjId1);
+      expect(updated.calendarData.locations[1]).toEqual(roomObjId2);
     });
   });
 
   // ============================================
   // PE-11: StatusHistory records the edit
   // ============================================
-  describe('PE-11: StatusHistory records the edit', () => {
-    it('should push a statusHistory entry with reason "Edited by requester"', async () => {
+  describe('PE-11: StatusHistory unchanged on pending edit (no status change)', () => {
+    it('should NOT push a statusHistory entry for edits that do not change status', async () => {
       const pendingEvent = createPendingEvent({ requesterUser });
       await insertEvents(db, [pendingEvent]);
+
+      const originalHistoryLength = pendingEvent.statusHistory.length;
 
       await request(app)
         .put(`/api/room-reservations/${pendingEvent._id}/edit`)
@@ -267,10 +274,8 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .send({ ...editPayload, _version: pendingEvent._version });
 
       const updated = await findEvent(db, pendingEvent._id);
-      const lastHistory = updated.statusHistory[updated.statusHistory.length - 1];
-      expect(lastHistory.status).toBe('pending');
-      expect(lastHistory.reason).toBe('Edited by requester');
-      expect(lastHistory.changedByEmail).toBe(requesterUser.email);
+      // No status change (pending → pending), so no new history entry
+      expect(updated.statusHistory.length).toBe(originalHistoryLength);
     });
   });
 

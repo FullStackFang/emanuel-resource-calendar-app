@@ -2799,9 +2799,9 @@ function createTestApp(options = {}) {
       updateFields['calendarData.startDateTime'] = computedStartDateTime;
       updateFields['calendarData.endDateTime'] = computedEndDateTime;
 
-      // Handle rooms
+      // Handle rooms — convert string IDs to ObjectIds (matching production api-server.js)
       if (req.body.requestedRooms !== undefined) {
-        updateFields['calendarData.locations'] = req.body.requestedRooms;
+        updateFields['calendarData.locations'] = (req.body.requestedRooms || []).map(id => typeof id === 'string' ? new ObjectId(id) : id);
       }
 
       // roomReservationData fields
@@ -2823,18 +2823,20 @@ function createTestApp(options = {}) {
         updateFields.reviewedBy = null;
       }
 
-      await testCollections.events.updateOne(query, {
-        $set: updateFields,
-        $push: {
+      // Only push statusHistory when status actually changes (resubmit: rejected → pending)
+      const updateOp = { $set: updateFields };
+      if (isResubmitEdit) {
+        updateOp.$push = {
           statusHistory: {
             status: 'pending',
             changedAt: now,
             changedBy: userId,
             changedByEmail: userEmail,
-            reason: isResubmitEdit ? 'Resubmitted with edits after rejection' : 'Edited by requester',
+            reason: 'Resubmitted with edits after rejection',
           },
-        },
-      });
+        };
+      }
+      await testCollections.events.updateOne(query, updateOp);
 
       const updatedEvent = await testCollections.events.findOne(query);
 
@@ -4045,7 +4047,8 @@ function createTestApp(options = {}) {
       }
 
       const pageNum = Math.max(1, parseInt(page) || 1);
-      const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(100, Math.max(1, parseInt(limit) || 20));
+      const maxLimit = view === 'my-events' ? 500 : 100;
+      const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(maxLimit, Math.max(1, parseInt(limit) || 20));
       const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
       const shouldIncludeDeleted = includeDeleted === 'true';
 
@@ -4081,6 +4084,47 @@ function createTestApp(options = {}) {
           query.status = status;
         } else {
           query.status = { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] };
+        }
+      }
+
+      // Date range filter for admin-browse (mirrors production — local-time string comparison)
+      const { startDate: qStartDate, endDate: qEndDate } = req.query;
+      if (qStartDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        query['calendarData.startDateTime'].$gte = `${qStartDate}T00:00:00`;
+      }
+      if (qEndDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        query['calendarData.startDateTime'].$lte = `${qEndDate}T23:59:59`;
+      }
+
+      // Location filter (mirrors production api-server.js)
+      const { locations, locationCount } = req.query;
+      if (locations) {
+        const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
+        const totalLocationCount = parseInt(locationCount) || 0;
+        const isAllLocationsSelected = totalLocationCount > 0 && locationList.length >= totalLocationCount;
+
+        if (locationList.length > 0 && !isAllLocationsSelected) {
+          const locationConditions = locationList.map(loc => {
+            const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } };
+          });
+
+          const locationFilter = locationConditions.length === 1
+            ? locationConditions[0]
+            : { $or: locationConditions };
+
+          if (query.$and) {
+            query.$and.push(locationFilter);
+          } else if (query.$or) {
+            query.$and = [{ $or: query.$or }, locationFilter];
+            delete query.$or;
+          } else if (locationConditions.length === 1) {
+            Object.assign(query, locationFilter);
+          } else {
+            query.$and = [locationFilter];
+          }
         }
       }
 

@@ -16,6 +16,7 @@ import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
 import ConflictDialog from './shared/ConflictDialog';
+import DiscardChangesDialog from './shared/DiscardChangesDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
 import './ReservationRequests.css';
@@ -53,6 +54,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Card-level delete state (separate from modal delete)
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Navigation confirmation state (replaces window.confirm for iframe compatibility)
+  const [pendingNavTarget, setPendingNavTarget] = useState(null);
 
   // Scheduling conflict state (from SchedulingAssistant via RoomReservationReview)
   const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
@@ -755,16 +759,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       return;
     }
 
-    // Check if there are unsaved changes
+    // Check if there are unsaved changes — show inline dialog instead of window.confirm
+    // (window.confirm is blocked in Teams/Outlook iframe contexts)
     if (reviewModal.hasChanges) {
-      const confirmMessage = `You have unsaved changes to the current reservation.\n\n` +
-                            `If you navigate to "${targetReservation.eventTitle}", your changes will be lost.\n\n` +
-                            `Do you want to continue?`;
-
-      if (!window.confirm(confirmMessage)) {
-        logger.debug('[ReservationRequests] Navigation cancelled - user chose to stay');
-        return;
-      }
+      setPendingNavTarget(targetReservation);
+      return;
     }
 
     // Close current modal and open the new one
@@ -1275,6 +1274,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           details={{ message: reviewModal.softConflictConfirmation.message }}
         />
       )}
+
+      {/* Navigation discard dialog (replaces window.confirm for iframe compatibility) */}
+      <DiscardChangesDialog
+        isOpen={!!pendingNavTarget}
+        onDiscard={async () => {
+          const target = pendingNavTarget;
+          setPendingNavTarget(null);
+          await reviewModal.closeModal(true);
+          setTimeout(() => reviewModal.openModal(target), 100);
+        }}
+        onKeepEditing={() => setPendingNavTarget(null)}
+      />
     </div>
   );
 }

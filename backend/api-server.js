@@ -2816,146 +2816,6 @@ const verifyToken = async (req, res, next) => {
 // ROUTES
 // ============================================
 
-// ============================================
-// CALENDAR EVENT CREATION FUNCTIONS
-// ============================================
-
-/**
- * Create a calendar event from a published room reservation
- * Uses the user's Graph token from the frontend
- * @param {Object} reservation - The published reservation object
- * @param {string} calendarMode - 'sandbox' or 'production'
- * @param {string} userGraphToken - User's Graph API token from frontend
- * @returns {Object} Result object with success status and event details
- */
-async function createRoomReservationCalendarEvent(reservation, calendarMode, userGraphToken) {
-  const targetCalendar = calendarMode === 'production' 
-    ? CALENDAR_CONFIG.PRODUCTION_CALENDAR 
-    : CALENDAR_CONFIG.SANDBOX_CALENDAR;
-    
-  try {
-    // Validate that user provided a Graph token
-    if (!userGraphToken) {
-      throw new Error('Graph token is required for calendar event creation');
-    }
-    
-    const graphToken = userGraphToken;
-    // Get room names for location (check both locations and requestedRooms for backward compatibility)
-    const roomNames = [];
-    const roomIds = reservation.locations || reservation.requestedRooms;
-    if (roomIds && roomIds.length > 0) {
-      // Try to get room names from the database (rooms are locations with isReservable: true)
-      try {
-        const roomDocs = await locationsCollection.find({
-          _id: { $in: roomIds.map(id => typeof id === 'string' ? new ObjectId(id) : id) },
-          isReservable: true
-        }).toArray();
-
-        roomDocs.forEach(room => {
-          if (room.name || room.displayName) roomNames.push(room.name || room.displayName);
-        });
-      } catch (roomError) {
-        logger.warn('Error fetching room names:', roomError);
-        // Fallback to room IDs if name lookup fails
-        roomNames.push(...roomIds);
-      }
-    }
-    
-    // Build event body with reservation details
-    let eventBody = '';
-    if (reservation.eventDescription) {
-      eventBody += `${reservation.eventDescription}\n\n`;
-    }
-    if (reservation.specialRequirements) {
-      eventBody += `Special Requirements: ${reservation.specialRequirements}\n\n`;
-    }
-    if (reservation.attendeeCount) {
-      eventBody += `Expected Attendees: ${reservation.attendeeCount}\n\n`;
-    }
-    eventBody += `Requested by: ${reservation.requesterName} (${reservation.requesterEmail})\n`;
-    eventBody += `Contact: ${reservation.contactEmail || reservation.requesterEmail}\n`;
-    eventBody += `Reservation ID: ${reservation._id}`;
-    
-    // Create the calendar event object
-    const eventData = {
-      subject: reservation.eventTitle || 'Room Reservation',
-      body: {
-        contentType: 'Text',
-        content: eventBody
-      },
-      start: {
-        dateTime: reservation.startDateTime,
-        timeZone: 'America/New_York'
-      },
-      end: {
-        dateTime: reservation.endDateTime,
-        timeZone: 'America/New_York'
-      },
-      location: {
-        displayName: roomNames.length > 0 ? roomNames.join(', ') : 'Temple Location'
-      },
-      attendees: [
-        {
-          emailAddress: {
-            address: reservation.requesterEmail,
-            name: reservation.requesterName
-          }
-        }
-      ],
-      categories: ['Room Reservation'],
-      importance: 'normal'
-    };
-    
-    // Add contact person if different from requester
-    if (reservation.contactEmail && reservation.contactEmail !== reservation.requesterEmail) {
-      eventData.attendees.push({
-        emailAddress: {
-          address: reservation.contactEmail,
-          name: 'Contact Person'
-        }
-      });
-    }
-    
-    // Make the Graph API call to create the event
-    const graphUrl = `https://graph.microsoft.com/v1.0/users/${targetCalendar}/events`;
-    const response = await fetch(graphUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${graphToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(eventData)
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Graph API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
-    }
-    
-    const createdEvent = await response.json();
-    
-    return {
-      success: true,
-      eventId: createdEvent.id,
-      targetCalendar: targetCalendar,
-      webLink: createdEvent.webLink,
-      subject: createdEvent.subject
-    };
-    
-  } catch (error) {
-    logger.error('Calendar event creation failed:', {
-      reservationId: reservation._id,
-      targetCalendar: targetCalendar,
-      error: error.message
-    });
-    
-    return {
-      success: false,
-      error: error.message,
-      targetCalendar: targetCalendar
-    };
-  }
-}
 
 // ============================================
 // GRAPH API PROXY ROUTES (App-Only Authentication)
@@ -6304,9 +6164,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     const pageNum = Math.max(1, parseInt(page) || 1);
     const EXPORT_MAX_EVENTS = 2000;
+    // my-events is scoped to a single user, so allow a higher cap (500)
+    const maxLimit = view === 'my-events' ? 500 : 100;
     const limitNum = limit === '0' || limit === 0
       ? EXPORT_MAX_EVENTS
-      : Math.min(100, Math.max(1, parseInt(limit) || 20));
+      : Math.min(maxLimit, Math.max(1, parseInt(limit) || 20));
     const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
     const shouldIncludeDeleted = includeDeleted === 'true';
 
@@ -6360,16 +6222,16 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         }
       }
 
-      // Date range filter
+      // Date range filter — calendarData.startDateTime is stored as local-time strings
+      // (e.g., "2026-03-15T14:00:00"), so compare with local-time boundaries, not UTC
       if (startDate) {
         query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
+        // startDate is already "YYYY-MM-DD" from the query param
+        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
       }
       if (endDate) {
         query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        const endOfDay = new Date(endDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        query['calendarData.startDateTime'].$lte = endOfDay.toISOString();
+        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
       }
 
       // Status filter
@@ -6461,7 +6323,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       if (locationList.length > 0 && !isAllLocationsSelected) {
         const locationConditions = locationList.map(loc => {
           const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          return { locationDisplayNames: { $regex: escapedLoc, $options: 'i' } };
+          return { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } };
         });
 
         const locationFilter = locationConditions.length === 1
@@ -8494,14 +8356,14 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
       query.calendarId = calendarId;
     }
 
-    // Filter by date range if provided
+    // Filter by date range — calendarData.startDateTime is stored as local-time strings
     if (startDate || endDate) {
       query['calendarData.startDateTime'] = {};
       if (startDate) {
-        query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
+        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
       }
       if (endDate) {
-        query['calendarData.startDateTime'].$lte = new Date(endDate).toISOString();
+        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
       }
     }
 
@@ -14962,13 +14824,21 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
   try {
     const { token } = req.params;
     
-    // Validate token
-    const tokenDoc = await reservationTokensCollection.findOne({
-      token,
-      expiresAt: { $gt: new Date() },
-      currentUses: { $lt: 1 }
-    });
-    
+    // Atomically validate and claim the token in a single operation
+    // Prevents race condition where two concurrent requests could both pass validation
+    const tokenDoc = await reservationTokensCollection.findOneAndUpdate(
+      {
+        token,
+        expiresAt: { $gt: new Date() },
+        currentUses: { $lt: 1 }
+      },
+      {
+        $inc: { currentUses: 1 },
+        $set: { claimedAt: new Date() }
+      },
+      { returnDocument: 'before' }
+    );
+
     if (!tokenDoc) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
@@ -15063,14 +14933,13 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
     }
 
-    // Mark token as used
+    // Update token with usage metadata (token was already atomically claimed above)
     await reservationTokensCollection.updateOne(
       { _id: tokenDoc._id },
-      { 
-        $inc: { currentUses: 1 },
-        $set: { 
+      {
+        $set: {
           usedAt: new Date(),
-          usedBy: requesterEmail 
+          usedBy: requesterEmail
         }
       }
     );
@@ -15474,8 +15343,9 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
-    // Only allow users to resubmit their own reservations (check unified field path)
-    if (event.roomReservationData?.requestedBy?.userId !== userId) {
+    // Only allow users to resubmit their own reservations (email-based ownership, consistent with restore/delete)
+    const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+    if (ownerEmail !== (userEmail || '').toLowerCase()) {
       return res.status(403).json({ error: 'You can only resubmit your own reservation requests' });
     }
 
@@ -15600,8 +15470,9 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
-    // Ownership + department check
-    const isOwner = event.roomReservationData?.requestedBy?.userId === userId;
+    // Ownership + department check (email-based, consistent with restore/delete endpoints)
+    const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+    const isOwner = ownerEmail === (userEmail || '').toLowerCase();
 
     if (!isOwner) {
       // Check if same department
@@ -15751,7 +15622,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         'calendarData.endDate': endDate || null,
         'calendarData.endTime': endTime || null,
         'calendarData.attendeeCount': attendeeCount || 0,
-        'calendarData.locations': requestedRooms || [],
+        'calendarData.locations': (requestedRooms || []).map(id => typeof id === 'string' ? new ObjectId(id) : id),
         'calendarData.isOffsite': isOffsite || false,
         'calendarData.offsiteName': offsiteName || '',
         'calendarData.offsiteAddress': offsiteAddress || '',
@@ -15799,15 +15670,19 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
           reviewedBy: null,
         } : {})
       },
-      $push: {
-        statusHistory: {
-          status: 'pending',
-          changedAt: now,
-          changedBy: userId,
-          changedByEmail: userEmail,
-          reason: isResubmitEdit ? 'Resubmitted with edits after rejection' : 'Edited by requester'
+      // Only push statusHistory when status actually changes (resubmit: rejected → pending)
+      // Regular edits on pending events don't change status, so no spurious history entry
+      ...(isResubmitEdit ? {
+        $push: {
+          statusHistory: {
+            status: 'pending',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Resubmitted with edits after rejection'
+          }
         }
-      }
+      } : {})
     };
 
     let updatedEvent;
@@ -18933,188 +18808,96 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       }
     }
 
-    // Create Graph calendar event (if requested)
-    // Uses app-only authentication via graphApiService (no user graphToken needed)
-    let graphEventId = null;
-    let graphEventICalUId = null;
-    let calendarEventResult = null;
+    // Prepare Graph event data (pure computation, no API calls yet)
+    let graphEventData = null;
     let selectedCalendarOwner = null;
     let selectedCalendarId = null;
 
     if (createCalendarEvent) {
-      try {
-        // Determine target calendar: use override, then event's calendar, then database default
-        if (targetCalendar) {
-          // targetCalendar could be an email or calendar ID
-          // If it looks like an email, use it as the owner
-          if (targetCalendar.includes('@')) {
-            selectedCalendarOwner = targetCalendar.toLowerCase();
-            selectedCalendarId = null; // Use default calendar for this user
-          } else {
-            // It's a calendar ID - we need the owner email too
-            selectedCalendarOwner = (event.calendarOwner || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
-            selectedCalendarId = targetCalendar;
-          }
-        } else if (event.calendarOwner) {
-          // Use the event's calendar owner
-          selectedCalendarOwner = event.calendarOwner.toLowerCase();
-          selectedCalendarId = event.calendarId || null;
-        } else {
-          // Get default from database
-          const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
-          selectedCalendarOwner = (settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
+      // Determine target calendar: use override, then event's calendar, then database default
+      if (targetCalendar) {
+        if (targetCalendar.includes('@')) {
+          selectedCalendarOwner = targetCalendar.toLowerCase();
           selectedCalendarId = null;
+        } else {
+          selectedCalendarOwner = (event.calendarOwner || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
+          selectedCalendarId = targetCalendar;
         }
-
-        // Build location for Graph event - check for offsite location data
-        // Read from calendarData (authoritative) with graphData fallback for legacy events
-        const isOffsite = event.calendarData?.isOffsite || event.isOffsite;
-        const offsiteName = event.calendarData?.offsiteName || event.offsiteName;
-        const offsiteAddress = event.calendarData?.offsiteAddress || event.offsiteAddress;
-        const offsiteLat = event.calendarData?.offsiteLat || event.offsiteLat;
-        const offsiteLon = event.calendarData?.offsiteLon || event.offsiteLon;
-        const rawLocationDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
-        const locationDisplayNames = Array.isArray(rawLocationDisplayNames)
-          ? rawLocationDisplayNames.join('; ')
-          : (rawLocationDisplayNames || '');
-
-        let graphLocation = { displayName: locationDisplayNames };
-
-        if (isOffsite && offsiteName && offsiteAddress) {
-          // Use complete Graph location object for offsite events
-          graphLocation = buildOffsiteGraphLocation(
-            offsiteName,
-            offsiteAddress,
-            offsiteLat,
-            offsiteLon
-          );
-          logger.info('Publish endpoint: Using offsite location for Graph event', {
-            offsiteName,
-            offsiteAddress,
-            offsiteLat,
-            offsiteLon,
-            builtLocation: graphLocation
-          });
-        }
-
-        // Create Graph event data from calendarData (authoritative source)
-        // Build Graph API format on-the-fly instead of relying on graphData
-        const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
-        const graphEventData = {
-          subject: buildGraphSubject(
-            event.calendarData?.eventTitle || event.graphData?.subject,
-            event.calendarData?.startTime,
-            event.calendarData?.endTime
-          ),
-          start: {
-            dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
-            timeZone: eventTimezone
-          },
-          end: {
-            dateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
-            timeZone: eventTimezone
-          },
-          location: graphLocation,
-          locations: isOffsite
-            ? [graphLocation]
-            : locationDisplayNames
-              .split('; ')
-              .filter(Boolean)
-              .map(name => ({ displayName: name, locationType: 'default' })),
-          body: {
-            contentType: 'Text',
-            content: event.calendarData?.eventDescription || event.graphData?.bodyPreview || ''
-          },
-          categories: event.calendarData?.categories || event.graphData?.categories || [],
-          importance: event.graphData?.importance || 'normal',
-          showAs: event.graphData?.showAs || 'busy'
-        };
-
-        // Add recurrence if event has a recurring pattern
-        const publishRecurrence = event.recurrence || event.calendarData?.recurrence;
-        if (publishRecurrence?.pattern && publishRecurrence?.range) {
-          const graphRecurrence = buildGraphRecurrence(publishRecurrence, eventTimezone || 'America/New_York');
-          if (graphRecurrence) {
-            graphEventData.recurrence = graphRecurrence;
-            // Fix 3: Align start/end dates with recurrence range.startDate
-            const rangeStart = graphRecurrence.range.startDate;
-            if (rangeStart) {
-              const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
-              const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
-              graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
-              graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
-            }
-            logger.info('Publish: Added recurrence to Graph event', { patternType: publishRecurrence.pattern.type });
-          }
-        }
-
-        // Use graphApiService with app-only authentication (no user token needed)
-        logger.info('Creating Graph event via graphApiService', {
-          calendarOwner: selectedCalendarOwner,
-          calendarId: selectedCalendarId,
-          subject: graphEventData.subject
-        });
-
-        const createdEvent = await graphApiService.createCalendarEvent(
-          selectedCalendarOwner,
-          selectedCalendarId,
-          graphEventData
-        );
-
-        graphEventId = createdEvent.id;
-        graphEventICalUId = createdEvent.iCalUId;
-        calendarEventResult = {
-          success: true,
-          eventId: graphEventId,
-          targetCalendar: selectedCalendarOwner,
-          calendarId: selectedCalendarId
-        };
-        logger.info('Graph calendar event created:', { graphEventId, calendarOwner: selectedCalendarOwner });
-
-        // Fix 6: Sync exclusions/additions to Graph after series creation
-        const eventOccurrenceOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
-        let publishSyncResults = null;
-        if (publishRecurrence && (publishRecurrence.exclusions?.length || publishRecurrence.additions?.length)) {
-          try {
-            publishSyncResults = await syncRecurrenceExceptionsToGraph(
-              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence, graphEventData, eventOccurrenceOverrides || []
-            );
-            // Store results — will be persisted in the Graph update step below
-            calendarEventResult.recurrenceSyncResults = publishSyncResults;
-          } catch (syncError) {
-            logger.warn('Failed to sync recurrence exceptions to Graph on publish:', syncError.message);
-          }
-        }
-
-        // Sync occurrence-level overrides (categories, locations) to Graph
-        if (eventOccurrenceOverrides?.length) {
-          try {
-            const overrideSyncResults = await syncOccurrenceOverridesToGraph(
-              selectedCalendarOwner, selectedCalendarId, createdEvent.id, eventOccurrenceOverrides, graphEventData,
-              publishSyncResults?.additionEventIds || []
-            );
-            calendarEventResult.occurrenceOverrideSyncResults = overrideSyncResults;
-          } catch (overrideSyncError) {
-            logger.warn('Failed to sync occurrence overrides to Graph on publish:', overrideSyncError.message);
-          }
-        }
-      } catch (error) {
-        calendarEventResult = {
-          success: false,
-          error: error.message
-        };
-        logger.error('Error creating Graph calendar event:', error);
+      } else if (event.calendarOwner) {
+        selectedCalendarOwner = event.calendarOwner.toLowerCase();
+        selectedCalendarId = event.calendarId || null;
+      } else {
+        const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+        selectedCalendarOwner = (settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
+        selectedCalendarId = null;
       }
-    }
 
-    // If calendar event creation was requested but failed, fail the approval
-    if (createCalendarEvent && !graphEventId) {
-      logger.error('Graph event creation failed, blocking publish:', calendarEventResult?.error);
-      return res.status(500).json({
-        error: 'CalendarEventCreationFailed',
-        details: calendarEventResult?.error || 'Unknown error - Graph event was not created',
-        message: 'Publish failed: Could not create calendar event. Please check permissions and try again.'
-      });
+      // Build location for Graph event
+      const isOffsite = event.calendarData?.isOffsite || event.isOffsite;
+      const offsiteName = event.calendarData?.offsiteName || event.offsiteName;
+      const offsiteAddress = event.calendarData?.offsiteAddress || event.offsiteAddress;
+      const offsiteLat = event.calendarData?.offsiteLat || event.offsiteLat;
+      const offsiteLon = event.calendarData?.offsiteLon || event.offsiteLon;
+      const rawLocationDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
+      const locationDisplayNames = Array.isArray(rawLocationDisplayNames)
+        ? rawLocationDisplayNames.join('; ')
+        : (rawLocationDisplayNames || '');
+
+      let graphLocation = { displayName: locationDisplayNames };
+
+      if (isOffsite && offsiteName && offsiteAddress) {
+        graphLocation = buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon);
+        logger.info('Publish endpoint: Using offsite location for Graph event', {
+          offsiteName, offsiteAddress, offsiteLat, offsiteLon, builtLocation: graphLocation
+        });
+      }
+
+      const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+      graphEventData = {
+        subject: buildGraphSubject(
+          event.calendarData?.eventTitle || event.graphData?.subject,
+          event.calendarData?.startTime,
+          event.calendarData?.endTime
+        ),
+        start: {
+          dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
+          timeZone: eventTimezone
+        },
+        end: {
+          dateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
+          timeZone: eventTimezone
+        },
+        location: graphLocation,
+        locations: isOffsite
+          ? [graphLocation]
+          : locationDisplayNames
+            .split('; ')
+            .filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' })),
+        body: {
+          contentType: 'Text',
+          content: event.calendarData?.eventDescription || event.graphData?.bodyPreview || ''
+        },
+        categories: event.calendarData?.categories || event.graphData?.categories || [],
+        importance: event.graphData?.importance || 'normal',
+        showAs: event.graphData?.showAs || 'busy'
+      };
+
+      // Add recurrence if event has a recurring pattern (uses publishRecurrence from conflict check block)
+      if (publishRecurrence?.pattern && publishRecurrence?.range) {
+        const graphRecurrence = buildGraphRecurrence(publishRecurrence, eventTimezone || 'America/New_York');
+        if (graphRecurrence) {
+          graphEventData.recurrence = graphRecurrence;
+          const rangeStart = graphRecurrence.range.startDate;
+          if (rangeStart) {
+            const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+            const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+            graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+            graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+          }
+          logger.info('Publish: Added recurrence to Graph event', { patternType: publishRecurrence.pattern.type });
+        }
+      }
     }
 
     // Update event status
@@ -19124,7 +18907,9 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       reviewedAt: new Date()
     });
 
-    // Step 1: Atomically publish with version guard (BEFORE creating Graph event)
+    // Step 1: Atomically publish with version guard FIRST (prevents race condition)
+    // Two admins publishing the same event: only one wins the conditionalUpdate,
+    // the loser gets a 409 BEFORE any Graph API calls are made.
     const publishUpdate = {
       $set: {
         status: 'published',
@@ -19185,7 +18970,100 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       throw err;
     }
 
-    // Step 2: Add Graph event data if Graph event was created (separate update, safe because already published)
+    // Step 2: Create Graph event AFTER successful MongoDB publish
+    // This prevents orphaned Graph events: only the admin who wins the conditionalUpdate
+    // race creates a Graph event. Losers get a 409 above before reaching this point.
+    let graphEventId = null;
+    let graphEventICalUId = null;
+    let calendarEventResult = null;
+
+    if (createCalendarEvent && graphEventData) {
+      try {
+        logger.info('Creating Graph event via graphApiService', {
+          calendarOwner: selectedCalendarOwner,
+          calendarId: selectedCalendarId,
+          subject: graphEventData.subject
+        });
+
+        const createdEvent = await graphApiService.createCalendarEvent(
+          selectedCalendarOwner,
+          selectedCalendarId,
+          graphEventData
+        );
+
+        graphEventId = createdEvent.id;
+        graphEventICalUId = createdEvent.iCalUId;
+        calendarEventResult = {
+          success: true,
+          eventId: graphEventId,
+          targetCalendar: selectedCalendarOwner,
+          calendarId: selectedCalendarId
+        };
+        logger.info('Graph calendar event created:', { graphEventId, calendarOwner: selectedCalendarOwner });
+
+        // Sync exclusions/additions to Graph after series creation
+        const eventOccurrenceOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
+        let publishSyncResults = null;
+        if (publishRecurrence && (publishRecurrence.exclusions?.length || publishRecurrence.additions?.length)) {
+          try {
+            publishSyncResults = await syncRecurrenceExceptionsToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence, graphEventData, eventOccurrenceOverrides || []
+            );
+            calendarEventResult.recurrenceSyncResults = publishSyncResults;
+          } catch (syncError) {
+            logger.warn('Failed to sync recurrence exceptions to Graph on publish:', syncError.message);
+          }
+        }
+
+        // Sync occurrence-level overrides (categories, locations) to Graph
+        if (eventOccurrenceOverrides?.length) {
+          try {
+            const overrideSyncResults = await syncOccurrenceOverridesToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, eventOccurrenceOverrides, graphEventData,
+              publishSyncResults?.additionEventIds || []
+            );
+            calendarEventResult.occurrenceOverrideSyncResults = overrideSyncResults;
+          } catch (overrideSyncError) {
+            logger.warn('Failed to sync occurrence overrides to Graph on publish:', overrideSyncError.message);
+          }
+        }
+      } catch (error) {
+        logger.error('Graph event creation failed after MongoDB publish, rolling back status:', error);
+        // Roll back: revert status to pre-publish state
+        try {
+          await unifiedEventsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: event.status,
+                'roomReservationData.reviewedBy': null,
+                'roomReservationData.reviewNotes': null,
+                'roomReservationData.reviewingBy': null,
+              },
+              $push: {
+                statusHistory: {
+                  status: event.status,
+                  changedAt: new Date(),
+                  changedBy: userId,
+                  changedByEmail: userEmail,
+                  reason: `Publish rolled back: Graph event creation failed (${error.message})`
+                }
+              },
+              $inc: { _version: 1 }
+            }
+          );
+        } catch (rollbackError) {
+          logger.error('Failed to roll back publish status:', rollbackError);
+        }
+        return res.status(500).json({
+          error: 'CalendarEventCreationFailed',
+          details: error.message,
+          message: 'Publish failed: Could not create calendar event. The event has been reverted to its previous status. Please try again.'
+        });
+      }
+    }
+
+    // Step 3: Store Graph event data (separate update, safe because already published)
     if (graphEventId) {
       const graphUpdate = {
         $set: {
@@ -22345,7 +22223,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Step 2: If event has a Graph event ID, delete from Microsoft Graph first
     // Uses app-only auth via graphApiService (no user graphToken needed)
-    const graphEventId = event.graphData?.id || event.eventId;
+    const graphEventId = event.graphData?.id;
     const calendarOwner = event.calendarOwner;
     const calendarId = reqCalendarId || event.calendarId;
 

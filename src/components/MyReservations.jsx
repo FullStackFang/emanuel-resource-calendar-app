@@ -205,10 +205,10 @@ export default function MyReservations({ apiToken }) {
     }
   }, [existingEditRequest, reviewModal]);
 
-  // Toggle back to the original published event
+  // Toggle back to the original published event (view-only toggle, not a user edit)
   const handleViewOriginalEvent = useCallback(() => {
     if (originalEventData) {
-      reviewModal.updateData(originalEventData);
+      reviewModal.restoreData(originalEventData);
       setIsViewingEditRequest(false);
     }
   }, [originalEventData, reviewModal]);
@@ -621,7 +621,9 @@ export default function MyReservations({ apiToken }) {
   // Save Pending Edit (owner editing pending events) — used by ReviewModal's onSavePendingEdit button
   const handleSavePendingEdit = useCallback(async () => {
     const item = reviewModal.currentItem;
-    const formData = reviewModal.editableData;
+    // Use getFormData() to get live form state including categories/services/recurrence
+    // (editableData misses fields managed as refs inside RoomReservationFormBase)
+    const formData = reviewModal.getFormData?.({ skipValidation: true }) || reviewModal.editableData;
     if (!item || !formData) return;
 
     if (!formData.eventTitle?.trim()) {
@@ -710,7 +712,8 @@ export default function MyReservations({ apiToken }) {
   // Save Rejected Edit (owner editing rejected events + resubmitting) — used by ReviewModal's onSaveRejectedEdit button
   const handleSaveRejectedEdit = useCallback(async () => {
     const item = reviewModal.currentItem;
-    const formData = reviewModal.editableData;
+    // Use getFormData() for live form state (same fix as handleSavePendingEdit)
+    const formData = reviewModal.getFormData?.({ skipValidation: true }) || reviewModal.editableData;
     if (!item || !formData) return;
 
     if (!formData.eventTitle?.trim()) {

@@ -50,6 +50,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
 
+  // Auto-reset timeout ref for in-button confirmations (3-second auto-reset per UX standard)
+  const confirmResetTimerRef = useRef(null);
+  const startConfirmResetTimer = useCallback((resetFn) => {
+    if (confirmResetTimerRef.current) clearTimeout(confirmResetTimerRef.current);
+    confirmResetTimerRef.current = setTimeout(() => resetFn(false), 3000);
+  }, []);
+  const clearConfirmResetTimer = useCallback(() => {
+    if (confirmResetTimerRef.current) {
+      clearTimeout(confirmResetTimerRef.current);
+      confirmResetTimerRef.current = null;
+    }
+  }, []);
+
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
 
@@ -296,20 +309,31 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, [pendingDeleteConfirmation]);
 
   /**
+   * Restore data without marking as changed.
+   * Used for view-only toggles (e.g., "View Original" after viewing edit request).
+   */
+  const restoreData = useCallback((data) => {
+    logger.log('[useReviewModal.restoreData] Restoring data without hasChanges');
+    setEditableData(data);
+  }, []);
+
+  /**
    * Save changes to the reservation/event
    * Two-step confirmation: first click shows confirmation, second click executes
    */
   const handleSave = useCallback(async () => {
     if (!hasChanges || !currentItem) return;
 
-    // First click - show confirmation
+    // First click - show confirmation (auto-resets after 3 seconds)
     if (!pendingSaveConfirmation) {
       setPendingSaveConfirmation(true);
       setPendingApproveConfirmation(false); // Clear other confirmations
       setPendingRejectConfirmation(false);
       setPendingDeleteConfirmation(false);
+      startConfirmResetTimer(setPendingSaveConfirmation);
       return;
     }
+    clearConfirmResetTimer();
 
     // Second click - execute save
     // Pre-mutation freshness check
@@ -449,13 +473,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleApprove = useCallback(async (approvalData = {}) => {
     if (!currentItem) return;
 
-    // Two-step confirmation: First click shows confirmation, second click approves
+    // Two-step confirmation: First click shows confirmation (auto-resets after 3 seconds)
     if (!pendingApproveConfirmation) {
       setPendingApproveConfirmation(true);
       setPendingRejectConfirmation(false); // Clear reject confirmation if any
       setPendingDeleteConfirmation(false); // Clear delete confirmation if any
+      startConfirmResetTimer(setPendingApproveConfirmation);
       return { success: false, cancelled: true, needsConfirmation: true };
     }
+    clearConfirmResetTimer();
 
     // Second click: User confirmed, proceed with approval
     // Pre-mutation freshness check
@@ -695,15 +721,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     // Use provided reason or fall back to state
     const reason = typeof reasonOverride === 'string' ? reasonOverride : rejectionReason;
 
-    // Two-step confirmation: First click shows confirmation input, second click rejects
+    // Two-step confirmation: First click shows confirmation input (auto-resets after 3 seconds)
     if (!pendingRejectConfirmation) {
       setPendingRejectConfirmation(true);
       setPendingApproveConfirmation(false); // Clear approve confirmation if any
       setPendingDeleteConfirmation(false); // Clear delete confirmation if any
+      startConfirmResetTimer(setPendingRejectConfirmation);
       return { success: false, cancelled: true, needsConfirmation: true };
     }
 
     // Second click: User confirmed, proceed with rejection
+    clearConfirmResetTimer();
     if (!currentItem || !reason?.trim()) {
       const message = 'Please provide a reason for rejection';
       if (onError) onError(message);
@@ -787,17 +815,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleDelete = useCallback(async () => {
     if (!currentItem) return;
 
-    // Two-step confirmation: First click shows confirmation, second click deletes
+    // Two-step confirmation: First click shows confirmation (auto-resets after 3 seconds)
     if (!pendingDeleteConfirmation) {
       // First click: Set pending confirmation state and return
       logger.log('DEBUG: Delete button first click - showing confirmation');
       setPendingDeleteConfirmation(true);
       setPendingApproveConfirmation(false); // Clear approve confirmation if any
       setPendingRejectConfirmation(false); // Clear reject confirmation if any
+      startConfirmResetTimer(setPendingDeleteConfirmation);
       return { success: false, cancelled: true, needsConfirmation: true };
     }
 
     // Second click: User confirmed, proceed with deletion
+    clearConfirmResetTimer();
     logger.log('DEBUG: Delete button second click - deleting');
     setPendingDeleteConfirmation(false); // Reset confirmation state
     setIsDeleting(true);
@@ -1045,7 +1075,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setSavingDraft(false);
     }
-  }, [apiToken, draftId, buildDraftPayload, onError]);
+  }, [apiToken, draftId, buildDraftPayload, onError, editScope, currentItem]);
 
   /**
    * Save form data as a draft (two-click confirmation pattern)
@@ -1272,6 +1302,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     openModal,
     closeModal,
     updateData,
+    restoreData, // Update data without marking as changed (for view-only toggles)
     updateCurrentItem, // Swap current item (e.g., occurrence -> master) with forced remount
     setIsFormValid,
     setIsHold,
