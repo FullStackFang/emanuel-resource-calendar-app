@@ -370,7 +370,10 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         reservationStartMinutes,
         reservationEndMinutes,
         reservationStartTime: formData.reservationStartTime || null,
-        reservationEndTime: formData.reservationEndTime || null
+        reservationEndTime: formData.reservationEndTime || null,
+        // Raw event times for [Hold] detection (empty when user didn't specify event times)
+        eventStartTime: formData.startTime || '',
+        eventEndTime: formData.endTime || '',
       };
 
       // Remove separate date/time fields from payload

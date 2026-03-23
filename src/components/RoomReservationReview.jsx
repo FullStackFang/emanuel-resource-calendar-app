@@ -362,6 +362,10 @@ export default function RoomReservationReview({
       // Explicitly use refs for recurrence data (bypasses stale FormBase getter closures)
       recurrence: recurrencePatternRef.current,
       ...(occurrenceOverridesRef.current?.length > 0 && { occurrenceOverrides: occurrenceOverridesRef.current }),
+      // Preserve raw user-entered event times for [Hold] detection
+      // These survive the delete of startTime/endTime below because they use different field names
+      eventStartTime: formData.startTime || '',
+      eventEndTime: formData.endTime || '',
     };
 
     // Only remove separate date/time fields for submission flow (not draft saves)

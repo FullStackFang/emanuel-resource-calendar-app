@@ -6890,9 +6890,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         endDateTime,
         // Extract date and time components directly from the string (not via Date parsing)
         startDate: startDateTime ? startDateTime.split('T')[0] : '',
-        startTime: startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+        // Use raw event times when provided (preserves empty string for [Hold] detection)
+        startTime: internalFields?.eventStartTime !== undefined
+          ? (internalFields.eventStartTime || '')
+          : (startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : ''),
         endDate: endDateTime ? endDateTime.split('T')[0] : '',
-        endTime: endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+        endTime: internalFields?.eventEndTime !== undefined
+          ? (internalFields.eventEndTime || '')
+          : (endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : ''),
         isAllDayEvent: updatedGraphData.isAllDay || false,
         // Timing fields from internalData
         setupTime: internalFields?.setupTime || '',
@@ -14892,7 +14897,10 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       contactName,
       contactEmail,
       // Categories
-      categories
+      categories,
+      // Raw event times for [Hold] detection
+      eventStartTime,
+      eventEndTime
     } = req.body;
 
     // Validation
@@ -15015,9 +15023,14 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
     // Parse date components for calendarData
     const startDateStr = startDateTime.split('T')[0];
-    const startTimeStr = startDateTime.split('T')[1]?.substring(0, 5) || '';
+    // Use raw event times when provided (preserves empty string for [Hold] detection)
+    const startTimeStr = eventStartTime !== undefined
+      ? (eventStartTime || '')
+      : (startDateTime.split('T')[1]?.substring(0, 5) || '');
     const endDateStr = endDateTime.split('T')[0];
-    const endTimeStr = endDateTime.split('T')[1]?.substring(0, 5) || '';
+    const endTimeStr = eventEndTime !== undefined
+      ? (eventEndTime || '')
+      : (endDateTime.split('T')[1]?.substring(0, 5) || '');
 
     // Create reservation record with calendarData structure
     const reservation = {
@@ -18365,7 +18378,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       allowedConcurrentCategories = [],
       // Recurring event fields
       recurrence,
-      occurrenceOverrides
+      occurrenceOverrides,
+      // Raw event times for [Hold] detection (empty when user didn't specify event times)
+      eventStartTime,
+      eventEndTime
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -18542,9 +18558,15 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : '',
         // Extract date and time components (preserve local time values)
         startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : '',
-        startTime: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
+        // Use raw event times when provided (preserves empty string for [Hold] detection)
+        // Fall back to extracting from startDateTime for backward compatibility
+        startTime: eventStartTime !== undefined
+          ? (eventStartTime || '')
+          : (startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : ''),
         endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : '',
-        endTime: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
+        endTime: eventEndTime !== undefined
+          ? (eventEndTime || '')
+          : (endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : ''),
         setupTime: setupTime || '',
         teardownTime: teardownTime || '',
         doorOpenTime: doorOpenTime || '',

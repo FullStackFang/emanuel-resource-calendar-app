@@ -4251,6 +4251,9 @@ function createTestApp(options = {}) {
         reservationEndTime,
         recurrence,
         occurrenceOverrides,
+        // Raw event times for [Hold] detection
+        eventStartTime,
+        eventEndTime,
       } = req.body;
 
       // Validate required fields
@@ -4289,6 +4292,15 @@ function createTestApp(options = {}) {
           eventDescription: eventDescription || '',
           startDateTime: new Date(startDateTime),
           endDateTime: new Date(endDateTime),
+          // Use raw event times when provided (preserves empty string for [Hold] detection)
+          startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : '',
+          startTime: eventStartTime !== undefined
+            ? (eventStartTime || '')
+            : (startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : ''),
+          endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : '',
+          endTime: eventEndTime !== undefined
+            ? (eventEndTime || '')
+            : (endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : ''),
           locations: (locations || []).map(id => {
             try { return new ObjectId(id); } catch { return id; }
           }),

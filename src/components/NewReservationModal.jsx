@@ -181,9 +181,13 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       const endDateTime = data.endDate && effectiveEndTime
         ? `${data.endDate}T${effectiveEndTime}:00` : '';
 
+      // Determine if this is a [Hold] event (no event times but has reservation times)
+      const isHold = !data.eventStartTime && !data.eventEndTime &&
+                     (data.reservationStartTime || data.reservationEndTime);
+
       // Graph fields — the backend resolves room IDs to display names automatically
       const graphFields = {
-        subject: data.eventTitle || 'Untitled Event',
+        subject: isHold ? `[Hold] ${data.eventTitle || 'Untitled Event'}` : (data.eventTitle || 'Untitled Event'),
         start: { dateTime: startDateTime, timeZone: 'Eastern Standard Time' },
         end: { dateTime: endDateTime, timeZone: 'Eastern Standard Time' },
         body: { contentType: 'text', content: data.eventDescription || '' },
@@ -215,6 +219,9 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         services: data.services || {},
         recurrence: data.recurrence || null,
         occurrenceOverrides: data.occurrenceOverrides || null,
+        // Raw event times for [Hold] detection (empty when user didn't specify event times)
+        eventStartTime: data.eventStartTime || '',
+        eventEndTime: data.eventEndTime || '',
       };
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
