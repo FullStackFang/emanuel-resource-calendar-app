@@ -1050,6 +1050,12 @@
   border-color: var(--color-warning-100);
 }
 
+.scheduling-conflict-warning.pending-reservation-conflict {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
 .hold-warning {
   color: var(--color-warning-700);
   font-size: var(--text-xs);

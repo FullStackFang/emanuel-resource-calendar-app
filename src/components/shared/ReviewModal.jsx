@@ -147,6 +147,7 @@ export default function ReviewModal({
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
+  hasPendingReservationConflicts = false, // Informational conflicts (other pending requests)
   isHold = false, // No event times — will display as [Hold]
   // Recurring event data (for Recurrence tab)
   reservation = null,
@@ -881,6 +882,11 @@ export default function ReviewModal({
               {!hasSchedulingConflicts && hasSoftConflicts && (
                 <span className="scheduling-conflict-warning soft-conflict">
                   ⚠ Pending Edit Conflicts
+                </span>
+              )}
+              {!hasSchedulingConflicts && !hasSoftConflicts && hasPendingReservationConflicts && (
+                <span className="scheduling-conflict-warning pending-reservation-conflict">
+                  ⚠ Overlapping Pending Requests
                 </span>
               )}
               <button

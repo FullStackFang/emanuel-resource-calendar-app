@@ -7485,6 +7485,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isLoadingData={reviewModal.isLoadingData}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+          hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
           isHold={reviewModal.isHold}
           reservation={reviewModal.currentItem}
           onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}

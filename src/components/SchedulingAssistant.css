@@ -575,6 +575,24 @@
   margin-top: 1px;
 }
 
+/* Pending reservation blocks — informational, never blocking */
+.event-block.sa-pending-reservation {
+  border: 2px dashed #ca8a04 !important;
+  background-color: #eab308 !important;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.15) 6px,
+    rgba(255, 255, 255, 0.15) 12px
+  ) !important;
+}
+
+.event-block.sa-pending-reservation:hover {
+  opacity: 0.75 !important;
+  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.4), 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
 .event-block.calendar-event {
   background-image: repeating-linear-gradient(
     45deg,
@@ -657,6 +675,30 @@
 }
 
 .event-block.very-compact .sa-pencil-icon {
+  width: 16px;
+  height: 16px;
+  padding: 2px;
+}
+
+/* Clock icon for pending-reservation blocks */
+.sa-clock-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 3px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.25);
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.event-block.compact .sa-clock-icon {
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+}
+
+.event-block.very-compact .sa-clock-icon {
   width: 16px;
   height: 16px;
   padding: 2px;
@@ -1173,6 +1215,11 @@
 
 .sa-event-tooltip .tooltip-badge.pending-edit {
   background: var(--color-warning-500);
+  color: white;
+}
+
+.sa-event-tooltip .tooltip-badge.pending-reservation {
+  background: #ca8a04;
   color: white;
 }
 

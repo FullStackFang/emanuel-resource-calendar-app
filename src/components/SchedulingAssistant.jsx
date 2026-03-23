@@ -318,6 +318,58 @@ export default function SchedulingAssistant({
         });
       }
 
+      // Process pending reservation events (informational — other users' pending requests)
+      if (roomAvailability.conflicts.pendingReservations) {
+        roomAvailability.conflicts.pendingReservations.forEach(pendingRes => {
+          const pendingResId = pendingRes._id || pendingRes.id;
+
+          // SKIP the current reservation being edited
+          if (currentReservationId && pendingResId === currentReservationId) {
+            return;
+          }
+
+          let startTime = new Date(pendingRes.effectiveStart || pendingRes.originalStart);
+          let endTime = new Date(pendingRes.effectiveEnd || pendingRes.originalEnd);
+          const originalStartTime = new Date(startTime);
+          const originalEndTime = new Date(endTime);
+          // Clamp multi-day events to the viewed day's boundaries
+          const dayStart = new Date(`${effectiveDate}T00:00:00`);
+          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
+
+          // Skip pending reservations entirely outside the viewed day
+          if (startTime >= dayEnd || endTime <= dayStart) return;
+
+          if (startTime < dayStart) startTime = dayStart;
+          if (endTime > dayEnd) endTime = dayEnd;
+
+          const position = calculateEventPosition(startTime, endTime);
+
+          blocks.push({
+            id: `${pendingResId}-pending-reservation`,
+            type: 'pending-reservation',
+            room,
+            roomIndex,
+            color: '#eab308', // Yellow-amber for pending reservations
+            baseColor: '#eab308',
+            eventIndexInRoom,
+            title: pendingRes.eventTitle || 'Pending Request',
+            startTime,
+            endTime,
+            organizer: pendingRes.requesterName || pendingRes.requesterEmail || '',
+            isConflict: false, // Will be calculated later
+            isAllowedConcurrent: pendingRes.isAllowedConcurrent ?? false,
+            categories: pendingRes.categories || [],
+            isPendingReservation: true,
+            originalStartTime,
+            originalEndTime,
+            ...position
+          });
+
+          roomEventCount++;
+          eventIndexInRoom++;
+        });
+      }
+
       // Initialize stats (conflicts will be calculated after)
       stats[room._id] = {
         conflictCount: 0,
@@ -437,25 +489,29 @@ export default function SchedulingAssistant({
           return !userEvent.isAllowedConcurrent && !b.isAllowedConcurrent;
         });
 
-        const hardConflicts = conflictsWithUserEvent.filter(b => !b.isPendingEdit);
+        const hardConflicts = conflictsWithUserEvent.filter(b => !b.isPendingEdit && !b.isPendingReservation);
         const softConflicts = conflictsWithUserEvent.filter(b => b.isPendingEdit);
+        const pendingResConflicts = conflictsWithUserEvent.filter(b => b.isPendingReservation);
 
         if (stats[room._id]) {
           stats[room._id].conflictCount = conflictsWithUserEvent.length;
           stats[room._id].hardConflictCount = hardConflicts.length;
           stats[room._id].softConflictCount = softConflicts.length;
+          stats[room._id].pendingReservationConflictCount = pendingResConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
           stats[room._id].conflictDetails = conflictsWithUserEvent.map(b => b.title).join(', ');
         }
       } else {
         // No user event - show all conflicts
         const conflictingEvents = roomBlocks.filter(b => b.isConflict);
-        const hardConflicts = conflictingEvents.filter(b => !b.isPendingEdit);
+        const hardConflicts = conflictingEvents.filter(b => !b.isPendingEdit && !b.isPendingReservation);
         const softConflicts = conflictingEvents.filter(b => b.isPendingEdit);
+        const pendingResConflicts = conflictingEvents.filter(b => b.isPendingReservation);
         if (stats[room._id]) {
           stats[room._id].conflictCount = conflictingEvents.length;
           stats[room._id].hardConflictCount = hardConflicts.length;
           stats[room._id].softConflictCount = softConflicts.length;
+          stats[room._id].pendingReservationConflictCount = pendingResConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
           stats[room._id].conflictDetails = conflictingEvents.map(b => b.title).join(', ');
         }
@@ -477,12 +533,15 @@ export default function SchedulingAssistant({
       const stats = Object.values(roomStats);
       const totalHard = stats.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
       const totalSoft = stats.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
-      const total = totalHard + totalSoft;
+      const totalPendingRes = stats.reduce((sum, s) => sum + (s.pendingReservationConflictCount || 0), 0);
+      const total = totalHard + totalSoft + totalPendingRes;
       onConflictChangeRef.current(total > 0, total, {
         hasHardConflicts: totalHard > 0,
         hardConflictCount: totalHard,
         hasSoftConflicts: totalSoft > 0,
         softConflictCount: totalSoft,
+        hasPendingReservationConflicts: totalPendingRes > 0,
+        pendingReservationConflictCount: totalPendingRes,
       });
     }
   }, [roomStats]);
@@ -1246,6 +1305,12 @@ export default function SchedulingAssistant({
       boxShadow = '0 0 0 2px rgba(234, 88, 12, 0.5)';
       backgroundColor = '#ea580c';
       filter = 'none';
+    } else if (block.isPendingReservation) {
+      opacity = 0.6;
+      cursor = 'default';
+      boxShadow = '0 0 0 2px rgba(202, 138, 4, 0.4)';
+      backgroundColor = '#eab308';
+      filter = 'none';
     } else if (isLocked) {
       opacity = conflictsWithUser ? 0.8 : 0.55;
       cursor = 'not-allowed';
@@ -1279,6 +1344,7 @@ export default function SchedulingAssistant({
       conflictsWithUser ? 'conflicts-with-user' : '',
       block.status === 'pending' ? 'sa-pending' : '',
       block.isPendingEdit ? 'sa-pending-edit' : '',
+      block.isPendingReservation ? 'sa-pending-reservation' : '',
       block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : '',
       offset.totalColumns > 1 ? 'has-overlap' : ''
     ].filter(Boolean).join(' ');
@@ -1331,7 +1397,7 @@ export default function SchedulingAssistant({
             <span className="sa-user-label">YOUR EVENT</span>
           )}
           <div className="event-block-header">
-            {isLocked && !block.isPendingEdit && (
+            {isLocked && !block.isPendingEdit && !block.isPendingReservation && (
               <svg className="sa-lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z" />
               </svg>
@@ -1339,6 +1405,11 @@ export default function SchedulingAssistant({
             {block.isPendingEdit && (
               <svg className="sa-pencil-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+              </svg>
+            )}
+            {block.isPendingReservation && (
+              <svg className="sa-clock-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
               </svg>
             )}
             <span className="event-title">{block.title}</span>
@@ -1453,7 +1524,7 @@ export default function SchedulingAssistant({
 
       // Sort within cluster: user event leftmost, pending edits middle, locked rightmost
       // Secondary sort by start time for stability
-      const typePriority = (b) => b.isUserEvent ? 0 : b.isPendingEdit ? 1 : 2;
+      const typePriority = (b) => b.isUserEvent ? 0 : b.isPendingReservation ? 1 : b.isPendingEdit ? 2 : 3;
       const sortedCluster = [...cluster].sort((a, b) => {
         const p = typePriority(a) - typePriority(b);
         if (p !== 0) return p;
@@ -1968,6 +2039,7 @@ export default function SchedulingAssistant({
         >
           {tooltipInfo.block.isUserEvent && <div className="tooltip-badge user">YOUR EVENT</div>}
           {tooltipInfo.block.isPendingEdit && <div className="tooltip-badge pending-edit">PENDING EDIT</div>}
+          {tooltipInfo.block.isPendingReservation && <div className="tooltip-badge pending-reservation">PENDING REQUEST</div>}
           <div className="tooltip-title">{tooltipInfo.block.title}</div>
           <div className="tooltip-time">
             {formatTime(tooltipInfo.block.startTime)} - {formatTime(tooltipInfo.block.endTime)}

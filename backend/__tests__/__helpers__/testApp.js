@@ -4555,7 +4555,7 @@ function createTestApp(options = {}) {
    */
   app.get('/api/rooms/availability', async (req, res) => {
     try {
-      const { startDateTime, endDateTime, roomIds } = req.query;
+      const { startDateTime, endDateTime, roomIds, excludeEventId } = req.query;
 
       if (!startDateTime || !endDateTime) {
         return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
@@ -4614,6 +4614,23 @@ function createTestApp(options = {}) {
         ],
       }).toArray();
 
+      // Get pending reservation events (informational — never blocks)
+      const pendingResQuery = {
+        status: 'pending',
+        isDeleted: { $ne: true },
+        'calendarData.startDateTime': { $lt: end },
+        'calendarData.endDateTime': { $gt: start },
+        $or: [
+          { 'calendarData.locations': { $in: roomObjectIds } },
+          { 'calendarData.locations': { $in: roomIdStrings } },
+        ],
+      };
+      if (excludeEventId) {
+        try { pendingResQuery._id = { $ne: new ObjectId(excludeEventId) }; }
+        catch (e) { /* invalid ID, skip */ }
+      }
+      const pendingReservationEvents = await testCollections.events.find(pendingResQuery).toArray();
+
       const availability = rooms.map(room => {
         const roomIdString = room._id.toString();
 
@@ -4670,12 +4687,31 @@ function createTestApp(options = {}) {
             };
           });
 
+        // Pending reservations for this room
+        const detailedPendingReservations = pendingReservationEvents
+          .filter(r => r.calendarData?.locations?.some(loc => loc.toString() === roomIdString))
+          .map(r => ({
+            id: r._id,
+            eventTitle: r.calendarData?.eventTitle,
+            requesterName: r.roomReservationData?.requestedBy?.name || '',
+            requesterEmail: r.roomReservationData?.requestedBy?.email || '',
+            status: 'pending',
+            originalStart: r.calendarData?.startDateTime,
+            originalEnd: r.calendarData?.endDateTime,
+            effectiveStart: r.calendarData?.startDateTime,
+            effectiveEnd: r.calendarData?.endDateTime,
+            isAllowedConcurrent: r.isAllowedConcurrent ?? false,
+            categories: r.calendarData?.categories || r.categories || [],
+            isPendingReservation: true,
+          }));
+
         return {
           room,
           conflicts: {
             reservations: detailedReservations,
             events: detailedEvents,
             pendingEdits: detailedPendingEdits,
+            pendingReservations: detailedPendingReservations,
             totalConflicts: detailedReservations.length + detailedEvents.length,
           },
         };

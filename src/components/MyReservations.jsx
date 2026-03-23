@@ -1315,6 +1315,7 @@ export default function MyReservations({ apiToken }) {
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+        hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
         isHold={reviewModal.isHold}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}

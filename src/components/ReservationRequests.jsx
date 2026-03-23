@@ -1209,6 +1209,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+        hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
         isHold={reviewModal.isHold}
         // Recurring event data (for Conflicts tab)
         reservation={reviewModal.currentItem}

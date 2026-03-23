@@ -594,6 +594,7 @@ export default function RoomReservationFormBase({
         reservationStartMinutes,
         reservationEndMinutes
       });
+      if (currentReservationId) params.append('excludeEventId', currentReservationId);
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
       if (!response.ok) throw new Error('Failed to check availability');
@@ -648,6 +649,7 @@ export default function RoomReservationFormBase({
         setupTimeMinutes: 0,
         teardownTimeMinutes: 0
       });
+      if (currentReservationId) params.append('excludeEventId', currentReservationId);
 
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`,
@@ -765,12 +767,8 @@ export default function RoomReservationFormBase({
   // Validated chronology: reservationStartTime -> start -> end -> reservationEndTime
   // setupTime, teardownTime, doorOpenTime, doorCloseTime are NOT validated (staff-only internal fields)
   const validateTimes = useCallback(() => {
-    if (formData.isAllDayEvent) {
-      setTimeErrors([]);
-      return true;
-    }
     const errors = [];
-    const { reservationStartTime, startTime, endTime, reservationEndTime, startDate, endDate } = formData;
+    const { reservationStartTime, startTime, endTime, reservationEndTime, startDate, endDate, isAllDayEvent } = formData;
 
     const createDateTime = (date, timeStr) => {
       if (!date || !timeStr) return null;
@@ -802,11 +800,14 @@ export default function RoomReservationFormBase({
     const eventStartDateTime = createDateTime(startDate, startTime);
     const eventEndDateTime = createDateTime(endDate, endTime);
 
-    if (!reservationStartTime) {
-      errors.push('Reservation Start Time is required');
-    }
-    if (!reservationEndTime) {
-      errors.push('Reservation End Time is required');
+    // Reservation times are auto-filled for all-day events, only require them for timed events
+    if (!isAllDayEvent) {
+      if (!reservationStartTime) {
+        errors.push('Reservation Start Time is required');
+      }
+      if (!reservationEndTime) {
+        errors.push('Reservation End Time is required');
+      }
     }
 
     // Event start/end ordering (only when both are present)
@@ -1469,15 +1470,15 @@ export default function RoomReservationFormBase({
                       ...(turningOn
                         ? {
                             reservationStartTime: '00:00',
-                            startTime: '00:00',
-                            endTime: '23:59',
                             reservationEndTime: '23:59',
+                            startTime: '',
+                            endTime: '',
                           }
                         : {
                             reservationStartTime: '',
+                            reservationEndTime: '',
                             startTime: '',
                             endTime: '',
-                            reservationEndTime: '',
                           }
                       ),
                     }));
@@ -1688,7 +1689,7 @@ export default function RoomReservationFormBase({
                   name="startTime"
                   value={formData.startTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled || formData.isAllDayEvent}
+                  disabled={fieldsDisabled}
                   className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event begins (optional)</div>
@@ -1707,7 +1708,7 @@ export default function RoomReservationFormBase({
                   name="endTime"
                   value={formData.endTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled || formData.isAllDayEvent}
+                  disabled={fieldsDisabled}
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event ends (optional)</div>

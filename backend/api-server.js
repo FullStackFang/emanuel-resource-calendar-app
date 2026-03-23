@@ -12951,7 +12951,7 @@ app.get('/api/locations', async (req, res) => {
  */
 app.get('/api/rooms/availability', async (req, res) => {
   try {
-    const { startDateTime, endDateTime, roomIds, setupTimeMinutes = 0, teardownTimeMinutes = 0, reservationStartMinutes, reservationEndMinutes } = req.query;
+    const { startDateTime, endDateTime, roomIds, setupTimeMinutes = 0, teardownTimeMinutes = 0, reservationStartMinutes, reservationEndMinutes, excludeEventId } = req.query;
 
     if (!startDateTime || !endDateTime) {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
@@ -13073,6 +13073,29 @@ app.get('/api/rooms/availability', async (req, res) => {
         ]
       }).toArray());
       logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
+    }
+
+    // Query for pending reservations (informational — never blocks scheduling)
+    let pendingReservationEvents = [];
+    if (roomObjectIds.length > 0) {
+      const pendingResQuery = {
+        status: 'pending',
+        isDeleted: { $ne: true },
+        'calendarData.startDateTime': { $lt: end },
+        'calendarData.endDateTime': { $gt: start },
+        $or: [
+          { 'calendarData.locations': { $in: roomObjectIds } },
+          { 'calendarData.locations': { $in: roomIdStrings } }
+        ]
+      };
+      if (excludeEventId) {
+        try { pendingResQuery._id = { $ne: new ObjectId(excludeEventId) }; }
+        catch (e) { /* invalid ID format, skip exclusion filter */ }
+      }
+      pendingReservationEvents = await withCosmosRetry(() =>
+        unifiedEventsCollection.find(pendingResQuery).toArray()
+      );
+      logger.log('[AVAILABILITY DEBUG] Found pending reservation events:', pendingReservationEvents.length);
     }
 
     // Helper function to format time for display
@@ -13260,6 +13283,56 @@ app.get('/api/rooms/availability', async (req, res) => {
           };
         });
 
+      // Process pending reservation events for this room (informational only)
+      const detailedPendingReservations = pendingReservationEvents
+        .filter(res =>
+          res.calendarData?.locations && res.calendarData.locations.some(locId => locId.toString() === roomIdString)
+        )
+        .map(res => {
+          const cd = res.calendarData || {};
+          const startDate = (cd.startDateTime || '').split('T')[0];
+          const endDate = (cd.endDateTime || '').split('T')[0];
+
+          let effectiveStart, effectiveEnd;
+
+          if (cd.setupTime) {
+            effectiveStart = `${startDate}T${cd.setupTime}:00`;
+          } else if (cd.setupTimeMinutes) {
+            const s = new Date(cd.startDateTime);
+            s.setMinutes(s.getMinutes() - cd.setupTimeMinutes);
+            effectiveStart = toLocalISOString(s);
+          } else {
+            effectiveStart = cd.startDateTime;
+          }
+
+          if (cd.teardownTime) {
+            effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
+          } else if (cd.teardownTimeMinutes) {
+            const e = new Date(cd.endDateTime);
+            e.setMinutes(e.getMinutes() + cd.teardownTimeMinutes);
+            effectiveEnd = toLocalISOString(e);
+          } else {
+            effectiveEnd = cd.endDateTime;
+          }
+
+          return {
+            id: res._id,
+            eventTitle: cd.eventTitle,
+            requesterName: res.roomReservationData?.requestedBy?.name || cd.requesterName || '',
+            requesterEmail: res.roomReservationData?.requestedBy?.email || cd.requesterEmail || '',
+            status: 'pending',
+            originalStart: cd.startDateTime,
+            originalEnd: cd.endDateTime,
+            effectiveStart,
+            effectiveEnd,
+            setupTimeMinutes: cd.setupTimeMinutes || 0,
+            teardownTimeMinutes: cd.teardownTimeMinutes || 0,
+            isAllowedConcurrent: res.isAllowedConcurrent ?? false,
+            categories: res.calendarData?.categories || res.categories || [],
+            isPendingReservation: true,
+          };
+        });
+
       // Frontend calculates conflicts dynamically based on user's current time selection
       // This allows real-time updates as user drags events in scheduling assistant
       return {
@@ -13268,6 +13341,7 @@ app.get('/api/rooms/availability', async (req, res) => {
           reservations: detailedReservationConflicts,
           events: detailedEventConflicts,
           pendingEdits: detailedPendingEdits,
+          pendingReservations: detailedPendingReservations,
           totalConflicts: detailedReservationConflicts.length + detailedEventConflicts.length
         }
       };
