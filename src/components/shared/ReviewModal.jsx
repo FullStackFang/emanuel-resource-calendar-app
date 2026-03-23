@@ -209,9 +209,12 @@ export default function ReviewModal({
   };
   // Tab state - reset to 'details' whenever modal opens
   const [activeTab, setActiveTab] = useState('details');
+  // Track whether Event Details date/time fields are complete (gates other tabs)
+  const [areDetailsComplete, setAreDetailsComplete] = useState(true);
   useEffect(() => {
     if (isOpen) {
       setActiveTab('details');
+      setAreDetailsComplete(true); // Default true; FormBase will override to false if incomplete
     }
   }, [isOpen]);
 
@@ -902,16 +905,18 @@ export default function ReviewModal({
               Event Details
             </div>
             <div
-              className={`event-type-tab ${activeTab === 'additional' ? 'active' : ''}`}
-              onClick={() => setActiveTab('additional')}
+              className={`event-type-tab ${activeTab === 'additional' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
+              onClick={() => areDetailsComplete && setActiveTab('additional')}
+              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
             >
               Additional Info
             </div>
             {/* Recurrence tab — visible when recurrence exists OR user can create one */}
             {(hasRecurrence || canEditRecurrence) && (
               <div
-                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''}`}
-                onClick={() => setActiveTab('recurrence')}
+                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
+                onClick={() => areDetailsComplete && setActiveTab('recurrence')}
+                title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
               >
                 Recurrence
                 {hasRecurrence && <span className="tab-active-dot" />}
@@ -947,7 +952,7 @@ export default function ReviewModal({
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
               {React.isValidElement(children)
-                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef })
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef, onDetailsCompleteChange: setAreDetailsComplete })
                 : children
               }
             </div>

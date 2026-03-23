@@ -94,6 +94,7 @@ export default function RoomReservationFormBase({
   onTimeErrorsRef = null,       // Callback to expose timeErrors getter
   onValidateRef = null,         // Callback to expose validation function
   onFormValidChange = null,     // Callback when form validity changes
+  onDetailsCompleteChange = null, // Callback when date/time completeness changes (for tab gating)
 
   // Pre-fetched data
   prefetchedAvailability = null, // Pre-fetched room availability data from parent
@@ -848,6 +849,16 @@ export default function RoomReservationFormBase({
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
   }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
+  // Check if core date/time fields are complete (for tab gating — separate from full isFormValid)
+  const areDetailsComplete = useMemo(() => {
+    if (formData.isAllDayEvent) {
+      return isFieldValid('startDate') && isFieldValid('endDate');
+    }
+    return isFieldValid('startDate') && isFieldValid('endDate') &&
+           isFieldValid('reservationStartTime') && isFieldValid('reservationEndTime') &&
+           timeErrors.length === 0;
+  }, [isFieldValid, timeErrors, formData.isAllDayEvent]);
+
   // Notify parent when form validity changes
   // Note: onFormValidChange intentionally excluded from deps to prevent render loop
   // (parent creates new callback reference each render)
@@ -857,6 +868,14 @@ export default function RoomReservationFormBase({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormValid]);
+
+  // Notify parent when date/time completeness changes (for tab gating)
+  useEffect(() => {
+    if (onDetailsCompleteChange) {
+      onDetailsCompleteChange(areDetailsComplete);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [areDetailsComplete]);
 
   // Helper function to notify parent of data changes
   // Uses refs to always get latest categories/services (prevents stale closure issues)

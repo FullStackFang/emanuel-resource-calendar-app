@@ -303,6 +303,9 @@ const event = await graphApiService.createCalendarEvent(
 
 ### Before Writing Any Code
 
+- **If something goes sideways, STOP and re-plan immediately** - don't keep pushing down a broken path.
+- **Write detailed specs upfront to reduce ambiguity** - clarify requirements, edge cases, and expected behavior before writing implementation code.
+
 Follow this verification-first workflow for all code changes:
 
 1. **State verification method** - Before implementing, describe how you will verify the change works (unit test, integration test, bash command, browser check, API call, etc.)

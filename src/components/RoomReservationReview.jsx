@@ -50,6 +50,7 @@ export default function RoomReservationReview({
   setActiveTab = null, // Callback to switch ReviewModal tab (injected by ReviewModal via cloneElement)
   editScope = null, // For recurring events: 'thisEvent' | 'allEvents' | null
   onFormValidChange = null, // Callback when form validity changes
+  onDetailsCompleteChange = null, // Callback when date/time completeness changes (for tab gating)
   readOnly = false, // Read-only mode for viewers
   isEditRequestMode = false, // Edit request mode - allows editing even when normally readOnly
   isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
@@ -478,6 +479,7 @@ export default function RoomReservationReview({
           onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
           onValidateRef={(getter) => { validateRef.current = getter; }}
           onFormValidChange={onFormValidChange}
+          onDetailsCompleteChange={onDetailsCompleteChange}
           isEditRequestMode={isEditRequestMode}
           isViewingEditRequest={isViewingEditRequest}
           originalData={originalData}
