@@ -662,7 +662,7 @@ export default function RecurrenceTabContent({
     <div className="recurrence-tab-left">
       {/* Calendar Preview */}
       <div
-        className="recurrence-tab-calendar"
+        className={`recurrence-tab-calendar${!hasPattern ? ' calendar-preview-only' : ''}`}
         ref={calendarContainerRef}
         onMouseDown={(e) => {
           const cell = e.target.closest('.react-datepicker__day');
@@ -672,7 +672,7 @@ export default function RecurrenceTabContent({
         <DatePicker
           inline
           selected={null}
-          onChange={canEdit ? handleCalendarDateClick : undefined}
+          onChange={canEdit && hasPattern ? handleCalendarDateClick : undefined}
           onMonthChange={(date) => { setViewMonth(date); setCalendarPopover(null); }}
           dayClassName={(date) => {
             const dateStr = toDateStr(date);
@@ -702,6 +702,11 @@ export default function RecurrenceTabContent({
             </button>
           </div>
         )}
+        <div className="calendar-preview-overlay">
+          <span className="calendar-preview-overlay-label">
+            Click <strong>Create Recurrence</strong><br />to enable date editing
+          </span>
+        </div>
         <div className="calendar-legend">
           <div className="legend-item">
             <div className="legend-color recurrence-pattern-color" />

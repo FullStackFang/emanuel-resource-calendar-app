@@ -80,6 +80,45 @@
   position: relative;
 }
 
+/* Preview-only state — calendar is non-interactive until pattern is created */
+.recurrence-tab-calendar.calendar-preview-only .react-datepicker {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(0.7);
+  user-select: none;
+}
+
+.recurrence-tab-calendar.calendar-preview-only .calendar-preview-overlay {
+  display: flex;
+}
+
+.calendar-preview-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+
+.calendar-preview-overlay-label {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px dashed var(--color-primary-300);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  text-align: center;
+  line-height: 1.4;
+}
+
 .recurrence-tab-calendar .react-datepicker {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
