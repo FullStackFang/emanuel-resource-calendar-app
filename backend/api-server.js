@@ -2093,7 +2093,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       query._id = { $ne: new ObjectId(excludeId) };
     }
 
-    const conflicts = await unifiedEventsCollection.find(query).toArray();
+    const conflicts = await withCosmosRetry(() => unifiedEventsCollection.find(query).toArray());
 
     // Also check recurring series masters whose stored dates may not overlap but whose
     // expanded occurrences do. Query for published seriesMasters sharing the same rooms.
@@ -2111,7 +2111,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       if (conflictIds.length > 0) {
         recurringQuery._id = { ...(recurringQuery._id || {}), $nin: conflictIds };
       }
-      const seriesMasters = await unifiedEventsCollection.find(recurringQuery).toArray();
+      const seriesMasters = await withCosmosRetry(() => unifiedEventsCollection.find(recurringQuery).toArray());
 
       for (const master of seriesMasters) {
         const occurrences = expandRecurringOccurrencesInWindow(master, effectiveStart, effectiveEnd);
@@ -18757,21 +18757,20 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
     const id = req.params.id;
     // Note: graphToken is no longer needed - using app-only auth via graphApiService
     const { notes, calendarMode, createCalendarEvent, forcePublish, targetCalendar, _version, acknowledgeSoftConflicts } = req.body;
 
-    // Get event by _id (needed for processing before atomic update)
-    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    // Fetch user and event in parallel (no dependency between them)
+    const [user, event] = await Promise.all([
+      usersCollection.findOne({ userId }),
+      unifiedEventsCollection.findOne({ _id: new ObjectId(id) })
+    ]);
+
+    const isAdminUser = isAdmin(user, userEmail);
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -18995,16 +18994,20 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
 
     let publishedEvent;
     try {
-      publishedEvent = await conditionalUpdate(
-        unifiedEventsCollection,
-        { _id: new ObjectId(id) },
-        publishUpdate,
-        {
-          expectedVersion: _version || null,
-          expectedStatus: event.status, // 'pending' or 'room-reservation-request'
-          modifiedBy: userEmail,
-          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
-        }
+      // withCosmosRetry retries on code 16500 (rate limit) only;
+      // OCC 409 errors (statusCode 409, no code 16500) pass through untouched
+      publishedEvent = await withCosmosRetry(() =>
+        conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: new ObjectId(id) },
+          publishUpdate,
+          {
+            expectedVersion: _version || null,
+            expectedStatus: event.status, // 'pending' or 'room-reservation-request'
+            modifiedBy: userEmail,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+          }
+        )
       );
     } catch (err) {
       if (err.statusCode === 409) {
@@ -19106,51 +19109,39 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       }
     }
 
-    // Step 3: Store Graph event data (separate update, safe because already published)
-    if (graphEventId) {
-      const graphUpdate = {
-        $set: {
-          'graphData.id': graphEventId,
-          'graphData.iCalUId': graphEventICalUId,
-        },
-        $push: {
-          'roomReservationData.createdGraphEventIds': graphEventId
-        }
-      };
-      if (selectedCalendarId) {
-        graphUpdate.$set.calendarId = selectedCalendarId;
-      }
-      if (selectedCalendarOwner) {
-        graphUpdate.$set.calendarOwner = selectedCalendarOwner;
-      }
-      // Persist recurrence exception sync results
-      const syncResults = calendarEventResult?.recurrenceSyncResults;
-      if (syncResults?.cancelledOccurrences?.length) {
-        graphUpdate.$set['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
-      }
-      if (syncResults?.additionEventIds?.length) {
-        graphUpdate.$set.exceptionEventIds = syncResults.additionEventIds;
-      }
-      await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, graphUpdate);
-    }
-
-    // Read any approver modifications captured during the save step
+    // Step 3: Post-publish writes (fire-and-forget with retry — none affect the response)
     const reviewChanges = event.roomReservationData?.reviewChanges || [];
 
-    // Clear reviewChanges from the document (one-time use for email)
-    if (reviewChanges.length > 0) {
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $unset: { 'roomReservationData.reviewChanges': '' } }
-      );
+    // Build merged event update: graphData storage (step 6) + reviewChanges cleanup (step 7)
+    const mergedEventUpdate = { $set: {} };
+    let hasEventUpdates = false;
+
+    if (graphEventId) {
+      mergedEventUpdate.$set['graphData.id'] = graphEventId;
+      mergedEventUpdate.$set['graphData.iCalUId'] = graphEventICalUId;
+      mergedEventUpdate.$push = { 'roomReservationData.createdGraphEventIds': graphEventId };
+      if (selectedCalendarId) mergedEventUpdate.$set.calendarId = selectedCalendarId;
+      if (selectedCalendarOwner) mergedEventUpdate.$set.calendarOwner = selectedCalendarOwner;
+      const syncResults = calendarEventResult?.recurrenceSyncResults;
+      if (syncResults?.cancelledOccurrences?.length) {
+        mergedEventUpdate.$set['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+      }
+      if (syncResults?.additionEventIds?.length) {
+        mergedEventUpdate.$set.exceptionEventIds = syncResults.additionEventIds;
+      }
+      hasEventUpdates = true;
     }
 
-    // Audit log
+    if (reviewChanges.length > 0) {
+      mergedEventUpdate.$unset = { 'roomReservationData.reviewChanges': '' };
+      hasEventUpdates = true;
+    }
+
+    // Build audit entry
     const auditChanges = [
       { field: 'status', oldValue: 'pending', newValue: 'published' },
       { field: 'reviewNotes', oldValue: '', newValue: notes || '' }
     ];
-    // Include approver modifications in audit trail
     if (reviewChanges.length > 0) {
       for (const change of reviewChanges) {
         auditChanges.push({
@@ -19160,17 +19151,30 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         });
       }
     }
-    await eventAuditHistoryCollection.insertOne({
-      eventId: event.eventId,
-      reservationId: event._id,
-      action: 'published',
-      performedBy: userId,
-      performedByEmail: userEmail,
-      timestamp: new Date(),
-      changes: auditChanges,
-      reviewChanges: reviewChanges.length > 0 ? reviewChanges : null,
-      revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
-    });
+
+    // Fire-and-forget: merged event update + audit insert run in parallel with retry
+    const postPublishWrites = [];
+    if (hasEventUpdates) {
+      postPublishWrites.push(
+        withCosmosRetry(() => unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, mergedEventUpdate))
+          .catch(err => logger.error('Post-publish event update failed:', err))
+      );
+    }
+    postPublishWrites.push(
+      withCosmosRetry(() => eventAuditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'published',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: new Date(),
+        changes: auditChanges,
+        reviewChanges: reviewChanges.length > 0 ? reviewChanges : null,
+        revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
+      })).catch(err => logger.error('Post-publish audit insert failed:', err))
+    );
+    // Don't await — these are non-critical background writes
+    Promise.all(postPublishWrites);
 
     logger.info('Room reservation published:', {
       eventId: event.eventId,
@@ -19179,56 +19183,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       graphEventCreated: !!graphEventId
     });
 
-    // Send publish notification email (non-blocking)
-    try {
-      const cd = event.calendarData || {};
-      const requestedBy = event.roomReservationData?.requestedBy || {};
-      // Resolve location display names if not already set
-      let publishEmailLocationNames = cd.locationDisplayNames;
-      if (!publishEmailLocationNames && cd.locations && cd.locations.length > 0) {
-        try {
-          publishEmailLocationNames = await calculateLocationDisplayNames(cd.locations, db);
-        } catch (err) {
-          logger.warn('Could not resolve location names for publish email:', err.message);
-        }
-      }
-      const reservationForEmail = {
-        _id: event._id,
-        eventTitle: cd.eventTitle || event.eventTitle,
-        requesterName: requestedBy.name,
-        requesterEmail: requestedBy.email,
-        contactEmail: event.roomReservationData?.contactPerson?.email,
-        startDateTime: cd.startDateTime || event.startDateTime,
-        endDateTime: cd.endDateTime || event.endDateTime,
-        locationDisplayNames: publishEmailLocationNames
-          ? (Array.isArray(publishEmailLocationNames) ? publishEmailLocationNames : [publishEmailLocationNames])
-          : [],
-        attendeeCount: cd.attendeeCount || 0
-      };
-
-      const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '', reviewChanges || []);
-      logger.info('Publish notification email sent', {
-        eventId: event.eventId,
-        correlationId: emailResult.correlationId,
-        skipped: emailResult.skipped
-      });
-
-      // Record in communication history
-      await emailService.recordEmailInHistory(
-        unifiedEventsCollection,
-        event._id,
-        emailResult,
-        'publish_notification',
-        [reservationForEmail.requesterEmail],
-        `Reservation Published: ${reservationForEmail.eventTitle}`
-      );
-    } catch (emailError) {
-      logger.error('Publish email notification failed:', {
-        eventId: event.eventId,
-        error: emailError.message
-      });
-    }
-
+    // Respond immediately — email is non-critical and should not block the client
     res.json({
       success: true,
       changeKey: newChangeKey,
@@ -19236,6 +19191,58 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       calendarEvent: calendarEventResult,
       message: 'Reservation published successfully',
       ...(recurringConflicts && recurringConflicts.conflictingOccurrences > 0 ? { recurringConflicts } : {}),
+    });
+
+    // Fire-and-forget: send publish notification email (off critical path)
+    setImmediate(async () => {
+      try {
+        const cd = event.calendarData || {};
+        const requestedBy = event.roomReservationData?.requestedBy || {};
+        // Resolve location display names if not already set
+        let publishEmailLocationNames = cd.locationDisplayNames;
+        if (!publishEmailLocationNames && cd.locations && cd.locations.length > 0) {
+          try {
+            publishEmailLocationNames = await calculateLocationDisplayNames(cd.locations, db);
+          } catch (err) {
+            logger.warn('Could not resolve location names for publish email:', err.message);
+          }
+        }
+        const reservationForEmail = {
+          _id: event._id,
+          eventTitle: cd.eventTitle || event.eventTitle,
+          requesterName: requestedBy.name,
+          requesterEmail: requestedBy.email,
+          contactEmail: event.roomReservationData?.contactPerson?.email,
+          startDateTime: cd.startDateTime || event.startDateTime,
+          endDateTime: cd.endDateTime || event.endDateTime,
+          locationDisplayNames: publishEmailLocationNames
+            ? (Array.isArray(publishEmailLocationNames) ? publishEmailLocationNames : [publishEmailLocationNames])
+            : [],
+          attendeeCount: cd.attendeeCount || 0
+        };
+
+        const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '', reviewChanges || []);
+        logger.info('Publish notification email sent', {
+          eventId: event.eventId,
+          correlationId: emailResult.correlationId,
+          skipped: emailResult.skipped
+        });
+
+        // Record in communication history
+        await emailService.recordEmailInHistory(
+          unifiedEventsCollection,
+          event._id,
+          emailResult,
+          'publish_notification',
+          [reservationForEmail.requesterEmail],
+          `Reservation Published: ${reservationForEmail.eventTitle}`
+        );
+      } catch (emailError) {
+        logger.error('Publish email notification failed:', {
+          eventId: event.eventId,
+          error: emailError.message
+        });
+      }
     });
 
   } catch (error) {
