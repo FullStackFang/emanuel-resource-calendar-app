@@ -424,23 +424,8 @@ export default function RecurrenceTabContent({
     if (!canEdit) return;
     const dateStr = toDateStr(date);
 
-    // Auto-create pattern if none exists
-    if (!hasPattern) {
-      const built = buildPatternObject();
-      if (!built) return;
-      editorTouchedRef.current = true;
-      hasUncommittedEditsRef.current = false;
-      onHasUncommittedRecurrence?.(false);
-      // If the clicked date is already a pattern date, just create the pattern
-      // Otherwise, add it as an ad-hoc addition
-      const patternDates = calculateAllSeriesDates({ ...built, additions: [], exclusions: [] });
-      if (patternDates.includes(dateStr)) {
-        onRecurrencePatternChange({ ...built, additions: [], exclusions: [] });
-      } else {
-        onRecurrencePatternChange({ ...built, additions: [dateStr], exclusions: [] });
-      }
-      return;
-    }
+    // No pattern yet — calendar is preview-only until user clicks "Create Recurrence"
+    if (!hasPattern) return;
 
     const isPatternDate = monthPatternDates.includes(dateStr) || patternDateSet.has(dateStr);
     const exclusions = recurrencePattern.exclusions || [];
@@ -1290,12 +1275,35 @@ export default function RecurrenceTabContent({
                   {formatDate(occ.date)}
                 </span>
 
-                {occ.type !== 'excluded' && timeDisplay && (
-                  <span className="recurrence-occ-time">{timeDisplay}</span>
-                )}
-                {occ.type !== 'excluded' && roomDisplay && (
-                  <span className="recurrence-occ-room">{roomDisplay}</span>
-                )}
+                {occ.type !== 'excluded' && (() => {
+                  const override = overridesByDate[occ.date];
+                  const effectiveStart = override?.startTime || override?.reservationStartTime
+                    || formData?.startTime || formData?.reservationStartTime
+                    || reservation?.calendarData?.startTime || reservation?.calendarData?.reservationStartTime
+                    || '';
+                  const effectiveEnd = override?.endTime || override?.reservationEndTime
+                    || formData?.endTime || formData?.reservationEndTime
+                    || reservation?.calendarData?.endTime || reservation?.calendarData?.reservationEndTime
+                    || '';
+                  if (!effectiveStart || !effectiveEnd) return null;
+                  const fmt = (t) => {
+                    const [h, m] = t.split(':').map(Number);
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const hour = h % 12 || 12;
+                    return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+                  };
+                  return <span className="recurrence-occ-time">{`${fmt(effectiveStart)} - ${fmt(effectiveEnd)}`}</span>;
+                })()}
+                {occ.type !== 'excluded' && (() => {
+                  const override = overridesByDate[occ.date];
+                  let occRoomDisplay = roomDisplay;
+                  if (override?.locationDisplayNames !== undefined) {
+                    occRoomDisplay = override.locationDisplayNames;
+                  } else if (override?.locations !== undefined) {
+                    occRoomDisplay = override.locations.map(id => getLocationName(id)).join(', ');
+                  }
+                  return occRoomDisplay ? <span className="recurrence-occ-room">{occRoomDisplay}</span> : null;
+                })()}
 
                 {/* Customized indicator */}
                 {hasOverride && occ.type !== 'excluded' && (

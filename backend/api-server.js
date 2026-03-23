@@ -15251,6 +15251,13 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       // Categories and services (for draft editing)
       categories: cd.categories || [],
       services: cd.services || {},
+      // Recurring event fields
+      occurrenceOverrides: event.occurrenceOverrides || [],
+      eventType: event.eventType || 'singleInstance',
+      recurrence: cd.recurrence || null,
+      // Versioning and history
+      _version: event._version || null,
+      statusHistory: event.statusHistory || [],
       // Include calendarData for frontend compatibility
       calendarData: cd
     };
