@@ -836,6 +836,7 @@ function formatDateTime(isoString) {
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: 'America/New_York',
     timeZoneName: 'short'
   });
 }
@@ -850,7 +851,8 @@ function formatDate(isoString) {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'America/New_York'
   });
 }
 
@@ -862,7 +864,8 @@ function formatTime(isoString) {
   const date = new Date(isoString);
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'America/New_York'
   });
 }
 
