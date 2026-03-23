@@ -485,7 +485,7 @@ export default function RoomReservationReview({
           onHoldChange={onHoldChange}
           externalRecurrencePattern={recurrencePattern}
           onRecurrencePatternChange={handleRecurrencePatternChange}
-          renderAdditionalContent={() => (
+          renderAdditionalContent={(liveFormData) => (
             <>
               {/* Tab: Attachments */}
               {activeTab === 'attachments' && reservation && apiToken && (
@@ -577,7 +577,7 @@ export default function RoomReservationReview({
                     occurrenceOverrides={occurrenceOverrides}
                     onOccurrenceOverridesChange={handleOccurrenceOverridesChange}
                     reservation={reservation}
-                    formData={formDataRef.current ? formDataRef.current() : null}
+                    formData={liveFormData || (formDataRef.current ? formDataRef.current() : null)}
                     apiToken={apiToken}
                     editScope={editScope}
                     readOnly={effectiveReadOnly}

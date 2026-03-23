@@ -2143,7 +2143,7 @@ export default function RoomReservationFormBase({
       )}
 
       {/* Render additional content (tabs, attachments, history, etc.) */}
-      {renderAdditionalContent && renderAdditionalContent()}
+      {renderAdditionalContent && renderAdditionalContent(formData)}
 
       {/* Offsite Location Modal */}
       <OffsiteLocationModal

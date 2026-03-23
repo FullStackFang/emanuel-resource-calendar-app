@@ -653,7 +653,7 @@ export default function UnifiedEventForm({
         onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
         onValidateRef={(getter) => { validateRef.current = getter; }}
         apiToken={apiToken}
-        renderAdditionalContent={() => (
+        renderAdditionalContent={(_liveFormData) => (
           <>
             {/* Attachments Tab Content */}
             {hideActionBar && activeTab === 'attachments' && (
