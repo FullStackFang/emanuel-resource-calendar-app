@@ -206,7 +206,6 @@ function createPublishedEventWithEditRequest(options = {}) {
       phone: '',
       requestedAt: new Date(),
     },
-    changeReason: options.editReason || 'Need to update event details',
     proposedChanges: options.proposedChanges || options.requestedChanges || {
       eventTitle: 'Updated Title',
       eventDescription: 'Updated description',

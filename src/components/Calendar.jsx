@@ -370,7 +370,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Edit request mode state (for inline editing to create edit requests)
     const [isEditRequestMode, setIsEditRequestMode] = useState(false);
-    const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
     const [originalEventData, setOriginalEventData] = useState(null);
     // Transform originalEventData to flat structure for inline diff comparison
     // (originalEventData is raw/nested, but formData in RoomReservationFormBase is flat)
@@ -431,7 +430,6 @@ import ConflictDialog from './shared/ConflictDialog';
         loadEvents(true);
         // Reset edit request mode
         setIsEditRequestMode(false);
-        setEditRequestChangeReason('');
         setOriginalEventData(null);
         // Show recurring conflict warning if applicable
         if (result?.conflictDowngradedToPending) {
@@ -470,7 +468,6 @@ import ConflictDialog from './shared/ConflictDialog';
     useEffect(() => {
       if (!reviewModal.isOpen && isEditRequestMode) {
         setIsEditRequestMode(false);
-        setEditRequestChangeReason('');
         setOriginalEventData(null);
       }
     }, [reviewModal.isOpen, isEditRequestMode]);
@@ -5587,7 +5584,6 @@ import ConflictDialog from './shared/ConflictDialog';
         setOriginalEventData(JSON.parse(JSON.stringify(currentData))); // Deep clone
       }
       setIsEditRequestMode(true);
-      setEditRequestChangeReason('');
     }, [reviewModal.editableData]);
 
     /**
@@ -5595,7 +5591,6 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const handleCancelEditRequest = useCallback(() => {
       setIsEditRequestMode(false);
-      setEditRequestChangeReason('');
       setOriginalEventData(null);
       // Revert to original data
       if (originalEventData && reviewModal.editableData) {
@@ -6142,7 +6137,6 @@ import ConflictDialog from './shared/ConflictDialog';
           doorCloseTime: liveFormData.doorCloseTime,
           categories: liveFormData.categories || liveFormData.mecCategories || [],
           services: liveFormData.services || {},
-          changeReason: editRequestChangeReason?.trim() || '',
         };
 
         const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`, {
@@ -6163,7 +6157,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
         // Reset edit request mode and close modal
         setIsEditRequestMode(false);
-        setEditRequestChangeReason('');
         setOriginalEventData(null);
         setPendingEditRequestConfirmation(false);
         reviewModal.closeModal();
@@ -6179,7 +6172,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setIsSubmittingEditRequest(false);
       }
-    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents, editRequestChangeReason]);
+    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents]);
 
     /**
      * Cancel edit request confirmation
@@ -7447,8 +7440,6 @@ import ConflictDialog from './shared/ConflictDialog';
           onViewOriginalEvent={handleViewOriginalEvent}
           // Edit request mode props (for creating new edit requests)
           isEditRequestMode={isEditRequestMode}
-          editRequestChangeReason={editRequestChangeReason}
-          onEditRequestChangeReasonChange={setEditRequestChangeReason}
           onSubmitEditRequest={handleSubmitEditRequest}
           onCancelEditRequest={handleCancelEditRequest}
           isSubmittingEditRequest={isSubmittingEditRequest}

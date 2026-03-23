@@ -623,10 +623,9 @@ async function sendReviewStartedNotification(reservation) {
 /**
  * Send edit request submitted confirmation to requester
  * @param {Object} editRequest - Edit request data
- * @param {string} changeReason - Reason for the edit request
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = '') {
+async function sendEditRequestSubmittedConfirmation(editRequest) {
   const reqData = editRequest.roomReservationData || {};
   const requestedBy = reqData.requestedBy || {};
   const recipientEmail = requestedBy.email || editRequest.requesterEmail;
@@ -641,7 +640,7 @@ async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = 
   const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnConfirmations');
   if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
-  const { subject, html } = await emailTemplates.generateEditRequestSubmittedConfirmation(editRequest, changeReason);
+  const { subject, html } = await emailTemplates.generateEditRequestSubmittedConfirmation(editRequest);
 
   return sendEmail(recipientEmail, subject, html, {
     editRequestId: editRequest._id?.toString()
@@ -651,11 +650,10 @@ async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = 
 /**
  * Send edit request alert to admins
  * @param {Object} editRequest - Edit request data
- * @param {string} changeReason - Reason for the edit request
  * @param {string} adminPanelUrl - Optional URL to admin panel
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPanelUrl = '') {
+async function sendAdminEditRequestAlert(editRequest, adminPanelUrl = '') {
   const reviewerEmails = await getReviewerEmails(dbConnection, 'emailOnEditRequests');
 
   if (reviewerEmails.length === 0) {
@@ -665,7 +663,7 @@ async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPa
     return { success: false, error: 'No reviewer emails configured' };
   }
 
-  const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest, changeReason, adminPanelUrl);
+  const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest, adminPanelUrl);
 
   return sendEmail(reviewerEmails, subject, html, {
     editRequestId: editRequest._id?.toString()

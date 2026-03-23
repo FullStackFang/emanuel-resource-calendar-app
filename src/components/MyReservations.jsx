@@ -64,7 +64,6 @@ export default function MyReservations({ apiToken }) {
 
   // Local state for edit request mode (requester requesting edits on published events)
   const [isEditRequestMode, setIsEditRequestMode] = useState(false);
-  const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
   const [submittingEditRequest, setSubmittingEditRequest] = useState(false);
 
   // Local state for viewing existing edit requests on published events
@@ -217,7 +216,6 @@ export default function MyReservations({ apiToken }) {
   useEffect(() => {
     if (!reviewModal.isOpen) {
       setIsEditRequestMode(false);
-      setEditRequestChangeReason('');
       setHasSchedulingConflicts(false);
       setSavingPendingEdit(false);
       setSubmittingEditRequest(false);
@@ -811,7 +809,6 @@ export default function MyReservations({ apiToken }) {
 
   const handleCancelEditRequest = useCallback(() => {
     setIsEditRequestMode(false);
-    setEditRequestChangeReason('');
   }, []);
 
   const handleSubmitEditRequest = useCallback(async () => {
@@ -858,7 +855,6 @@ export default function MyReservations({ apiToken }) {
         isOffsite: liveFormData.isOffsite || false,
         offsiteName: liveFormData.offsiteName || '',
         offsiteAddress: liveFormData.offsiteAddress || '',
-        changeReason: editRequestChangeReason?.trim() || '',
       };
 
       const response = await fetch(
@@ -880,7 +876,6 @@ export default function MyReservations({ apiToken }) {
 
       showSuccess('Edit request submitted');
       setIsEditRequestMode(false);
-      setEditRequestChangeReason('');
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -889,7 +884,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSubmittingEditRequest(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError, editRequestChangeReason]);
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
@@ -1291,8 +1286,6 @@ export default function MyReservations({ apiToken }) {
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}
         isEditRequestMode={isEditRequestMode}
-        editRequestChangeReason={editRequestChangeReason}
-        onEditRequestChangeReasonChange={setEditRequestChangeReason}
         onSubmitEditRequest={handleSubmitEditRequest}
         onCancelEditRequest={handleCancelEditRequest}
         isSubmittingEditRequest={submittingEditRequest}

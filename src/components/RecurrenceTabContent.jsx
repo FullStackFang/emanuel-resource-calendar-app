@@ -550,10 +550,13 @@ export default function RecurrenceTabContent({
   }, [formData, reservation]);
 
   const roomDisplay = useMemo(() => {
-    const locationNames = formData?.locationDisplayNames || reservation?.locationDisplayNames;
-    if (locationNames) return Array.isArray(locationNames) ? locationNames.join(', ') : locationNames;
+    const roomIds = formData?.requestedRooms
+      || reservation?.calendarData?.locations
+      || reservation?.locations
+      || [];
+    if (roomIds.length > 0) return roomIds.map(id => getLocationName(id)).join(', ');
     return '';
-  }, [formData, reservation]);
+  }, [formData?.requestedRooms, reservation, getLocationName]);
 
   // Summary text for display
   const summaryText = useMemo(() => {
@@ -594,10 +597,13 @@ export default function RecurrenceTabContent({
       doorCloseTime: formData?.doorCloseTime || reservation?.calendarData?.doorCloseTime || '',
       categories: formData?.categories || reservation?.calendarData?.categories || [],
       locations: formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [],
-      locationDisplayNames: formData?.locationDisplayNames || reservation?.locationDisplayNames || reservation?.calendarData?.locationDisplayNames || '',
+      locationDisplayNames: (() => {
+        const ids = formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [];
+        return ids.map(id => getLocationName(id)).join(', ');
+      })(),
     };
     return masterSources[field] ?? '';
-  }, [occurrenceEdits, overridesByDate, formData, reservation]);
+  }, [occurrenceEdits, overridesByDate, formData, reservation, getLocationName]);
 
   const handleOccurrenceFieldChange = useCallback((field, value) => {
     setOccurrenceEdits(prev => ({ ...prev, [field]: value }));

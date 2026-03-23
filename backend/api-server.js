@@ -2344,7 +2344,6 @@ async function checkRoomConflicts(reservation, excludeId = null) {
           startDateTime: cd.startDateTime,
           endDateTime: cd.endDateTime,
         },
-        changeReason: peEvent.pendingEditRequest?.changeReason || '',
       });
     }
 
@@ -12981,7 +12980,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     }
 
     // Fetch rooms from database
-    const rooms = await locationsCollection.find(locationQuery).toArray();
+    const rooms = await withCosmosRetry(() => locationsCollection.find(locationQuery).toArray());
 
     // Get ALL events from unifiedEventsCollection (includes both room reservations and calendar events)
     // Note: unifiedEventsCollection is deprecated - all events are now in unifiedEventsCollection
@@ -12996,7 +12995,7 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     let allEvents = [];
     if (roomObjectIds.length > 0) {
-      allEvents = await unifiedEventsCollection.find({
+      allEvents = await withCosmosRetry(() => unifiedEventsCollection.find({
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
         status: { $nin: ['draft', 'pending', 'rejected', 'deleted'] },  // Only published reservations and Graph events (no status) block scheduling
         'calendarData.startDateTime': { $lt: end },
@@ -13006,7 +13005,7 @@ app.get('/api/rooms/availability', async (req, res) => {
           { 'calendarData.locations': { $in: roomObjectIds } },
           { 'calendarData.locations': { $in: roomIdStrings } }
         ]
-      }).toArray();
+      }).toArray());
 
       logger.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
       logger.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
@@ -13035,7 +13034,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Query for published events with pending edit requests that propose using queried rooms
     let pendingEditEvents = [];
     if (roomObjectIds.length > 0) {
-      pendingEditEvents = await unifiedEventsCollection.find({
+      pendingEditEvents = await withCosmosRetry(() => unifiedEventsCollection.find({
         status: 'published',
         'pendingEditRequest.status': 'pending',
         $or: [
@@ -13051,7 +13050,7 @@ app.get('/api/rooms/availability', async (req, res) => {
             ]
           }
         ]
-      }).toArray();
+      }).toArray());
       logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
     }
 
@@ -13237,7 +13236,6 @@ app.get('/api/rooms/availability', async (req, res) => {
             isPendingEdit: true,
             currentRoomIds: (cd.locations || []).map(id => id.toString()),
             originalLocations: cd.locationDisplayNames,
-            changeReason: peEvent.pendingEditRequest?.changeReason || '',
           };
         });
 
@@ -19424,7 +19422,6 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       offsiteLon,
       categories,
       services,
-      changeReason, // Optional: explanation for the edit request
       _version
     } = req.body;
 
@@ -19658,7 +19655,6 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
         phone: phone || originalEvent.roomReservationData?.requestedBy?.phone || '',
         requestedAt: new Date()
       },
-      changeReason: changeReason?.trim() || '',
       proposedChanges,
       // Review tracking (null until reviewed)
       reviewedBy: null,
@@ -19701,8 +19697,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       changes: [], // No changes applied yet
       metadata: {
         editRequestId,
-        proposedChanges,
-        changeReason: changeReason?.trim() || ''
+        proposedChanges
       }
     });
 
@@ -19731,8 +19726,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     // Send confirmation email to requester (non-blocking)
     try {
       const emailResult = await emailService.sendEditRequestSubmittedConfirmation(
-        editRequestForEmail,
-        changeReason?.trim() || ''
+        editRequestForEmail
       );
       logger.info('Edit request confirmation email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {
@@ -19742,8 +19736,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     // Send alert to admins (non-blocking)
     try {
       const emailResult = await emailService.sendAdminEditRequestAlert(
-        editRequestForEmail,
-        changeReason?.trim() || ''
+        editRequestForEmail
       );
       logger.info('Admin edit request alert email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {
@@ -19839,7 +19832,6 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
         editRequestId: event.pendingEditRequest.id,
         status: event.pendingEditRequest.status,
         requestedBy: event.pendingEditRequest.requestedBy,
-        changeReason: event.pendingEditRequest.changeReason,
         proposedChanges: event.pendingEditRequest.proposedChanges,
         reviewedBy: event.pendingEditRequest.reviewedBy,
         reviewedAt: event.pendingEditRequest.reviewedAt,
@@ -19955,10 +19947,8 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
         },
         // Backward compatible structure for edit request data
         editRequestData: {
-          changeReason: event.pendingEditRequest.changeReason,
           proposedChanges: event.pendingEditRequest.proposedChanges,
         },
-        changeReason: event.pendingEditRequest.changeReason,
         proposedChanges: event.pendingEditRequest.proposedChanges,
         reviewedBy: event.pendingEditRequest.reviewedBy,
         reviewedAt: event.pendingEditRequest.reviewedAt,

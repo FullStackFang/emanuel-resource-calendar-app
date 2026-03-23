@@ -2359,44 +2359,6 @@ select.input-changed:focus {
   line-height: 1.5;
 }
 
-.change-reason-section-inline {
-  background: linear-gradient(135deg, var(--color-accent-50) 0%, var(--color-accent-100) 100%);
-  border: 1px solid var(--color-accent-400);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  margin-top: var(--space-5);
-}
-
-.change-reason-section-inline label {
-  display: block;
-  font-weight: var(--font-semibold);
-  color: var(--color-accent-700);
-  margin-bottom: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.change-reason-section-inline .required {
-  color: var(--color-error-500);
-}
-
-.change-reason-section-inline textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  font-size: var(--text-sm);
-  resize: vertical;
-  box-sizing: border-box;
-  font-family: inherit;
-}
-
-.change-reason-section-inline textarea:focus {
-  outline: none;
-  border-color: var(--color-accent-500);
-  box-shadow: 0 0 0 3px var(--color-accent-100);
-}
-
 .changes-count-indicator {
   display: inline-flex;
   align-items: center;

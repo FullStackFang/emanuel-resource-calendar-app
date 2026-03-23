@@ -158,29 +158,6 @@
    CHANGE REASON SECTION
    ========================================================================== */
 
-.change-reason-section {
-  margin-bottom: var(--space-6);
-}
-
-.change-reason-section h3 {
-  margin: 0 0 var(--space-3) 0;
-  font-size: var(--text-base);
-  font-family: var(--font-display);
-  color: var(--text-primary);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.reason-box {
-  background-color: var(--color-warning-50);
-  border: 1px solid var(--color-warning-500);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  color: var(--color-warning-700);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-}
-
 /* ==========================================================================
    COMPARISON SECTION
    ========================================================================== */
@@ -314,8 +291,7 @@
   margin-bottom: var(--space-4);
 }
 
-.approve-form h3,
-.reject-form h3 {
+.approve-form h3 {
   margin: 0 0 var(--space-3) 0;
   font-size: var(--text-base);
   font-family: var(--font-display);
@@ -324,8 +300,7 @@
   border-bottom: 1px solid var(--border-default);
 }
 
-.approve-form textarea,
-.reject-form textarea {
+.approve-form textarea {
   width: 100%;
   padding: var(--space-3);
   border: 1px solid var(--border-default);
@@ -338,73 +313,10 @@
   background: var(--bg-primary);
 }
 
-.approve-form textarea:focus,
-.reject-form textarea:focus {
+.approve-form textarea:focus {
   outline: none;
   border-color: var(--color-primary-500);
   box-shadow: 0 0 0 3px var(--color-primary-100);
-}
-
-.reject-form {
-  background-color: var(--color-error-50);
-  border: 1px solid var(--color-error-300);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-}
-
-.reject-form p {
-  margin: 0 0 var(--space-3) 0;
-  color: var(--color-error-700);
-  font-size: var(--text-sm);
-}
-
-.reject-form textarea {
-  border-color: var(--color-error-300);
-}
-
-.reject-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-}
-
-.cancel-reject-btn {
-  padding: var(--space-2) var(--space-4);
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-family: var(--font-body);
-  transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.cancel-reject-btn:hover {
-  background-color: var(--bg-secondary);
-}
-
-.confirm-reject-btn {
-  padding: var(--space-2) var(--space-4);
-  background-color: var(--color-error-600);
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-inverse);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  font-family: var(--font-body);
-  transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.confirm-reject-btn:hover:not(:disabled) {
-  background-color: var(--color-error-700);
-}
-
-.confirm-reject-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 /* ==========================================================================
@@ -416,53 +328,10 @@
   border-top: 1px solid var(--border-default);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: var(--space-3);
+  flex-wrap: wrap;
   background: var(--bg-secondary);
-}
-
-.edit-request-comparison-footer button {
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: var(--transition-all);
-  font-family: var(--font-body);
-}
-
-.reject-btn {
-  background-color: var(--bg-primary);
-  border: 1px solid var(--color-error-500);
-  color: var(--color-error-500);
-}
-
-.reject-btn:hover {
-  background-color: var(--color-error-50);
-}
-
-.publish-btn {
-  background-color: var(--color-success-500);
-  border: none;
-  color: var(--text-inverse);
-}
-
-.publish-btn:hover:not(:disabled) {
-  background-color: var(--color-success-600);
-}
-
-.publish-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.close-footer-btn {
-  background-color: var(--text-secondary);
-  border: none;
-  color: var(--text-inverse);
-}
-
-.close-footer-btn:hover {
-  background-color: var(--text-primary);
 }
 
 /* ==========================================================================

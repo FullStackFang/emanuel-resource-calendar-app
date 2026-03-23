@@ -451,7 +451,6 @@ describe('Reviewer Notification Tests (RN-1 to RN-20)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'New Title' },
-          changeReason: 'Need to change title',
         });
 
       expect(res.status).toBe(200);

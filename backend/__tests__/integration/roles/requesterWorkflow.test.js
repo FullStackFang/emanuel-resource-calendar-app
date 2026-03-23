@@ -367,7 +367,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'New Title' },
-          changeReason: 'Need to update title',
         })
         .expect(200);
 
@@ -409,7 +408,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         status: 'pending',
         requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
         proposedChanges: { eventTitle: 'New Title' },
-        changeReason: 'Update needed',
         reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
@@ -420,7 +418,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(200);
 
       expect(res.body.reservations[0].pendingEditRequest).toBeDefined();
-      expect(res.body.reservations[0].pendingEditRequest.changeReason).toBe('Update needed');
     });
   });
 
@@ -435,7 +432,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         status: 'pending',
         requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
         proposedChanges: { eventTitle: 'New Title' },
-        changeReason: 'Update needed',
         reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
@@ -460,7 +456,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         status: 'pending',
         requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
         proposedChanges: { eventTitle: 'First Request' },
-        changeReason: 'First reason',
         reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
@@ -470,7 +465,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'Second Request' },
-          changeReason: 'Second reason',
         })
         .expect(400);
 
@@ -608,7 +602,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'Hacked Title' },
-          changeReason: 'Unauthorized request',
         })
         .expect(403);
 

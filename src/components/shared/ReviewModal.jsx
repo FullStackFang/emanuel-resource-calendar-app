@@ -96,8 +96,6 @@ export default function ReviewModal({
   onViewOriginalEvent = null,
   // Edit request mode props (when actively editing to create an edit request)
   isEditRequestMode = false,
-  editRequestChangeReason = '',
-  onEditRequestChangeReasonChange = null,
   onSubmitEditRequest = null,
   onCancelEditRequest = null,
   isSubmittingEditRequest = false,
@@ -416,20 +414,14 @@ export default function ReviewModal({
                       )}
 
                       {!isRequesterOnly && onRejectEditRequest && (
-                        <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className="confirm-button-group">
                           {isEditRequestRejectConfirming && (
                             <input
                               type="text"
+                              className="inline-reason-input"
                               placeholder="Rejection reason (required)"
                               value={editRequestRejectionReason}
                               onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
-                              style={{
-                                padding: '6px 10px',
-                                borderRadius: '4px',
-                                border: '1px solid #ef4444',
-                                fontSize: '13px',
-                                width: '200px'
-                              }}
                               autoFocus
                             />
                           )}
@@ -504,21 +496,15 @@ export default function ReviewModal({
 
               {/* Withdraw Request button — requester, pending events (delete with reason) */}
               {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
-                <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="confirm-button-group">
                   {isDeleteConfirming && (
                     <input
                       type="text"
+                      className="inline-reason-input"
                       placeholder="Reason for withdrawal (required)"
                       value={deleteReason}
                       onChange={(e) => onDeleteReasonChange?.(e.target.value)}
                       disabled={isDeleting}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: '4px',
-                        border: '1px solid var(--color-error-300, #f87171)',
-                        fontSize: '0.875rem',
-                        minWidth: '200px'
-                      }}
                       autoFocus
                     />
                   )}
@@ -636,21 +622,15 @@ export default function ReviewModal({
 
               {/* Reject button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onReject && (
-                <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="confirm-button-group">
                   {isRejectConfirming && (
                     <input
                       type="text"
+                      className="inline-reason-input"
                       placeholder="Rejection reason (required)"
                       value={rejectionReason}
                       onChange={(e) => onRejectionReasonChange?.(e.target.value)}
                       disabled={isRejecting}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: '4px',
-                        border: '1px solid var(--color-error-300, #f87171)',
-                        fontSize: '0.875rem',
-                        minWidth: '200px'
-                      }}
                       autoFocus
                     />
                   )}
@@ -990,24 +970,6 @@ export default function ReviewModal({
         {isEditRequestMode && detectedChanges.length === 0 && (
           <div className="edit-request-no-changes">
             Make at least one change to submit an edit request.
-          </div>
-        )}
-
-        {/* Edit Request Mode - reason for changes textarea */}
-        {isEditRequestMode && detectedChanges.length > 0 && (
-          <div className="edit-request-reason-container">
-            <label className="edit-request-reason-label" htmlFor="edit-request-reason">
-              Reason for changes
-            </label>
-            <textarea
-              id="edit-request-reason"
-              className="edit-request-reason-textarea"
-              placeholder="Briefly explain why these changes are needed..."
-              value={editRequestChangeReason || ''}
-              onChange={(e) => onEditRequestChangeReasonChange?.(e.target.value)}
-              rows={2}
-              maxLength={500}
-            />
           </div>
         )}
 

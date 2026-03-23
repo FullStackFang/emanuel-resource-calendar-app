@@ -276,44 +276,29 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'New Title' },
-          changeReason: 'Need to update',
         })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.pendingEditRequest).toBeDefined();
       expect(res.body.event.pendingEditRequest.proposedChanges.eventTitle).toBe('New Title');
-      expect(res.body.event.pendingEditRequest.changeReason).toBe('Need to update');
       expect(res.body.event.pendingEditRequest.status).toBe('pending');
       expect(res.body.event.pendingEditRequest.requestedBy).toBeDefined();
       expect(res.body.event.pendingEditRequest.requestedBy.email).toBe(requesterUser.email);
     });
 
-    it('should require both proposedChanges and changeReason', async () => {
+    it('should require proposedChanges', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
       const [savedPublished] = await insertEvents(db, [published]);
 
-      // Missing changeReason
-      let res = await request(app)
-        .post(`/api/events/${savedPublished._id}/request-edit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .send({
-          proposedChanges: { eventTitle: 'New Title' },
-        })
-        .expect(400);
-
-      expect(res.body.error).toMatch(/required/i);
-
       // Missing proposedChanges
-      res = await request(app)
+      const res = await request(app)
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .send({
-          changeReason: 'Need to update',
-        })
+        .send({})
         .expect(400);
 
       expect(res.body.error).toMatch(/required/i);
@@ -333,7 +318,6 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           proposedChanges: { eventTitle: 'New Title' },
-          changeReason: 'Need to update',
         })
         .expect(400);
 

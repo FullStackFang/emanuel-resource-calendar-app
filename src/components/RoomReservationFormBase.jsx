@@ -334,7 +334,7 @@ export default function RoomReservationFormBase({
     recurrencePatternRef.current = newRecurrence;
   }, [recurrenceKey, isRecurrenceLifted]);
 
-  const { rooms, loading: roomsLoading } = useRooms();
+  const { rooms, loading: roomsLoading, getLocationName } = useRooms();
 
   // Refs to prevent unnecessary re-initialization of form data
   const isInitializedRef = useRef(false);
@@ -927,7 +927,8 @@ export default function RoomReservationFormBase({
   const handleRoomSelectionChange = (newSelectedRooms) => {
     const updatedData = {
       ...formData,
-      requestedRooms: newSelectedRooms
+      requestedRooms: newSelectedRooms,
+      locationDisplayNames: newSelectedRooms.map(id => getLocationName(id)).join(', '),
     };
     setFormData(updatedData);
     setHasChanges(true);
@@ -938,10 +939,14 @@ export default function RoomReservationFormBase({
 
   const handleRemoveAssistantRoom = (room) => {
     // Update formData.requestedRooms - assistantRooms is derived from this via useMemo
-    setFormData(prev => ({
-      ...prev,
-      requestedRooms: prev.requestedRooms.filter(id => id !== room._id)
-    }));
+    setFormData(prev => {
+      const updatedRooms = prev.requestedRooms.filter(id => id !== room._id);
+      return {
+        ...prev,
+        requestedRooms: updatedRooms,
+        locationDisplayNames: updatedRooms.map(id => getLocationName(id)).join(', '),
+      };
+    });
     setHasChanges(true);
   };
 

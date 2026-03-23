@@ -308,7 +308,6 @@ export default function SchedulingAssistant({
             categories: pendingEdit.categories || [],
             isPendingEdit: true,
             originalLocations: pendingEdit.originalLocations,
-            changeReason: pendingEdit.changeReason,
             originalStartTime,
             originalEndTime,
             ...position

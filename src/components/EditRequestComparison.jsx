@@ -1,6 +1,7 @@
 // src/components/EditRequestComparison.jsx
 import React, { useState } from 'react';
 import './EditRequestComparison.css';
+import './shared/ReviewModal.css';
 
 /**
  * EditRequestComparison - Modal for admin review of edit requests
@@ -18,7 +19,7 @@ export default function EditRequestComparison({
   isRejecting
 }) {
   const [approvalNotes, setApprovalNotes] = useState('');
-  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [isRejectConfirming, setIsRejectConfirming] = useState(false);
 
   const isPending = editRequest?.status === 'pending';
 
@@ -131,14 +132,6 @@ export default function EditRequestComparison({
             </div>
           </div>
 
-          {/* Change Reason Section */}
-          <div className="change-reason-section">
-            <h3>Reason for Changes</h3>
-            <div className="reason-box">
-              {editRequest?.changeReason || 'No reason provided'}
-            </div>
-          </div>
-
           {/* Proposed Changes Comparison */}
           <div className="comparison-section">
             <h3>Proposed Changes</h3>
@@ -199,75 +192,77 @@ export default function EditRequestComparison({
             </div>
           )}
 
-          {/* Approval/Rejection Forms (for pending requests) */}
+          {/* Approval Notes (for pending requests) */}
           {isPending && (
             <div className="action-section">
-              {showRejectForm ? (
-                <div className="reject-form">
-                  <h3>Reject Edit Request</h3>
-                  <p>Please provide a reason for rejecting this edit request:</p>
-                  <textarea
-                    value={rejectionReason}
-                    onChange={(e) => onRejectionReasonChange(e.target.value)}
-                    placeholder="Enter rejection reason..."
-                    rows={4}
-                    required
-                  />
-                  <div className="reject-form-actions">
-                    <button
-                      className="cancel-reject-btn"
-                      onClick={() => {
-                        setShowRejectForm(false);
-                        onRejectionReasonChange('');
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="confirm-reject-btn"
-                      onClick={handleReject}
-                      disabled={isRejecting || !rejectionReason.trim()}
-                    >
-                      {isRejecting ? 'Rejecting...' : 'Confirm Reject'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="approve-form">
-                  <h3>Approval Notes (Optional)</h3>
-                  <textarea
-                    value={approvalNotes}
-                    onChange={(e) => setApprovalNotes(e.target.value)}
-                    placeholder="Add notes for the requester (optional)..."
-                    rows={3}
-                  />
-                </div>
-              )}
+              <div className="approve-form">
+                <h3>Approval Notes (Optional)</h3>
+                <textarea
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  placeholder="Add notes for the requester (optional)..."
+                  rows={3}
+                />
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
         <div className="edit-request-comparison-footer">
-          {isPending && !showRejectForm && (
+          {isPending && (
             <>
+              <div className="confirm-button-group">
+                {isRejectConfirming && (
+                  <input
+                    type="text"
+                    className="inline-reason-input"
+                    placeholder="Rejection reason (required)"
+                    value={rejectionReason}
+                    onChange={(e) => onRejectionReasonChange(e.target.value)}
+                    disabled={isRejecting}
+                    autoFocus
+                  />
+                )}
+                <button
+                  className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
+                  type="button"
+                  onClick={() => {
+                    if (isRejectConfirming) {
+                      handleReject();
+                    } else {
+                      setIsRejectConfirming(true);
+                    }
+                  }}
+                  disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim())}
+                >
+                  {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
+                </button>
+                {isRejectConfirming && (
+                  <button
+                    type="button"
+                    className="confirm-cancel-x reject-cancel-x"
+                    onClick={() => {
+                      setIsRejectConfirming(false);
+                      onRejectionReasonChange('');
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <button
-                className="reject-btn"
-                onClick={() => setShowRejectForm(true)}
-              >
-                Reject
-              </button>
-              <button
-                className="approve-btn"
+                className="action-btn publish-btn"
+                type="button"
                 onClick={handleApprove}
-                disabled={isApproving}
+                disabled={isApproving || isRejectConfirming}
               >
                 {isApproving ? 'Approving...' : 'Approve & Apply Changes'}
               </button>
             </>
           )}
           {!isPending && (
-            <button className="close-footer-btn" onClick={onClose}>
+            <button className="action-btn cancel-btn" type="button" onClick={onClose}>
               Close
             </button>
           )}

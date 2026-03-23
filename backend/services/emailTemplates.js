@@ -427,13 +427,6 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#changeReason}}
-<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
-  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Your Reason for Changes:</h4>
-  <p style="margin: 0; color: #4a5568;">{{changeReason}}</p>
-</div>
-{{/changeReason}}
-
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
   <strong>What happens next?</strong><br>
   Our team will review your edit request. The original event will remain unchanged until your request is approved.
@@ -442,7 +435,7 @@ const DEFAULT_TEMPLATES = {
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you have any questions, please contact our office.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'changeReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
   },
 
   [TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT]: {
@@ -485,13 +478,6 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#changeReason}}
-<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
-  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason for Changes:</h4>
-  <p style="margin: 0; color: #4a5568;">{{changeReason}}</p>
-</div>
-{{/changeReason}}
-
 {{#adminPanelUrl}}
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
@@ -503,7 +489,7 @@ const DEFAULT_TEMPLATES = {
 <p style="color: #718096; font-size: 14px;">
   Please review this edit request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'changeReason', 'adminPanelUrl']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'adminPanelUrl']
   },
 
   [TEMPLATE_IDS.EDIT_REQUEST_APPROVED]: {
@@ -1210,19 +1196,16 @@ async function generateEventUpdatedNotification(reservation, reviewChanges = [])
 /**
  * Generate edit request submitted confirmation email
  */
-async function generateEditRequestSubmittedConfirmation(editRequest, changeReason = '') {
-  const variables = extractVariables(editRequest, {
-    changeReason: changeReason ? escapeHtml(changeReason) : ''
-  });
+async function generateEditRequestSubmittedConfirmation(editRequest) {
+  const variables = extractVariables(editRequest);
   return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_SUBMITTED, variables);
 }
 
 /**
  * Generate admin edit request alert email
  */
-async function generateAdminEditRequestAlert(editRequest, changeReason = '', adminPanelUrl = '') {
+async function generateAdminEditRequestAlert(editRequest, adminPanelUrl = '') {
   const variables = extractVariables(editRequest, {
-    changeReason: changeReason ? escapeHtml(changeReason) : '',
     adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
   });
   return generateFromTemplate(TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT, variables);

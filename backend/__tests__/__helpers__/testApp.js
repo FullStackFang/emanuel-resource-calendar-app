@@ -2984,10 +2984,10 @@ function createTestApp(options = {}) {
       const userId = req.user.userId;
       const userEmail = req.user.email;
       const eventId = req.params.id;
-      const { proposedChanges, changeReason } = req.body;
+      const { proposedChanges } = req.body;
 
-      if (!proposedChanges || !changeReason) {
-        return res.status(400).json({ error: 'proposedChanges and changeReason are required' });
+      if (!proposedChanges) {
+        return res.status(400).json({ error: 'proposedChanges is required' });
       }
 
       const query = ObjectId.isValid(eventId)
@@ -3034,7 +3034,6 @@ function createTestApp(options = {}) {
           phone: event.roomReservationData?.requestedBy?.phone || '',
           requestedAt: now,
         },
-        changeReason: changeReason?.trim() || '',
         proposedChanges,
         reviewedBy: null,
         reviewedAt: null,
@@ -3059,7 +3058,7 @@ function createTestApp(options = {}) {
         performedByEmail: userEmail,
         previousState: event,
         newState: updatedEvent,
-        changes: { pendingEditRequest: proposedChanges, changeReason },
+        changes: { pendingEditRequest: proposedChanges },
       });
 
       // Send edit request alert to reviewers (approvers + admins)
@@ -4656,7 +4655,6 @@ function createTestApp(options = {}) {
               isPendingEdit: true,
               currentRoomIds: (cd.locations || []).map(id => id.toString()),
               originalLocations: cd.locationDisplayNames,
-              changeReason: pe.pendingEditRequest?.changeReason || '',
             };
           });
 
