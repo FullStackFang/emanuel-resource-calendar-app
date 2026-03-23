@@ -1,6 +1,5 @@
 // src/components/SchedulingAssistant.jsx
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
-import { logger } from '../utils/logger';
 import './SchedulingAssistant.css';
 
 export default function SchedulingAssistant({
@@ -123,18 +122,14 @@ export default function SchedulingAssistant({
   useEffect(() => {
     // Don't clear events while loading new availability data - keep showing existing events
     if (availabilityLoading) {
-      logger.debug('[SchedulingAssistant] Skipping update - availabilityLoading=true');
       return;
     }
 
     if (!availability || !selectedRooms.length) {
-      logger.debug('[SchedulingAssistant] Clearing events - availability:', !!availability, 'rooms:', selectedRooms.length);
       setEventBlocks([]);
       setRoomStats({});
       return;
     }
-
-    logger.debug('[SchedulingAssistant] Processing availability - Rooms:', selectedRooms.length, 'Date:', effectiveDate);
 
     const blocks = [];
     const stats = {};
@@ -143,12 +138,9 @@ export default function SchedulingAssistant({
       const roomAvailability = availability.find(a => a.room._id === room._id);
 
       if (!roomAvailability || !roomAvailability.conflicts) {
-        logger.debug(`[SchedulingAssistant] No availability data for room: ${room.name}`);
         stats[room._id] = { conflictCount: 0, eventCount: 0 };
         return;
       }
-
-      logger.debug(`[SchedulingAssistant] Room: ${room.name} - Reservations: ${roomAvailability.conflicts.reservations?.length || 0}, Events: ${roomAvailability.conflicts.events?.length || 0}`);
 
       const roomColor = locationColors[roomIndex % locationColors.length];
       let roomEventCount = 0;
@@ -157,12 +149,10 @@ export default function SchedulingAssistant({
       // Process reservations
       if (roomAvailability.conflicts.reservations) {
         roomAvailability.conflicts.reservations.forEach(reservation => {
-          logger.debug(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" - Event: ${reservation.originalStart} to ${reservation.originalEnd}, Blocked: ${reservation.effectiveStart} to ${reservation.effectiveEnd}`);
           const reservationId = reservation._id || reservation.id;
 
           // SKIP the current reservation being edited - it will be shown as the user event instead
           if (currentReservationId && reservationId === currentReservationId) {
-            logger.debug(`[SchedulingAssistant] Skipping current reservation from backend: "${reservation.eventTitle}"`);
             return; // Skip this reservation
           }
 
@@ -174,7 +164,6 @@ export default function SchedulingAssistant({
 
           if (manualAdjustment) {
             // Use the manually adjusted position and times
-            logger.debug(`[SchedulingAssistant] Using manually adjusted position for: "${reservation.eventTitle}"`);
             startTime = manualAdjustment.startTime;
             endTime = manualAdjustment.endTime;
             originalStartTime = startTime;
@@ -232,7 +221,6 @@ export default function SchedulingAssistant({
         roomAvailability.conflicts.events.forEach(event => {
           // SKIP the current event being edited - it will be shown as the user event instead
           if (currentReservationId && event.id === currentReservationId) {
-            logger.debug(`[SchedulingAssistant] Skipping current calendar event from backend: "${event.subject}"`);
             return; // Skip this event
           }
 
@@ -377,7 +365,6 @@ export default function SchedulingAssistant({
 
           position = calculateEventPosition(startTime, endTime);
 
-          logger.debug(`[SchedulingAssistant] User event effective blocking - Event: ${eventStartTime} - ${eventEndTime}, Blocked: ${setupTime || eventStartTime} - ${teardownTime || eventEndTime}`);
         }
 
         const roomColor = locationColors[roomIndex % locationColors.length];
@@ -476,9 +463,6 @@ export default function SchedulingAssistant({
       }
     });
 
-    logger.debug(`[SchedulingAssistant] FINAL: Generated ${blocks.length} total event blocks`);
-    blocks.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toISOString()} - ${b.endTime.toISOString()} (top: ${b.top}px)`));
-
     setEventBlocks(blocks);
     setRoomStats(stats);
   }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, eventTitle]);
@@ -530,13 +514,6 @@ export default function SchedulingAssistant({
     setCanScrollLeft(needsCarousel);
     setCanScrollRight(needsCarousel);
 
-    logger.debug('[Carousel] Update:', {
-      totalTabs: selectedRooms.length,
-      activeIndex: activeRoomIndex,
-      needsCarousel,
-      canScrollLeft: needsCarousel,
-      canScrollRight: needsCarousel
-    });
   }, [selectedRooms, activeRoomIndex]);
 
   // Calculate event block position based on start/end times
@@ -856,15 +833,12 @@ export default function SchedulingAssistant({
   const handleMouseDown = (e, block) => {
     // Block all backend events (only user event is draggable)
     if (!block.isUserEvent) {
-      logger.debug('[Drag] BLOCKED - Backend event locked:', block.title);
       return;
     }
 
     // Prevent text selection and other default behaviors
     e.preventDefault();
     e.stopPropagation();
-
-    logger.debug('[Drag] START - event:', block.title);
 
     // Store where on the event block the user clicked (in logical coordinates)
     const eventElement = e.currentTarget;
@@ -1103,16 +1077,6 @@ export default function SchedulingAssistant({
           return `${hours}:${minutes}`;
         };
 
-        logger.debug('[Drag] END - Event dragged:', {
-          eventId: draggingEventId,
-          isUserEvent: draggedBlock.isUserEvent,
-          originalStart: formatTime(draggedBlock.startTime),
-          originalEnd: formatTime(draggedBlock.endTime),
-          newStart: formatTime(newStartTime),
-          newEnd: formatTime(newEndTime),
-          offsetHours: hourOffset.toFixed(2)
-        });
-
         // Handle user event differently - sync across all tabs and update form
         if (draggedBlock.isUserEvent) {
           // Block boundaries ARE reservation times — set them directly.
@@ -1133,12 +1097,6 @@ export default function SchedulingAssistant({
             const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
             updatedTimes.endTime = formatTime(new Date(eventEnd.getTime() + delta));
           }
-          logger.debug('[Drag] User event time calculation:', {
-            delta: delta / 1000 / 60,
-            newBlockStart: newStartTime.toLocaleTimeString(),
-            newBlockEnd: newEndTime.toLocaleTimeString(),
-          });
-
           // Store adjustment for user event globally
           userEventAdjustment.current = {
             startTime: newStartTime,
@@ -1213,13 +1171,9 @@ export default function SchedulingAssistant({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
 
-      logger.debug('[Drag] Global mouse listeners attached');
-
       return () => {
-        // Clean up listeners when dragging stops
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
-        logger.debug('[Drag] Global mouse listeners removed');
       };
     }
   }, [draggingEventId, handleMouseMove, handleMouseUp]);
@@ -1455,9 +1409,6 @@ export default function SchedulingAssistant({
 
     const filtered = eventBlocks.filter(block => block.room._id === activeRoom._id);
 
-    logger.debug(`[SchedulingAssistant] VISIBLE for ${activeRoom.name}: ${filtered.length} events`);
-    filtered.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()}`));
-
     return filtered;
   }, [activeRoom, eventBlocks]);
 
@@ -1549,12 +1500,7 @@ export default function SchedulingAssistant({
         });
       }
 
-      if (cluster.length > 1) {
-        cluster.forEach(block => {
-          const l = layout.get(block.id);
-          logger.debug(`  [Layout] "${block.title}" col=${l.column} left=${l.left.toFixed(1)}% width=${l.width.toFixed(1)}%`);
-        });
-      }
+      // no-op: cluster layout computed above
     }
 
     return layout;
@@ -1584,7 +1530,6 @@ export default function SchedulingAssistant({
     if (eventStartTime) {
       const [hours, minutes] = eventStartTime.split(':').map(Number);
       targetHour = hours + minutes / 60;
-      logger.debug(`[SchedulingAssistant] Initial auto-scroll to user event time: ${eventStartTime} (hour ${targetHour})`);
     } else if (visibleEventBlocks.length > 0) {
       // Otherwise, find earliest conflicting event, or just earliest event if no conflicts
       const conflictingEvents = visibleEventBlocks.filter(b => b.isConflict);
@@ -1596,7 +1541,6 @@ export default function SchedulingAssistant({
 
       const dayStart = new Date(effectiveDate + 'T00:00:00');
       targetHour = (earliestEvent.startTime - dayStart) / (1000 * 60 * 60);
-      logger.debug(`[SchedulingAssistant] Initial auto-scroll to earliest event: ${earliestEvent.title} (hour ${targetHour})`);
     }
 
     // Calculate scroll position to show event near top with 2 hours of context before it
@@ -1617,7 +1561,6 @@ export default function SchedulingAssistant({
   // Handle navigation button click for locked events
   const handleNavigateToEvent = (e, reservationId) => {
     e.stopPropagation(); // Prevent event block click
-    logger.debug('[SchedulingAssistant] Navigate button clicked for reservation:', reservationId);
 
     if (onLockedEventClick) {
       onLockedEventClick(reservationId);

@@ -26,6 +26,30 @@ const BATCH_SIZE = 100;
 const isDryRun = process.argv.includes('--dry-run');
 const isVerify = process.argv.includes('--verify');
 
+async function processBatch(collection, batch) {
+  const bulkOps = batch.map(doc => {
+    const cd = doc.calendarData || {};
+    const setFields = {};
+
+    if (!cd.reservationStartTime || cd.reservationStartTime === '') {
+      setFields['calendarData.reservationStartTime'] = cd.startTime || '';
+    }
+    if (!cd.reservationEndTime || cd.reservationEndTime === '') {
+      setFields['calendarData.reservationEndTime'] = cd.endTime || '';
+    }
+
+    return {
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: setFields }
+      }
+    };
+  });
+
+  const result = await collection.bulkWrite(bulkOps);
+  return result.modifiedCount;
+}
+
 async function main() {
   const client = new MongoClient(MONGODB_URI);
 
@@ -91,10 +115,10 @@ async function main() {
       return;
     }
 
-    // Find events that need backfill:
+    // Query for events that need backfill:
     // - Has non-empty startTime or endTime
     // - AND is missing reservationStartTime or reservationEndTime
-    const docsToMigrate = await collection.find({
+    const query = {
       $and: [
         {
           $or: [
@@ -111,21 +135,23 @@ async function main() {
           ]
         }
       ]
-    }).toArray();
+    };
 
-    console.log(`   Documents to migrate: ${docsToMigrate.length}\n`);
+    const totalToMigrate = await collection.countDocuments(query);
+    console.log(`   Documents to migrate: ${totalToMigrate}\n`);
 
-    if (docsToMigrate.length === 0) {
+    if (totalToMigrate === 0) {
       console.log('   No documents need migration.\n');
       return;
     }
 
     // Show samples in dry run
     if (isDryRun) {
-      const sampleCount = Math.min(5, docsToMigrate.length);
-      console.log(`   Sample documents (first ${sampleCount}):`);
-      for (let s = 0; s < sampleCount; s++) {
-        const doc = docsToMigrate[s];
+      const samples = await collection.find(query).limit(5)
+        .project({ 'calendarData.eventTitle': 1, 'calendarData.startTime': 1, 'calendarData.endTime': 1, 'calendarData.reservationStartTime': 1, 'calendarData.reservationEndTime': 1, eventTitle: 1, status: 1 })
+        .toArray();
+      console.log(`   Sample documents (first ${samples.length}):`);
+      for (const doc of samples) {
         const cd = doc.calendarData || {};
         const title = cd.eventTitle || doc.eventTitle || 'Untitled';
         const resStartExists = cd.reservationStartTime && cd.reservationStartTime !== '';
@@ -138,48 +164,44 @@ async function main() {
           console.log(`       endTime '${cd.endTime}' -> reservationEndTime`);
         }
       }
-      console.log(`\n   Would migrate ${docsToMigrate.length} documents. Run without --dry-run to apply.\n`);
+      console.log(`\n   Would migrate ${totalToMigrate} documents. Run without --dry-run to apply.\n`);
       return;
     }
 
-    // Process in batches
+    // Stream through cursor in batches — no bulk toArray() call
     let migratedCount = 0;
+    let processed = 0;
+    let batch = [];
 
-    for (let i = 0; i < docsToMigrate.length; i += BATCH_SIZE) {
-      const batch = docsToMigrate.slice(i, i + BATCH_SIZE);
+    const cursor = collection.find(query).project({
+      _id: 1,
+      'calendarData.startTime': 1,
+      'calendarData.endTime': 1,
+      'calendarData.reservationStartTime': 1,
+      'calendarData.reservationEndTime': 1
+    });
 
-      const bulkOps = batch.map(doc => {
-        const cd = doc.calendarData || {};
-        const setFields = {};
+    for await (const doc of cursor) {
+      batch.push(doc);
 
-        // Only backfill if reservation time is missing
-        if (!cd.reservationStartTime || cd.reservationStartTime === '') {
-          setFields['calendarData.reservationStartTime'] = cd.startTime || '';
-        }
-        if (!cd.reservationEndTime || cd.reservationEndTime === '') {
-          setFields['calendarData.reservationEndTime'] = cd.endTime || '';
-        }
+      if (batch.length >= BATCH_SIZE) {
+        migratedCount += await processBatch(collection, batch);
+        processed += batch.length;
+        batch = [];
 
-        return {
-          updateOne: {
-            filter: { _id: doc._id },
-            update: { $set: setFields }
-          }
-        };
-      });
+        const percent = Math.round((processed / totalToMigrate) * 100);
+        process.stdout.write(`\r   [Progress] ${percent}% (${processed}/${totalToMigrate})`);
 
-      const result = await collection.bulkWrite(bulkOps);
-      migratedCount += result.modifiedCount;
-
-      // Progress bar
-      const processed = Math.min(i + BATCH_SIZE, docsToMigrate.length);
-      const percent = Math.round((processed / docsToMigrate.length) * 100);
-      process.stdout.write(`\r   [Progress] ${percent}% (${processed}/${docsToMigrate.length})`);
-
-      // Rate limit delay between batches
-      if (i + BATCH_SIZE < docsToMigrate.length) {
+        // Rate limit delay between batches
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
+    }
+
+    // Process remaining docs
+    if (batch.length > 0) {
+      migratedCount += await processBatch(collection, batch);
+      processed += batch.length;
+      process.stdout.write(`\r   [Progress] 100% (${processed}/${totalToMigrate})`);
     }
 
     console.log(`\n   Migrated: ${migratedCount} documents\n`);

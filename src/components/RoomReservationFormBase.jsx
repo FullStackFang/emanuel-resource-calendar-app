@@ -258,7 +258,6 @@ export default function RoomReservationFormBase({
     // If data is pre-processed by the shared transformer, use simple spread
     // The _isPreProcessed flag indicates all fields are already in the correct format
     if (initialData?._isPreProcessed) {
-      logger.debug('Syncing pre-processed form fields from initialData');
       setFormData(prev => {
         // Exclude fields managed by dedicated state (recurrence, categories, services, occurrenceOverrides)
         // These have their own sync useEffects and should not be overwritten by the formData spread
@@ -271,7 +270,6 @@ export default function RoomReservationFormBase({
     // Legacy fallback: Only sync if initialData has actual content (not just empty defaults)
     const hasEventData = initialData?.eventTitle || initialData?.startDate || initialData?.selectedLocations?.length || initialData?.requestedRooms?.length;
     if (hasEventData) {
-      logger.debug('Syncing form fields from initialData (legacy path):', initialData);
       setFormData(prev => ({
         ...prev,
         eventTitle: initialData.eventTitle || prev.eventTitle,
@@ -314,17 +312,10 @@ export default function RoomReservationFormBase({
   // Use JSON.stringify for more reliable dependency tracking
   const servicesKey = JSON.stringify(initialData?.services || {});
   useEffect(() => {
-    logger.log('🛎️ RoomReservationFormBase - services sync useEffect triggered');
-    logger.log('🛎️ RoomReservationFormBase - initialData:', initialData);
-    logger.log('🛎️ RoomReservationFormBase - initialData?.services:', initialData?.services);
-    logger.log('🛎️ RoomReservationFormBase - servicesKey:', servicesKey);
     const newServices = initialData?.services;
     if (newServices && Object.keys(newServices).length > 0) {
-      logger.log('🛎️ RoomReservationFormBase - Setting selectedServices to:', newServices);
       setSelectedServices(newServices);
       selectedServicesRef.current = newServices;
-    } else {
-      logger.log('🛎️ RoomReservationFormBase - newServices is empty/undefined, NOT updating selectedServices');
     }
   }, [servicesKey]);
 
@@ -389,7 +380,6 @@ export default function RoomReservationFormBase({
   // Notify parent when hasChanges state changes
   // Note: callback intentionally excluded from deps to prevent render loop
   useEffect(() => {
-    logger.log('[hasChanges useEffect] hasChanges =', hasChanges, ', callback exists:', !!onHasChangesChange);
     if (onHasChangesChange) {
       onHasChangesChange(hasChanges);
     }
@@ -426,15 +416,7 @@ export default function RoomReservationFormBase({
 
   // Clear loading state when event changes (navigation completed)
   useEffect(() => {
-    logger.debug('Checking if navigation completed:', {
-      loadingEventId,
-      initialDataEventId: initialData.eventId,
-      match: loadingEventId && initialData.eventId && loadingEventId === initialData.eventId
-    });
-
     if (loadingEventId && initialData.eventId && loadingEventId === initialData.eventId) {
-      // Navigation completed - clear loading state
-      logger.debug('✅ Navigation completed, clearing loading state');
       setLoadingEventId(null);
     }
   }, [initialData.eventId, loadingEventId]);
@@ -465,12 +447,6 @@ export default function RoomReservationFormBase({
     }
 
     if (shouldInitialize) {
-      logger.debug('[RoomReservationFormBase] Initializing form data', {
-        isFirstInit,
-        isNewReservation,
-        reservationId: currentReservationId
-      });
-
       const newData = {
         ...initialData
       };
@@ -490,7 +466,6 @@ export default function RoomReservationFormBase({
       if (initialData.graphData?.recurrence || initialData.recurrence) {
         const existingRecurrence = initialData.recurrence || initialData.graphData?.recurrence;
         setRecurrencePattern(existingRecurrence);
-        logger.debug('[RoomReservationFormBase] Initialized recurrence pattern from existing event:', existingRecurrence);
       }
 
       setFormData(prev => ({
@@ -528,19 +503,12 @@ export default function RoomReservationFormBase({
     }
 
     const fetchSeriesEvents = async () => {
-      logger.log('Series Events Fetch - Initial Data:', {
-        hasEventSeriesId: !!initialData?.eventSeriesId,
-        eventSeriesId: initialData?.eventSeriesId,
-        eventId: initialData?.eventId
-      });
-
       if (!initialData?.eventSeriesId) {
         setSeriesEvents([]);
         return;
       }
 
       try {
-        logger.debug(`Fetching series events for eventSeriesId: ${initialData.eventSeriesId}`);
         const headers = {
           'Content-Type': 'application/json'
         };
@@ -560,11 +528,7 @@ export default function RoomReservationFormBase({
         }
 
         const data = await response.json();
-        logger.log('Series Events Fetched:', {
-          count: data.events?.length || 0
-        });
         setSeriesEvents(data.events || []);
-        logger.debug(`Loaded ${data.events?.length || 0} events in series`);
       } catch (error) {
         logger.error('Error fetching series events:', error);
         setSeriesEvents([]);
@@ -600,7 +564,6 @@ export default function RoomReservationFormBase({
     // Use ref to check CURRENT value, not potentially stale closure value
     // This prevents overwriting checkDayAvailability results when rooms are selected
     if (assistantRoomsRef.current.length > 0) {
-      logger.log('[checkAvailability] Skipping - assistant mode active');
       return;
     }
 
@@ -639,7 +602,6 @@ export default function RoomReservationFormBase({
       // Double-check BEFORE setting: rooms might have been selected while we were fetching
       // This prevents overwriting checkDayAvailability results during initialization race
       if (assistantRoomsRef.current.length > 0) {
-        logger.log('[checkAvailability] Discarding response - assistant mode now active');
         return;
       }
 
@@ -698,7 +660,6 @@ export default function RoomReservationFormBase({
       if (thisRequestId === availabilityRequestId.current) {
         setAvailability(data);
       } else {
-        logger.log('[checkDayAvailability] Ignoring stale response', { thisRequestId, currentId: availabilityRequestId.current });
       }
     } catch (err) {
       // Ignore abort errors - request was intentionally cancelled
@@ -742,7 +703,6 @@ export default function RoomReservationFormBase({
       // Skip if params haven't changed (prevents race condition from duplicate fetches)
       const roomIdsStr = roomIds.sort().join(',');
       if (lastFetchParamsRef.current.roomIds === roomIdsStr && lastFetchParamsRef.current.date === dateToCheck) {
-        logger.log('[checkDayAvailability] Skipping duplicate fetch - params unchanged');
         return;
       }
 
@@ -1022,7 +982,6 @@ export default function RoomReservationFormBase({
   };
 
   const handleTimeSlotClick = (hour) => {
-    logger.debug('Time slot clicked:', hour);
     // Create a 1-hour reservation block at the clicked hour
     const startTime = `${String(hour).padStart(2, '0')}:00`;
     const endHour = Math.min(hour + 1, 23);
@@ -1056,7 +1015,6 @@ export default function RoomReservationFormBase({
 
   // Handle remove recurrence
   const handleRemoveRecurrence = () => {
-    logger.debug('Recurrence removed');
     setRecurrencePattern(null);
     setHasChanges(true);
 
@@ -1094,8 +1052,6 @@ export default function RoomReservationFormBase({
 
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
-    logger.debug('Series event navigation confirmed:', event);
-
     // Set loading state
     setLoadingEventId(event.eventId);
 
