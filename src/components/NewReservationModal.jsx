@@ -163,7 +163,9 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       return;
     }
 
-    if (!formData) return;
+    // Use processed form data (includes recurrence from ref) with fallback to state
+    const data = formDataGetterRef.current?.() || formData;
+    if (!data) return;
 
     setIsSaving(true);
     setIsConfirming(false);
@@ -172,45 +174,47 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       const calendarOwner = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
       // Build datetime strings
-      const effectiveStartTime = formData.startTime || formData.reservationStartTime;
-      const effectiveEndTime = formData.endTime || formData.reservationEndTime;
-      const startDateTime = formData.startDate && effectiveStartTime
-        ? `${formData.startDate}T${effectiveStartTime}:00` : '';
-      const endDateTime = formData.endDate && effectiveEndTime
-        ? `${formData.endDate}T${effectiveEndTime}:00` : '';
+      const effectiveStartTime = data.startTime || data.reservationStartTime;
+      const effectiveEndTime = data.endTime || data.reservationEndTime;
+      const startDateTime = data.startDate && effectiveStartTime
+        ? `${data.startDate}T${effectiveStartTime}:00` : '';
+      const endDateTime = data.endDate && effectiveEndTime
+        ? `${data.endDate}T${effectiveEndTime}:00` : '';
 
       // Graph fields — the backend resolves room IDs to display names automatically
       const graphFields = {
-        subject: formData.eventTitle || 'Untitled Event',
+        subject: data.eventTitle || 'Untitled Event',
         start: { dateTime: startDateTime, timeZone: 'Eastern Standard Time' },
         end: { dateTime: endDateTime, timeZone: 'Eastern Standard Time' },
-        body: { contentType: 'text', content: formData.eventDescription || '' },
-        categories: formData.categories || formData.mecCategories || [],
+        body: { contentType: 'text', content: data.eventDescription || '' },
+        categories: data.categories || data.mecCategories || [],
         isAllDay: false,
       };
 
-      // Internal fields — room IDs, timing, offsite, services
+      // Internal fields — room IDs, timing, offsite, services, recurrence
       const internalFields = {
-        locations: formData.requestedRooms || formData.locations || [],
-        setupMinutes: formData.setupTimeMinutes || 0,
-        teardownMinutes: formData.teardownTimeMinutes || 0,
-        reservationStartMinutes: formData.reservationStartMinutes || 0,
-        reservationEndMinutes: formData.reservationEndMinutes || 0,
-        setupTime: formData.setupTime || '',
-        teardownTime: formData.teardownTime || '',
-        reservationStartTime: formData.reservationStartTime || '',
-        reservationEndTime: formData.reservationEndTime || '',
-        doorOpenTime: formData.doorOpenTime || '',
-        doorCloseTime: formData.doorCloseTime || '',
-        setupNotes: formData.setupNotes || '',
-        doorNotes: formData.doorNotes || '',
-        eventNotes: formData.eventNotes || '',
-        isOffsite: formData.isOffsite || false,
-        offsiteName: formData.offsiteName || '',
-        offsiteAddress: formData.offsiteAddress || '',
-        offsiteLat: formData.offsiteLat || null,
-        offsiteLon: formData.offsiteLon || null,
-        services: formData.services || {},
+        locations: data.requestedRooms || data.locations || [],
+        setupMinutes: data.setupTimeMinutes || 0,
+        teardownMinutes: data.teardownTimeMinutes || 0,
+        reservationStartMinutes: data.reservationStartMinutes || 0,
+        reservationEndMinutes: data.reservationEndMinutes || 0,
+        setupTime: data.setupTime || '',
+        teardownTime: data.teardownTime || '',
+        reservationStartTime: data.reservationStartTime || '',
+        reservationEndTime: data.reservationEndTime || '',
+        doorOpenTime: data.doorOpenTime || '',
+        doorCloseTime: data.doorCloseTime || '',
+        setupNotes: data.setupNotes || '',
+        doorNotes: data.doorNotes || '',
+        eventNotes: data.eventNotes || '',
+        isOffsite: data.isOffsite || false,
+        offsiteName: data.offsiteName || '',
+        offsiteAddress: data.offsiteAddress || '',
+        offsiteLat: data.offsiteLat || null,
+        offsiteLon: data.offsiteLon || null,
+        services: data.services || {},
+        recurrence: data.recurrence || null,
+        occurrenceOverrides: data.occurrenceOverrides || null,
       };
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
@@ -248,21 +252,23 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       setIsConfirming(true);
       return;
     }
-    if (!formData) return;
+    // Use processed form data (includes recurrence from ref) with fallback to state
+    const data = formDataGetterRef.current?.() || formData;
+    if (!data) return;
 
     setIsSaving(true);
     setIsConfirming(false);
     try {
-      const startDateTime = formData.startDate && (formData.startTime || formData.reservationStartTime)
-        ? `${formData.startDate}T${formData.startTime || formData.reservationStartTime}` : '';
-      const endDateTime = formData.endDate && (formData.endTime || formData.reservationEndTime)
-        ? `${formData.endDate}T${formData.endTime || formData.reservationEndTime}` : '';
+      const startDateTime = data.startDate && (data.startTime || data.reservationStartTime)
+        ? `${data.startDate}T${data.startTime || data.reservationStartTime}` : '';
+      const endDateTime = data.endDate && (data.endTime || data.reservationEndTime)
+        ? `${data.endDate}T${data.endTime || data.reservationEndTime}` : '';
 
       const payload = {
-        ...formData,
+        ...data,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        attendeeCount: parseInt(data.attendeeCount) || 0,
         calendarId: selectedCalendarId,
         calendarOwner: availableCalendars?.find(cal => cal.id === selectedCalendarId)?.owner?.address?.toLowerCase(),
       };

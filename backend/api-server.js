@@ -6776,6 +6776,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           currentEventGraphDataLocations: currentEvent?.graphData?.locations
         });
 
+        // Add Graph recurrence pattern for new recurring events
+        if (isNewEvent && internalFields?.recurrence?.pattern && internalFields?.recurrence?.range) {
+          const graphRecurrence = buildGraphRecurrence(internalFields.recurrence, 'America/New_York');
+          if (graphRecurrence) {
+            graphFields.recurrence = graphRecurrence;
+          }
+        }
+
         // Use graphApiService with app-only authentication
         if (isNewEvent) {
           graphUpdateResult = await graphApiService.createCalendarEvent(
@@ -6854,6 +6862,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         lastAccessedAt: new Date(),
         syncedAt: new Date(),
 
+        // Recurring event fields
+        recurrence: internalFields?.recurrence || null,
+        eventType: internalFields?.recurrence?.pattern ? 'seriesMaster' : 'singleInstance',
+        occurrenceOverrides: internalFields?.occurrenceOverrides || null,
+
         // Optimistic concurrency control
         _version: 1
       };
@@ -6912,7 +6925,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         offsiteLat: internalFields?.isOffsite ? (internalFields.offsiteLat || null) : null,
         offsiteLon: internalFields?.isOffsite ? (internalFields.offsiteLon || null) : null,
         // Services (internal use only)
-        services: internalFields?.services || {}
+        services: internalFields?.services || {},
+        // Recurring event fields
+        recurrence: internalFields?.recurrence || null,
+        occurrenceOverrides: internalFields?.occurrenceOverrides || null
       };
 
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);

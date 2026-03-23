@@ -185,8 +185,7 @@ export default function ReviewModal({
 
   const hasRecurrence = hasRecurrenceProp !== null ? hasRecurrenceProp
     : (hasRecurrenceFromReservation || liveHasRecurrence);
-  const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp
-    : (isAdmin || canApproveReservations || !isRequesterOnly);
+  const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp : true;
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -210,11 +209,14 @@ export default function ReviewModal({
   // Tab state - reset to 'details' whenever modal opens
   const [activeTab, setActiveTab] = useState('details');
   // Track whether Event Details date/time fields are complete (gates other tabs)
+  // Default true to avoid flash on existing events; FormBase is the sole authority
+  // and will override via onDetailsCompleteChange callback after mount
   const [areDetailsComplete, setAreDetailsComplete] = useState(true);
   useEffect(() => {
     if (isOpen) {
       setActiveTab('details');
-      setAreDetailsComplete(true); // Default true; FormBase will override to false if incomplete
+      // Note: do NOT reset areDetailsComplete here — React runs parent effects
+      // AFTER child effects, so this would clobber FormBase's onDetailsCompleteChange(false)
     }
   }, [isOpen]);
 
@@ -923,15 +925,17 @@ export default function ReviewModal({
               </div>
             )}
             <div
-              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
-              onClick={() => setActiveTab('attachments')}
+              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
+              onClick={() => areDetailsComplete && setActiveTab('attachments')}
+              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
             >
               {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
             </div>
             {!isRequesterOnly && (
               <div
-                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
-                onClick={() => setActiveTab('history')}
+                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
+                onClick={() => areDetailsComplete && setActiveTab('history')}
+                title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
               >
                 {historyCount > 0 ? `History (${historyCount})` : 'History'}
               </div>
