@@ -72,9 +72,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Pre-fetched series events data (fetched in parallel with availability)
   const [prefetchedSeriesEvents, setPrefetchedSeriesEvents] = useState(null);
 
-  // Loading state: true while background data (availability, series events) is being fetched after modal opens
-  const [isLoadingData, setIsLoadingData] = useState(false);
-
   // Counter to force child remount when currentItem is swapped (e.g., occurrence -> master)
   const [reinitKey, setReinitKey] = useState(0);
 
@@ -270,7 +267,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
     setPrefetchedSeriesEvents(null); // Clear prefetched series events data
-    setIsLoadingData(false); // Clear loading state
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
@@ -1278,7 +1274,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
     prefetchedSeriesEvents, // Pre-fetched series events data
-    isLoadingData, // True while background data is loading after modal opens
     reinitKey, // Counter to force child remount on item swap
 
     // Rejection reason state (for inline input)

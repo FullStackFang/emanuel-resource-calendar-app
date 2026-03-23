@@ -167,7 +167,11 @@ export default function RoomReservationFormBase({
   const usedPrefetchedData = useRef(!!prefetchedAvailability || prefetchedAvailability === null);
   // Watch for late-arriving prefetched availability (from non-blocking modal open)
   const prefetchArrived = useRef(false);
-  const [availabilityLoading, setAvailabilityLoading] = useState(false); // Day availability loading for SchedulingAssistant
+  // Initialize loading=true when rooms exist but availability data hasn't arrived yet.
+  // This prevents SchedulingAssistant from firing a premature onConflictChange with empty data
+  // before the availability API response arrives (which causes the loading gate to open too early).
+  const hasInitialLocations = initialData?.locations?.length > 0;
+  const [availabilityLoading, setAvailabilityLoading] = useState(hasInitialLocations && !prefetchedAvailability);
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -692,6 +696,10 @@ export default function RoomReservationFormBase({
 
   // Check day availability when assistant rooms or date changes
   useEffect(() => {
+    if (assistantRooms.length === 0) {
+      setAvailabilityLoading(false); // No rooms = nothing to load
+      return;
+    }
     if (assistantRooms.length > 0) {
       const roomIds = assistantRooms.map(room => room._id);
       const getTodayDate = () => {

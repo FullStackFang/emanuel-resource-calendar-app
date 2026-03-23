@@ -116,11 +116,7 @@ export default function RoomReservationReview({
 
   // Conflict dialog state
   const [conflictDialog, setConflictDialog] = useState({ isOpen: false, conflictType: 'data_changed', details: {} });
-  const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
-  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
   const handleConflictChange = useCallback((hasConflicts, total, conflictInfo) => {
-    setHasSchedulingConflicts(hasConflicts);
-    setSchedulingConflictInfo(conflictInfo || null);
     if (onSchedulingConflictsChange) onSchedulingConflictsChange(hasConflicts, conflictInfo);
   }, [onSchedulingConflictsChange]);
 

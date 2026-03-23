@@ -528,8 +528,12 @@ export default function SchedulingAssistant({
   useEffect(() => { onConflictChangeRef.current = onConflictChange; });
 
   // Propagate conflict state to parent (with hard/soft breakdown)
+  // Gate on availabilityLoading: don't signal until real data is ready.
+  // Without this, the first render fires onConflictChange with empty data (no conflicts),
+  // causing the modal loading gate to open before the availability API response arrives.
   useEffect(() => {
     if (onConflictChangeRef.current) {
+      if (availabilityLoading) return;
       const stats = Object.values(roomStats);
       const totalHard = stats.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
       const totalSoft = stats.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
@@ -544,7 +548,7 @@ export default function SchedulingAssistant({
         pendingReservationConflictCount: totalPendingRes,
       });
     }
-  }, [roomStats]);
+  }, [roomStats, availabilityLoading]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {

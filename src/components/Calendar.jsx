@@ -403,7 +403,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Navigation state for reviewModal
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
-    const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
     const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
     // Department colleague edit state (for non-admin users editing pending/rejected events)
@@ -472,6 +471,13 @@ import ConflictDialog from './shared/ConflictDialog';
         setOriginalEventData(null);
       }
     }, [reviewModal.isOpen, isEditRequestMode]);
+
+    // Reset scheduling conflict info when review modal opens (so loading gate works)
+    useEffect(() => {
+      if (reviewModal.isOpen) {
+        setSchedulingConflictInfo(null);
+      }
+    }, [reviewModal.isOpen]);
 
     // Update calendarDataService when role simulation changes
     // This ensures the X-Simulated-Role header is included in API requests
@@ -7482,7 +7488,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
           createRecurrenceRef={reviewModal.createRecurrenceRef}
           onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
-          isLoadingData={reviewModal.isLoadingData}
+          isSchedulingCheckComplete={schedulingConflictInfo !== null}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
           hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
@@ -7511,7 +7517,6 @@ import ConflictDialog from './shared/ConflictDialog';
               readOnly={!canEditThisEvent && !isEditRequestMode && !reviewModal.isDraft}
               editScope={reviewModal.editScope}
               onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-                setHasSchedulingConflicts(hasConflicts);
                 setSchedulingConflictInfo(conflictInfo || null);
               }}
               onHoldChange={reviewModal.setIsHold}

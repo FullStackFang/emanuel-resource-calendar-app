@@ -164,8 +164,8 @@ export default function ReviewModal({
   onRecurrenceWarningCancel = null,
   createRecurrenceRef = null,
   onHasUncommittedRecurrence = null,
-  // Loading state: true while background data is being fetched after modal opens
-  isLoadingData = false
+  // Scheduling check complete: false while waiting for initial conflict check, defaults to true for parents that don't track it
+  isSchedulingCheckComplete = true
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -278,6 +278,10 @@ export default function ReviewModal({
     }
   };
 
+  // Gate content visibility on data loading + scheduling check completion
+  // Gate content visibility on scheduling check completion
+  const isContentReady = isSchedulingCheckComplete;
+
   if (!isOpen) return null;
 
   // Only apply inline styles for the default review-modal, not for custom modals
@@ -288,61 +292,93 @@ export default function ReviewModal({
   const modalContent = (
     <div className={overlayClassName} onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
       <div className={modalClassName} style={inlineStyles}>
+        {/* Loading indicator while scheduling check completes */}
+        {!isContentReady && (
+          <div className="review-modal-loading">
+            <div className="review-modal-loading-spinner" />
+            <span>Loading...</span>
+          </div>
+        )}
+
+        {/* Modal content — hidden while loading so effects still fire, visible when ready */}
+        <div className={!isContentReady ? 'review-modal-content-hidden' : undefined}>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
           <div className="action-bar-left">
-            <h2 className="action-bar-title">{title}</h2>
+            {/* Row 1: Identity — title, status, version, owner, badges */}
+            <div className="action-bar-identity">
+              <h2 className="action-bar-title">{title}</h2>
 
-            {/* Status badge - now on the left next to title */}
-            {itemStatus && !isEditRequestMode && !isViewingEditRequest && (
-              <span className={`status-pill ${getStatusClass(itemStatus)}`}>
-                {formatStatus(itemStatus)}
-              </span>
-            )}
+              {/* Status badge */}
+              {itemStatus && !isEditRequestMode && !isViewingEditRequest && (
+                <span className={`status-pill ${getStatusClass(itemStatus)}`}>
+                  {formatStatus(itemStatus)}
+                </span>
+              )}
 
-            {/* Version indicator (for concurrency testing) */}
-            {eventVersion != null && (
-              <span className="version-badge" title="Document version (for concurrency control)">
-                v{eventVersion}
-              </span>
-            )}
+              {/* Version indicator */}
+              {eventVersion != null && (
+                <span className="version-badge" title="Document version (for concurrency control)">
+                  v{eventVersion}
+                </span>
+              )}
 
-            {/* Owner info pills */}
-            {requesterName && (
-              <span className="owner-pill" title={`Requested by ${requesterName}`}>
-                {requesterName}
-              </span>
-            )}
-            {requesterName && requesterDepartment && (
-              <span className="owner-pill owner-department-pill" title={`Department: ${requesterDepartment}`}>
-                {requesterDepartment}
-              </span>
-            )}
+              {/* Owner info pills */}
+              {requesterName && (
+                <span className="owner-pill" title={`Requested by ${requesterName}`}>
+                  {requesterName}
+                </span>
+              )}
+              {requesterName && requesterDepartment && (
+                <span className="owner-pill owner-department-pill" title={`Department: ${requesterDepartment}`}>
+                  {requesterDepartment}
+                </span>
+              )}
 
-            {/* Edit Request Mode badge - on left next to title */}
-            {isEditRequestMode && (
-              <span className="edit-request-mode-badge">
-                Edit Request Mode
-              </span>
-            )}
+              {/* Edit Request Mode badge */}
+              {isEditRequestMode && (
+                <span className="edit-request-mode-badge">
+                  Edit Request Mode
+                </span>
+              )}
 
-            {/* Feature Flag Toggle */}
-            {showFormToggle && onToggleForm && (
-              <button
-                type="button"
-                className="form-toggle-btn"
-                onClick={onToggleForm}
-                disabled={anyConfirming}
-              >
-                {useUnifiedForm ? 'New Form' : 'Legacy Form'}
-              </button>
-            )}
+              {/* Feature Flag Toggle */}
+              {showFormToggle && onToggleForm && (
+                <button
+                  type="button"
+                  className="form-toggle-btn"
+                  onClick={onToggleForm}
+                  disabled={anyConfirming}
+                >
+                  {useUnifiedForm ? 'New Form' : 'Legacy Form'}
+                </button>
+              )}
+            </div>
 
-            {/* Hold warning - displayed on left near title/status */}
-            {isHold && (
-              <span className="hold-warning">
-                ⚠ No event times — will display as [Hold]
-              </span>
+            {/* Row 2: Warnings — only rendered when any warning exists */}
+            {(isHold || hasSchedulingConflicts || hasSoftConflicts || hasPendingReservationConflicts) && (
+              <div className="action-bar-warnings">
+                {isHold && (
+                  <span className="hold-warning">
+                    ⚠ No event times — will display as [Hold]
+                  </span>
+                )}
+                {hasSchedulingConflicts && (
+                  <span className={`scheduling-conflict-warning ${isAdmin ? 'admin-override' : ''}`}>
+                    ⚠ Hard Conflicts{isAdmin ? ' (Override Available)' : ''}
+                  </span>
+                )}
+                {!hasSchedulingConflicts && hasSoftConflicts && (
+                  <span className="scheduling-conflict-warning soft-conflict">
+                    ⚠ Pending Edit Conflicts
+                  </span>
+                )}
+                {!hasSchedulingConflicts && !hasSoftConflicts && hasPendingReservationConflicts && (
+                  <span className="scheduling-conflict-warning pending-reservation-conflict">
+                    ⚠ Overlapping Pending Requests
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -874,21 +910,6 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {hasSchedulingConflicts && (
-                <span className={`scheduling-conflict-warning ${isAdmin ? 'admin-override' : ''}`}>
-                  ⚠ Hard Conflicts{isAdmin ? ' (Override Available)' : ''}
-                </span>
-              )}
-              {!hasSchedulingConflicts && hasSoftConflicts && (
-                <span className="scheduling-conflict-warning soft-conflict">
-                  ⚠ Pending Edit Conflicts
-                </span>
-              )}
-              {!hasSchedulingConflicts && !hasSoftConflicts && hasPendingReservationConflicts && (
-                <span className="scheduling-conflict-warning pending-reservation-conflict">
-                  ⚠ Overlapping Pending Requests
-                </span>
-              )}
               <button
                 type="button"
                 className="action-btn cancel-btn"
@@ -1012,6 +1033,7 @@ export default function ReviewModal({
           onDiscard={onDiscardDialogDiscard}
           onKeepEditing={onDiscardDialogCancel}
         />
+        </div>{/* end content visibility wrapper */}
       </div>
     </div>
   );

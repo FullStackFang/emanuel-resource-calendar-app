@@ -54,7 +54,6 @@ export default function MyReservations({ apiToken }) {
   // Local state for requester actions in ReviewModal
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
   const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
   // Local state for pending edit (owner editing pending events)
@@ -212,11 +211,13 @@ export default function MyReservations({ apiToken }) {
     }
   }, [originalEventData, reviewModal]);
 
-  // Reset local state when modal closes
+  // Reset local state when modal opens/closes
   useEffect(() => {
-    if (!reviewModal.isOpen) {
+    if (reviewModal.isOpen) {
+      // Reset conflict info so loading gate works for new modal
+      setSchedulingConflictInfo(null);
+    } else {
       setIsEditRequestMode(false);
-      setHasSchedulingConflicts(false);
       setSavingPendingEdit(false);
       setSubmittingEditRequest(false);
       setIsApprovingEditRequest(false);
@@ -1311,7 +1312,7 @@ export default function MyReservations({ apiToken }) {
         onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
         createRecurrenceRef={reviewModal.createRecurrenceRef}
         onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
-        isLoadingData={reviewModal.isLoadingData}
+        isSchedulingCheckComplete={schedulingConflictInfo !== null}
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
@@ -1333,7 +1334,6 @@ export default function MyReservations({ apiToken }) {
             readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}
             editScope={reviewModal.editScope}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-              setHasSchedulingConflicts(hasConflicts);
               setSchedulingConflictInfo(conflictInfo || null);
             }}
             onHoldChange={reviewModal.setIsHold}
