@@ -233,6 +233,11 @@
   background: var(--color-error-600);
 }
 
+.recurring-scope-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */

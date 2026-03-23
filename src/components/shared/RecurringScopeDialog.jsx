@@ -23,7 +23,8 @@ export default function RecurringScopeDialog({
   onSelectScope,
   eventSubject = 'Recurring Event',
   eventDate = '',
-  mode = 'edit'
+  mode = 'edit',
+  isLoading = false
 }) {
   const [selectedScope, setSelectedScope] = useState('thisEvent');
 
@@ -104,6 +105,7 @@ export default function RecurringScopeDialog({
                 value="thisEvent"
                 checked={selectedScope === 'thisEvent'}
                 onChange={() => setSelectedScope('thisEvent')}
+                disabled={isLoading}
               />
               <div className="recurring-scope-option-content">
                 <span className="recurring-scope-option-title">
@@ -126,6 +128,7 @@ export default function RecurringScopeDialog({
                 value="allEvents"
                 checked={selectedScope === 'allEvents'}
                 onChange={() => setSelectedScope('allEvents')}
+                disabled={isLoading}
               />
               <div className="recurring-scope-option-content">
                 <span className="recurring-scope-option-title">
@@ -146,14 +149,16 @@ export default function RecurringScopeDialog({
           <button
             className="recurring-scope-btn recurring-scope-btn-cancel"
             onClick={onClose}
+            disabled={isLoading}
           >
             Cancel
           </button>
           <button
             className={`recurring-scope-btn ${mode === 'delete' ? 'recurring-scope-btn-delete' : 'recurring-scope-btn-continue'}`}
             onClick={handleContinue}
+            disabled={isLoading}
           >
-            {mode === 'delete' ? 'Delete' : 'Continue'}
+            {isLoading ? 'Loading...' : (mode === 'delete' ? 'Delete' : 'Continue')}
           </button>
         </div>
       </div>

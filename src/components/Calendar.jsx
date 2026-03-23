@@ -417,7 +417,8 @@ import ConflictDialog from './shared/ConflictDialog';
     const [recurringScopeDialog, setRecurringScopeDialog] = useState({
       isOpen: false,
       pendingEvent: null,
-      mode: 'edit'
+      mode: 'edit',
+      isLoading: false
     });
 
     // Review modal hook for handling review functionality
@@ -4384,41 +4385,38 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const handleRecurringScopeSelected = useCallback(async (scope) => {
       const event = recurringScopeDialog.pendingEvent;
-
-      // Close the scope dialog
-      setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
-
       if (!event) return;
 
       try {
-        // For draft occurrences with 'allEvents' scope, resolve to the series master
         const needsMasterFetch = scope === 'allEvents' && event.isRecurringOccurrence && event.masterEventId;
 
         if (needsMasterFetch) {
           // Check if master is already in current view
           const found = allEventsRef.current.find(e => e.eventId === event.masterEventId);
           if (found) {
-            // Master available locally — open directly
+            // Master available locally — close dialog and open modal directly
+            setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
             await reviewModal.openModal(found, { editScope: scope });
           } else {
-            // Open modal immediately with occurrence data, fetch master in parallel
-            await reviewModal.openModal(event, { editScope: scope });
-
-            // Fetch master in background and swap when ready
+            // Keep dialog open with loading state while fetching master
+            setRecurringScopeDialog(prev => ({ ...prev, isLoading: true }));
             try {
               const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${event._id}`, {
                 headers: { 'Authorization': `Bearer ${apiToken}` }
               });
-              if (res.ok) {
-                const master = await res.json();
-                reviewModal.updateCurrentItem(master);
-              }
+              const masterEvent = res.ok ? await res.json() : event; // fallback to occurrence
+              // Close dialog and open modal with master data — one clean load
+              setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
+              await reviewModal.openModal(masterEvent, { editScope: scope });
             } catch (err) {
               logger.warn('Could not fetch series master, using occurrence data');
+              setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
+              await reviewModal.openModal(event, { editScope: scope });
             }
           }
         } else {
-          // Non-occurrence or 'thisEvent' scope — open directly
+          // Non-occurrence or 'thisEvent' scope — close dialog and open modal directly
+          setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
           await reviewModal.openModal(event, { editScope: scope });
         }
       } catch (error) {
@@ -4431,7 +4429,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * Handle closing the recurring scope dialog
      */
     const handleRecurringScopeClose = useCallback(() => {
-      setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
+      setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
     }, []);
 
     /**
@@ -7385,6 +7383,7 @@ import ConflictDialog from './shared/ConflictDialog';
             : ''
           }
           mode={recurringScopeDialog.mode}
+          isLoading={recurringScopeDialog.isLoading}
         />
 
         {/* Review Modal for Room Reservations and Event Review */}

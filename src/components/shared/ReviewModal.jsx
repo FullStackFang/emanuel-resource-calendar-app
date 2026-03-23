@@ -946,15 +946,10 @@ export default function ReviewModal({
         <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
-              {isLoadingData ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
-                  <LoadingSpinner minHeight={200} size={40} />
-                </div>
-              ) : (
-                React.isValidElement(children)
-                  ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef })
-                  : children
-              )}
+              {React.isValidElement(children)
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef })
+                : children
+              }
             </div>
           </div>
 

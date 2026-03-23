@@ -180,8 +180,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     const hasSeriesId = !!item.eventSeriesId;
 
     if (hasDates || hasSeriesId) {
-      setIsLoadingData(true);
-
+      // Prefetch availability and series events in background (non-blocking).
+      // The form renders immediately and picks up prefetched data when it arrives.
       const promises = [];
 
       // Availability prefetch
@@ -243,7 +243,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       if (seriesEvents !== null) {
         setPrefetchedSeriesEvents(seriesEvents);
       }
-      setIsLoadingData(false);
     }
   }, [apiToken]);
 
