@@ -58,8 +58,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Navigation confirmation state (replaces window.confirm for iframe compatibility)
   const [pendingNavTarget, setPendingNavTarget] = useState(null);
 
-  // Scheduling conflict state (from SchedulingAssistant via RoomReservationReview)
-  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
+  // Scheduling conflict state managed by reviewModal hook (synchronous reset in openModal)
 
   // Edit request state (card-level EditRequestComparison modal)
   const [editRequests, setEditRequests] = useState([]);
@@ -576,12 +575,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   }, []);
 
-  // Reset scheduling conflict info when modal opens (so loading gate works)
-  useEffect(() => {
-    if (reviewModal.isOpen) {
-      setSchedulingConflictInfo(null);
-    }
-  }, [reviewModal.isOpen]);
+  // Scheduling conflict reset handled by reviewModal.openModal() synchronously
 
   // Check for existing edit requests when ReviewModal opens with a published event
   useEffect(() => {
@@ -1213,10 +1207,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
         // Scheduling conflicts
-        isSchedulingCheckComplete={schedulingConflictInfo !== null}
-        hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
-        hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
-        hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
+        isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
+        hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}
+        hasSoftConflicts={reviewModal.hasSoftConflicts}
+        hasPendingReservationConflicts={reviewModal.hasPendingReservationConflicts}
         isHold={reviewModal.isHold}
         // Recurring event data (for Conflicts tab)
         reservation={reviewModal.currentItem}
@@ -1245,7 +1239,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onCreateCalendarEventChange={setCreateCalendarEvent}
             onHoldChange={reviewModal.setIsHold}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-              setSchedulingConflictInfo(conflictInfo || null);
+              reviewModal.setSchedulingConflictInfo(conflictInfo || null);
             }}
           />
         )}

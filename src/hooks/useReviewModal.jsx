@@ -66,6 +66,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
 
+  // Scheduling conflict state — owned by the hook so openModal() can reset it synchronously
+  // (useEffect-based resets fire AFTER render, causing a brief flash of stale content)
+  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
+
   // Pre-fetched availability data (fetched before modal opens)
   const [prefetchedAvailability, setPrefetchedAvailability] = useState(null);
 
@@ -161,6 +165,21 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Open modal IMMEDIATELY — no blocking fetches
+    // Reset scheduling conflict info synchronously so the loading gate
+    // activates from the very first render (no flash of stale content)
+    // For events WITH rooms, null keeps the loading gate closed until
+    // SchedulingAssistant finishes computing conflicts.
+    // For events WITHOUT rooms, set immediately to bypass the gate (no scheduling check needed).
+    const hasRooms = (item.locations?.length > 0) || (item.requestedRooms?.length > 0);
+    if (hasRooms) {
+      setSchedulingConflictInfo(null);
+    } else {
+      setSchedulingConflictInfo({
+        hasHardConflicts: false, hardConflictCount: 0,
+        hasSoftConflicts: false, softConflictCount: 0,
+        hasPendingReservationConflicts: false, pendingReservationConflictCount: 0,
+      });
+    }
     setPrefetchedAvailability(null);
     setPrefetchedSeriesEvents(null);
     setCurrentItem(item);
@@ -260,6 +279,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setEditableData(null);
     setEventVersion(null);
     setConflictInfo(null);
+    setSchedulingConflictInfo(null); // Clear scheduling conflict state
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
     setDeleteReason(''); // Reset delete reason
@@ -1275,6 +1295,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     prefetchedAvailability, // Pre-fetched room availability data
     prefetchedSeriesEvents, // Pre-fetched series events data
     reinitKey, // Counter to force child remount on item swap
+
+    // Scheduling conflict state (reset synchronously in openModal to avoid flash)
+    schedulingConflictInfo,
+    setSchedulingConflictInfo,
+    isSchedulingCheckComplete: schedulingConflictInfo !== null,
+    hasSchedulingConflicts: schedulingConflictInfo?.hasHardConflicts || false,
+    hasSoftConflicts: schedulingConflictInfo?.hasSoftConflicts || false,
+    hasPendingReservationConflicts: schedulingConflictInfo?.hasPendingReservationConflicts || false,
 
     // Rejection reason state (for inline input)
     rejectionReason,

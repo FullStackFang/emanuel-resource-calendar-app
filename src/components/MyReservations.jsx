@@ -54,7 +54,6 @@ export default function MyReservations({ apiToken }) {
   // Local state for requester actions in ReviewModal
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
   // Local state for pending edit (owner editing pending events)
   const [savingPendingEdit, setSavingPendingEdit] = useState(false);
@@ -211,12 +210,9 @@ export default function MyReservations({ apiToken }) {
     }
   }, [originalEventData, reviewModal]);
 
-  // Reset local state when modal opens/closes
+  // Reset local state when modal closes
   useEffect(() => {
-    if (reviewModal.isOpen) {
-      // Reset conflict info so loading gate works for new modal
-      setSchedulingConflictInfo(null);
-    } else {
+    if (!reviewModal.isOpen) {
       setIsEditRequestMode(false);
       setSavingPendingEdit(false);
       setSubmittingEditRequest(false);
@@ -1312,11 +1308,11 @@ export default function MyReservations({ apiToken }) {
         onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
         createRecurrenceRef={reviewModal.createRecurrenceRef}
         onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
-        isSchedulingCheckComplete={schedulingConflictInfo !== null}
+        isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
         // Scheduling conflicts
-        hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
-        hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
-        hasPendingReservationConflicts={schedulingConflictInfo?.hasPendingReservationConflicts || false}
+        hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}
+        hasSoftConflicts={reviewModal.hasSoftConflicts}
+        hasPendingReservationConflicts={reviewModal.hasPendingReservationConflicts}
         isHold={reviewModal.isHold}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
@@ -1334,7 +1330,7 @@ export default function MyReservations({ apiToken }) {
             readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}
             editScope={reviewModal.editScope}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-              setSchedulingConflictInfo(conflictInfo || null);
+              reviewModal.setSchedulingConflictInfo(conflictInfo || null);
             }}
             onHoldChange={reviewModal.setIsHold}
           />

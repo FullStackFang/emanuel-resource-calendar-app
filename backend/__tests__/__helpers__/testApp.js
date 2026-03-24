@@ -4193,17 +4193,18 @@ function createTestApp(options = {}) {
         const baseQuery = {
           isDeleted: { $ne: true },
           roomReservationData: { $exists: true, $ne: null },
-          status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] },
         };
 
-        const [all, pending, published, rejected] = await Promise.all([
-          testCollections.events.countDocuments(baseQuery),
+        const [pending, publishedTotal, published_edit, rejected] = await Promise.all([
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
         ]);
 
-        res.json({ all, pending, published, rejected });
+        const all = pending + publishedTotal + rejected;
+        const published = publishedTotal - published_edit;
+        res.json({ all, pending, published, published_edit, rejected });
       }
     } catch (error) {
       console.error('Error in GET /api/events/list/counts:', error);

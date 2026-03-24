@@ -118,6 +118,11 @@ export default function SchedulingAssistant({
     '#00188f'  // Dark Blue
   ];
 
+  // Stable ref for onConflictChange to avoid infinite render loops
+  // (parent components may pass unstable inline arrow functions)
+  const onConflictChangeRef = useRef(onConflictChange);
+  useEffect(() => { onConflictChangeRef.current = onConflictChange; });
+
   // Process availability data and create event blocks with calculated positions
   useEffect(() => {
     // Don't clear events while loading new availability data - keep showing existing events
@@ -520,24 +525,15 @@ export default function SchedulingAssistant({
 
     setEventBlocks(blocks);
     setRoomStats(stats);
-  }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, eventTitle]);
 
-  // Stable ref for onConflictChange to avoid infinite render loops
-  // (parent components may pass unstable inline arrow functions)
-  const onConflictChangeRef = useRef(onConflictChange);
-  useEffect(() => { onConflictChangeRef.current = onConflictChange; });
-
-  // Propagate conflict state to parent (with hard/soft breakdown)
-  // Gate on availabilityLoading: don't signal until real data is ready.
-  // Without this, the first render fires onConflictChange with empty data (no conflicts),
-  // causing the modal loading gate to open before the availability API response arrives.
-  useEffect(() => {
+    // Signal conflicts immediately using locally-computed stats (not roomStats state).
+    // This eliminates the one-render-cycle delay where a separate effect would read
+    // stale roomStats before the state update from setRoomStats applies.
     if (onConflictChangeRef.current) {
-      if (availabilityLoading) return;
-      const stats = Object.values(roomStats);
-      const totalHard = stats.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
-      const totalSoft = stats.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
-      const totalPendingRes = stats.reduce((sum, s) => sum + (s.pendingReservationConflictCount || 0), 0);
+      const statValues = Object.values(stats);
+      const totalHard = statValues.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
+      const totalSoft = statValues.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
+      const totalPendingRes = statValues.reduce((sum, s) => sum + (s.pendingReservationConflictCount || 0), 0);
       const total = totalHard + totalSoft + totalPendingRes;
       onConflictChangeRef.current(total > 0, total, {
         hasHardConflicts: totalHard > 0,
@@ -548,7 +544,7 @@ export default function SchedulingAssistant({
         pendingReservationConflictCount: totalPendingRes,
       });
     }
-  }, [roomStats, availabilityLoading]);
+  }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, eventTitle]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {

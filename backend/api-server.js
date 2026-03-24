@@ -5011,8 +5011,14 @@ async function withCosmosRetry(operation, maxRetries = 3) {
     } catch (error) {
       // Cosmos DB rate limit error code is 16500
       if (error.code === 16500 && attempt < maxRetries) {
-        // Use RetryAfterMs from error if available, otherwise exponential backoff
-        const retryAfterMs = error.retryAfterMs || (attempt * 1000);
+        // Parse RetryAfterMs from Cosmos DB error (embedded in errmsg string)
+        let retryAfterMs = attempt * 1000;
+        if (error.retryAfterMs) {
+          retryAfterMs = error.retryAfterMs;
+        } else if (error.errmsg || error.message) {
+          const match = (error.errmsg || error.message).match(/RetryAfterMs=(\d+)/);
+          if (match) retryAfterMs = parseInt(match[1], 10);
+        }
         logger.warn(`Cosmos DB rate limit hit (attempt ${attempt}/${maxRetries}), retrying in ${retryAfterMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, retryAfterMs));
       } else {
@@ -5179,7 +5185,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
 
     logger.debug('Calendar events query:', JSON.stringify(query));
 
-    const events = (await unifiedEventsCollection.find(query).toArray())
+    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).toArray()))
       .filter(event => {
         // Exclude incomplete drafts that can't be rendered on calendar (no dates)
         if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
@@ -5198,10 +5204,10 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     const creatorDeptMap = {};
     if (creatorEmails.length > 0) {
       try {
-        const creators = await usersCollection.find(
+        const creators = await withCosmosRetry(() => usersCollection.find(
           { email: { $in: creatorEmails.map(e => new RegExp(`^${e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) } },
           { projection: { email: 1, department: 1 } }
-        ).toArray();
+        ).toArray());
         for (const creator of creators) {
           creatorDeptMap[creator.email.toLowerCase()] = creator.department || '';
         }
@@ -5301,14 +5307,14 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // Get user from database to determine actual role
     // Check by odataId (legacy), userId, or email for maximum compatibility
-    const user = await usersCollection.findOne({
+    const user = await withCosmosRetry(() => usersCollection.findOne({
       $or: [
         { odataId: userId },
         { odataId: `https://graph.microsoft.com/v1.0/users('${userId}')` },
         { userId: userId },
         ...(userEmail ? [{ email: userEmail }] : [])
       ]
-    });
+    }));
 
     // Determine effective role
     const actualRole = getEffectiveRole(user, userEmail);
@@ -5917,7 +5923,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
       };
 
       // Check if user can view all reservations
-      const user = await usersCollection.findOne({ userId });
+      const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
       const canViewAll = canViewAllReservations(user, userEmail);
 
       logger.log('👤 User info:', { userId, userEmail, canViewAll });
@@ -5931,14 +5937,14 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
       // Execute query
       const skip = (parseInt(page) - 1) * parseInt(limit);
-      const events = await unifiedEventsCollection
+      const events = await withCosmosRetry(() => unifiedEventsCollection
         .find(query)
         .sort({ 'graphData.start.dateTime': -1, submittedAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .toArray();
+        .toArray());
 
-      const totalCount = await unifiedEventsCollection.countDocuments(query);
+      const totalCount = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query));
 
       logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
 
@@ -5964,7 +5970,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
 
     // Check if user is admin/approver to also show pending reservations
-    const user = await usersCollection.findOne({ userId });
+    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
     const isAdminUser = canViewAllReservations(user, userEmail);
 
     logger.debug(`[PENDING] User ${userEmail} isAdminUser: ${isAdminUser}, startDate: ${startDate}, endDate: ${endDate}`);
@@ -5986,7 +5992,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
       }
 
       logger.debug(`[PENDING] Query: ${JSON.stringify(pendingQuery)}`);
-      pendingReservations = await unifiedEventsCollection.find(pendingQuery).toArray();
+      pendingReservations = await withCosmosRetry(() => unifiedEventsCollection.find(pendingQuery).toArray());
       logger.log(`[PENDING] Found ${pendingReservations.length} pending reservations for admin ${userEmail}`);
     }
 
@@ -6149,7 +6155,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // Look up user for role checks
-    const user = await usersCollection.findOne({ userId });
+    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
     const canViewAll = canViewAllReservations(user, userEmail);
     const adminUser = isAdmin(user, userEmail);
 
@@ -6424,7 +6430,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
 
-    const user = await usersCollection.findOne({ userId });
+    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
     const canViewAll = canViewAllReservations(user, userEmail);
     const adminUser = isAdmin(user, userEmail);
 
@@ -6449,27 +6455,35 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         }}
       ];
 
-      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
+      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
       const counts = result || { pending: 0, published: 0, rejected: 0, draft: 0, deleted: 0 };
       const all = counts.pending + counts.published + counts.rejected + counts.draft;
       res.json({ all, ...counts });
 
     } else if (view === 'approval-queue') {
-      const baseFilter = {
-        isDeleted: { $ne: true },
-        roomReservationData: { $exists: true, $ne: null }
-      };
+      // Single aggregation instead of 4 parallel countDocuments (avoids Cosmos DB rate limits)
+      const pipeline = [
+        { $match: {
+          isDeleted: { $ne: true },
+          roomReservationData: { $exists: true, $ne: null }
+        }},
+        { $group: {
+          _id: null,
+          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
+          publishedTotal: { $sum: { $cond: [{ $eq: ['$status', 'published'] }, 1, 0] } },
+          published_edit: { $sum: { $cond: [{ $and: [
+            { $eq: ['$status', 'published'] },
+            { $eq: ['$pendingEditRequest.status', 'pending'] }
+          ]}, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } }
+        }}
+      ];
 
-      const [pending, publishedTotal, published_edit, rejected] = await Promise.all([
-        unifiedEventsCollection.countDocuments({ ...baseFilter, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'published', 'pendingEditRequest.status': 'pending' }),
-        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'rejected' })
-      ]);
-
-      const all = pending + publishedTotal + rejected;
-      const published = publishedTotal - published_edit;
-      res.json({ all, pending, published, published_edit, rejected });
+      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
+      const counts = result || { pending: 0, publishedTotal: 0, published_edit: 0, rejected: 0 };
+      const all = counts.pending + counts.publishedTotal + counts.rejected;
+      const published = counts.publishedTotal - counts.published_edit;
+      res.json({ all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected });
 
     } else if (view === 'admin-browse') {
       // Single aggregation instead of 6 parallel countDocuments
@@ -6485,7 +6499,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         }}
       ];
 
-      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
+      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
       const counts = result || { total: 0, pending: 0, published: 0, rejected: 0, deleted: 0, draft: 0 };
       res.json(counts);
     }

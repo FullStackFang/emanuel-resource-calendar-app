@@ -176,6 +176,8 @@ export default function RoomReservationFormBase({
   const [hasChanges, setHasChanges] = useState(false);
 
   // Handle late-arriving prefetched availability (Phase 1: non-blocking modal open)
+  // Note: availabilityLoading stays true — the room effect's checkDayAvailability()
+  // fetches full-day data (different params than the prefetch) and controls the gate.
   useEffect(() => {
     if (prefetchedAvailability != null && prefetchedAvailability.length > 0 && !prefetchArrived.current) {
       setAvailability(prefetchedAvailability);
