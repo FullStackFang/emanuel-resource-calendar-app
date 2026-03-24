@@ -1863,10 +1863,12 @@ function createTestApp(options = {}) {
 
       const { editScope, occurrenceDate, _version, reason } = req.body;
 
-      // Reason required when owner deletes own pending event
+      // Reason required when a requester (not admin or approver) withdraws their own pending event.
+      // Admins and approvers use the 'Delete' button which has no reason UI — skip check for them.
       const ownerEmailForReason = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
       const isOwnerForReason = ownerEmailForReason === (userEmail || '').toLowerCase();
-      if (isOwnerForReason && event.status === 'pending' && (!reason || !reason.trim())) {
+      const isRequesterDelete = isOwnerForReason && !isAdminUser && !isApprover;
+      if (isRequesterDelete && event.status === 'pending' && (!reason || !reason.trim())) {
         return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
       }
 

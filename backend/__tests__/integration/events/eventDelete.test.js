@@ -488,7 +488,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('AD-3: Approver cannot delete own pending without reason', async () => {
+    it('AD-3: Approver can delete own pending without reason (uses Delete button, not Withdraw)', async () => {
       const pending = createPendingEvent({
         userId: approverUser.odataId,
         requesterEmail: approverUser.email,
@@ -496,10 +496,12 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       });
       const [saved] = await insertEvents(db, [pending]);
 
-      await request(app)
+      const res = await request(app)
         .delete(`/api/admin/events/${saved._id}`)
         .set('Authorization', `Bearer ${approverToken}`)
-        .expect(400);
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
     });
 
     it('AD-4: Approver can delete own published', async () => {
@@ -607,6 +609,24 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const lastHistory = event.statusHistory[event.statusHistory.length - 1];
       expect(lastHistory.reason).toBe('Duplicate event');
+    });
+
+    it('AD-12: Admin can delete own pending event without reason', async () => {
+      const pending = createPendingEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Admin Own Pending No Reason',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      const event = await db.collection('templeEvents__Events').findOne({ _id: saved._id });
+      expect(event.status).toBe('deleted');
     });
 
     it('AD-11: Third-party delete tracks notification email', async () => {

@@ -353,10 +353,11 @@ export default function RoomReservationFormBase({
   const availabilityRequestId = useRef(0);
   // Track last fetch params to prevent duplicate fetches (race condition fix)
   const lastFetchParamsRef = useRef({ roomIds: '', date: null });
-  // Seed lastFetchParamsRef when prefetched data is present on mount.
-  // This prevents the room effect from triggering a duplicate fetch since
-  // its params-changed check will see matching params.
-  if (prefetchedAvailability?.length > 0 && lastFetchParamsRef.current.date === null && initialData?.startDate) {
+  // Seed lastFetchParamsRef when prefetched data arrived before mount.
+  // With conditional rendering, the form only mounts after prefetchedAvailability
+  // is set (non-null), so this always fires on first mount — preventing the room
+  // effect from triggering a duplicate fetch.
+  if (prefetchedAvailability != null && lastFetchParamsRef.current.date === null && initialData?.startDate) {
     const seedRoomIds = (initialData.locations || initialData.requestedRooms || [])
       .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
       .sort().join(',');

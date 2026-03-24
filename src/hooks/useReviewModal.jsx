@@ -164,40 +164,53 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setDraftId(null);
     }
 
+    // Extract room/date info from any event format (raw MongoDB, flat, or Graph).
+    // The item hasn't been through transformEventToFlatStructure yet — fields live in
+    // different places depending on the source (Calendar, MyReservations, etc.).
+    const itemRooms = item.locations || item.requestedRooms ||
+      item.roomReservationData?.requestedRooms ||
+      item.calendarData?.locations || [];
+    const itemStartDate = item.startDate || item.calendarData?.startDate ||
+      (item.startDateTime ? item.startDateTime.split('T')[0] : null) ||
+      (item.start?.dateTime ? new Date(item.start.dateTime).toISOString().split('T')[0] : null);
+    const itemStartTime = item.startTime || item.reservationStartTime ||
+      item.calendarData?.startTime || item.calendarData?.reservationStartTime ||
+      (item.startDateTime ? item.startDateTime.split('T')[1]?.substring(0, 5) : null) ||
+      (item.start?.dateTime ? new Date(item.start.dateTime).toTimeString().slice(0, 5) : null);
+    const roomIds = itemRooms
+      .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
+      .filter(Boolean);
+    const hasRooms = roomIds.length > 0;
+    const hasDates = !!(itemStartDate && itemStartTime);
+
     // Open modal IMMEDIATELY — no blocking fetches.
     // The content gate is now data-derived: it opens when prefetchedAvailability arrives
-    // (for events with rooms) or immediately (for events without rooms).
+    // (for events with rooms + dates) or immediately (no rooms / no dates).
     // Form content is NOT rendered until the gate opens (conditional rendering, not CSS hiding).
     setSchedulingConflictInfo(null);
     setPrefetchedAvailability(null);
     setPrefetchedSeriesEvents(null);
-    setCurrentItem(item);
+    // Store extracted gate fields alongside the raw item so the gate IIFE can check them
+    // without re-parsing the raw format on every render.
+    setCurrentItem({ ...item, _gateRooms: hasRooms, _gateDates: hasDates });
     setEditableData(item);
     setEventVersion(item._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
 
-    // Fetch availability and series events in background (non-blocking)
-    const effectiveStartTime = item.startTime || item.reservationStartTime;
-    const effectiveEndTime = item.endTime || item.reservationEndTime;
-    const hasDates = item.startDate && effectiveStartTime && item.endDate && effectiveEndTime;
+    // Prefetch availability and series events in background (non-blocking).
     const hasSeriesId = !!item.eventSeriesId;
-
-    if (hasDates || hasSeriesId) {
-      // Prefetch availability and series events in background (non-blocking).
-      // The form renders immediately and picks up prefetched data when it arrives.
+    if ((hasDates && hasRooms) || hasSeriesId) {
       const promises = [];
 
       // Availability prefetch — uses full-day + room-specific params to match
       // checkDayAvailability() exactly, so the form won't re-fetch on mount.
-      const roomIds = (item.locations || item.requestedRooms || [])
-        .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)));
-      if (hasDates && roomIds.length > 0) {
+      if (hasDates && hasRooms) {
         const availabilityPromise = (async () => {
           try {
-            const startDateTime = `${item.startDate}T00:00:00`;
-            const endDateTime = `${item.startDate}T23:59:59`;
+            const startDateTime = `${itemStartDate}T00:00:00`;
+            const endDateTime = `${itemStartDate}T23:59:59`;
             const params = new URLSearchParams({
               startDateTime,
               endDateTime,
@@ -246,13 +259,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const [availResult, seriesResult] = await Promise.allSettled(promises);
 
-      const availability = availResult.status === 'fulfilled' ? availResult.value : null;
+      const availability = availResult.status === 'fulfilled' ? availResult.value : [];
       const seriesEvents = seriesResult.status === 'fulfilled' ? seriesResult.value : null;
 
       setPrefetchedAvailability(availability);
       if (seriesEvents !== null) {
         setPrefetchedSeriesEvents(seriesEvents);
       }
+    } else if (hasRooms) {
+      // Rooms but no dates — nothing to prefetch, but open the gate
+      setPrefetchedAvailability([]);
     }
   }, [apiToken]);
 
@@ -1295,13 +1311,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setSchedulingConflictInfo,
     // Gate: data-derived. Opens when availability prefetch resolves (events with rooms + dates),
     // or immediately (no rooms, or rooms but no dates). Content is not rendered until true.
+    // Uses _gateRooms/_gateDates flags computed once in openModal (avoids re-parsing raw formats).
     isSchedulingCheckComplete: (() => {
       if (!currentItem) return true;
-      const hasRooms = (currentItem.locations?.length > 0) || (currentItem.requestedRooms?.length > 0);
-      if (!hasRooms) return true;
-      const hasDates = currentItem.startDate && (currentItem.startTime || currentItem.reservationStartTime);
-      if (!hasDates) return true; // No dates = no scheduling conflicts to check
-      return prefetchedAvailability !== null;
+      if (!currentItem._gateRooms) return true; // No rooms → no scheduling check needed
+      if (!currentItem._gateDates) return true;  // No dates → no conflicts to compute
+      return prefetchedAvailability !== null;     // Wait for availability prefetch
     })(),
     hasSchedulingConflicts: schedulingConflictInfo?.hasHardConflicts || false,
     hasSoftConflicts: schedulingConflictInfo?.hasSoftConflicts || false,
