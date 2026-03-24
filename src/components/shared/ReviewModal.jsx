@@ -291,13 +291,12 @@ export default function ReviewModal({
 
   const modalContent = (
     <div className={overlayClassName} onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
+      {/* Content gate: show spinner on frosted overlay until data is ready.
+          Modal container only renders once content is loaded — no empty white box. */}
+      {!isContentReady ? (
+        <LoadingSpinner size={48} text="Loading..." />
+      ) : (
       <div className={modalClassName} style={inlineStyles}>
-        {/* Content gate: don't render form at all until data is ready.
-            True conditional rendering (not CSS hiding) ensures the form mounts
-            fresh with all data available — no partial/empty states. */}
-        {!isContentReady ? (
-          <LoadingSpinner variant="card" size={40} text="Loading..." />
-        ) : (
         <>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
@@ -1028,8 +1027,9 @@ export default function ReviewModal({
           onDiscard={onDiscardDialogDiscard}
           onKeepEditing={onDiscardDialogCancel}
         />
-        </>)}{/* end content gate */}
+        </>
       </div>
+      )}{/* end content gate */}
     </div>
   );
 
