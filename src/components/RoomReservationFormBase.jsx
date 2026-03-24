@@ -1712,6 +1712,7 @@ export default function RoomReservationFormBase({
                   value={formData.startTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  clearable
                   className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event begins (optional)</div>
@@ -1731,6 +1732,7 @@ export default function RoomReservationFormBase({
                   value={formData.endTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  clearable
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event ends (optional)</div>

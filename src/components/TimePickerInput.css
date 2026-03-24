@@ -35,6 +35,32 @@
   background: var(--color-primary-600, #005a9e);
 }
 
+/* Clear button — positioned left of the clock icon */
+.picker-clear-btn {
+  position: absolute;
+  right: 30px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-neutral-500, #6b7280);
+  opacity: 0.6;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.picker-clear-btn:hover {
+  opacity: 1;
+  color: var(--color-error-500, #dc2626);
+  background: var(--color-neutral-100, #f3f4f6);
+}
+
 /* Dropdown panel */
 .time-picker-dropdown {
   position: absolute;
