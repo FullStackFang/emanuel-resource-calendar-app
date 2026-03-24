@@ -3870,6 +3870,38 @@ function createTestApp(options = {}) {
         }
       }
 
+      // Combine separate date/time fields into combined datetime (mirrors production lines 21942-21958)
+      if (updates.startDate && updates.startTime) {
+        const combinedStart = `${updates.startDate}T${updates.startTime}:00`;
+        mongoUpdate.startDateTime = combinedStart;
+        mongoUpdate['calendarData.startDateTime'] = combinedStart;
+      }
+      if (updates.endDate && updates.endTime) {
+        const combinedEnd = `${updates.endDate}T${updates.endTime}:00`;
+        mongoUpdate.endDateTime = combinedEnd;
+        mongoUpdate['calendarData.endDateTime'] = combinedEnd;
+      }
+
+      // Defensive: derive separate fields from combined datetime if not provided
+      if (mongoUpdate['calendarData.startDateTime'] && !updates.startDate && !updates.startTime) {
+        const parts = String(mongoUpdate['calendarData.startDateTime']).split('T');
+        if (parts.length === 2) {
+          mongoUpdate.startDate = parts[0];
+          mongoUpdate['calendarData.startDate'] = parts[0];
+          mongoUpdate.startTime = parts[1].substring(0, 5);
+          mongoUpdate['calendarData.startTime'] = parts[1].substring(0, 5);
+        }
+      }
+      if (mongoUpdate['calendarData.endDateTime'] && !updates.endDate && !updates.endTime) {
+        const parts = String(mongoUpdate['calendarData.endDateTime']).split('T');
+        if (parts.length === 2) {
+          mongoUpdate.endDate = parts[0];
+          mongoUpdate['calendarData.endDate'] = parts[0];
+          mongoUpdate.endTime = parts[1].substring(0, 5);
+          mongoUpdate['calendarData.endTime'] = parts[1].substring(0, 5);
+        }
+      }
+
       // PROTECT eventType: use the DB value, never trust the frontend
       if (event.eventType === 'seriesMaster') {
         const incomingRecurrence = updates.recurrence;

@@ -21957,6 +21957,24 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       logger.info('Calculated endDateTime from separate fields:', { endDate: updates.endDate, endTime: updates.endTime, result: combinedEnd });
     }
 
+    // Defensive: derive separate date/time fields from combined datetime if not provided.
+    // Ensures calendarData.startTime/endTime stay in sync with startDateTime/endDateTime
+    // even when callers send only the combined values.
+    if (updateOperations.startDateTime && !updates.startDate && !updates.startTime) {
+      const parts = String(updateOperations.startDateTime).split('T');
+      if (parts.length === 2) {
+        updateOperations.startDate = parts[0];
+        updateOperations.startTime = parts[1].substring(0, 5);
+      }
+    }
+    if (updateOperations.endDateTime && !updates.endDate && !updates.endTime) {
+      const parts = String(updateOperations.endDateTime).split('T');
+      if (parts.length === 2) {
+        updateOperations.endDate = parts[0];
+        updateOperations.endTime = parts[1].substring(0, 5);
+      }
+    }
+
     // NOTE: Form field syncs to graphData have been removed.
     // calendarData is now the authoritative source for all application data.
     // graphData is only updated when:
