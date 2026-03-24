@@ -697,6 +697,7 @@ export default function RoomReservationFormBase({
   };
 
   // Check availability when dates or times change (for non-assistant mode)
+  // 500ms debounce prevents rapid-fire API calls when user adjusts multiple fields quickly
   useEffect(() => {
     // Skip initial fetch if we have prefetched data (prevents duplicate API call on modal open)
     if (usedPrefetchedData.current) {
@@ -704,7 +705,10 @@ export default function RoomReservationFormBase({
       return;
     }
     if (formData.startDate && (formData.startTime || formData.reservationStartTime) && formData.endDate && (formData.endTime || formData.reservationEndTime) && assistantRooms.length === 0) {
-      checkAvailability();
+      const timer = setTimeout(() => {
+        checkAvailability();
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartMinutes, formData.reservationEndMinutes, formData.reservationStartTime, formData.reservationEndTime, assistantRooms.length]);
 
@@ -775,7 +779,7 @@ export default function RoomReservationFormBase({
         // Re-check standard availability
         checkAvailability();
       }
-    }, 30_000);
+    }, 60_000);
 
     return () => clearInterval(interval);
   }, [readOnly, formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);

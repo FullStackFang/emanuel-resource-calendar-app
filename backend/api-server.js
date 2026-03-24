@@ -2077,6 +2077,27 @@ const CONFLICT_PROJECTION = {
   'pendingEditRequest.status': 1, 'pendingEditRequest.proposedChanges': 1,
 };
 
+// Projection for availability endpoint — only fields used by response builders (lines 13283-13481)
+const AVAILABILITY_PROJECTION = {
+  _id: 1, status: 1, isAllowedConcurrent: 1, categories: 1,
+  'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
+  'calendarData.startTime': 1, 'calendarData.endTime': 1,
+  'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
+  'calendarData.eventTitle': 1, 'calendarData.categories': 1,
+  'calendarData.setupTime': 1, 'calendarData.teardownTime': 1,
+  'calendarData.setupTimeMinutes': 1, 'calendarData.teardownTimeMinutes': 1,
+  'calendarData.reservationStartMinutes': 1, 'calendarData.reservationEndMinutes': 1,
+  'calendarData.reservationStartTime': 1, 'calendarData.reservationEndTime': 1,
+  'calendarData.requesterName': 1, 'calendarData.requesterEmail': 1,
+  'graphData.subject': 1,
+  'graphData.organizer.emailAddress.name': 1,
+  'graphData.location.displayName': 1,
+  'roomReservationData.requestedBy.name': 1,
+  'roomReservationData.requestedBy.email': 1,
+  'pendingEditRequest.status': 1, 'pendingEditRequest.proposedChanges': 1,
+  'pendingEditRequest.requestedBy.name': 1, 'pendingEditRequest.requestedBy.email': 1,
+};
+
 /**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
@@ -13150,100 +13171,56 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Fetch rooms from database
     const rooms = await withCosmosRetry(() => locationsCollection.find(locationQuery).toArray());
 
-    // Get ALL events from unifiedEventsCollection (includes both room reservations and calendar events)
-    // Note: unifiedEventsCollection is deprecated - all events are now in unifiedEventsCollection
+    // Build room ID arrays for query filters
     const roomObjectIds = rooms.map(room => room._id);
-    // Also create string versions for events that store locations as strings (unified form events)
     const roomIdStrings = roomObjectIds.map(id => id.toString());
 
-    logger.log('[AVAILABILITY DEBUG] Searching for rooms:', roomObjectIds.map(id => id.toString()));
-    logger.log('[AVAILABILITY DEBUG] Room ID strings for query:', roomIdStrings);
+    logger.log('[AVAILABILITY DEBUG] Searching for rooms:', roomIdStrings);
     logger.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
     logger.log('[AVAILABILITY DEBUG] Date range for query:', { start, end });
 
-    let allEvents = [];
-    if (roomObjectIds.length > 0) {
-      allEvents = await withCosmosRetry(() => unifiedEventsCollection.find({
-        isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
-        status: { $nin: ['draft', 'pending', 'rejected', 'deleted'] },  // Only published reservations and Graph events (no status) block scheduling
-        'calendarData.startDateTime': { $lt: end },
-        'calendarData.endDateTime': { $gt: start },
-        // Match both ObjectId format (room reservations) and string format (unified form events)
-        $or: [
-          { 'calendarData.locations': { $in: roomObjectIds } },
-          { 'calendarData.locations': { $in: roomIdStrings } }
-        ]
-      }).toArray());
-
-      logger.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
-      logger.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
-        _id: e._id?.toString(),
-        eventTitle: e.calendarData?.eventTitle || e.graphData?.subject,
-        locations: e.calendarData?.locations,
-        locationType: e.calendarData?.locations?.map(l => typeof l),
-        startDateTime: e.calendarData?.startDateTime,
-        status: e.status,
-        source: e.source,
-        createdSource: e.createdSource
-      })));
-    }
-
-    // Separate events into reservations (published only) and calendar events (no status = Graph events)
-    // Room reservations created via the reservation system have a 'status' field
-    const allReservations = allEvents.filter(e =>
-      e.status === 'published'
-    );
-    const allCalendarEvents = allEvents.filter(e =>
-      !e.status
-    );
-
-    logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
-
-    // Query for published events with pending edit requests that propose using queried rooms
+    // Run two DB queries in parallel (down from 4 sequential):
+    //  1. Merged query: published + calendar (no status) + pending events with room/date overlap
+    //  2. Simplified pending edits: all events with pending edit requests (filter rooms in-memory)
+    let allEventsAndPending = [];
     let pendingEditEvents = [];
+
     if (roomObjectIds.length > 0) {
-      pendingEditEvents = await withCosmosRetry(() => unifiedEventsCollection.find({
-        status: 'published',
-        'pendingEditRequest.status': 'pending',
-        $or: [
-          // Events proposing to move INTO one of the queried rooms
-          { 'pendingEditRequest.proposedChanges.locations': { $in: [...roomObjectIds, ...roomIdStrings] } },
-          { 'pendingEditRequest.proposedChanges.requestedRooms': { $in: [...roomObjectIds, ...roomIdStrings] } },
-          // Events already in these rooms with time-only edits
-          {
-            'calendarData.locations': { $in: [...roomObjectIds, ...roomIdStrings] },
-            $or: [
-              { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
-              { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } }
-            ]
-          }
-        ]
-      }).toArray());
-      logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
+      [allEventsAndPending, pendingEditEvents] = await Promise.all([
+        // Merged Q2+Q4: captures published, pending, AND Graph (no-status) events in one query
+        withCosmosRetry(() => unifiedEventsCollection.find({
+          isDeleted: { $ne: true },
+          status: { $nin: ['draft', 'rejected', 'deleted'] },
+          'calendarData.startDateTime': { $lt: end },
+          'calendarData.endDateTime': { $gt: start },
+          $or: [
+            { 'calendarData.locations': { $in: roomObjectIds } },
+            { 'calendarData.locations': { $in: roomIdStrings } }
+          ]
+        }).project(AVAILABILITY_PROJECTION).toArray()),
+
+        // Simplified Q3: pending edits are rare (0-5 total), so fetch all and filter rooms in-memory
+        // Avoids un-indexable $or on nested pendingEditRequest.proposedChanges.* fields
+        withCosmosRetry(() => unifiedEventsCollection.find({
+          'pendingEditRequest.status': 'pending',
+        }).project(AVAILABILITY_PROJECTION).toArray()),
+      ]);
     }
 
-    // Query for pending reservations (informational — never blocks scheduling)
-    let pendingReservationEvents = [];
-    if (roomObjectIds.length > 0) {
-      const pendingResQuery = {
-        status: 'pending',
-        isDeleted: { $ne: true },
-        'calendarData.startDateTime': { $lt: end },
-        'calendarData.endDateTime': { $gt: start },
-        $or: [
-          { 'calendarData.locations': { $in: roomObjectIds } },
-          { 'calendarData.locations': { $in: roomIdStrings } }
-        ]
-      };
-      if (excludeEventId) {
-        try { pendingResQuery._id = { $ne: new ObjectId(excludeEventId) }; }
-        catch (e) { /* invalid ID format, skip exclusion filter */ }
-      }
-      pendingReservationEvents = await withCosmosRetry(() =>
-        unifiedEventsCollection.find(pendingResQuery).toArray()
-      );
-      logger.log('[AVAILABILITY DEBUG] Found pending reservation events:', pendingReservationEvents.length);
-    }
+    logger.log('[AVAILABILITY DEBUG] Found events from unified query:', allEventsAndPending.length);
+    logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
+
+    // Split merged results in-memory (no extra DB queries)
+    const excludeId = excludeEventId ? excludeEventId.toString() : null;
+
+    const allReservations = allEventsAndPending.filter(e => e.status === 'published');
+    const allCalendarEvents = allEventsAndPending.filter(e => !e.status);
+    const pendingReservationEvents = allEventsAndPending.filter(e =>
+      e.status === 'pending' && (!excludeId || e._id.toString() !== excludeId)
+    );
+
+    logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length,
+      'Calendar events:', allCalendarEvents.length, 'Pending reservations:', pendingReservationEvents.length);
 
     // Helper function to format time for display
     const formatTime = (date) => date.toLocaleTimeString('en-US', {

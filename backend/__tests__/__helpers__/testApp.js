@@ -4669,10 +4669,10 @@ function createTestApp(options = {}) {
       const start = new Date(startDateTime).toISOString();
       const end = new Date(endDateTime).toISOString();
 
-      // Get published events in these rooms
-      const allEvents = await testCollections.events.find({
+      // Merged query: published + calendar (no status) + pending events in one query
+      const allEventsAndPending = await testCollections.events.find({
         isDeleted: { $ne: true },
-        status: { $nin: ['draft', 'pending', 'rejected', 'deleted'] },
+        status: { $nin: ['draft', 'rejected', 'deleted'] },
         'calendarData.startDateTime': { $lt: end },
         'calendarData.endDateTime': { $gt: start },
         $or: [
@@ -4681,42 +4681,18 @@ function createTestApp(options = {}) {
         ],
       }).toArray();
 
-      const allReservations = allEvents.filter(e => e.status === 'published');
-      const allCalendarEvents = allEvents.filter(e => !e.status);
-
-      // Get pending edit events
+      // Simplified pending edits: fetch all, filter rooms in-memory
       const pendingEditEvents = await testCollections.events.find({
-        status: 'published',
         'pendingEditRequest.status': 'pending',
-        $or: [
-          { 'pendingEditRequest.proposedChanges.locations': { $in: [...roomObjectIds, ...roomIdStrings] } },
-          { 'pendingEditRequest.proposedChanges.requestedRooms': { $in: [...roomObjectIds, ...roomIdStrings] } },
-          {
-            'calendarData.locations': { $in: [...roomObjectIds, ...roomIdStrings] },
-            $or: [
-              { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
-              { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } },
-            ],
-          },
-        ],
       }).toArray();
 
-      // Get pending reservation events (informational — never blocks)
-      const pendingResQuery = {
-        status: 'pending',
-        isDeleted: { $ne: true },
-        'calendarData.startDateTime': { $lt: end },
-        'calendarData.endDateTime': { $gt: start },
-        $or: [
-          { 'calendarData.locations': { $in: roomObjectIds } },
-          { 'calendarData.locations': { $in: roomIdStrings } },
-        ],
-      };
-      if (excludeEventId) {
-        try { pendingResQuery._id = { $ne: new ObjectId(excludeEventId) }; }
-        catch (e) { /* invalid ID, skip */ }
-      }
-      const pendingReservationEvents = await testCollections.events.find(pendingResQuery).toArray();
+      // Split merged results in-memory
+      const excludeId = excludeEventId ? excludeEventId.toString() : null;
+      const allReservations = allEventsAndPending.filter(e => e.status === 'published');
+      const allCalendarEvents = allEventsAndPending.filter(e => !e.status);
+      const pendingReservationEvents = allEventsAndPending.filter(e =>
+        e.status === 'pending' && (!excludeId || e._id.toString() !== excludeId)
+      );
 
       const availability = rooms.map(room => {
         const roomIdString = room._id.toString();
