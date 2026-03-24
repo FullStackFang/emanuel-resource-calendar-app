@@ -1440,7 +1440,7 @@ function EventForm({
           <button type="submit" className="save-button" disabled={savingEvent}>
             {savingEvent ? (
               <>
-                <span className="spinner"></span>
+                <span className="btn-spinner dark"></span>
                 Saving...
               </>
             ) : (

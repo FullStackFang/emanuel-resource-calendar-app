@@ -277,7 +277,7 @@ function App() {
             >
               <RoomProvider apiToken={apiToken}>
               <Navigation apiToken={apiToken} />
-              <Suspense fallback={<LoadingSpinner minHeight={200} />}>
+              <Suspense fallback={<AppSkeleton />}>
                 <Routes>
                   <Route path="/" element={
                     <Calendar

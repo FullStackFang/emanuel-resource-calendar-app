@@ -98,16 +98,6 @@
   transition: var(--transition-all);
 }
 
-.button-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--text-inverse);
-  border-radius: 50%;
-  border-top-color: transparent;
-  animation: spin 0.8s linear infinite;
-}
-
 .sync-button:hover:not(:disabled) {
   background-color: var(--color-success-600);
 }

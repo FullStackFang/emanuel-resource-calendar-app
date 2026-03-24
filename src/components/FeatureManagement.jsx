@@ -251,7 +251,7 @@ export default function FeatureManagement({ apiToken }) {
   if (loading) {
     return (
       <div className="feature-management">
-        <LoadingSpinner />
+        <LoadingSpinner variant="card" text="Loading..." />
       </div>
     );
   }

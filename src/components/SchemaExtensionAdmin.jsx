@@ -394,7 +394,7 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
         <div className="admin-section extensions-section">
           <h3>Existing Schema Extensions</h3>
           {loading ? (
-            <LoadingSpinner />
+            <LoadingSpinner variant="card" text="Loading..." />
           ) : extensions.length === 0 ? (
             <div className="no-data">No schema extensions found</div>
           ) : (

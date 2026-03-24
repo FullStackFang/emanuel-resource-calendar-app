@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useNotification } from '../context/NotificationContext';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './AttachmentsSection.css';
 
 /* =========================================================================
@@ -116,18 +117,6 @@ const IconEye = (props) => (
   </Icon>
 );
 
-const IconLoader = (props) => (
-  <Icon {...props} className={`att-icon att-icon-spin ${props.className || ''}`}>
-    <line x1="12" y1="2" x2="12" y2="6" />
-    <line x1="12" y1="18" x2="12" y2="22" />
-    <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-    <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-    <line x1="2" y1="12" x2="6" y2="12" />
-    <line x1="18" y1="12" x2="22" y2="12" />
-    <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-    <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-  </Icon>
-);
 
 /**
  * Reusable Attachments Section Component
@@ -427,7 +416,7 @@ export default function AttachmentsSection({
             <div className="att-uploading-list">
               {uploadingFiles.map((file, index) => (
                 <div key={index} className="att-uploading-item">
-                  <IconLoader size={16} />
+                  <LoadingSpinner size={16} minHeight={0} className="compact" />
                   <span className="att-uploading-name">{file.name}</span>
                   <div className="att-uploading-bar">
                     <div className="att-uploading-bar-fill" />

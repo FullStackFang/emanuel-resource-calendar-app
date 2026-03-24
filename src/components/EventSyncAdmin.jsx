@@ -158,7 +158,7 @@ export default function EventSyncAdmin({
       
       {/* Loading spinner for initial load */}
       {loading && !syncStatus && (
-        <LoadingSpinner />
+        <LoadingSpinner variant="card" text="Loading..." />
       )}
       
       {/* Sync Status */}
@@ -227,7 +227,7 @@ export default function EventSyncAdmin({
         >
           {loading ? (
             <>
-              <span className="button-spinner"></span>
+              <span className="btn-spinner" />
               Syncing...
             </>
           ) : (

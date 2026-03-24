@@ -259,7 +259,7 @@ export default function MySettings({ apiToken }) {
 
   // Show loading indicator
   if (loading && !userProfile) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (

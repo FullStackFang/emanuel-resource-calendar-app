@@ -333,7 +333,7 @@ export default function UserAdmin({ apiToken }) {
   const currentUserEmail = accounts.length > 0 ? accounts[0].username : '';
 
   if (loading && users.length === 0) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (
@@ -607,9 +607,7 @@ export default function UserAdmin({ apiToken }) {
                           >
                             {deletingId === user._id ? (
                               <>
-                                <svg className="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-                                </svg>
+                                <span className="btn-spinner" />
                                 Deleting...
                               </>
                             ) : confirmDeleteId === user._id ? (

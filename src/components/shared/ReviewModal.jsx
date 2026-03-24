@@ -296,10 +296,7 @@ export default function ReviewModal({
             True conditional rendering (not CSS hiding) ensures the form mounts
             fresh with all data available — no partial/empty states. */}
         {!isContentReady ? (
-          <div className="review-modal-loading">
-            <div className="review-modal-loading-spinner" />
-            <span>Loading...</span>
-          </div>
+          <LoadingSpinner variant="card" size={40} text="Loading..." />
         ) : (
         <>
         {/* Sticky Action Bar */}
@@ -991,9 +988,7 @@ export default function ReviewModal({
 
           {/* Loading Overlay for Series Navigation */}
           {isNavigating && (
-            <div className="navigation-loading-overlay">
-              <LoadingSpinner minHeight={100} size={40} />
-            </div>
+            <LoadingSpinner variant="overlay" size={40} text="Loading..." />
           )}
         </div>
 

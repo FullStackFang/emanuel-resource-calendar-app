@@ -189,7 +189,7 @@ export default function CalendarConfigAdmin({ apiToken }) {
   if (loading) {
     return (
       <div className="calendar-config-admin">
-        <LoadingSpinner />
+        <LoadingSpinner variant="card" text="Loading..." />
       </div>
     );
   }

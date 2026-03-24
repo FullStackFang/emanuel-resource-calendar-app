@@ -454,7 +454,7 @@ const EventSearchExport = ({
       <div className="export-btn-group">
         <button onClick={handleExport} disabled={isExporting} className="export-fmt-btn pdf">
           {isExporting ? (
-            <span className="export-spinner" />
+            <span className="btn-spinner" />
           ) : (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
               <path d="M8.5 1H3.5a1 1 0 00-1 1v10a1 1 0 001 1h7a1 1 0 001-1V4L8.5 1z" />
@@ -465,7 +465,7 @@ const EventSearchExport = ({
         </button>
         <button onClick={handleExportJSON} disabled={isExporting} className="export-fmt-btn json">
           {isExporting ? (
-            <span className="export-spinner" />
+            <span className="btn-spinner" />
           ) : (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 2C3 2 2 2.5 2 4v1.5C2 6.5 1 7 1 7s1 .5 1 1.5V10c0 1.5 1 2 2 2" />
@@ -476,7 +476,7 @@ const EventSearchExport = ({
         </button>
         <button onClick={handleExportCSV} disabled={isExporting} className="export-fmt-btn csv">
           {isExporting ? (
-            <span className="export-spinner" />
+            <span className="btn-spinner" />
           ) : (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
               <rect x="1.5" y="1.5" width="11" height="11" rx="1" />

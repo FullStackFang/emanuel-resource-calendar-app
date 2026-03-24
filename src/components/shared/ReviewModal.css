@@ -968,25 +968,6 @@
 }
 
 /* ==========================================================================
-   NAVIGATION LOADING OVERLAY
-   ========================================================================== */
-
-.navigation-loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.92);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  backdrop-filter: blur(4px);
-}
-
-
-/* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */
 
@@ -1032,32 +1013,6 @@
   }
 }
 
-/* ==========================================================================
-   MODAL CONTENT LOADING GATE
-   ========================================================================== */
-
-.review-modal-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  gap: var(--space-3);
-}
-
-.review-modal-loading-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border-default);
-  border-top-color: var(--color-primary-500);
-  border-radius: 50%;
-  animation: review-modal-spin 0.6s linear infinite;
-}
-
-@keyframes review-modal-spin {
-  to { transform: rotate(360deg); }
-}
 
 /* ==========================================================================
    SCHEDULING CONFLICT WARNING

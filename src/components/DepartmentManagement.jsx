@@ -272,7 +272,7 @@ export default function DepartmentManagement({ apiToken }) {
   };
 
   if (loading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (

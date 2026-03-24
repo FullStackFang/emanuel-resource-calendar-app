@@ -343,7 +343,7 @@ export default function LocationReview({ apiToken }) {
   };
 
   if (loading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   // Calculate stats

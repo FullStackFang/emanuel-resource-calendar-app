@@ -6968,10 +6968,10 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     // LOADING SCREEN
     //---------------------------------------------------------------------------
-    const overlayClass = `calendar-loading-overlay${
+    const overlayClass = `loading-spinner-overlay${
       initializing ? ' visible initial' :
-      (isNavigating || loading) ? ' visible navigation' :
-      ''
+      (isNavigating || loading) ? ' visible' :
+      ' hidden'
     }`;
 
     const locationGroups = useMemo(() => {
@@ -6987,10 +6987,8 @@ import ConflictDialog from './shared/ConflictDialog';
     return (
       <div className="calendar-container">
         <div className={overlayClass}>
-          <div className="loading-content">
-            <LoadingSpinner size={64} minHeight={100} />
-            <p>{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
-          </div>
+          <div className="loading-spinner-css" style={{ width: 48, height: 48, borderWidth: 3 }} />
+          <p className="loading-spinner-card-text">{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
         </div>
 
         {/* Calendar Header */}

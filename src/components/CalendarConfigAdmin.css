@@ -776,12 +776,6 @@
    LOADING STATE
    ========================================================================== */
 
-.calendar-config-admin .loading-spinner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-}
 
 /* ==========================================================================
    RESPONSIVE ADJUSTMENTS

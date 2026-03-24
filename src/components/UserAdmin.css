@@ -639,18 +639,9 @@
   cursor: not-allowed;
 }
 
-.user-admin .delete-btn .spinner {
-  animation: useradmin-spin 1s linear infinite;
-}
-
 @keyframes pulse-confirm {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.8; }
-}
-
-@keyframes useradmin-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .user-admin .save-btn {

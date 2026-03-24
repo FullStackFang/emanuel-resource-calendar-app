@@ -137,7 +137,7 @@ const EventLocationAssignment = ({ apiToken }) => {
   if (loading && unassignedStrings.length === 0) {
     return (
       <div className="event-location-assignment">
-        <LoadingSpinner />
+        <LoadingSpinner variant="card" text="Loading..." />
       </div>
     );
   }

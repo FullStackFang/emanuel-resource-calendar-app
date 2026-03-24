@@ -929,7 +929,7 @@ function EventSearch({
         <div className="search-results-column">
           <div className="search-results">
             {isLoading || isFetching ? (
-              <LoadingSpinner minHeight={200} />
+              <LoadingSpinner variant="card" text="Searching..." />
             ) : searchResults.length > 0 ? (
               <>
                 {/* Load More button at the TOP of the results list */}

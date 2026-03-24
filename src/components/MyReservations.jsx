@@ -885,7 +885,7 @@ export default function MyReservations({ apiToken }) {
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   // Access control - hide for Viewer role
@@ -901,7 +901,7 @@ export default function MyReservations({ apiToken }) {
   }
 
   if (loading && allReservations.length === 0) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   // Determine ReviewModal title

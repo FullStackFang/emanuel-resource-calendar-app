@@ -829,7 +829,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   // Access control - only Approvers and Admins can view this page
@@ -845,7 +845,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   }
 
   if (loading && allReservations.length === 0) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (

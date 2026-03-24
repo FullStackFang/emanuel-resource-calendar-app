@@ -84,7 +84,7 @@ function Preferences({ accessToken }) {
   };
 
   if (isLoading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (

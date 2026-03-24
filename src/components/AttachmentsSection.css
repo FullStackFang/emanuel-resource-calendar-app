@@ -15,13 +15,6 @@
   flex-shrink: 0;
 }
 
-.att-icon-spin {
-  animation: att-spin 1s linear infinite;
-}
-
-@keyframes att-spin {
-  to { transform: rotate(360deg); }
-}
 
 /* ==========================================================================
    MAIN CONTAINER

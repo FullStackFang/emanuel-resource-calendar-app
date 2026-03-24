@@ -251,7 +251,7 @@ export default function UserSettingsManager() {
   }, [prefs, selectedUser]);
 
   if (loading) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
   return (

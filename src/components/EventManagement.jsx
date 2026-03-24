@@ -513,8 +513,7 @@ export default function EventManagement({ apiToken }) {
       {/* Content */}
       {loading ? (
         <div className="em-loading">
-          <LoadingSpinner size={40} minHeight={100} />
-          <p>Loading events...</p>
+          <LoadingSpinner variant="card" size={40} text="Loading events..." />
         </div>
       ) : events.length === 0 ? (
         <div className="em-empty-state">
