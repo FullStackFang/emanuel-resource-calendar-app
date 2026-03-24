@@ -24,7 +24,7 @@ import './ReservationRequests.css';
 export default function ReservationRequests({ apiToken, graphToken }) {
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
-  const { showError, showSuccess, showWarning } = useNotification();
+  const { showError, showWarning } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -439,9 +439,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Notify MyReservations to refresh
       dispatchRefresh('reservation-requests');
 
-      // Show success message
-      showSuccess('Edit request approved. Changes have been applied to the original event.');
-
     } catch (error) {
       logger.error('Error approving edit request:', error);
       showError(error, { context: 'ReservationRequests.approveEditRequest', userMessage: 'Failed to approve edit request' });
@@ -666,7 +663,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       reviewModal.closeModal();
       loadReservations();
       dispatchRefresh('reservation-requests');
-      showSuccess('Edit request approved. Changes have been applied.');
     } catch (error) {
       logger.error('Error approving edit request:', error);
       showError(error, { context: 'ReservationRequests.approveEditRequestInModal', userMessage: 'Failed to approve edit request' });
@@ -674,7 +670,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsApprovingEditRequestInModal(false);
       setIsEditRequestApproveConfirming(false);
     }
-  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, originalEventData, apiToken, graphToken, loadReservations, showSuccess, showError]);
+  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, originalEventData, apiToken, graphToken, loadReservations, showError]);
 
   // Reject edit request from within ReviewModal (admin only)
   const handleRejectEditRequestInModal = useCallback(async () => {
@@ -723,7 +719,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       reviewModal.closeModal();
       loadReservations();
       dispatchRefresh('reservation-requests');
-      showSuccess('Edit request rejected.');
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
       showError(error, { context: 'ReservationRequests.rejectEditRequestInModal', userMessage: 'Failed to reject edit request' });
@@ -731,7 +726,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsRejectingEditRequestInModal(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showSuccess, showError, showWarning]);
+  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError, showWarning]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -816,8 +811,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           ? { ...r, status: 'deleted', isDeleted: true }
           : r
       ));
-
-      showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
 
     } catch (err) {
       logger.error('Error deleting reservation:', err);

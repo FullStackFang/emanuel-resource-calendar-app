@@ -7047,6 +7047,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         doorCloseTime: internalFields?.doorCloseTime || '',
         setupTimeMinutes: internalFields?.setupMinutes || 0,
         teardownTimeMinutes: internalFields?.teardownMinutes || 0,
+        reservationStartTime: internalFields?.reservationStartTime || null,
+        reservationEndTime: internalFields?.reservationEndTime || null,
+        reservationStartMinutes: internalFields?.reservationStartMinutes || 0,
+        reservationEndMinutes: internalFields?.reservationEndMinutes || 0,
         // Notes fields from internalData
         setupNotes: internalFields?.setupNotes || '',
         doorNotes: internalFields?.doorNotes || '',
@@ -7096,6 +7100,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         if (internalFields.doorCloseTime !== undefined) updateOperations['calendarData.doorCloseTime'] = internalFields.doorCloseTime;
         if (internalFields.setupMinutes !== undefined) updateOperations['calendarData.setupTimeMinutes'] = internalFields.setupMinutes;
         if (internalFields.teardownMinutes !== undefined) updateOperations['calendarData.teardownTimeMinutes'] = internalFields.teardownMinutes;
+        if (internalFields.reservationStartTime !== undefined) updateOperations['calendarData.reservationStartTime'] = internalFields.reservationStartTime;
+        if (internalFields.reservationEndTime !== undefined) updateOperations['calendarData.reservationEndTime'] = internalFields.reservationEndTime;
+        if (internalFields.reservationStartMinutes !== undefined) updateOperations['calendarData.reservationStartMinutes'] = internalFields.reservationStartMinutes;
+        if (internalFields.reservationEndMinutes !== undefined) updateOperations['calendarData.reservationEndMinutes'] = internalFields.reservationEndMinutes;
         if (internalFields.setupNotes !== undefined) updateOperations['calendarData.setupNotes'] = internalFields.setupNotes;
         if (internalFields.doorNotes !== undefined) updateOperations['calendarData.doorNotes'] = internalFields.doorNotes;
         if (internalFields.eventNotes !== undefined) updateOperations['calendarData.eventNotes'] = internalFields.eventNotes;
@@ -20380,6 +20388,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       'startDateTime', 'endDateTime', 'startDate', 'startTime', 'endDate', 'endTime',
       'isAllDayEvent',
       'setupTime', 'teardownTime', 'setupTimeMinutes', 'teardownTimeMinutes',
+      'reservationStartTime', 'reservationEndTime', 'reservationStartMinutes', 'reservationEndMinutes',
       'doorOpenTime', 'doorCloseTime',
       'setupNotes', 'doorNotes', 'eventNotes',
       'locations', 'locationDisplayNames', 'locationCodes',
@@ -22099,6 +22108,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       'startDateTime', 'endDateTime', 'startDate', 'startTime', 'endDate', 'endTime',
       'isAllDayEvent',
       'setupTime', 'teardownTime', 'setupTimeMinutes', 'teardownTimeMinutes',
+      'reservationStartTime', 'reservationEndTime', 'reservationStartMinutes', 'reservationEndMinutes',
       'doorOpenTime', 'doorCloseTime',
       'setupNotes', 'doorNotes', 'eventNotes',
       'locations', 'locationDisplayNames', 'location',

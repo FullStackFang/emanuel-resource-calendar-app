@@ -17,7 +17,7 @@ import '../components/Admin.css';
 
 export default function RSchedMapper({ apiToken }) {
   const { isAdmin } = usePermissions();
-  const { showSuccess, showError } = useNotification();
+  const { showError } = useNotification();
   const fileInputRef = useRef(null);
 
   const { data: locations = [], isLoading: locationsLoading } = useLocationsQuery(apiToken);
@@ -126,13 +126,12 @@ export default function RSchedMapper({ apiToken }) {
         setActiveTab('locations');
         setActiveFilter('all');
 
-        showSuccess(`Parsed ${parsed.rows.length} rows, ${parsed.uniqueLocationTokens.length} unique locations, ${parsed.uniqueCategoryTokens.length} unique categories`);
       } catch (err) {
         showError('Failed to parse CSV: ' + err.message);
       }
     };
     reader.readAsText(file);
-  }, [locationIndex, categories, showSuccess, showError]);
+  }, [locationIndex, categories, showError]);
 
   // Drag & drop handlers
   const handleDragOver = useCallback((e) => {
@@ -205,8 +204,7 @@ export default function RSchedMapper({ apiToken }) {
     a.download = 'rsched_mapped.csv';
     a.click();
     URL.revokeObjectURL(url);
-    showSuccess('CSV exported successfully');
-  }, [parsedData, locationMappings, categoryMappings, showSuccess]);
+  }, [parsedData, locationMappings, categoryMappings]);
 
   // Back to upload
   const handleBack = useCallback(() => {

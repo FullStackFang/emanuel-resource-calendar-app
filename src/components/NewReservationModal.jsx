@@ -17,7 +17,7 @@ import { logger } from '../utils/logger';
 export default function NewReservationModal({ apiToken, selectedCalendarId, availableCalendars }) {
   const { accounts } = useMsal();
   const { canCreateEvents } = usePermissions();
-  const { showSuccess, showError, showWarning } = useNotification();
+  const { showError, showWarning } = useNotification();
 
   // Modal state
   const [isOpen, setIsOpen] = useState(false);
@@ -243,7 +243,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         throw new Error(errorData.error || 'Failed to create event');
       }
 
-      showSuccess('Event created successfully');
       handleSuccess();
     } catch (error) {
       logger.error('Error creating event:', error);
@@ -251,7 +250,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     } finally {
       setIsSaving(false);
     }
-  }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showSuccess, showError, handleSuccess]);
+  }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showError, handleSuccess]);
 
   // Requester: submit request via direct API call
   const handleRequesterSubmit = useCallback(async () => {
@@ -298,7 +297,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         throw new Error(errorData.error || 'Failed to submit reservation');
       }
 
-      showSuccess('Reservation request submitted');
       handleSuccess();
     } catch (error) {
       logger.error('Error submitting reservation:', error);
@@ -306,7 +304,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     } finally {
       setIsSaving(false);
     }
-  }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showSuccess, showError, handleSuccess]);
+  }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showError, handleSuccess]);
 
   // Save draft (two-click confirmation, same pattern as handleAdminPublish)
   const handleSaveDraft = useCallback(async () => {
@@ -346,7 +344,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       }
 
       const result = await response.json();
-      showSuccess('Draft saved');
       handleSuccess();
     } catch (error) {
       logger.error('Error saving draft:', error);
@@ -354,7 +351,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     } finally {
       setSavingDraft(false);
     }
-  }, [formData, draftId, isDraftConfirming, apiToken, buildDraftPayload, showSuccess, showError, showWarning, handleSuccess]);
+  }, [formData, draftId, isDraftConfirming, apiToken, buildDraftPayload, showError, showWarning, handleSuccess]);
 
   // Draft dialog handlers
   const handleDraftDialogSave = useCallback(async () => {

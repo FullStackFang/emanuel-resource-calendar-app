@@ -282,7 +282,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
     const { generalLocations, loading: locationsLoading } = useLocations();
-    const { showError, showSuccess, showWarning, showNotification } = useNotification();
+    const { showError, showWarning, showNotification } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -627,7 +627,6 @@ import ConflictDialog from './shared/ConflictDialog';
           throw new Error(errorData.error || 'Failed to save changes');
         }
 
-        showSuccess('Reservation updated successfully');
         reviewModal.closeModal(true);
         loadEventsRef.current?.(true);
       } catch (err) {
@@ -636,7 +635,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setSavingPendingEdit(false);
       }
-    }, [reviewModal, apiToken, showWarning, showSuccess, showError]);
+    }, [reviewModal, apiToken, showWarning, showError]);
 
     // Save Rejected Edit handler (for non-admin users editing and resubmitting rejected events from calendar)
     const handleSaveRejectedEdit = useCallback(async () => {
@@ -703,7 +702,6 @@ import ConflictDialog from './shared/ConflictDialog';
           throw new Error(errorData.error || 'Failed to save changes');
         }
 
-        showSuccess(`"${item.eventTitle}" updated and resubmitted for review`);
         reviewModal.closeModal(true);
         loadEventsRef.current?.(true);
       } catch (err) {
@@ -712,7 +710,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setSavingRejectedEdit(false);
       }
-    }, [reviewModal, apiToken, showWarning, showSuccess, showError]);
+    }, [reviewModal, apiToken, showWarning, showError]);
 
     // Resubmit handler (for non-admin users resubmitting rejected events without changes)
     const handleResubmitFromCalendar = useCallback(async () => {
@@ -729,7 +727,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
         if (!response.ok) throw new Error('Failed to resubmit reservation');
 
-        showSuccess(`"${item.eventTitle}" resubmitted for review`);
         reviewModal.closeModal(true);
         loadEventsRef.current?.(true);
       } catch (err) {
@@ -738,7 +735,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setIsResubmitting(false);
       }
-    }, [reviewModal, apiToken, showSuccess, showError]);
+    }, [reviewModal, apiToken, showError]);
 
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
@@ -2201,8 +2198,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
         const result = await response.json();
         logger.debug('Manual sync completed successfully', result);
-
-        showSuccess(`Successfully synced ${result.enrichedCount || result.totalProcessed || allEvents.length} events to database. Created: ${result.createdCount}, Updated: ${result.updatedCount}`);
 
       } catch (error) {
         logger.error('Manual sync failed:', error);

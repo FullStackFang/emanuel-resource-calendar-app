@@ -7,7 +7,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import './EventLocationAssignment.css';
 
 const EventLocationAssignment = ({ apiToken }) => {
-  const { showError, showSuccess, showWarning } = useNotification();
+  const { showError, showWarning } = useNotification();
   const [unassignedStrings, setUnassignedStrings] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,9 +97,6 @@ const EventLocationAssignment = ({ apiToken }) => {
 
       const result = await response.json();
       logger.log(`Assigned "${locationString}" to ${result.locationName}, updated ${result.eventsUpdated} events`);
-
-      // Show success message
-      showSuccess(`Assigned "${locationString}" to ${result.locationName}. ${result.eventsUpdated} events updated`);
 
       // Refresh the list
       await fetchUnassignedStrings();

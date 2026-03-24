@@ -21,7 +21,7 @@ import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
   const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
-  const { showWarning, showSuccess, showError } = useNotification();
+  const { showWarning, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -333,7 +333,6 @@ export default function MyReservations({ apiToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadMyReservations();
-      showSuccess('Edit request approved. Changes have been applied.');
     } catch (error) {
       logger.error('Error approving edit request:', error);
       showError(error, { context: 'MyReservations.handleApproveEditRequest' });
@@ -341,7 +340,7 @@ export default function MyReservations({ apiToken }) {
       setIsApprovingEditRequest(false);
       setIsEditRequestApproveConfirming(false);
     }
-  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showSuccess, showError]);
+  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
 
   // Handle rejecting an edit request (approver/admin)
   const handleRejectEditRequest = useCallback(async () => {
@@ -389,7 +388,6 @@ export default function MyReservations({ apiToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadMyReservations();
-      showSuccess('Edit request rejected.');
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
       showError(error, { context: 'MyReservations.handleRejectEditRequest' });
@@ -397,7 +395,7 @@ export default function MyReservations({ apiToken }) {
       setIsRejectingEditRequest(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showWarning, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -563,7 +561,6 @@ export default function MyReservations({ apiToken }) {
 
       if (!response.ok) throw new Error('Failed to resubmit reservation');
 
-      showSuccess(`"${item.eventTitle}" resubmitted for review`);
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -572,7 +569,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setIsResubmitting(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showError]);
 
   // Restore (owner, deleted events) — used by ReviewModal's onRestore button
   const handleRestore = useCallback(async () => {
@@ -602,7 +599,6 @@ export default function MyReservations({ apiToken }) {
       if (!response.ok) throw new Error('Failed to restore reservation');
 
       const result = await response.json();
-      showSuccess(`"${item.eventTitle}" restored to ${result.status}`);
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -611,7 +607,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setIsRestoring(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showError]);
 
   // Save Pending Edit (owner editing pending events) — used by ReviewModal's onSavePendingEdit button
   const handleSavePendingEdit = useCallback(async () => {
@@ -693,7 +689,6 @@ export default function MyReservations({ apiToken }) {
         throw new Error(errorData.error || 'Failed to save changes');
       }
 
-      showSuccess('Reservation updated successfully');
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -702,7 +697,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSavingPendingEdit(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
 
   // Save Rejected Edit (owner editing rejected events + resubmitting) — used by ReviewModal's onSaveRejectedEdit button
   const handleSaveRejectedEdit = useCallback(async () => {
@@ -783,7 +778,6 @@ export default function MyReservations({ apiToken }) {
         throw new Error(errorData.error || 'Failed to save changes');
       }
 
-      showSuccess(`"${item.eventTitle}" updated and resubmitted for review`);
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -792,7 +786,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSavingRejectedEdit(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
 
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
@@ -871,7 +865,6 @@ export default function MyReservations({ apiToken }) {
         throw new Error(errorData.error || 'Failed to submit edit request');
       }
 
-      showSuccess('Edit request submitted');
       setIsEditRequestMode(false);
       reviewModal.closeModal(true);
       loadMyReservations();
@@ -881,7 +874,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSubmittingEditRequest(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {

@@ -3852,7 +3852,9 @@ function createTestApp(options = {}) {
         'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
         'startDate', 'startTime', 'endDate', 'endTime',
         'locations', 'locationDisplayNames', 'categories',
-        'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime',
+        'setupTime', 'teardownTime', 'setupTimeMinutes', 'teardownTimeMinutes',
+        'reservationStartTime', 'reservationEndTime', 'reservationStartMinutes', 'reservationEndMinutes',
+        'doorOpenTime', 'doorCloseTime',
         'services', 'assignedTo',
       ];
 
