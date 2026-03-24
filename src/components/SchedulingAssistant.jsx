@@ -120,11 +120,14 @@ export default function SchedulingAssistant({
 
   // Stable ref for onConflictChange to avoid infinite render loops
   // (parent components may pass unstable inline arrow functions)
+  // Must precede computation effect — ordering matters (layout effects fire in declaration order)
   const onConflictChangeRef = useRef(onConflictChange);
-  useEffect(() => { onConflictChangeRef.current = onConflictChange; });
+  useLayoutEffect(() => { onConflictChangeRef.current = onConflictChange; });
 
-  // Process availability data and create event blocks with calculated positions
-  useEffect(() => {
+  // Process availability data and create event blocks with calculated positions.
+  // useLayoutEffect ensures blocks + conflict signaling commit before the browser paints,
+  // so the modal gate opens in the same paint as the event blocks — no intermediate flash.
+  useLayoutEffect(() => {
     // Don't clear events while loading new availability data - keep showing existing events
     if (availabilityLoading) {
       return;

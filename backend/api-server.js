@@ -18871,6 +18871,13 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       });
     }
 
+    // Prevent publishing individual occurrences — must publish the series master
+    if (event.eventType === 'occurrence') {
+      return res.status(400).json({
+        error: 'Cannot publish individual occurrences. Publish the series master instead.'
+      });
+    }
+
     // Check for scheduling conflicts (unless forcePublish)
     // For recurring events: non-blocking (conflicts reported in response, not 409)
     // For non-recurring events: blocking (409 on hard conflicts)

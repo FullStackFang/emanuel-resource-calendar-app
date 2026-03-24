@@ -1838,4 +1838,29 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(override.endDateTime).toBe('2026-03-20T16:00');
     });
   });
+
+  describe('RP-21: Reject publishing occurrence-type events (defense-in-depth)', () => {
+    it('should return 400 when attempting to publish an occurrence-type event', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Occurrence That Should Not Publish',
+        eventType: 'occurrence',
+        seriesMasterId: 'AAMkAFake-series-master-id',
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(400);
+
+      expect(res.body.error).toBe('Cannot publish individual occurrences. Publish the series master instead.');
+
+      // Verify event was NOT modified
+      const unchanged = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(unchanged.status).toBe('pending');
+    });
+  });
 });

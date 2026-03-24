@@ -1480,6 +1480,13 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: `Cannot publish event with status: ${event.status}` });
       }
 
+      // Prevent publishing individual occurrences — must publish the series master
+      if (event.eventType === 'occurrence') {
+        return res.status(400).json({
+          error: 'Cannot publish individual occurrences. Publish the series master instead.'
+        });
+      }
+
       // Check for scheduling conflicts (unless forcePublish)
       // Recurring events: non-blocking (conflicts in response, not 409)
       // Non-recurring events: blocking (409 on hard conflicts)

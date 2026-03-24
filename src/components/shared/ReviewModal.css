@@ -1059,14 +1059,6 @@
   to { transform: rotate(360deg); }
 }
 
-/* Content rendered but hidden while scheduling check runs (effects still fire) */
-.review-modal-content-hidden {
-  visibility: hidden;
-  height: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 /* ==========================================================================
    SCHEDULING CONFLICT WARNING
    ========================================================================== */

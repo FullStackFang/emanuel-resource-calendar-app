@@ -278,8 +278,8 @@ export default function ReviewModal({
     }
   };
 
-  // Gate content visibility on data loading + scheduling check completion
-  // Gate content visibility on scheduling check completion
+  // Content gate: true when availability data is loaded (or not needed).
+  // Until this is true, the modal shows a spinner and form children are not mounted.
   const isContentReady = isSchedulingCheckComplete;
 
   if (!isOpen) return null;
@@ -292,16 +292,16 @@ export default function ReviewModal({
   const modalContent = (
     <div className={overlayClassName} onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
       <div className={modalClassName} style={inlineStyles}>
-        {/* Loading indicator while scheduling check completes */}
-        {!isContentReady && (
+        {/* Content gate: don't render form at all until data is ready.
+            True conditional rendering (not CSS hiding) ensures the form mounts
+            fresh with all data available — no partial/empty states. */}
+        {!isContentReady ? (
           <div className="review-modal-loading">
             <div className="review-modal-loading-spinner" />
             <span>Loading...</span>
           </div>
-        )}
-
-        {/* Modal content — hidden while loading so effects still fire, visible when ready */}
-        <div className={!isContentReady ? 'review-modal-content-hidden' : undefined}>
+        ) : (
+        <>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
           <div className="action-bar-left">
@@ -1033,7 +1033,7 @@ export default function ReviewModal({
           onDiscard={onDiscardDialogDiscard}
           onKeepEditing={onDiscardDialogCancel}
         />
-        </div>{/* end content visibility wrapper */}
+        </>)}{/* end content gate */}
       </div>
     </div>
   );

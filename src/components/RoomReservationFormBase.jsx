@@ -175,9 +175,9 @@ export default function RoomReservationFormBase({
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Handle late-arriving prefetched availability (Phase 1: non-blocking modal open)
-  // Note: availabilityLoading stays true — the room effect's checkDayAvailability()
-  // fetches full-day data (different params than the prefetch) and controls the gate.
+  // Absorb prefetched availability into local state on mount (or late arrival).
+  // With conditional rendering, form mounts after prefetch completes, so this fires
+  // immediately on mount. Kept for safety if prefetch timing changes.
   useEffect(() => {
     if (prefetchedAvailability != null && prefetchedAvailability.length > 0 && !prefetchArrived.current) {
       setAvailability(prefetchedAvailability);
@@ -353,6 +353,17 @@ export default function RoomReservationFormBase({
   const availabilityRequestId = useRef(0);
   // Track last fetch params to prevent duplicate fetches (race condition fix)
   const lastFetchParamsRef = useRef({ roomIds: '', date: null });
+  // Seed lastFetchParamsRef when prefetched data is present on mount.
+  // This prevents the room effect from triggering a duplicate fetch since
+  // its params-changed check will see matching params.
+  if (prefetchedAvailability?.length > 0 && lastFetchParamsRef.current.date === null && initialData?.startDate) {
+    const seedRoomIds = (initialData.locations || initialData.requestedRooms || [])
+      .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
+      .sort().join(',');
+    if (seedRoomIds) {
+      lastFetchParamsRef.current = { roomIds: seedRoomIds, date: initialData.startDate };
+    }
+  }
   // Ref to track current assistantRooms for stale closure protection
   const assistantRoomsRef = useRef([]);
 

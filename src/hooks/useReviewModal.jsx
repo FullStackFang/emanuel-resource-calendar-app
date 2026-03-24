@@ -164,22 +164,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setDraftId(null);
     }
 
-    // Open modal IMMEDIATELY — no blocking fetches
-    // Reset scheduling conflict info synchronously so the loading gate
-    // activates from the very first render (no flash of stale content)
-    // For events WITH rooms, null keeps the loading gate closed until
-    // SchedulingAssistant finishes computing conflicts.
-    // For events WITHOUT rooms, set immediately to bypass the gate (no scheduling check needed).
-    const hasRooms = (item.locations?.length > 0) || (item.requestedRooms?.length > 0);
-    if (hasRooms) {
-      setSchedulingConflictInfo(null);
-    } else {
-      setSchedulingConflictInfo({
-        hasHardConflicts: false, hardConflictCount: 0,
-        hasSoftConflicts: false, softConflictCount: 0,
-        hasPendingReservationConflicts: false, pendingReservationConflictCount: 0,
-      });
-    }
+    // Open modal IMMEDIATELY — no blocking fetches.
+    // The content gate is now data-derived: it opens when prefetchedAvailability arrives
+    // (for events with rooms) or immediately (for events without rooms).
+    // Form content is NOT rendered until the gate opens (conditional rendering, not CSS hiding).
+    setSchedulingConflictInfo(null);
     setPrefetchedAvailability(null);
     setPrefetchedSeriesEvents(null);
     setCurrentItem(item);
@@ -200,18 +189,23 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // The form renders immediately and picks up prefetched data when it arrives.
       const promises = [];
 
-      // Availability prefetch
-      if (hasDates) {
+      // Availability prefetch — uses full-day + room-specific params to match
+      // checkDayAvailability() exactly, so the form won't re-fetch on mount.
+      const roomIds = (item.locations || item.requestedRooms || [])
+        .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)));
+      if (hasDates && roomIds.length > 0) {
         const availabilityPromise = (async () => {
           try {
-            const startDateTime = `${item.startDate}T${effectiveStartTime}`;
-            const endDateTime = `${item.endDate}T${effectiveEndTime}`;
+            const startDateTime = `${item.startDate}T00:00:00`;
+            const endDateTime = `${item.startDate}T23:59:59`;
             const params = new URLSearchParams({
               startDateTime,
               endDateTime,
-              setupTimeMinutes: item.setupTimeMinutes || 0,
-              teardownTimeMinutes: item.teardownTimeMinutes || 0
+              roomIds: roomIds.join(','),
+              setupTimeMinutes: 0,
+              teardownTimeMinutes: 0
             });
+            if (item._id) params.append('excludeEventId', item._id);
             const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
             if (response.ok) {
               return await response.json();
@@ -219,11 +213,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           } catch (err) {
             logger.debug('Pre-fetch availability failed, form will re-fetch:', err.message);
           }
-          return null;
+          return []; // Empty array (not null) so the content gate still opens
         })();
         promises.push(availabilityPromise);
       } else {
-        promises.push(Promise.resolve(null));
+        promises.push(Promise.resolve([]));
       }
 
       // Series events prefetch
@@ -1296,10 +1290,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     prefetchedSeriesEvents, // Pre-fetched series events data
     reinitKey, // Counter to force child remount on item swap
 
-    // Scheduling conflict state (reset synchronously in openModal to avoid flash)
+    // Scheduling conflict state
     schedulingConflictInfo,
     setSchedulingConflictInfo,
-    isSchedulingCheckComplete: schedulingConflictInfo !== null,
+    // Gate: data-derived. Opens when availability prefetch resolves (events with rooms + dates),
+    // or immediately (no rooms, or rooms but no dates). Content is not rendered until true.
+    isSchedulingCheckComplete: (() => {
+      if (!currentItem) return true;
+      const hasRooms = (currentItem.locations?.length > 0) || (currentItem.requestedRooms?.length > 0);
+      if (!hasRooms) return true;
+      const hasDates = currentItem.startDate && (currentItem.startTime || currentItem.reservationStartTime);
+      if (!hasDates) return true; // No dates = no scheduling conflicts to check
+      return prefetchedAvailability !== null;
+    })(),
     hasSchedulingConflicts: schedulingConflictInfo?.hasHardConflicts || false,
     hasSoftConflicts: schedulingConflictInfo?.hasSoftConflicts || false,
     hasPendingReservationConflicts: schedulingConflictInfo?.hasPendingReservationConflicts || false,
