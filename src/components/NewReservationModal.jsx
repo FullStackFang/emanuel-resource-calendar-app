@@ -410,7 +410,8 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   return (
       <ReviewModal
         isOpen={isOpen}
-        title={canCreateEvents ? 'Add Event' : 'Request Event'}
+        title="Event"
+        modalMode="new"
         mode={canCreateEvents ? 'edit' : 'create'}
         saveButtonLabel={canCreateEvents ? 'Publish' : null}
         onClose={handleClose}

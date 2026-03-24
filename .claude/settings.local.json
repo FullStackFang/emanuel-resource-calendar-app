@@ -105,7 +105,9 @@
       "Bash(rm -rf /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/expand-recurrence-quick-edit)",
       "Bash(cp -r /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/simplify-delete-workflow /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive/2026-03-22-simplify-delete-workflow)",
       "Bash(rm -rf /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/simplify-delete-workflow)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(/dev/null:*)"
     ],
     "deny": []
   }

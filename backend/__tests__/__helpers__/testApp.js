@@ -4481,8 +4481,11 @@ function createTestApp(options = {}) {
         if (!event.end?.dateTime && event.calendarData?.endDateTime) {
           event.end = { dateTime: event.calendarData.endDateTime, timeZone: 'America/New_York' };
         }
-        if (!event.subject && event.calendarData?.eventTitle) {
-          event.subject = event.calendarData.eventTitle;
+        // Always recompute subject from calendarData to ensure [Hold] prefix is current
+        if (event.calendarData?.eventTitle) {
+          const cd = event.calendarData;
+          const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
+          event.subject = isHold ? `[Hold] ${cd.eventTitle}` : cd.eventTitle;
         }
         // Promote recurrence and occurrenceOverrides for frontend expansion
         if (!event.recurrence && event.calendarData?.recurrence) {

@@ -1842,6 +1842,8 @@ import ConflictDialog from './shared/ConflictDialog';
                 // Prepare master event in format expected by expandRecurringSeries
                 // Support both Graph-synced events (with graphData) and internal drafts (without)
                 const masterId = event.graphData?.id || event.eventId;
+                // Use event.subject (includes [Hold] prefix from backend normalization)
+                // rather than event.eventTitle (raw title without prefix)
                 const masterForExpansion = event.graphData?.id
                   ? {
                       ...event.graphData,
@@ -1850,14 +1852,14 @@ import ConflictDialog from './shared/ConflictDialog';
                       // (graphData.start/end may be stale if Graph sync lagged after admin save)
                       start: event.start || event.graphData?.start,
                       end: event.end || event.graphData?.end,
-                      subject: event.eventTitle || event.calendarData?.eventTitle || event.graphData?.subject,
+                      subject: event.subject || event.eventTitle || event.calendarData?.eventTitle || event.graphData?.subject,
                       recurrence: recurrence
                     }
                   : {
                       eventId: event.eventId,
                       start: { dateTime: event.startDateTime || event.calendarData?.startDateTime, timeZone: 'America/New_York' },
                       end: { dateTime: event.endDateTime || event.calendarData?.endDateTime, timeZone: 'America/New_York' },
-                      subject: event.eventTitle || event.calendarData?.eventTitle,
+                      subject: event.subject || event.eventTitle || event.calendarData?.eventTitle,
                       recurrence: recurrence
                     };
 
@@ -7385,7 +7387,8 @@ import ConflictDialog from './shared/ConflictDialog';
         {/* Review Modal for Room Reservations and Event Review */}
         <ReviewModal
           isOpen={reviewModal.isOpen}
-          title={`${reviewModal.currentItem?.status === 'pending' ? 'Review' : 'Edit'} ${reviewModal.editableData?.eventTitle || 'Event'}`}
+          title={reviewModal.editableData?.eventTitle || 'Event'}
+          modalMode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           onClose={reviewModal.closeModal}
           onApprove={canApproveReservations ? reviewModal.handleApprove : null}
           onReject={canApproveReservations ? reviewModal.handleReject : null}
@@ -7549,8 +7552,9 @@ import ConflictDialog from './shared/ConflictDialog';
         <ReviewModal
           isOpen={eventReviewModal.isOpen}
           title={eventReviewModal.mode === 'create'
-            ? 'Request Event'
-            : (eventReviewModal.event?.id ? 'Edit Event' : 'Add Event')}
+            ? 'Event'
+            : (eventReviewModal.event?.eventTitle || 'Event')}
+          modalMode={eventReviewModal.mode === 'create' ? 'new' : 'edit'}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
           onDelete={eventReviewModal.mode === 'event' && (eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleEventReviewModalDelete : null}

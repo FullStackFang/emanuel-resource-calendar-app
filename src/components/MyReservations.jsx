@@ -904,15 +904,21 @@ export default function MyReservations({ apiToken }) {
     return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
-  // Determine ReviewModal title
+  // Determine ReviewModal title (event name only — mode is shown via mode pill)
   const getModalTitle = () => {
     const item = reviewModal.currentItem;
-    if (!item) return 'Event Details';
-    const status = item.status;
-    const title = reviewModal.editableData?.eventTitle || item.eventTitle || 'Event';
-    if (reviewModal.isDraft) return `Edit Draft: ${title}`;
-    if (status === 'pending') return `${isRequesterOnly ? 'View' : 'Review'} Pending: ${title}`;
-    return `${isRequesterOnly ? 'View' : 'Edit'} ${title}`;
+    if (!item) return 'Event';
+    return reviewModal.editableData?.eventTitle || item.eventTitle || 'Event';
+  };
+
+  // Determine ReviewModal mode pill
+  const getModalMode = () => {
+    const item = reviewModal.currentItem;
+    if (!item) return null;
+    if (reviewModal.isDraft) return 'edit';
+    if (isRequesterOnly) return 'view';
+    if (item.status === 'pending') return 'review';
+    return 'edit';
   };
 
   return (
@@ -1206,6 +1212,7 @@ export default function MyReservations({ apiToken }) {
       <ReviewModal
         isOpen={reviewModal.isOpen}
         title={getModalTitle()}
+        modalMode={getModalMode()}
         onClose={reviewModal.closeModal}
         // Admin/approver actions from hook
         onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}

@@ -22,7 +22,8 @@ import './ReviewModal.css';
  */
 export default function ReviewModal({
   isOpen,
-  title = 'Review Request',
+  title = 'Event',
+  modalMode = null,
   onClose,
   onApprove,
   onReject,
@@ -301,44 +302,64 @@ export default function ReviewModal({
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
           <div className="action-bar-left">
-            {/* Row 1: Identity — title, status, version, owner, badges */}
             <div className="action-bar-identity">
+              {modalMode && (
+                <span className={`mode-pill mode-${modalMode}`}>
+                  {modalMode === 'edit' && 'Editing'}
+                  {modalMode === 'review' && 'Reviewing'}
+                  {modalMode === 'view' && 'Viewing'}
+                  {modalMode === 'new' && 'New'}
+                </span>
+              )}
               <h2 className="action-bar-title">{title}</h2>
-
-              {/* Status badge */}
               {itemStatus && !isEditRequestMode && !isViewingEditRequest && (
                 <span className={`status-pill ${getStatusClass(itemStatus)}`}>
                   {formatStatus(itemStatus)}
                 </span>
               )}
-
-              {/* Version indicator */}
               {eventVersion != null && (
-                <span className="version-badge" title="Document version (for concurrency control)">
+                <span className="meta-item meta-version" title="Document version (for concurrency control)">
                   v{eventVersion}
                 </span>
               )}
-
-              {/* Owner info pills */}
               {requesterName && (
-                <span className="owner-pill" title={`Requested by ${requesterName}`}>
+                <span className="meta-item" title={`Requested by ${requesterName}`}>
                   {requesterName}
                 </span>
               )}
               {requesterName && requesterDepartment && (
-                <span className="owner-pill owner-department-pill" title={`Department: ${requesterDepartment}`}>
+                <span className="meta-item" title={`Department: ${requesterDepartment}`}>
                   {requesterDepartment}
                 </span>
               )}
-
-              {/* Edit Request Mode badge */}
+              {isHold && (
+                <span className="warning-strip warning-hold" title="No event times — will display as [Hold]">
+                  ⚠ Hold
+                </span>
+              )}
+              {hasSchedulingConflicts && (
+                <span
+                  className={`warning-strip warning-conflict ${isAdmin ? 'admin-override' : ''}`}
+                  title={`Hard Conflicts${isAdmin ? ' (Override Available)' : ''}`}
+                >
+                  ⚠ Conflicts{isAdmin ? '*' : ''}
+                </span>
+              )}
+              {!hasSchedulingConflicts && hasSoftConflicts && (
+                <span className="warning-strip warning-soft-conflict" title="Pending Edit Conflicts">
+                  ⚠ Edit Conflicts
+                </span>
+              )}
+              {!hasSchedulingConflicts && !hasSoftConflicts && hasPendingReservationConflicts && (
+                <span className="warning-strip warning-pending-reservation" title="Overlapping Pending Requests">
+                  ⚠ Overlapping
+                </span>
+              )}
               {isEditRequestMode && (
-                <span className="edit-request-mode-badge">
+                <span className="meta-item edit-request-mode-badge">
                   Edit Request Mode
                 </span>
               )}
-
-              {/* Feature Flag Toggle */}
               {showFormToggle && onToggleForm && (
                 <button
                   type="button"
@@ -350,32 +371,6 @@ export default function ReviewModal({
                 </button>
               )}
             </div>
-
-            {/* Row 2: Warnings — only rendered when any warning exists */}
-            {(isHold || hasSchedulingConflicts || hasSoftConflicts || hasPendingReservationConflicts) && (
-              <div className="action-bar-warnings">
-                {isHold && (
-                  <span className="hold-warning">
-                    ⚠ No event times — will display as [Hold]
-                  </span>
-                )}
-                {hasSchedulingConflicts && (
-                  <span className={`scheduling-conflict-warning ${isAdmin ? 'admin-override' : ''}`}>
-                    ⚠ Hard Conflicts{isAdmin ? ' (Override Available)' : ''}
-                  </span>
-                )}
-                {!hasSchedulingConflicts && hasSoftConflicts && (
-                  <span className="scheduling-conflict-warning soft-conflict">
-                    ⚠ Pending Edit Conflicts
-                  </span>
-                )}
-                {!hasSchedulingConflicts && !hasSoftConflicts && hasPendingReservationConflicts && (
-                  <span className="scheduling-conflict-warning pending-reservation-conflict">
-                    ⚠ Overlapping Pending Requests
-                  </span>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Action Buttons */}

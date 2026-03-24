@@ -1149,7 +1149,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {/* Review Modal — powered by useReviewModal hook (Calendar.jsx gold standard) */}
       <ReviewModal
         isOpen={reviewModal.isOpen}
-        title={`${reviewModal.currentItem?.status === 'pending' ? 'Review' : 'Edit'} ${reviewModal.editableData?.eventTitle || 'Reservation Request'}`}
+        title={reviewModal.editableData?.eventTitle || 'Reservation Request'}
+        modalMode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
         onClose={reviewModal.closeModal}
         onApprove={reviewModal.handleApprove}
         onReject={reviewModal.handleReject}

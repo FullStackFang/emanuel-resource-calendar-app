@@ -2945,9 +2945,13 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
     );
 
     // Convert pending events to Graph-like format for frontend compatibility
-    const formattedPendingEvents = pendingOnlyEvents.map(event => ({
+    const formattedPendingEvents = pendingOnlyEvents.map(event => {
+      const cd = event.calendarData;
+      const title = cd?.eventTitle || event.graphData?.subject || 'Untitled';
+      const isHold = cd && !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
+      return {
       id: event.eventId || event._id?.toString(),
-      subject: event.calendarData?.eventTitle || event.graphData?.subject || 'Untitled',
+      subject: isHold ? `[Hold] ${title}` : title,
       start: event.start || {
         dateTime: event.calendarData?.startDateTime,
         timeZone: 'America/New_York'
@@ -2966,7 +2970,8 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
       isPending: true, // Flag to identify pending events in frontend
       calendarData: event.calendarData,
       roomReservationData: event.roomReservationData
-    }));
+    };
+    });
 
     // Combine Graph events with pending events
     const allEvents = [...graphEvents, ...formattedPendingEvents];

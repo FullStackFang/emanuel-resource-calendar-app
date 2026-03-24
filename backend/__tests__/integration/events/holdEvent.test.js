@@ -1,9 +1,12 @@
 /**
- * Hold Event Tests (HE-1 to HE-5)
+ * Hold Event Tests (HE-1 to HE-7)
  *
  * Tests that [Hold] events (reservation times set, event times blank)
  * are stored correctly across all submission paths, ensuring
  * calendarData.startTime/endTime remain empty for isHold detection.
+ *
+ * HE-6/HE-7: Verify that calendar-load (POST /api/events/calendar-load)
+ * returns event.subject with [Hold] prefix for hold events.
  */
 
 const request = require('supertest');
@@ -19,6 +22,8 @@ const {
 } = require('../../__helpers__/userFactory');
 const {
   createDraftEvent,
+  createPendingEvent,
+  createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -251,6 +256,149 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
       expect(submittedEvent.calendarData.endTime).toBe('');
       expect(submittedEvent.calendarData.reservationStartTime).toBe('08:00');
       expect(submittedEvent.calendarData.reservationEndTime).toBe('18:00');
+    });
+  });
+
+  describe('HE-6: Calendar-load returns [Hold] prefix in event.subject for hold events', () => {
+    it('should include [Hold] prefix in subject for pending hold events', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Create a pending hold event (no event times, has reservation times)
+      const holdEvent = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Room Hold Pending',
+        calendarData: {
+          eventTitle: 'Room Hold Pending',
+          eventDescription: '',
+          startDateTime: `${dateStr}T08:00`,
+          endDateTime: `${dateStr}T18:00`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+        },
+      });
+      await insertEvents(db, [holdEvent]);
+
+      // Load events via calendar-load endpoint (mirrors getUnifiedEvents normalization)
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(holdEvent._id));
+      expect(loadedEvent).toBeDefined();
+      expect(loadedEvent.subject).toBe('[Hold] Room Hold Pending');
+    });
+
+    it('should NOT include [Hold] prefix for events with event times', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Create a normal pending event (has event times)
+      const normalEvent = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Normal Pending Event',
+        calendarData: {
+          eventTitle: 'Normal Pending Event',
+          eventDescription: '',
+          startDateTime: `${dateStr}T10:00`,
+          endDateTime: `${dateStr}T16:00`,
+          startDate: dateStr,
+          startTime: '10:00',
+          endDate: dateStr,
+          endTime: '16:00',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+        },
+      });
+      await insertEvents(db, [normalEvent]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(normalEvent._id));
+      expect(loadedEvent).toBeDefined();
+      expect(loadedEvent.subject).toBe('Normal Pending Event');
+    });
+  });
+
+  describe('HE-7: Calendar-load returns [Hold] for published hold events', () => {
+    it('should include [Hold] prefix for published events without event times', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Create a published hold event (no event times, has reservation times)
+      const holdEvent = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Published Room Hold',
+        calendarData: {
+          eventTitle: 'Published Room Hold',
+          eventDescription: '',
+          startDateTime: `${dateStr}T08:00`,
+          endDateTime: `${dateStr}T18:00`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+        },
+      });
+      await insertEvents(db, [holdEvent]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(holdEvent._id));
+      expect(loadedEvent).toBeDefined();
+      expect(loadedEvent.subject).toBe('[Hold] Published Room Hold');
     });
   });
 });
