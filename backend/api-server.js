@@ -14082,10 +14082,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     const userEmail = req.user.email;
 
     // Find the existing draft
-    const draft = await unifiedEventsCollection.findOne({
+    const draft = await withCosmosRetry(() => unifiedEventsCollection.findOne({
       _id: new ObjectId(draftId),
       status: 'draft'
-    });
+    }));
 
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
@@ -14099,7 +14099,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     }
 
     // Look up user and check role for auto-publish
-    const user = await findUserByIdentity(usersCollection, userId, userEmail);
+    const user = await withCosmosRetry(() => findUserByIdentity(usersCollection, userId, userEmail));
 
     // Permission check: requester role or higher required
     if (!canSubmitReservation(user, userEmail)) {
@@ -14343,7 +14343,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           totalOccurrences: draftRecurringConflicts.totalOccurrences,
         };
       }
-      await unifiedEventsCollection.updateOne(
+      await withCosmosRetry(() => unifiedEventsCollection.updateOne(
         { _id: new ObjectId(draftId) },
         {
           $set: draftPublishSet,
@@ -14358,9 +14358,9 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
             }
           }
         }
-      );
+      ));
 
-      const publishedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      const publishedReservation = await withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) }));
 
       logger.log('Draft auto-published:', {
         draftId,
@@ -14383,7 +14383,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         lastModified: new Date()
       };
 
-      await unifiedEventsCollection.updateOne(
+      await withCosmosRetry(() => unifiedEventsCollection.updateOne(
         { _id: new ObjectId(draftId) },
         {
           $set: updateData,
@@ -14398,9 +14398,9 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
             }
           }
         }
-      );
+      ));
 
-      const submittedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      const submittedReservation = await withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) }));
 
       // Send admin notification
       try {
