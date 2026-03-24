@@ -19,6 +19,7 @@
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
   import { computeApproverChanges } from '../utils/editRequestUtils';
+  import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -282,7 +283,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
     const { generalLocations, loading: locationsLoading } = useLocations();
-    const { showError, showWarning, showNotification } = useNotification();
+    const { showError } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -463,10 +464,10 @@ import ConflictDialog from './shared/ConflictDialog';
         // Show recurring conflict warning if applicable
         if (result?.conflictDowngradedToPending) {
           const rc = result.recurringConflicts;
-          showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+          showError(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
         } else if (result?.recurringConflicts?.conflictingOccurrences > 0) {
           const rc = result.recurringConflicts;
-          showWarning(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+          showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
         }
       },
       onError: (error) => {
@@ -568,9 +569,9 @@ import ConflictDialog from './shared/ConflictDialog';
       const formData = reviewModal.editableData;
       if (!item || !formData) return;
 
-      if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
-      if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
-      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showWarning('Reservation start time and end time are required'); return; }
+      if (!formData.eventTitle?.trim()) { showError('Event title is required'); return; }
+      if (!formData.startDate || !formData.endDate) { showError('Start date and end date are required'); return; }
+      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showError('Reservation start time and end time are required'); return; }
 
       setSavingPendingEdit(true);
       try {
@@ -635,7 +636,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setSavingPendingEdit(false);
       }
-    }, [reviewModal, apiToken, showWarning, showError]);
+    }, [reviewModal, apiToken, showError]);
 
     // Save Rejected Edit handler (for non-admin users editing and resubmitting rejected events from calendar)
     const handleSaveRejectedEdit = useCallback(async () => {
@@ -643,9 +644,9 @@ import ConflictDialog from './shared/ConflictDialog';
       const formData = reviewModal.editableData;
       if (!item || !formData) return;
 
-      if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
-      if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
-      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showWarning('Reservation start time and end time are required'); return; }
+      if (!formData.eventTitle?.trim()) { showError('Event title is required'); return; }
+      if (!formData.startDate || !formData.endDate) { showError('Start date and end date are required'); return; }
+      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showError('Reservation start time and end time are required'); return; }
 
       setSavingRejectedEdit(true);
       try {
@@ -710,7 +711,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setSavingRejectedEdit(false);
       }
-    }, [reviewModal, apiToken, showWarning, showError]);
+    }, [reviewModal, apiToken, showError]);
 
     // Resubmit handler (for non-admin users resubmitting rejected events without changes)
     const handleResubmitFromCalendar = useCallback(async () => {
@@ -757,7 +758,7 @@ import ConflictDialog from './shared/ConflictDialog';
       if (!file) return;
       
       if (!file.name.endsWith('.json')) {
-        showWarning('Please select a JSON file');
+        showError('Please select a JSON file');
         return;
       }
       
@@ -922,7 +923,7 @@ import ConflictDialog from './shared/ConflictDialog';
         }
       } else {
         // Switching from API to demo mode - need to upload data first
-        showWarning('Please upload JSON data to enable demo mode');
+        showError('Please upload JSON data to enable demo mode');
       }
     };
     
@@ -1669,7 +1670,7 @@ import ConflictDialog from './shared/ConflictDialog';
         
       } catch (error) {
         logger.error('loadDemoEvents failed:', error);
-        showNotification('Failed to load demo events: ' + error.message);
+        showError('Failed to load demo events: ' + error.message);
         return false;
       } finally {
         setLoading(false);
@@ -2145,12 +2146,12 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const handleManualSync = useCallback(async () => {
       if (!allEvents || allEvents.length === 0) {
-        showWarning('No events to sync. Please load events first.');
+        showError('No events to sync. Please load events first.');
         return;
       }
 
       if (!apiToken) {
-        showWarning('Authentication required for sync.');
+        showError('Authentication required for sync.');
         return;
       }
 
@@ -2447,7 +2448,7 @@ import ConflictDialog from './shared/ConflictDialog';
           logger.debug(`Refresh complete for updated event: ${eventSubject}`);
         } catch (error) {
           logger.error(`Error refreshing after update:`, error);
-          showNotification(`Event updated but refresh failed. Try manual refresh if needed.`, 'warning');
+          showError(`Event updated but refresh failed. Try manual refresh if needed.`);
         }
         return;
       }
@@ -2478,11 +2479,11 @@ import ConflictDialog from './shared/ConflictDialog';
 
           if (attempt === maxRetries) {
             logger.warn(`[retryEventLoadAfterCreation] Failed to load event after ${maxRetries} attempts. Event may appear after manual refresh.`);
-            showNotification(`Event created but may take a moment to appear. Try refreshing if needed.`, 'warning');
+            showError(`Event created but may take a moment to appear. Try refreshing if needed.`);
           }
         }
       }
-    }, [loadEvents, showNotification]); // Removed allEvents from dependencies to avoid stale closure
+    }, [loadEvents, showError]); // Removed allEvents from dependencies to avoid stale closure
 
     /**
      * Get the target calendar name for event creation/editing
@@ -3800,7 +3801,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
       // Check if user can edit the selected calendar
       if (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit) {
-        showNotification("You don't have permission to create events in this calendar");
+        showError("You don't have permission to create events in this calendar");
         return;
       }
 
@@ -3885,7 +3886,7 @@ import ConflictDialog from './shared/ConflictDialog';
       });
 
       logger.debug('EventReviewModal opened for adding new event', { mode });
-    }, [availableCalendars, effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, showNotification, standardizeDate, currentUser]);
+    }, [availableCalendars, effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, showError, standardizeDate, currentUser]);
 
     /**
      * Handle changing the calendar view type (day/week/month)
@@ -4484,7 +4485,7 @@ import ConflictDialog from './shared/ConflictDialog';
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
     
       if (!effectivePermissions.deleteEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
-        showNotification("You don't have permission to delete events in this calendar");
+        showError("You don't have permission to delete events in this calendar");
         return;
       }
       
@@ -4819,36 +4820,15 @@ import ConflictDialog from './shared/ConflictDialog';
           if (Object.keys(props).length) ext[extDef.id] = props;
         });
         
-        // Internal fields payload (for setup/teardown and other internal data)
+        // Internal fields payload — use shared builder (single source of truth)
         const internal = {
-          locations: data.locationIds || [], // Room IDs for internal storage
-          setupMinutes: data.setupMinutes || 0,
-          teardownMinutes: data.teardownMinutes || 0,
-          setupTime: data.setupTime || '',
-          teardownTime: data.teardownTime || '',
-          reservationStartTime: data.reservationStartTime || '',
-          reservationEndTime: data.reservationEndTime || '',
-          doorOpenTime: data.doorOpenTime || '',
-          doorCloseTime: data.doorCloseTime || '',
-          setupNotes: data.setupNotes || '',
-          doorNotes: data.doorNotes || '',
-          eventNotes: data.eventNotes || '',
-          registrationNotes: data.registrationNotes || '',
-          assignedTo: data.assignedTo || '',
-          // Multi-day event series metadata
+          ...buildInternalFields(data),
+          // Override locations with resolved room IDs from caller
+          locations: data.locationIds || data.requestedRooms || data.locations || [],
+          // Multi-day event series metadata (caller-specific)
           eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
           seriesLength: data.seriesLength || null,
           seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null,
-          // Recurrence pattern (for internal tracking)
-          recurrence: data.recurrence || null,
-          // Offsite location fields
-          isOffsite: data.isOffsite || false,
-          offsiteName: data.offsiteName || '',
-          offsiteAddress: data.offsiteAddress || '',
-          offsiteLat: data.offsiteLat || null,
-          offsiteLon: data.offsiteLon || null,
-          // Services (internal use only)
-          services: data.services || {}
         };
 
         // Use the selected calendar from the calendar toggle
@@ -4877,14 +4857,14 @@ import ConflictDialog from './shared/ConflictDialog';
           
           // Check if the selected calendar is read-only
           if (selectedCalendar && selectedCalendar.canEdit === false) {
-            showNotification(`Cannot create events in read-only calendar: ${selectedCalendar.name}`, 'error');
+            showError(`Cannot create events in read-only calendar: ${selectedCalendar.name}`);
             return false;
           }
         }
         
         // Final check to ensure we have a valid target calendar
         if (!targetCalendarId) {
-          showNotification('No writable calendar available for event creation', 'error');
+          showError('No writable calendar available for event creation');
           return false;
         }
         
@@ -5111,11 +5091,11 @@ import ConflictDialog from './shared/ConflictDialog';
 
       // Permission checks
       if (isNew && !effectivePermissions.createEvents) {
-        showWarning("You don't have permission to create events");
+        showError("You don't have permission to create events");
         return false;
       }
       if (!isNew && !effectivePermissions.editEvents) {
-        showWarning("You don't have permission to edit events");
+        showError("You don't have permission to edit events");
         return false;
       }
 
@@ -5141,7 +5121,6 @@ import ConflictDialog from './shared/ConflictDialog';
           setIsModalOpen(false);
         }
 
-        showNotification('Event saved successfully!', 'success');
         return true;
 
       } catch (error) {
@@ -5198,7 +5177,7 @@ import ConflictDialog from './shared/ConflictDialog';
           const hasTimes = reservationData.startTime && reservationData.endTime;
 
           if (!hasDateRange || !hasTimes) {
-            showNotification('Date range and times are required');
+            showError('Date range and times are required');
             return;
           }
 
@@ -5299,89 +5278,49 @@ import ConflictDialog from './shared/ConflictDialog';
             // Create events using batch API for better performance
             logger.debug(`Creating ${dates.length} events using batch API`);
 
-            // Show progress notification
-            showNotification(`Creating ${dates.length} events...`, 'info');
-
-            // Prepare all events data
+            // Prepare all events data — spread reservationData as base so ALL fields flow through
             const eventsData = dates.map((dateStr, i) => {
               const startDateTime = `${dateStr}T${reservationData.startTime || reservationData.reservationStartTime}:00`;
               const endDateTime = `${dateStr}T${reservationData.endTime || reservationData.reservationEndTime}:00`;
 
               return {
+                ...reservationData,
+                // Override with Graph API-formatted fields
                 subject: reservationData.eventTitle || 'Untitled Event',
-                start: {
-                  dateTime: startDateTime,
-                  timeZone: getOutlookTimezone(userTimezone)
-                },
-                end: {
-                  dateTime: endDateTime,
-                  timeZone: getOutlookTimezone(userTimezone)
-                },
+                start: { dateTime: startDateTime, timeZone: getOutlookTimezone(userTimezone) },
+                end: { dateTime: endDateTime, timeZone: getOutlookTimezone(userTimezone) },
                 location: locationField,
-                locations: locationsArray.length > 0 ? locationsArray : undefined, // Graph API locations array
-                body: {
-                  contentType: 'text',
-                  content: reservationData.eventDescription || ''
-                },
-                categories: reservationData.categories || [], // Syncs with Outlook categories
+                locations: locationsArray.length > 0 ? locationsArray : undefined,
+                body: { contentType: 'text', content: reservationData.eventDescription || '' },
+                categories: reservationData.categories || [],
                 isAllDay: reservationData.isAllDayEvent || false,
-                attendees: reservationData.attendeeCount ? [{
-                  emailAddress: {
-                    address: '',
-                    name: `${reservationData.attendeeCount} attendees`
-                  }
-                }] : [],
                 calendarId: reservationData.calendarId,
-                // Include internal enrichments (use whichever field exists)
-                locationIds: multiDayRoomIds, // Internal room IDs for database storage
-                setupMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
-                teardownMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
-                setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
-                teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
-                doorOpenTime: reservationData.doorOpenTime || '',
-                doorCloseTime: reservationData.doorCloseTime || '',
-                setupNotes: reservationData.setupNotes || '',
-                doorNotes: reservationData.doorNotes || '',
-                eventNotes: reservationData.eventNotes || '',
-                requesterName: reservationData.requesterName || '',
-                requesterEmail: reservationData.requesterEmail || '',
-                // Add event series metadata
+                // Computed fields
+                locationIds: multiDayRoomIds,
                 eventSeriesId: eventSeriesId,
                 seriesLength: dayCount,
                 seriesIndex: i,
-                // Offsite location fields
-                isOffsite: reservationData.isOffsite || false,
-                offsiteName: reservationData.offsiteName || '',
-                offsiteAddress: reservationData.offsiteAddress || '',
-                offsiteLat: reservationData.offsiteLat || null,
-                offsiteLon: reservationData.offsiteLon || null,
-                // Services (internal use only)
-                services: reservationData.services || {}
               };
             });
 
             try {
               // Create all events in batches with progress callback
-              const result = await handleBatchCreateEvents(eventsData, (current, total) => {
-                showNotification(`Creating events... ${current}/${total}`, 'info');
-              });
+              const result = await handleBatchCreateEvents(eventsData);
 
               const { successCount, failCount } = result;
 
               // Show summary notification
-              if (successCount === dayCount) {
-                showNotification(`Successfully created ${successCount} events`);
-              } else if (successCount > 0) {
-                showNotification(`Created ${successCount} events, ${failCount} failed`, 'warning');
+              if (successCount > 0 && failCount > 0) {
+                showError(`Created ${successCount} events, ${failCount} failed`);
               } else {
-                showNotification(`Failed to create events`, 'error');
+                showError(`Failed to create events`);
               }
 
               logger.debug(`Multi-day batch creation complete: ${successCount} succeeded, ${failCount} failed`);
 
             } catch (error) {
               logger.error('Batch creation error:', error);
-              showNotification('Error creating multi-day events', 'error');
+              showError('Error creating multi-day events');
             } finally {
               // Always clear the saving state
               setSavingEvent(false);
@@ -5428,63 +5367,30 @@ import ConflictDialog from './shared/ConflictDialog';
               }
             }
 
-            // Transform reservation structure to event structure expected by handleSaveEvent
+            // Transform reservation structure to event structure expected by handleSaveEvent.
+            // Spread reservationData as base so ALL form fields flow through to buildInternalFields
+            // (prevents field-mapping omissions like the reservationStartTime bug).
             const eventData = {
+              ...reservationData,
+              // Override with Graph API-formatted fields
               subject: reservationData.eventTitle || 'Untitled Event',
-              start: {
-                dateTime: startDateTime,
-                timeZone: getOutlookTimezone(userTimezone)
-              },
-              end: {
-                dateTime: endDateTime,
-                timeZone: getOutlookTimezone(userTimezone)
-              },
+              start: { dateTime: startDateTime, timeZone: getOutlookTimezone(userTimezone) },
+              end: { dateTime: endDateTime, timeZone: getOutlookTimezone(userTimezone) },
               location: locationField,
-              locations: locationsArray.length > 0 ? locationsArray : undefined, // Graph API locations array
-              body: {
-                contentType: 'text',
-                content: reservationData.eventDescription || ''
-              },
-              categories: reservationData.categories || [], // Syncs with Outlook categories
+              locations: locationsArray.length > 0 ? locationsArray : undefined,
+              body: { contentType: 'text', content: reservationData.eventDescription || '' },
+              categories: reservationData.categories || [],
               isAllDay: reservationData.isAllDayEvent || false,
-              attendees: reservationData.attendeeCount ? [{
-                emailAddress: {
-                  address: '',
-                  name: `${reservationData.attendeeCount} attendees`
-                }
-              }] : [],
               calendarId: reservationData.calendarId,
-              // Include recurrence pattern if exists
               recurrence: reservationData.recurrence || null,
-              // Include internal enrichments (use whichever field exists)
-              locationIds: roomIds, // Internal room IDs for database storage
-              setupMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
-              teardownMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
-              setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
-              teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
-              doorOpenTime: reservationData.doorOpenTime || '',
-              doorCloseTime: reservationData.doorCloseTime || '',
-              setupNotes: reservationData.setupNotes || '',
-              doorNotes: reservationData.doorNotes || '',
-              eventNotes: reservationData.eventNotes || '',
-              requesterName: reservationData.requesterName || '',
-              requesterEmail: reservationData.requesterEmail || '',
-              // Single event has null eventSeriesId (recurring events will have this set by backend)
+              // Computed fields
+              locationIds: roomIds,
               eventSeriesId: reservationData.recurrence ? undefined : null,
-              // Offsite location fields
-              isOffsite: reservationData.isOffsite || false,
-              offsiteName: reservationData.offsiteName || '',
-              offsiteAddress: reservationData.offsiteAddress || '',
-              offsiteLat: reservationData.offsiteLat || null,
-              offsiteLon: reservationData.offsiteLon || null,
-              // Services (internal use only)
-              services: reservationData.services || {}
             };
 
             const success = await handleSaveEvent(eventData);
 
             if (success) {
-              showNotification('Event created successfully');
               setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
               loadEvents(true);
             }
@@ -5565,7 +5471,6 @@ import ConflictDialog from './shared/ConflictDialog';
               throw new Error(errorData.error || `Failed to create reservation request: ${response.statusText}`);
             }
 
-            showNotification('Reservation request submitted for approval');
             setEventReviewModal({ isOpen: false, event: null, mode: 'create', hasChanges: false });
             loadEvents(true);
           } finally {
@@ -5574,10 +5479,10 @@ import ConflictDialog from './shared/ConflictDialog';
         }
       } catch (error) {
         logger.error('Error saving event from ReviewModal:', error);
-        showNotification(`Error: ${error.message}`);
+        showError(`Error: ${error.message}`);
         throw error;
       }
-    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone, effectivePermissions]);
+    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showError, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone, effectivePermissions]);
 
     /**
      * Handle closing the EventReviewModal
@@ -5857,16 +5762,14 @@ import ConflictDialog from './shared/ConflictDialog';
         // Notify MyReservations to refresh
         dispatchRefresh('calendar');
 
-        showNotification('Edit request approved. Changes have been applied.', 'success');
-
       } catch (error) {
         logger.error('Error approving edit request:', error);
-        showNotification(`Failed to approve edit request: ${error.message}`, 'error');
+        showError(`Failed to approve edit request: ${error.message}`);
       } finally {
         setIsApprovingEditRequest(false);
         setIsEditRequestApproveConfirming(false);
       }
-    }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, refreshEvents, showNotification]);
+    }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, refreshEvents, showError]);
 
     /**
      * Handle rejecting an edit request (Admin only)
@@ -5880,7 +5783,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
       // Second click needs reason
       if (!editRequestRejectionReason.trim()) {
-        showNotification('Please provide a reason for rejecting the edit request.', 'error');
+        showError('Please provide a reason for rejecting the edit request.');
         return;
       }
 
@@ -5940,16 +5843,14 @@ import ConflictDialog from './shared/ConflictDialog';
         // Notify MyReservations to refresh
         dispatchRefresh('calendar');
 
-        showNotification('Edit request rejected.', 'success');
-
       } catch (error) {
         logger.error('Error rejecting edit request:', error);
-        showNotification(`Failed to reject edit request: ${error.message}`, 'error');
+        showError(`Failed to reject edit request: ${error.message}`);
       } finally {
         setIsRejectingEditRequest(false);
         setIsEditRequestRejectConfirming(false);
       }
-    }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showNotification]);
+    }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
 
     /**
      * Cancel edit request approval confirmation
@@ -6019,16 +5920,14 @@ import ConflictDialog from './shared/ConflictDialog';
           refreshEvents();
         }
 
-        showNotification('Edit request canceled.', 'success');
-
       } catch (error) {
         logger.error('Error canceling edit request:', error);
-        showNotification(`Failed to cancel edit request: ${error.message}`, 'error');
+        showError(`Failed to cancel edit request: ${error.message}`);
       } finally {
         setIsCancelingEditRequest(false);
         setIsCancelEditRequestConfirming(false);
       }
-    }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, refreshEvents, showNotification]);
+    }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
 
     /**
      * Cancel cancel edit request confirmation
@@ -6116,7 +6015,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
       const detectedChanges = computeDetectedChanges();
       if (detectedChanges.length === 0) {
-        showNotification('No changes detected. Please modify some fields before submitting.', 'error');
+        showError('No changes detected. Please modify some fields before submitting.');
         return;
       }
 
@@ -6136,7 +6035,7 @@ import ConflictDialog from './shared/ConflictDialog';
         // Read live form data from the form component (same source as handleApprove/handleSave)
         const liveFormData = reviewModal.getFormData({ skipValidation: true });
         if (!liveFormData) {
-          showNotification('Unable to read form data', 'error');
+          showError('Unable to read form data');
           setIsSubmittingEditRequest(false);
           return;
         }
@@ -6177,8 +6076,6 @@ import ConflictDialog from './shared/ConflictDialog';
           throw new Error(errorData.error || 'Failed to submit edit request');
         }
 
-        showNotification('Edit request submitted successfully! An admin will review your changes.', 'success');
-
         // Reset edit request mode and close modal
         setIsEditRequestMode(false);
         setOriginalEventData(null);
@@ -6192,11 +6089,11 @@ import ConflictDialog from './shared/ConflictDialog';
 
       } catch (err) {
         logger.error('Error submitting edit request:', err);
-        showNotification(err.message || 'Failed to submit edit request', 'error');
+        showError(err.message || 'Failed to submit edit request');
       } finally {
         setIsSubmittingEditRequest(false);
       }
-    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents]);
+    }, [reviewModal, computeDetectedChanges, apiToken, showError, pendingEditRequestConfirmation, refreshEvents]);
 
     /**
      * Cancel edit request confirmation
@@ -6291,17 +6188,17 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleSaveDraft = useCallback(async () => {
       const eventData = eventReviewModal.event;
       if (!eventData) {
-        showNotification('No form data to save', 'error');
+        showError('No form data to save');
         return;
       }
 
       // Minimal validation - eventTitle and dates required
       if (!eventData.eventTitle?.trim()) {
-        showNotification('Event title is required to save as draft', 'error');
+        showError('Event title is required to save as draft');
         return;
       }
       if (!eventData.startDate || !eventData.endDate) {
-        showNotification('Start date and end date are required to save as draft', 'error');
+        showError('Start date and end date are required to save as draft');
         return;
       }
 
@@ -6344,17 +6241,16 @@ import ConflictDialog from './shared/ConflictDialog';
         const result = await response.json();
         logger.log('Draft saved:', result);
 
-        showNotification('Draft saved successfully', 'success');
         handleEventReviewModalClose(true);
         loadEvents(true);
 
       } catch (error) {
         logger.error('Error saving draft:', error);
-        showNotification(`Failed to save draft: ${error.message}`, 'error');
+        showError(`Failed to save draft: ${error.message}`);
       } finally {
         setSavingDraft(false);
       }
-    }, [eventReviewModal.event, draftId, pendingDraftSaveConfirmation, apiToken, buildDraftPayload, showNotification, handleEventReviewModalClose, loadEvents]);
+    }, [eventReviewModal.event, draftId, pendingDraftSaveConfirmation, apiToken, buildDraftPayload, showError, handleEventReviewModalClose, loadEvents]);
 
     /**
      * Handle draft dialog save
@@ -6399,7 +6295,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
       if (!targetEvent) {
         logger.error('Could not find target event in allEvents:', targetEventId);
-        showNotification('Could not find the selected event', 'error');
+        showError('Could not find the selected event');
         return;
       }
 
@@ -6431,7 +6327,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
 
       logger.debug('Modal reopened with new event');
-    }, [allEvents, showNotification, eventReviewModal, reviewModal]);
+    }, [allEvents, showError, eventReviewModal, reviewModal]);
 
     /**
      * Handle navigation state changes for event review modal
@@ -6720,19 +6616,18 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         handleEventReviewModalClose();
-        showNotification('Event deleted successfully', 'success');
       } catch (error) {
         logger.error('Error deleting event:', error);
-        showNotification(`Error deleting event: ${error.message}`, 'error');
+        showError(`Error deleting event: ${error.message}`);
       }
-    }, [eventReviewModal.event, pendingEventDeleteConfirmation, isDemoMode, handleDeleteDemoEvent, handleEventReviewModalClose, showNotification, apiToken, graphToken, API_BASE_URL, allEvents]);
+    }, [eventReviewModal.event, pendingEventDeleteConfirmation, isDemoMode, handleDeleteDemoEvent, handleEventReviewModalClose, showError, apiToken, graphToken, API_BASE_URL, allEvents]);
 
     /**
      * Delete an event
      */
     const handleDeleteConfirm = async () => {
       if (!currentEvent?.id) {
-        showWarning('No event selected for deletion');
+        showError('No event selected for deletion');
         return;
       }
       
@@ -6745,7 +6640,6 @@ import ConflictDialog from './shared/ConflictDialog';
           setIsModalOpen(false);
           setCurrentEvent(null);
           
-          showNotification('Event deleted successfully!', 'success');
         } else {
           // For live events, we need to handle potential partial failures
           const result = await handleDeleteApiEvent(currentEvent.id);
@@ -6757,7 +6651,6 @@ import ConflictDialog from './shared/ConflictDialog';
           // Check if we have specific deletion information in the logs
           // This is a bit of a workaround since handleDeleteApiEvent doesn't return detailed status
           // In a future iteration, we could enhance this by returning deletion details
-          showNotification('Event deleted successfully!', 'success');
         }
         
       } catch (error) {
@@ -6777,8 +6670,8 @@ import ConflictDialog from './shared/ConflictDialog';
           errorMessage += error.message;
         }
         
-        // Use showNotification for consistent error display
-        showNotification(errorMessage, 'error');
+        // Use showError for consistent error display
+        showError(errorMessage);
         
         // Also log the detailed error for debugging
         logger.error('Detailed deletion error:', {

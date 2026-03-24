@@ -28,7 +28,7 @@ const FIELD_MAPPINGS_PRESET = {
 };
 
 export default function CSVImportWithCalendar({ apiToken, graphToken }) {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const fileInputRef = useRef(null);
 
@@ -139,12 +139,12 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
     const fileName = file.name.toLowerCase();
     if (!fileName.endsWith('.csv')) {
-      showWarning('Please select a CSV file');
+      showError('Please select a CSV file');
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      showWarning('File size must be less than 10MB');
+      showError('File size must be less than 10MB');
       return;
     }
 
@@ -231,7 +231,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       setStepsCompleted(prev => new Set([...prev, 'calendar']));
       setCurrentStep('mapping');
     } else {
-      showWarning('Please select a target calendar or disable calendar sync');
+      showError('Please select a target calendar or disable calendar sync');
     }
   };
 
@@ -253,7 +253,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
     const missingRequired = requiredFields.filter(field => !mappedFields.includes(field));
 
     if (missingRequired.length > 0) {
-      showWarning(`Please map required fields: ${missingRequired.join(', ')}`);
+      showError(`Please map required fields: ${missingRequired.join(', ')}`);
       return;
     }
 

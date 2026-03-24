@@ -21,7 +21,7 @@ import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
   const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
-  const { showWarning, showError } = useNotification();
+  const { showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,7 +45,7 @@ export default function MyReservations({ apiToken }) {
       loadMyReservations();
       if (result?.conflictDowngradedToPending) {
         const rc = result.recurringConflicts;
-        showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+        showError(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
       }
     },
     onError: (error) => { showError(error, { context: 'MyReservations' }); }
@@ -350,7 +350,7 @@ export default function MyReservations({ apiToken }) {
     }
 
     if (!editRequestRejectionReason.trim()) {
-      showWarning('Please provide a reason for rejecting the edit request.');
+      showError('Please provide a reason for rejecting the edit request.');
       return;
     }
 
@@ -395,7 +395,7 @@ export default function MyReservations({ apiToken }) {
       setIsRejectingEditRequest(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showWarning, showError]);
+  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -618,15 +618,15 @@ export default function MyReservations({ apiToken }) {
     if (!item || !formData) return;
 
     if (!formData.eventTitle?.trim()) {
-      showWarning('Event title is required');
+      showError('Event title is required');
       return;
     }
     if (!formData.startDate || !formData.endDate) {
-      showWarning('Start date and end date are required');
+      showError('Start date and end date are required');
       return;
     }
     if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) {
-      showWarning('Reservation start time and end time are required');
+      showError('Reservation start time and end time are required');
       return;
     }
 
@@ -697,7 +697,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSavingPendingEdit(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showError]);
 
   // Save Rejected Edit (owner editing rejected events + resubmitting) — used by ReviewModal's onSaveRejectedEdit button
   const handleSaveRejectedEdit = useCallback(async () => {
@@ -707,15 +707,15 @@ export default function MyReservations({ apiToken }) {
     if (!item || !formData) return;
 
     if (!formData.eventTitle?.trim()) {
-      showWarning('Event title is required');
+      showError('Event title is required');
       return;
     }
     if (!formData.startDate || !formData.endDate) {
-      showWarning('Start date and end date are required');
+      showError('Start date and end date are required');
       return;
     }
     if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) {
-      showWarning('Reservation start time and end time are required');
+      showError('Reservation start time and end time are required');
       return;
     }
 
@@ -786,7 +786,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSavingRejectedEdit(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showError]);
 
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
@@ -809,12 +809,12 @@ export default function MyReservations({ apiToken }) {
     // Read live form data from the form component (same source as handleApprove/handleSave)
     const liveFormData = reviewModal.getFormData({ skipValidation: true });
     if (!liveFormData) {
-      showWarning('Unable to read form data');
+      showError('Unable to read form data');
       return;
     }
 
     if (!liveFormData.eventTitle?.trim()) {
-      showWarning('Event title is required');
+      showError('Event title is required');
       return;
     }
 
@@ -874,7 +874,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSubmittingEditRequest(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showError]);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {

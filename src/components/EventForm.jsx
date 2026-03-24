@@ -109,7 +109,7 @@ function EventForm({
   savingEvent = false,
   apiToken = null // For audit history
 }) {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   // Add this time zone mapping
   const timeZoneOptions = [
     { value: 'America/New_York', label: 'Eastern Time (ET)' },
@@ -620,20 +620,20 @@ function EventForm({
     
     // Validate form
     if (!formData.subject || !formData.startDate || !formData.endDate) {
-      showWarning('Please fill out all required fields');
+      showError('Please fill out all required fields');
       return;
     }
     
     // Validate setup/teardown times
     const validationError = validateSetupTeardown();
     if (validationError) {
-      showWarning(validationError);
+      showError(validationError);
       return;
     }
 
     // Validate offsite fields - both name and address required when isOffsite is true
     if (isOffsite && (!offsiteName.trim() || !offsiteAddress.trim())) {
-      showWarning('Offsite Name and Offsite Address are required for offsite events');
+      showError('Offsite Name and Offsite Address are required for offsite events');
       return;
     }
 
@@ -739,7 +739,7 @@ function EventForm({
 
   const uploadFiles = async (files) => {
     if (!event?.id || !apiToken) {
-      showWarning('Please save the event first before uploading files');
+      showError('Please save the event first before uploading files');
       return;
     }
 

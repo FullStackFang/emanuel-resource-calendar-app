@@ -62,7 +62,7 @@ export default function RoomReservationReview({
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
   createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
 }) {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const { isAdmin } = usePermissions();
 
   // In edit request mode, override readOnly to allow editing
@@ -187,7 +187,7 @@ export default function RoomReservationReview({
     // Validate times before saving
     if (!validateTimes()) {
       logger.warn('Cannot save - time validation errors exist');
-      showWarning('Cannot save: Please fix time validation errors');
+      showError('Cannot save: Please fix time validation errors');
       return;
     }
 

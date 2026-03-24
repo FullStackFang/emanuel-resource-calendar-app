@@ -7,7 +7,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import './EventLocationAssignment.css';
 
 const EventLocationAssignment = ({ apiToken }) => {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const [unassignedStrings, setUnassignedStrings] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -283,7 +283,7 @@ const EventLocationAssignment = ({ apiToken }) => {
                     const locationId = selectedLocations[item.normalizedString];
 
                     if (!locationId) {
-                      showWarning('Please select a location first');
+                      showError('Please select a location first');
                       return;
                     }
 

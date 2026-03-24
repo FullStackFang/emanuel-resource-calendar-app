@@ -19,7 +19,7 @@ const EventSearchExport = ({
   allCategoryOptions = [],
   allLocationOptions = []
 }) => {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const [sortBy, setSortBy] = useState('date');
   const [exportState, setExportState] = useState({ phase: 'idle', message: '' });
   const isExporting = exportState.phase !== 'idle';
@@ -98,7 +98,7 @@ const EventSearchExport = ({
 
       // Warn if export was capped
       if (data.exportCapped) {
-        showWarning('Export limited to 2,000 events. Narrow your date range or filters for complete results.');
+        showError('Export limited to 2,000 events. Narrow your date range or filters for complete results.');
       }
 
       // Transform unified events to match expected format for export

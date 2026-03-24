@@ -128,7 +128,7 @@ export default function AttachmentsSection({
   apiToken,
   readOnly = false
 }) {
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const [attachments, setAttachments] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -174,7 +174,7 @@ export default function AttachmentsSection({
 
   const uploadFiles = async (files) => {
     if (!resourceId || !apiToken) {
-      showWarning(`Please save the ${resourceType} first before uploading files`);
+      showError(`Please save the ${resourceType} first before uploading files`);
       return;
     }
 

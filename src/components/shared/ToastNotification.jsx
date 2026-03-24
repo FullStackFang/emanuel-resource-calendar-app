@@ -8,9 +8,6 @@ import './ToastNotification.css';
 
 // Severity icons (using Unicode symbols for simplicity)
 const SEVERITY_ICONS = {
-  success: '\u2713', // checkmark
-  info: '\u2139',    // info circle
-  warning: '\u26A0', // warning triangle
   error: '\u2717',   // X mark
   critical: '\u2757' // exclamation
 };

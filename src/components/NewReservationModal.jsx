@@ -8,6 +8,7 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { dispatchRefresh } from '../hooks/useDataRefreshBus';
 import { logger } from '../utils/logger';
+import { buildGraphFields, buildInternalFields } from '../utils/eventPayloadBuilder';
 
 /**
  * Modal for creating new reservations from MyReservations page.
@@ -17,7 +18,7 @@ import { logger } from '../utils/logger';
 export default function NewReservationModal({ apiToken, selectedCalendarId, availableCalendars }) {
   const { accounts } = useMsal();
   const { canCreateEvents } = usePermissions();
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
 
   // Modal state
   const [isOpen, setIsOpen] = useState(false);
@@ -173,56 +174,9 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       const selectedCalendar = availableCalendars?.find(cal => cal.id === selectedCalendarId);
       const calendarOwner = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
-      // Build datetime strings
-      const effectiveStartTime = data.startTime || data.reservationStartTime;
-      const effectiveEndTime = data.endTime || data.reservationEndTime;
-      const startDateTime = data.startDate && effectiveStartTime
-        ? `${data.startDate}T${effectiveStartTime}:00` : '';
-      const endDateTime = data.endDate && effectiveEndTime
-        ? `${data.endDate}T${effectiveEndTime}:00` : '';
-
-      // Determine if this is a [Hold] event (no event times but has reservation times)
-      const isHold = !data.eventStartTime && !data.eventEndTime &&
-                     (data.reservationStartTime || data.reservationEndTime);
-
-      // Graph fields — the backend resolves room IDs to display names automatically
-      const graphFields = {
-        subject: isHold ? `[Hold] ${data.eventTitle || 'Untitled Event'}` : (data.eventTitle || 'Untitled Event'),
-        start: { dateTime: startDateTime, timeZone: 'Eastern Standard Time' },
-        end: { dateTime: endDateTime, timeZone: 'Eastern Standard Time' },
-        body: { contentType: 'text', content: data.eventDescription || '' },
-        categories: data.categories || data.mecCategories || [],
-        isAllDay: false,
-      };
-
-      // Internal fields — room IDs, timing, offsite, services, recurrence
-      const internalFields = {
-        locations: data.requestedRooms || data.locations || [],
-        setupMinutes: data.setupTimeMinutes || 0,
-        teardownMinutes: data.teardownTimeMinutes || 0,
-        reservationStartMinutes: data.reservationStartMinutes || 0,
-        reservationEndMinutes: data.reservationEndMinutes || 0,
-        setupTime: data.setupTime || '',
-        teardownTime: data.teardownTime || '',
-        reservationStartTime: data.reservationStartTime || '',
-        reservationEndTime: data.reservationEndTime || '',
-        doorOpenTime: data.doorOpenTime || '',
-        doorCloseTime: data.doorCloseTime || '',
-        setupNotes: data.setupNotes || '',
-        doorNotes: data.doorNotes || '',
-        eventNotes: data.eventNotes || '',
-        isOffsite: data.isOffsite || false,
-        offsiteName: data.offsiteName || '',
-        offsiteAddress: data.offsiteAddress || '',
-        offsiteLat: data.offsiteLat || null,
-        offsiteLon: data.offsiteLon || null,
-        services: data.services || {},
-        recurrence: data.recurrence || null,
-        occurrenceOverrides: data.occurrenceOverrides || null,
-        // Raw event times for [Hold] detection (empty when user didn't specify event times)
-        eventStartTime: data.eventStartTime || '',
-        eventEndTime: data.eventEndTime || '',
-      };
+      // Use shared builders — single source of truth for field mapping
+      const graphFields = buildGraphFields(data);
+      const internalFields = buildInternalFields(data);
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
         method: 'POST',
@@ -309,7 +263,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   // Save draft (two-click confirmation, same pattern as handleAdminPublish)
   const handleSaveDraft = useCallback(async () => {
     if (!formData || !formData.eventTitle?.trim()) {
-      showWarning('Event title is required to save as draft');
+      showError('Event title is required to save as draft');
       return;
     }
 
@@ -351,7 +305,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     } finally {
       setSavingDraft(false);
     }
-  }, [formData, draftId, isDraftConfirming, apiToken, buildDraftPayload, showError, showWarning, handleSuccess]);
+  }, [formData, draftId, isDraftConfirming, apiToken, buildDraftPayload, showError, handleSuccess]);
 
   // Draft dialog handlers
   const handleDraftDialogSave = useCallback(async () => {

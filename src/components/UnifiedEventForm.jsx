@@ -85,7 +85,7 @@ export default function UnifiedEventForm({
   const navigate = useNavigate();
   const location = useLocation();
   const { accounts } = useMsal();
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const { isAdmin } = usePermissions();
 
   // Handle prefill data from AI chat or draft modal (either via prop or navigation state)
@@ -310,7 +310,7 @@ export default function UnifiedEventForm({
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
 
     if (!validateTimes()) {
-      showWarning('Cannot save: Please fix time validation errors');
+      showError('Cannot save: Please fix time validation errors');
       return;
     }
 
@@ -345,7 +345,7 @@ export default function UnifiedEventForm({
 
       if (response.status === 409) {
         const data = await response.json();
-        showWarning(`This reservation was modified by ${data.lastModifiedBy} while you were editing. Please refresh.`);
+        showError(`This reservation was modified by ${data.lastModifiedBy} while you were editing. Please refresh.`);
         return;
       }
 
@@ -369,7 +369,7 @@ export default function UnifiedEventForm({
     } finally {
       setIsSaving(false);
     }
-  }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave, showError, showWarning]);
+  }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave, showError]);
 
   // Keep refs in sync with save functions (prevents stale closures without causing useEffect loops)
   handleSubmitRef.current = handleSubmit;

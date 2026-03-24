@@ -5,7 +5,6 @@
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import * as Sentry from '@sentry/react';
-import { normalizeError } from '../services/errorReportingService';
 import { logger } from '../utils/logger';
 
 const NotificationContext = createContext(null);
@@ -15,9 +14,7 @@ let criticalErrorCallback = null;
 
 // Notification severities and their configurations
 const SEVERITY_CONFIG = {
-  success: { duration: 3000, autoLog: false },
   info: { duration: 4000, autoLog: false },
-  warning: { duration: 5000, autoLog: false },
   error: { duration: 5000, autoLog: false },
   critical: { duration: 8000, autoLog: true }
 };
@@ -26,7 +23,7 @@ const SEVERITY_CONFIG = {
 function classifyHttpError(status) {
   if (status >= 500) return 'critical';
   if (status === 0) return 'critical'; // Network error
-  if (status === 401 || status === 403) return 'warning';
+  if (status === 401 || status === 403) return 'error';
   if (status >= 400) return 'error';
   return 'error';
 }
@@ -112,40 +109,6 @@ export function NotificationProvider({ children }) {
     return id;
   }, [removeNotification]);
 
-  // Show a generic notification
-  // Supports both (message, options) and (message, severity_string) signatures
-  const showNotification = useCallback((message, optionsOrSeverity = {}) => {
-    // Handle legacy (message, type_string) signature
-    const options = typeof optionsOrSeverity === 'string'
-      ? { severity: optionsOrSeverity }
-      : optionsOrSeverity;
-
-    const severity = options.severity || 'info';
-    return addNotification({
-      message,
-      severity,
-      ...options
-    });
-  }, [addNotification]);
-
-  // Show success notification
-  const showSuccess = useCallback((message, options = {}) => {
-    return addNotification({
-      message,
-      severity: 'success',
-      ...options
-    });
-  }, [addNotification]);
-
-  // Show warning notification
-  const showWarning = useCallback((message, options = {}) => {
-    return addNotification({
-      message,
-      severity: 'warning',
-      ...options
-    });
-  }, [addNotification]);
-
   // Show error notification with optional backend logging
   const showError = useCallback((error, options = {}) => {
     const {
@@ -223,9 +186,6 @@ export function NotificationProvider({ children }) {
 
   const value = {
     notifications,
-    showNotification,
-    showSuccess,
-    showWarning,
     showError,
     removeNotification,
     setCriticalErrorCallback

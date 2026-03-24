@@ -24,7 +24,7 @@ import './ReservationRequests.css';
 export default function ReservationRequests({ apiToken, graphToken }) {
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
-  const { showError, showWarning } = useNotification();
+  const { showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -96,7 +96,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       loadReservations();
       if (result?.recurringConflicts?.conflictingOccurrences > 0) {
         const rc = result.recurringConflicts;
-        showWarning(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+        showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
       }
     },
     onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
@@ -452,7 +452,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     if (!selectedEditRequest) return;
 
     if (!editRequestRejectionReason.trim()) {
-      showWarning('Please provide a reason for rejecting the edit request.');
+      showError('Please provide a reason for rejecting the edit request.');
       return;
     }
 
@@ -680,7 +680,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
 
     if (!modalEditRequestRejectionReason.trim()) {
-      showWarning('Please provide a reason for rejecting the edit request.');
+      showError('Please provide a reason for rejecting the edit request.');
       return;
     }
 
@@ -726,7 +726,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsRejectingEditRequestInModal(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError, showWarning]);
+  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -750,7 +750,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     if (!targetReservation) {
       logger.error('[ReservationRequests] Could not find reservation with ID:', reservationId);
-      showWarning('Could not find the selected reservation. It may have been deleted.');
+      showError('Could not find the selected reservation. It may have been deleted.');
       return;
     }
 
