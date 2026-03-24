@@ -829,6 +829,12 @@ function createTestApp(options = {}) {
         if (req.body.isOffsite !== undefined) overrideFields.isOffsite = req.body.isOffsite;
         if (req.body.offsiteName !== undefined) overrideFields.offsiteName = req.body.offsiteName;
         if (req.body.offsiteAddress !== undefined) overrideFields.offsiteAddress = req.body.offsiteAddress;
+        // Additional trackable fields
+        if (req.body.attendeeCount !== undefined) overrideFields.attendeeCount = req.body.attendeeCount;
+        if (req.body.eventNotes !== undefined) overrideFields.eventNotes = req.body.eventNotes;
+        if (req.body.setupNotes !== undefined) overrideFields.setupNotes = req.body.setupNotes;
+        if (req.body.doorNotes !== undefined) overrideFields.doorNotes = req.body.doorNotes;
+        if (req.body.specialRequirements !== undefined) overrideFields.specialRequirements = req.body.specialRequirements;
 
         // Handle locations
         const rawLocations = req.body.requestedRooms || req.body.locations;
@@ -3562,6 +3568,16 @@ function createTestApp(options = {}) {
         if (updates.categories !== undefined) overrideFields.categories = updates.categories;
         if (updates.services !== undefined) overrideFields.services = updates.services;
         if (updates.assignedTo !== undefined) overrideFields.assignedTo = updates.assignedTo;
+        // Offsite fields (align with draft handler)
+        if (updates.isOffsite !== undefined) overrideFields.isOffsite = updates.isOffsite;
+        if (updates.offsiteName !== undefined) overrideFields.offsiteName = updates.offsiteName;
+        if (updates.offsiteAddress !== undefined) overrideFields.offsiteAddress = updates.offsiteAddress;
+        // Additional trackable fields
+        if (updates.attendeeCount !== undefined) overrideFields.attendeeCount = updates.attendeeCount;
+        if (updates.eventNotes !== undefined) overrideFields.eventNotes = updates.eventNotes;
+        if (updates.setupNotes !== undefined) overrideFields.setupNotes = updates.setupNotes;
+        if (updates.doorNotes !== undefined) overrideFields.doorNotes = updates.doorNotes;
+        if (updates.specialRequirements !== undefined) overrideFields.specialRequirements = updates.specialRequirements;
 
         // Handle locations
         const rawLocations = updates.requestedRooms || updates.locations;

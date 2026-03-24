@@ -586,6 +586,13 @@ export default function RecurrenceTabContent({
         const ids = formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [];
         return ids.map(id => getLocationName(id)).join(', ');
       })(),
+      services: formData?.services || reservation?.calendarData?.services || {},
+      assignedTo: formData?.assignedTo || reservation?.calendarData?.assignedTo || '',
+      attendeeCount: formData?.attendeeCount || reservation?.calendarData?.attendeeCount || 0,
+      eventNotes: formData?.eventNotes || reservation?.calendarData?.eventNotes || '',
+      setupNotes: formData?.setupNotes || reservation?.calendarData?.setupNotes || '',
+      doorNotes: formData?.doorNotes || reservation?.calendarData?.doorNotes || '',
+      specialRequirements: formData?.specialRequirements || reservation?.calendarData?.specialRequirements || '',
     };
     return masterSources[field] ?? '';
   }, [occurrenceEdits, overridesByDate, formData, reservation, getLocationName]);
@@ -600,7 +607,7 @@ export default function RecurrenceTabContent({
     const override = overridesByDate[dateStr];
     if (override) {
       const edits = {};
-      for (const field of ['eventTitle', 'eventDescription', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime', 'categories', 'locations', 'locationDisplayNames']) {
+      for (const field of ['eventTitle', 'eventDescription', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime', 'doorOpenTime', 'doorCloseTime', 'categories', 'locations', 'locationDisplayNames', 'services', 'assignedTo', 'attendeeCount', 'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements']) {
         if (override[field] !== undefined) edits[field] = override[field];
       }
       setOccurrenceEdits(edits);

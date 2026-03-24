@@ -1,5 +1,5 @@
 /**
- * Draft Occurrence Edit Tests (DOE-1 to DOE-7)
+ * Draft Occurrence Edit Tests (DOE-1 to DOE-9)
  *
  * Tests per-occurrence editing of draft recurring events:
  * - thisEvent scope writes to occurrenceOverrides without touching recurrence/eventType
@@ -8,6 +8,7 @@
  * - Occurrence date validation against series range
  * - Multiple thisEvent edits accumulate correctly
  * - Calendar load normalizer promotes recurrence to top level
+ * - DOE-8, DOE-9: New trackable override fields
  */
 
 const request = require('supertest');
@@ -361,6 +362,64 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-7)', () => {
       expect(found.recurrence.pattern.type).toBe('daily');
       expect(found.recurrence.range.startDate).toBe('2026-03-11');
       expect(found.recurrence.range.endDate).toBe('2026-03-13');
+    });
+  });
+
+  describe('DOE-8: thisEvent save with attendeeCount stores in override', () => {
+    it('should store attendeeCount in override', async () => {
+      const draft = createRecurringDraft();
+      await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          attendeeCount: 25,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.attendeeCount).toBe(25);
+    });
+  });
+
+  describe('DOE-9: thisEvent save with note and offsite fields stores in override', () => {
+    it('should store eventNotes, setupNotes, doorNotes, specialRequirements, and offsite fields', async () => {
+      const draft = createRecurringDraft();
+      await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          eventNotes: 'Draft event notes',
+          setupNotes: 'Need extra tables',
+          doorNotes: 'Front entrance only',
+          specialRequirements: 'Projector needed',
+          isOffsite: true,
+          offsiteName: 'Park Pavilion',
+          offsiteAddress: '100 Park Ave',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.eventNotes).toBe('Draft event notes');
+      expect(override.setupNotes).toBe('Need extra tables');
+      expect(override.doorNotes).toBe('Front entrance only');
+      expect(override.specialRequirements).toBe('Projector needed');
+      expect(override.isOffsite).toBe(true);
+      expect(override.offsiteName).toBe('Park Pavilion');
+      expect(override.offsiteAddress).toBe('100 Park Ave');
     });
   });
 });

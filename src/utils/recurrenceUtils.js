@@ -586,3 +586,26 @@ export function formatRecurrenceSummaryEnhanced(pattern, range, additions = [], 
     seriesRange
   };
 }
+
+/**
+ * Extract override fields for a specific occurrence date from the overrides array.
+ * Used by save paths to merge occurrence-specific values into the request body
+ * as top-level fields (backend reads override values from top-level updates.*).
+ *
+ * @param {string} occurrenceDate - The occurrence date (YYYY-MM-DD or datetime string)
+ * @param {Array} occurrenceOverrides - Array of override objects with occurrenceDate keys
+ * @returns {Object} Flat object of override fields (excludes occurrenceDate itself)
+ */
+export function extractOccurrenceOverrideFields(occurrenceDate, occurrenceOverrides) {
+  if (!occurrenceDate || !Array.isArray(occurrenceOverrides)) return {};
+  const dateKey = occurrenceDate.split('T')[0];
+  const match = occurrenceOverrides.find(o => o.occurrenceDate === dateKey);
+  if (!match) return {};
+
+  const fields = {};
+  for (const [key, value] of Object.entries(match)) {
+    if (key === 'occurrenceDate') continue;
+    if (value !== undefined) fields[key] = value;
+  }
+  return fields;
+}

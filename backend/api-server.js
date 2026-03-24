@@ -13889,6 +13889,12 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (isOffsite !== undefined) overrideFields.isOffsite = isOffsite;
       if (offsiteName !== undefined) overrideFields.offsiteName = offsiteName;
       if (offsiteAddress !== undefined) overrideFields.offsiteAddress = offsiteAddress;
+      // Additional trackable fields
+      if (attendeeCount !== undefined) overrideFields.attendeeCount = attendeeCount;
+      if (eventNotes !== undefined) overrideFields.eventNotes = eventNotes;
+      if (setupNotes !== undefined) overrideFields.setupNotes = setupNotes;
+      if (doorNotes !== undefined) overrideFields.doorNotes = doorNotes;
+      if (specialRequirements !== undefined) overrideFields.specialRequirements = specialRequirements;
 
       // Remove existing override for this date (if any), then add new one
       await unifiedEventsCollection.updateOne(
@@ -21097,6 +21103,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       if (updates.categories !== undefined) overrideFields.categories = updates.categories;
       if (updates.services !== undefined) overrideFields.services = updates.services;
       if (updates.assignedTo !== undefined) overrideFields.assignedTo = updates.assignedTo;
+      // Offsite fields (align with draft handler)
+      if (updates.isOffsite !== undefined) overrideFields.isOffsite = updates.isOffsite;
+      if (updates.offsiteName !== undefined) overrideFields.offsiteName = updates.offsiteName;
+      if (updates.offsiteAddress !== undefined) overrideFields.offsiteAddress = updates.offsiteAddress;
+      // Additional trackable fields
+      if (updates.attendeeCount !== undefined) overrideFields.attendeeCount = updates.attendeeCount;
+      if (updates.eventNotes !== undefined) overrideFields.eventNotes = updates.eventNotes;
+      if (updates.setupNotes !== undefined) overrideFields.setupNotes = updates.setupNotes;
+      if (updates.doorNotes !== undefined) overrideFields.doorNotes = updates.doorNotes;
+      if (updates.specialRequirements !== undefined) overrideFields.specialRequirements = updates.specialRequirements;
 
       // Handle locations: convert requestedRooms/locations to ObjectIds + display names
       const rawLocations = updates.requestedRooms || updates.locations;

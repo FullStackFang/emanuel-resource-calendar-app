@@ -1,9 +1,10 @@
 /**
- * Admin Occurrence Edit Tests (AOE-1 to AOE-13)
+ * Admin Occurrence Edit Tests (AOE-1 to AOE-16)
  *
  * Tests per-occurrence editing via PUT /api/admin/events/:id with editScope='thisEvent':
  * AOE-1 to AOE-7: Core occurrence override CRUD
  * AOE-8 to AOE-13: Addition occurrence Graph sync (exceptionEventIds fast-path)
+ * AOE-14 to AOE-16: New trackable override fields (offsite, attendeeCount, notes)
  */
 
 const request = require('supertest');
@@ -564,6 +565,85 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
       expect(updateCalls).toHaveLength(1);
       expect(updateCalls[0].eventId).toBe('AAMkInstance0319');
       expect(updateCalls[0].eventData.subject).toBe('Modified Regular Occurrence');
+    });
+  });
+
+  describe('AOE-14: thisEvent save with offsite fields stores in override', () => {
+    it('should store isOffsite, offsiteName, offsiteAddress in override', async () => {
+      const master = createTestSeriesMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          isOffsite: true,
+          offsiteName: 'Central Park',
+          offsiteAddress: '59th St & 5th Ave',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.isOffsite).toBe(true);
+      expect(override.offsiteName).toBe('Central Park');
+      expect(override.offsiteAddress).toBe('59th St & 5th Ave');
+    });
+  });
+
+  describe('AOE-15: thisEvent save with attendeeCount stores in override', () => {
+    it('should store attendeeCount in override', async () => {
+      const master = createTestSeriesMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          attendeeCount: 50,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.attendeeCount).toBe(50);
+    });
+  });
+
+  describe('AOE-16: thisEvent save with note fields stores in override', () => {
+    it('should store eventNotes, setupNotes, doorNotes, specialRequirements in override', async () => {
+      const master = createTestSeriesMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          eventNotes: 'Special event notes',
+          setupNotes: 'Extra chairs needed',
+          doorNotes: 'Use side entrance',
+          specialRequirements: 'AV equipment required',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.eventNotes).toBe('Special event notes');
+      expect(override.setupNotes).toBe('Extra chairs needed');
+      expect(override.doorNotes).toBe('Use side entrance');
+      expect(override.specialRequirements).toBe('AV equipment required');
     });
   });
 });

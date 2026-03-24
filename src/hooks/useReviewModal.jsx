@@ -1,6 +1,7 @@
 // src/hooks/useReviewModal.jsx
 import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
+import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
 import APP_CONFIG from '../config/config';
 
 /**
@@ -392,11 +393,27 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Remove requestedRooms to avoid confusion (locations is the single source of truth)
       delete bodyData.requestedRooms;
 
+      // Save occurrence overrides before deletion (needed for thisEvent merge below)
+      const savedOverrides = editScope === 'thisEvent'
+        ? (editableData.occurrenceOverrides || [])
+        : [];
+
       // Protect backend-owned fields: eventType, occurrenceOverrides, exceptionEventIds
       // These are managed by publish/draft-submit/occurrence-override endpoints only
       delete bodyData.eventType;
       delete bodyData.occurrenceOverrides;
       delete bodyData.exceptionEventIds;
+
+      // For thisEvent scope, merge occurrence-specific fields into body as top-level props.
+      // Backend reads override values from top-level updates.* (e.g., updates.startTime),
+      // so we must extract them from the overrides array and flatten them into the body.
+      if (editScope === 'thisEvent' && bodyData.occurrenceDate) {
+        const overrideFields = extractOccurrenceOverrideFields(
+          bodyData.occurrenceDate,
+          savedOverrides
+        );
+        Object.assign(bodyData, overrideFields);
+      }
 
       const response = await fetch(endpoint, {
         method: 'PUT',
@@ -1054,6 +1071,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         payload.occurrenceDate = currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0];
         delete payload.recurrence;   // Don't overwrite master's recurrence
         delete payload.eventType;    // Don't overwrite master's eventType
+
+        // Merge occurrence-specific fields from overrides into payload.
+        // Backend reads override values from top-level fields (e.g., updates.startTime).
+        const overrideFields = extractOccurrenceOverrideFields(
+          payload.occurrenceDate,
+          formData.occurrenceOverrides || []
+        );
+        Object.assign(payload, overrideFields);
       } else if (editScope === 'allEvents') {
         payload.editScope = 'allEvents';
         // Only clear occurrence overrides when recurrence pattern/range changes

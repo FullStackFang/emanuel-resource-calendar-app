@@ -5,6 +5,7 @@ import { useNotification } from '../context/NotificationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
+import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
@@ -238,6 +239,17 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
       delete updatedData.requestedRooms;  // Remove old field name
+
+      // For thisEvent scope, merge occurrence-specific fields AFTER deletes.
+      // Backend reads startTime/endTime from top-level updates.*, so these must
+      // be re-added from the matching occurrence override.
+      if (editScope === 'thisEvent' && updatedData.occurrenceDate) {
+        const overrideFields = extractOccurrenceOverrideFields(
+          updatedData.occurrenceDate,
+          occurrenceOverridesRef.current || []
+        );
+        Object.assign(updatedData, overrideFields);
+      }
 
       logger.debug('Saving event', { reservationId: reservation._id });
 
