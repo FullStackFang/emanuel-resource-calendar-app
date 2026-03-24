@@ -276,7 +276,7 @@ function App() {
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
-              <Navigation apiToken={apiToken} />
+              <Navigation />
               <Suspense fallback={<AppSkeleton />}>
                 <Routes>
                   <Route path="/" element={
@@ -309,7 +309,7 @@ function App() {
                   <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                   <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
-                  <Route path="/admin/events" element={<EventManagement apiToken={apiToken} />} />
+                  <Route path="/admin/events" element={<EventManagement />} />
                   <Route path="/admin/rsched-mapper" element={<RSchedMapper apiToken={apiToken} />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

@@ -7,11 +7,23 @@ const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 class UnifiedEventService {
   constructor() {
     this.apiToken = null;
+    this._getToken = null;
+    this._onTokenExpired = null;
   }
 
-  // Set the API token for authenticated requests
+  // Set the API token for authenticated requests (legacy — prefer setTokenGetter)
   setApiToken(token) {
     this.apiToken = token;
+  }
+
+  // Set a token-getter function that always returns the freshest token (e.g., AuthContext.getApiToken)
+  setTokenGetter(fn) {
+    this._getToken = fn;
+  }
+
+  // Set a handler called on 401 to refresh the token; should return fresh token or null
+  setOnTokenExpired(handler) {
+    this._onTokenExpired = handler;
   }
 
   // Deprecated: Graph token is no longer needed - backend uses app-only auth
@@ -21,15 +33,36 @@ class UnifiedEventService {
     // Users no longer need individual calendar permissions
   }
 
-  // Get authorization headers
+  // Get the current token, preferring the getter (always fresh) over the static field
+  _getCurrentToken() {
+    return this._getToken ? this._getToken() : this.apiToken;
+  }
+
+  // Get authorization headers using the freshest available token
   getAuthHeaders() {
-    if (!this.apiToken) {
+    const token = this._getCurrentToken();
+    if (!token) {
       throw new Error('API token not set');
     }
     return {
-      'Authorization': `Bearer ${this.apiToken}`,
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
     };
+  }
+
+  // Fetch wrapper with automatic 401 retry via token refresh
+  async _fetchWithRetry(url, options) {
+    const response = await fetch(url, options);
+    if (response.status !== 401 || !this._onTokenExpired) {
+      return response;
+    }
+    // Token expired — request a fresh one and retry once
+    logger.debug('UnifiedEventService: Got 401, attempting token refresh');
+    const freshToken = await this._onTokenExpired();
+    if (!freshToken) return response;
+
+    const retryHeaders = { ...options.headers, Authorization: `Bearer ${freshToken}` };
+    return fetch(url, { ...options, headers: retryHeaders });
   }
 
   /**
@@ -64,7 +97,7 @@ class UnifiedEventService {
 
       const headers = this.getAuthHeaders();
 
-      const response = await fetch(`${API_BASE_URL}/events/load`, {
+      const response = await this._fetchWithRetry(`${API_BASE_URL}/events/load`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify(requestBody)
@@ -115,7 +148,7 @@ class UnifiedEventService {
       if (startTime) queryParams.append('startTime', startTime);
       if (endTime) queryParams.append('endTime', endTime);
 
-      const response = await fetch(`${API_BASE_URL}/events?${queryParams}`, {
+      const response = await this._fetchWithRetry(`${API_BASE_URL}/events?${queryParams}`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -177,7 +210,7 @@ class UnifiedEventService {
   async updateEventInternalData(eventId, internalData) {
     try {
       // This endpoint will need to be implemented to update internal data in unified collection
-      const response = await fetch(`${API_BASE_URL}/events/${eventId}/internal`, {
+      const response = await this._fetchWithRetry(`${API_BASE_URL}/events/${eventId}/internal`, {
         method: 'PATCH',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({ internalData: internalData })
@@ -208,7 +241,7 @@ class UnifiedEventService {
    */
   async getSyncStats() {
     try {
-      const response = await fetch(`${API_BASE_URL}/events/sync-stats`, {
+      const response = await this._fetchWithRetry(`${API_BASE_URL}/events/sync-stats`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });

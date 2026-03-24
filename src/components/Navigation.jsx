@@ -3,15 +3,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { usePolling } from '../hooks/usePolling';
+import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
+import { useAuth } from '../context/AuthContext';
 import APP_CONFIG from '../config/config';
 import './Navigation.css';
 
-export default function Navigation({ apiToken }) {
+export default function Navigation() {
   const {
     canSubmitReservation,
     canApproveReservations,
     isAdmin
   } = usePermissions();
+  const { apiToken } = useAuth();
+  const authFetch = useAuthenticatedFetch();
   const [adminExpanded, setAdminExpanded] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [approvalCount, setApprovalCount] = useState(0);
@@ -19,22 +23,18 @@ export default function Navigation({ apiToken }) {
   const dropdownRef = useRef(null);
 
   // Fetch all badge counts sequentially to avoid Cosmos DB rate limiting
+  // Uses authFetch for automatic 401 retry with token refresh
   const fetchBadgeCounts = useCallback(async () => {
-    if (!apiToken) return;
     try {
       if (canSubmitReservation) {
-        const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=my-events`, {
-          headers: { 'Authorization': `Bearer ${apiToken}` }
-        });
+        const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=my-events`);
         if (res.ok) {
           const data = await res.json();
           setPendingCount(data.pending || 0);
         }
       }
       if (canApproveReservations) {
-        const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`, {
-          headers: { 'Authorization': `Bearer ${apiToken}` }
-        });
+        const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`);
         if (res.ok) {
           const data = await res.json();
           setApprovalCount((data.pending || 0) + (data.published_edit || 0));
@@ -43,12 +43,13 @@ export default function Navigation({ apiToken }) {
     } catch (err) {
       // Silently fail - badges just won't show
     }
-  }, [apiToken, canSubmitReservation, canApproveReservations]);
+  }, [authFetch, canSubmitReservation, canApproveReservations]);
 
   // Fetch on mount + when permissions resolve + on navigation
   useEffect(() => {
+    if (!apiToken) return;
     fetchBadgeCounts();
-  }, [fetchBadgeCounts, location.pathname]);
+  }, [fetchBadgeCounts, apiToken, location.pathname]);
 
   // Poll badges every 2 min
   usePolling(fetchBadgeCounts, 120_000, !!apiToken && (canSubmitReservation || canApproveReservations));

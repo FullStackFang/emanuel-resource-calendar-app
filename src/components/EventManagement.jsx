@@ -3,6 +3,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import { useRooms } from '../context/LocationContext';
+import { useAuth } from '../context/AuthContext';
+import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import DatePickerInput from './DatePickerInput';
 import { usePolling } from '../hooks/usePolling';
 import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
@@ -59,10 +61,12 @@ function formatTime(timeStr) {
   }
 }
 
-export default function EventManagement({ apiToken }) {
+export default function EventManagement() {
   const { isAdmin } = usePermissions();
   const { showSuccess, showError } = useNotification();
   const { getRoomName } = useRooms();
+  const { apiToken } = useAuth();
+  const authFetch = useAuthenticatedFetch();
 
   // Data state
   const [events, setEvents] = useState([]);
@@ -93,24 +97,20 @@ export default function EventManagement({ apiToken }) {
   const searchTimeoutRef = useRef(null);
   const debouncedSearchRef = useRef('');
 
-  // Fetch counts
+  // Fetch counts (uses authFetch for automatic 401 retry with token refresh)
   const fetchCounts = useCallback(async () => {
-    if (!apiToken) return;
     try {
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`, {
-        headers: { Authorization: `Bearer ${apiToken}` }
-      });
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
       if (res.ok) {
         setCounts(await res.json());
       }
     } catch {
       // Silently fail
     }
-  }, [apiToken]);
+  }, [authFetch]);
 
-  // Fetch events
+  // Fetch events (uses authFetch for automatic 401 retry with token refresh)
   const fetchEvents = useCallback(async () => {
-    if (!apiToken) return;
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -122,9 +122,7 @@ export default function EventManagement({ apiToken }) {
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
 
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`, {
-        headers: { Authorization: `Bearer ${apiToken}` }
-      });
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`);
       if (res.ok) {
         const data = await res.json();
         setEvents(data.events || []);
@@ -137,25 +135,24 @@ export default function EventManagement({ apiToken }) {
     } finally {
       setLoading(false);
     }
-  }, [apiToken, page, activeTab, startDate, endDate, showError]);
+  }, [authFetch, page, activeTab, startDate, endDate, showError]);
 
   // Initial load
   useEffect(() => {
+    if (!apiToken) return;
     fetchCounts();
-  }, [fetchCounts]);
+  }, [fetchCounts, apiToken]);
 
   useEffect(() => {
+    if (!apiToken) return;
     fetchEvents();
-  }, [fetchEvents]);
+  }, [fetchEvents, apiToken]);
 
   // Poll for updates every 90s (silent — no loading spinner)
   const silentRefresh = useCallback(async () => {
-    if (!apiToken) return;
     try {
       // Refresh counts silently
-      const countRes = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`, {
-        headers: { Authorization: `Bearer ${apiToken}` }
-      });
+      const countRes = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
       if (countRes.ok) setCounts(await countRes.json());
 
       // Refresh events silently (no setLoading)
@@ -168,9 +165,7 @@ export default function EventManagement({ apiToken }) {
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
 
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`, {
-        headers: { Authorization: `Bearer ${apiToken}` }
-      });
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`);
       if (res.ok) {
         const data = await res.json();
         setEvents(data.events || []);
@@ -181,7 +176,7 @@ export default function EventManagement({ apiToken }) {
     } catch {
       // Silently fail on poll errors
     }
-  }, [apiToken, page, activeTab, startDate, endDate]);
+  }, [authFetch, page, activeTab, startDate, endDate]);
   usePolling(silentRefresh, 90_000, !!apiToken);
 
   // Listen for refresh events from other views
@@ -285,12 +280,9 @@ export default function EventManagement({ apiToken }) {
     try {
       setDeletingId(eventId);
       setConfirmDeleteId(null);
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}`, {
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _version: event._version }),
       });
 
@@ -334,12 +326,9 @@ export default function EventManagement({ apiToken }) {
     try {
       setRestoringId(eventId);
       setConfirmRestoreId(null);
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/restore`, {
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/restore`, {
         method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _version: event._version, forceRestore }),
       });
 

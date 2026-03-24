@@ -1,6 +1,8 @@
   // src/components/Calendar.jsx
   import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-  import { msalConfig } from '../config/authConfig';
+  import { apiRequest } from '../config/authConfig';
+  import { useMsal } from '@azure/msal-react';
+  import { useAuth } from '../context/AuthContext';
   import Modal from './Modal';
   import EventForm from './EventForm';
   import MultiSelect from './MultiSelect';
@@ -111,6 +113,34 @@ import ConflictDialog from './shared/ConflictDialog';
     setChangingCalendar,
     showRegistrationTimes: showRegistrationTimesProp
   }) {
+    //---------------------------------------------------------------------------
+    // AUTH — wire unifiedEventService to always use freshest token + 401 retry
+    //---------------------------------------------------------------------------
+    const { instance } = useMsal();
+    const { getApiToken, setApiToken: setAuthApiToken } = useAuth();
+
+    useEffect(() => {
+      // Token-getter: service reads fresh token from AuthContext ref on every request
+      unifiedEventService.setTokenGetter(getApiToken);
+
+      // 401 retry handler: refresh via MSAL and return fresh token
+      unifiedEventService.setOnTokenExpired(async () => {
+        const accounts = instance.getAllAccounts();
+        if (accounts.length === 0) return null;
+        try {
+          const response = await instance.acquireTokenSilent({
+            ...apiRequest,
+            account: accounts[0],
+            forceRefresh: true
+          });
+          setAuthApiToken(response.accessToken);
+          return response.accessToken;
+        } catch {
+          return null;
+        }
+      });
+    }, [instance, getApiToken, setAuthApiToken]);
+
     //---------------------------------------------------------------------------
     // STATE MANAGEMENT
     //---------------------------------------------------------------------------
@@ -1723,11 +1753,9 @@ import ConflictDialog from './shared/ConflictDialog';
         const dateRangeStr = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
         logger.debug(`Loading calendars: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
 
-        // Initialize services with API token
-        // Note: Graph token is no longer needed - backend uses app-only auth
-        unifiedEventService.setApiToken(apiToken);
-        unifiedEventService.setGraphToken(graphToken); // Kept for backward compatibility
-        setGraphServiceApiToken(apiToken); // Initialize graphService for linked events
+        // Initialize graphService for linked events
+        // Note: unifiedEventService token is handled via setTokenGetter (always fresh from AuthContext ref)
+        setGraphServiceApiToken(apiToken);
 
         // Get calendarOwners (email addresses) for the selected calendars
         const calendarOwners = calendarIds
