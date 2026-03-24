@@ -181,11 +181,12 @@ async function getErrors(filters = {}, pagination = {}) {
   }
 
   if (search) {
+    const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     query.$or = [
-      { message: { $regex: search, $options: 'i' } },
-      { userDescription: { $regex: search, $options: 'i' } },
-      { correlationId: { $regex: search, $options: 'i' } },
-      { 'userContext.email': { $regex: search, $options: 'i' } }
+      { message: { $regex: escapedSearch, $options: 'i' } },
+      { userDescription: { $regex: escapedSearch, $options: 'i' } },
+      { correlationId: { $regex: escapedSearch, $options: 'i' } },
+      { 'userContext.email': { $regex: escapedSearch, $options: 'i' } }
     ];
   }
 

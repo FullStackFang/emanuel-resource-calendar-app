@@ -859,8 +859,9 @@ import ConflictDialog from './shared/ConflictDialog';
             newStart = new Date(earliestEvent);
           }
           
-          const newEnd = calculateEndDate(newStart, viewType);
-          setDateRange({ start: newStart, end: newEnd });
+          // Navigate calendar to the earliest event date
+          // dateRange is a useMemo derived from currentDate, so setting currentDate recalculates it
+          setCurrentDate(newStart);
           
           // alert(`Successfully loaded ${transformedEvents.length} events. Calendar navigated to show events starting from ${earliestEvent.toLocaleDateString()}`);
         } else {
@@ -3708,11 +3709,9 @@ import ConflictDialog from './shared/ConflictDialog';
       startNavigation();
 
       // Set calendar to day view centered on the event date
+      // dateRange is a useMemo derived from currentDate, so setting currentDate recalculates it
       setViewType('day');
-      setDateRange({
-        start: eventDate,
-        end: calculateEndDate(eventDate, 'day')
-      });
+      setCurrentDate(eventDate);
 
       // Only open the edit form if not viewOnly
       if (!viewOnly) {
@@ -7040,12 +7039,8 @@ import ConflictDialog from './shared/ConflictDialog';
                 newStart = currentStartDate;
               }
 
-              const newEnd = calculateEndDate(newStart, 'week');
-
-              setDateRange({
-                start: newStart,
-                end: newEnd
-              });
+              // dateRange is a useMemo derived from currentDate, so setting currentDate recalculates it
+              setCurrentDate(newStart);
             }
           }}
           selectedCalendarId={selectedCalendarId}

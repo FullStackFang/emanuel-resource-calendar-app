@@ -2844,6 +2844,20 @@ app.get('/api/graph/status', verifyToken, async (req, res) => {
 });
 
 /**
+ * Validate that a calendar owner email is in the allowlist.
+ * Prevents IDOR: any authenticated user could otherwise read/write any tenant mailbox
+ * because the backend holds tenant-wide app-only Graph API permissions.
+ */
+function isAllowedCalendarOwner(email) {
+  if (!email) return false;
+  const allowed = [
+    CALENDAR_CONFIG.SANDBOX_CALENDAR.toLowerCase(),
+    CALENDAR_CONFIG.PRODUCTION_CALENDAR.toLowerCase()
+  ];
+  return allowed.includes(email.toLowerCase());
+}
+
+/**
  * Get calendars for a user/shared mailbox
  * Used by frontend to list available calendars
  */
@@ -2853,6 +2867,10 @@ app.get('/api/graph/calendars', verifyToken, async (req, res) => {
 
     if (!userId) {
       return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     const calendars = await graphApiService.getCalendars(userId);
@@ -2875,6 +2893,10 @@ app.get('/api/graph/calendars/search', verifyToken, async (req, res) => {
 
     if (!email) {
       return res.status(400).json({ error: 'email query parameter is required' });
+    }
+
+    if (!isAllowedCalendarOwner(email)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     const calendars = await graphApiService.getCalendars(email);
@@ -2900,6 +2922,10 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
     }
     if (!startDateTime || !endDateTime) {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
+    }
+
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     // Get events from Graph API (published events)
@@ -3027,6 +3053,10 @@ app.post('/api/graph/events', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'eventData is required in request body' });
     }
 
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
+    }
+
     const event = await graphApiService.createCalendarEvent(
       userId,
       calendarId || null,
@@ -3065,6 +3095,10 @@ app.patch('/api/graph/events/:eventId', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'eventData is required in request body' });
     }
 
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
+    }
+
     const event = await graphApiService.updateCalendarEvent(
       userId,
       calendarId || null,
@@ -3098,6 +3132,10 @@ app.delete('/api/graph/events/:eventId', verifyToken, async (req, res) => {
 
     if (!userId) {
       return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     await graphApiService.deleteCalendarEvent(userId, calendarId || null, eventId);
@@ -3159,6 +3197,10 @@ app.post('/api/graph/events/linked', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'mainEventData and registrationEventData are required' });
     }
 
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
+    }
+
     const result = await graphApiService.createLinkedEvents(
       userId,
       mainEventData,
@@ -3195,6 +3237,10 @@ app.get('/api/graph/events/:eventId/linked', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'userId query parameter is required' });
     }
 
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
+    }
+
     const linkedEvent = await graphApiService.findLinkedEvent(userId, eventId, calendarId || null);
 
     if (!linkedEvent) {
@@ -3223,6 +3269,10 @@ app.patch('/api/graph/events/:eventId/linked', verifyToken, async (req, res) => 
     }
     if (!eventData) {
       return res.status(400).json({ error: 'eventData is required' });
+    }
+
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     const result = await graphApiService.updateLinkedEvent(
@@ -3264,6 +3314,10 @@ app.delete('/api/graph/events/:eventId/linked', verifyToken, async (req, res) =>
 
     if (!userId) {
       return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    if (!isAllowedCalendarOwner(userId)) {
+      return res.status(403).json({ error: 'Access to this mailbox is not permitted' });
     }
 
     const success = await graphApiService.deleteLinkedEvent(userId, eventId, calendarId || null);
@@ -3617,6 +3671,12 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
     
     if (result.matchedCount === 0) {
       // Event doesn't exist in unified DB, create it with minimal data
+      // Apply the same allowedFields whitelist to the upsert path
+      const safeUpdates = {};
+      allowedFields.forEach(field => {
+        if (field in updates) safeUpdates[field] = updates[field];
+      });
+
       const newEvent = {
         eventId: graphEventId,
         userId: req.user.userId,
@@ -3647,7 +3707,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
           setupStatus: 'pending',
           estimatedCost: null,
           actualCost: null,
-          ...updates // Apply the updates
+          ...safeUpdates // Apply only whitelisted fields
         },
         sourceCalendars: [],
         isDeleted: false,
@@ -5079,6 +5139,12 @@ function getCalendarOwnerFromConfig(calendarId) {
  */
 async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null, roleInfo = null) {
   try {
+    // Guard against null calendarOwner — the default is null but we require it
+    if (!calendarOwner) {
+      logger.warn('getUnifiedEvents called with no calendarOwner, returning empty');
+      return [];
+    }
+
     // Simple query using top-level fields only (no complex $or conditions)
     // Filter out deleted events and non-displayable statuses
     // Use case-insensitive regex for calendarOwner as a safety net for mixed-case stored values
@@ -7689,9 +7755,12 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
 
         if (reservation) {
           // Check if user is admin or requester
-          const user = await usersCollection.findOne({ email: userId });
-          const isAdminUser = isAdmin(user, userId);
-          const isRequester = reservation.requesterEmail === userId;
+          // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
+          const userEmail = req.user.email;
+          const user = await usersCollection.findOne({ email: userEmail });
+          const isAdminUser = isAdmin(user, userEmail);
+          const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
+          const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
           hasPermission = isAdminUser || isRequester;
         }
       }
@@ -7771,9 +7840,12 @@ app.post('/api/reservations/:reservationId/attachments', verifyToken, attachment
     }
 
     // Check if user has permission (admin or is the requester)
-    const user = await usersCollection.findOne({ email: userId });
-    const isAdminUser = isAdmin(user, userId);
-    const isRequester = reservation.requesterEmail === userId;
+    // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
+    const userEmail = req.user.email;
+    const user = await usersCollection.findOne({ email: userEmail });
+    const isAdminUser = isAdmin(user, userEmail);
+    const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
+    const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
 
     if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied - you do not have permission to upload attachments to this reservation' });
@@ -7881,9 +7953,12 @@ app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req,
     }
 
     // Check if user has permission (admin or is the requester)
-    const user = await usersCollection.findOne({ email: userId });
-    const isAdminUser = isAdmin(user, userId);
-    const isRequester = reservation.requesterEmail === userId;
+    // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
+    const userEmail = req.user.email;
+    const user = await usersCollection.findOne({ email: userEmail });
+    const isAdminUser = isAdmin(user, userEmail);
+    const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
+    const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
 
     if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied' });
@@ -7941,9 +8016,12 @@ app.delete('/api/reservations/:reservationId/attachments/:attachmentId', verifyT
     }
 
     // Check if user has permission (admin or is the requester)
-    const user = await usersCollection.findOne({ email: userId });
-    const isAdminUser = isAdmin(user, userId);
-    const isRequester = reservation.requesterEmail === userId;
+    // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
+    const userEmail = req.user.email;
+    const user = await usersCollection.findOne({ email: userEmail });
+    const isAdminUser = isAdmin(user, userEmail);
+    const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
+    const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
 
     if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied' });
@@ -8670,7 +8748,8 @@ app.get('/api/audit/recent', verifyToken, async (req, res) => {
       query.changeType = changeType;
     }
     if (source) {
-      query.source = { $regex: source, $options: 'i' };
+      const escapedSource = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.source = { $regex: escapedSource, $options: 'i' };
     }
 
     // Get recent audit entries
@@ -8729,9 +8808,10 @@ app.get('/api/events/by-source', verifyToken, async (req, res) => {
     }
 
     // Build query filter
+    const escapedSource = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const query = {
       userId: userId,
-      source: { $regex: source, $options: 'i' },
+      source: { $regex: escapedSource, $options: 'i' },
       isDeleted: { $ne: true }
     };
 
@@ -12476,9 +12556,16 @@ app.patch('/api/users/current/notification-preferences', verifyToken, async (req
   }
 });
 
-// Get all users - NOW PROTECTED
+// Get all users - ADMIN ONLY
 app.get('/api/users', verifyToken, async (req, res) => {
   try {
+    // Verify caller is admin — this endpoint returns all user PII
+    const callerEmail = req.user.email;
+    const caller = await usersCollection.findOne({ email: callerEmail });
+    if (!isAdmin(caller, callerEmail)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const users = await usersCollection.find({}).toArray();
     res.status(200).json(users);
   } catch (error) {
@@ -12487,9 +12574,15 @@ app.get('/api/users', verifyToken, async (req, res) => {
   }
 });
 
-// Get a specific user - NOW PROTECTED
+// Get a specific user - ADMIN ONLY
 app.get('/api/users/:id', verifyToken, async (req, res) => {
   try {
+    const callerEmail = req.user.email;
+    const caller = await usersCollection.findOne({ email: callerEmail });
+    if (!isAdmin(caller, callerEmail)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const id = req.params.id;
     const user = await usersCollection.findOne({ _id: new ObjectId(id) });
     
