@@ -35,14 +35,13 @@ dotenv.config();
 
 /**
  * Build a case-insensitive MongoDB query for email matching.
- * Escapes regex special characters in the email address.
+ * Emails are stored normalized to lowercase (see migrate-normalize-emails.js).
  * @param {string} email - Email address to match
  * @returns {Object} MongoDB query object
  */
 function emailQuery(email) {
   if (!email) return { email: null };
-  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return { email: { $regex: new RegExp(`^${escaped}$`, 'i') } };
+  return { email: email.toLowerCase() };
 }
 
 /**
@@ -361,6 +360,31 @@ let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 
+// --- In-memory category cache (small, rarely-changing collection) ---
+// Avoids 3-6 DB round-trips per conflict check. Invalidated on category CRUD.
+let _categoryCache = null;
+let _categoryCacheExpiry = 0;
+const CATEGORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedCategories() {
+  const now = Date.now();
+  if (_categoryCache && now < _categoryCacheExpiry) {
+    return _categoryCache;
+  }
+  const docs = await withCosmosRetry(() => categoriesCollection.find({}).toArray());
+  _categoryCache = new Map();
+  for (const doc of docs) {
+    _categoryCache.set(doc.name, doc);
+  }
+  _categoryCacheExpiry = now + CATEGORY_CACHE_TTL;
+  return _categoryCache;
+}
+
+function invalidateCategoryCache() {
+  _categoryCache = null;
+  _categoryCacheExpiry = 0;
+}
+
 /**
  * Create indexes for the event cache collection for optimal performance
  */
@@ -419,16 +443,18 @@ async function createUnifiedEventIndexes() {
       }
     );
 
-    // Index for efficient date range queries
+    // Index A: Conflict check hotpath — covers checkRoomConflicts() query
+    // (status + locations + date range overlap)
     await unifiedEventsCollection.createIndex(
-      { 
-        userId: 1, 
-        calendarId: 1, 
-        "graphData.start.dateTime": 1 
+      {
+        status: 1,
+        'calendarData.locations': 1,
+        'calendarData.startDateTime': 1,
+        'calendarData.endDateTime': 1
       },
-      { 
-        name: "userId_calendarId_startTime",
-        background: true 
+      {
+        name: "conflict_status_locations_dates",
+        background: true
       }
     );
     
@@ -470,30 +496,43 @@ async function createUnifiedEventIndexes() {
       }
     );
 
-    // Index for location filtering in event search
+    // Index B: Calendar view — covers getUnifiedEvents() query
+    // (calendarOwner + isDeleted + date range)
     await unifiedEventsCollection.createIndex(
       {
-        userId: 1,
-        "graphData.location.displayName": 1
+        calendarOwner: 1,
+        isDeleted: 1,
+        'calendarData.startDateTime': 1,
+        'calendarData.endDateTime': 1
       },
       {
-        name: "userId_location_displayName",
+        name: "calendar_view_owner_dates",
         background: true
       }
     );
 
-    // Index for recurring event queries (series masters)
-    // Optimizes queries that filter by event type and recurrence data
+    // Index C: Series master lookup — covers recurring conflict query
     await unifiedEventsCollection.createIndex(
       {
-        userId: 1,
-        "graphData.type": 1,
-        "graphData.recurrence.range.startDate": 1
+        status: 1,
+        eventType: 1,
+        'calendarData.locations': 1
       },
       {
-        name: "userId_recurringType_startDate",
-        background: true,
-        partialFilterExpression: { "graphData.type": "seriesMaster" }
+        name: "conflict_series_masters",
+        background: true
+      }
+    );
+
+    // Index D: Requester email lookup — covers my-events view
+    await unifiedEventsCollection.createIndex(
+      {
+        'roomReservationData.requestedBy.email': 1,
+        status: 1
+      },
+      {
+        name: "requester_email_status",
+        background: true
       }
     );
 
@@ -618,17 +657,10 @@ async function createRoomReservationIndexes() {
       { name: "reservation_status_date", background: true, sparse: true }
     );
 
-    // Compound index for primary calendar view query (calendarOwner + status + date range)
-    await unifiedEventsCollection.createIndex(
-      { calendarOwner: 1, status: 1, startDateTime: 1, endDateTime: 1 },
-      { name: "calendar_view_owner_status_dates", background: true }
-    );
-
-    // Index for finding reservations by room (roomReservationData.requestedRooms)
-    await unifiedEventsCollection.createIndex(
-      { 'roomReservationData.requestedRooms': 1, startDateTime: 1 },
-      { name: "reservation_rooms_datetime", background: true, sparse: true }
-    );
+    // Note: calendar_view_owner_status_dates and reservation_rooms_datetime were removed
+    // — they indexed top-level startDateTime/endDateTime which are not the queried fields.
+    // Replaced by calendar_view_owner_dates and conflict_status_locations_dates indexes
+    // in createUnifiedEventIndexes() which target calendarData.startDateTime/endDateTime.
 
     logger.log('Room reservation indexes created successfully');
   } catch (error) {
@@ -2029,6 +2061,23 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
 }
 
 /**
+ * Projection for conflict-check queries — only fields needed for overlap + concurrency filtering.
+ * Excludes graphData blob, statusHistory, roomReservationData details, etc. to reduce RU cost.
+ */
+const CONFLICT_PROJECTION = {
+  _id: 1, status: 1, eventType: 1, eventTitle: 1,
+  'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
+  'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
+  'calendarData.categories': 1, 'calendarData.eventTitle': 1,
+  'calendarData.setupTimeMinutes': 1, 'calendarData.teardownTimeMinutes': 1,
+  'calendarData.reservationStartMinutes': 1, 'calendarData.reservationEndMinutes': 1,
+  'calendarData.recurrence': 1,
+  recurrence: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
+  categories: 1,
+  'pendingEditRequest.status': 1, 'pendingEditRequest.proposedChanges': 1,
+};
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -2093,30 +2142,53 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       query._id = { $ne: new ObjectId(excludeId) };
     }
 
-    const conflicts = await withCosmosRetry(() => unifiedEventsCollection.find(query).toArray());
+    // --- Round 1: Run 4 independent queries in parallel ---
+    // (Reduces 6 sequential round-trips to 2 rounds for Cosmos DB RU efficiency)
+    const recurringQuery = {
+      status: 'published',
+      eventType: 'seriesMaster',
+      'calendarData.locations': { $in: roomIds },
+    };
+    if (excludeId) {
+      recurringQuery._id = { $ne: new ObjectId(excludeId) };
+    }
 
-    // Also check recurring series masters whose stored dates may not overlap but whose
-    // expanded occurrences do. Query for published seriesMasters sharing the same rooms.
-    try {
-      const recurringQuery = {
-        status: 'published',
-        eventType: 'seriesMaster',
-        'calendarData.locations': { $in: roomIds },
-      };
-      if (excludeId) {
-        recurringQuery._id = { $ne: new ObjectId(excludeId) };
-      }
-      // Exclude events already in the conflicts array
-      const conflictIds = conflicts.map(c => c._id);
-      if (conflictIds.length > 0) {
-        recurringQuery._id = { ...(recurringQuery._id || {}), $nin: conflictIds };
-      }
-      const seriesMasters = await withCosmosRetry(() => unifiedEventsCollection.find(recurringQuery).toArray());
+    const pendingEditQuery = {
+      status: 'published',
+      'pendingEditRequest.status': 'pending',
+      $or: [
+        { 'pendingEditRequest.proposedChanges.locations': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.requestedRooms': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } },
+      ]
+    };
+    if (excludeId) {
+      pendingEditQuery._id = { $ne: new ObjectId(excludeId) };
+    }
 
-      for (const master of seriesMasters) {
+    const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
+
+    // Run 3 independent event queries in parallel + load category cache
+    const [conflicts, seriesMasters, pendingEditEvents, categoryMap] = await Promise.all([
+      withCosmosRetry(() => unifiedEventsCollection.find(query).project(CONFLICT_PROJECTION).toArray()),
+      withCosmosRetry(() => unifiedEventsCollection.find(recurringQuery).project(CONFLICT_PROJECTION).toArray())
+        .catch(recurringError => {
+          logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
+          return [];
+        }),
+      withCosmosRetry(() => unifiedEventsCollection.find(pendingEditQuery).project(CONFLICT_PROJECTION).toArray()),
+      getCachedCategories(),
+    ]);
+
+    // Expand recurring series masters and add overlapping occurrences to conflicts
+    // De-duplicate against conflicts already found by the main query
+    const conflictIdSet = new Set(conflicts.map(c => c._id.toString()));
+    for (const master of seriesMasters) {
+      if (conflictIdSet.has(master._id.toString())) continue; // already in conflicts
+      try {
         const occurrences = expandRecurringOccurrencesInWindow(master, effectiveStart, effectiveEnd);
         for (const occ of occurrences) {
-          // Check time overlap with the candidate event
           if (occ.startDateTime < effectiveEndStr && occ.endDateTime > effectiveStartStr) {
             conflicts.push({
               ...master,
@@ -2126,27 +2198,19 @@ async function checkRoomConflicts(reservation, excludeId = null) {
             break; // One overlap is enough to flag this master as conflicting
           }
         }
+      } catch (recurringError) {
+        logger.warn('Error expanding recurring series (non-fatal):', recurringError.message);
       }
-    } catch (recurringError) {
-      logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
     }
 
-    // Get incoming event's concurrent permission (defaults to false)
+    // Resolve request categories from cache (no DB query needed)
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
-
-    // Get incoming event's categories (for checking against allowed concurrent categories)
-    const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
-
-    // Look up category docs for the incoming request (includes allowedConcurrentCategories rules)
     let requestCategoryIds = [];
-    let requestCategoryAllowedIds = []; // Union of allowedConcurrentCategories from request's categories
-    if (requestCategories.length > 0) {
-      const categoryDocs = await categoriesCollection.find({
-        name: { $in: requestCategories }
-      }).toArray();
-      requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
-      // Collect all category-level concurrent rules for the incoming event
-      for (const doc of categoryDocs) {
+    let requestCategoryAllowedIds = [];
+    const requestCategoryDocs = requestCategories.map(name => categoryMap.get(name)).filter(Boolean);
+    if (requestCategoryDocs.length > 0) {
+      requestCategoryIds = requestCategoryDocs.map(cat => cat._id.toString());
+      for (const doc of requestCategoryDocs) {
         for (const allowedId of (doc.allowedConcurrentCategories || [])) {
           const idStr = allowedId.toString();
           if (!requestCategoryAllowedIds.includes(idStr)) {
@@ -2156,22 +2220,18 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       }
     }
 
-    // Collect all unique category names from conflict events (for category-level rules batch fetch)
-    const allConflictCategoryNames = new Set();
+    // Resolve conflict + pending edit categories from cache (no DB query needed)
+    const conflictCategoryDocsMap = {};
     for (const conflict of conflicts) {
       for (const catName of (conflict.calendarData?.categories || conflict.categories || [])) {
-        allConflictCategoryNames.add(catName);
+        const doc = categoryMap.get(catName);
+        if (doc) conflictCategoryDocsMap[catName] = doc;
       }
     }
-
-    // Batch-fetch category docs for all conflict events (for category-level rules)
-    const conflictCategoryDocsMap = {}; // name -> category doc
-    if (allConflictCategoryNames.size > 0) {
-      const conflictCatDocs = await categoriesCollection.find({
-        name: { $in: [...allConflictCategoryNames] }
-      }).toArray();
-      for (const doc of conflictCatDocs) {
-        conflictCategoryDocsMap[doc.name] = doc;
+    for (const peEvent of pendingEditEvents) {
+      for (const catName of (peEvent.categories || peEvent.calendarData?.categories || [])) {
+        const doc = categoryMap.get(catName);
+        if (doc) conflictCategoryDocsMap[catName] = doc;
       }
     }
 
@@ -2183,13 +2243,11 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         .filter(Boolean);
 
       // --- Category-level bilateral check ---
-      // Check if request's category rules allow any of the conflict's categories
       const requestGrantsConflict = conflictCategoryIds.some(id =>
         requestCategoryAllowedIds.includes(id)
       );
       if (requestGrantsConflict) return false; // NOT a conflict
 
-      // Check if conflict's category rules allow any of the request's categories
       const conflictCategoryAllowedIds = [];
       for (const catName of conflictCategories) {
         const doc = conflictCategoryDocsMap[catName];
@@ -2205,12 +2263,10 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       // --- Per-event fallback (legacy) ---
       const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
 
-      // If BOTH events disallow concurrent, it's always a conflict
       if (!requestAllowsConcurrent && !conflictAllowsConcurrent) {
         return true; // IS a conflict
       }
 
-      // If conflict event allows concurrent, check its per-event category restrictions
       if (conflictAllowsConcurrent) {
         const allowedCategories = conflict.allowedConcurrentCategories || [];
         if (allowedCategories.length === 0) {
@@ -2223,50 +2279,12 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         return !hasMatchingCategory;
       }
 
-      // If incoming event allows concurrent (and existing doesn't restrict), not a conflict
       if (requestAllowsConcurrent) {
         return false; // NOT a conflict
       }
 
       return false; // NOT a conflict
     });
-
-    // --- Pending Edit Request conflict detection ---
-    // Published events with pending edit requests that propose room/time changes
-    // act as hard blocks on the proposed rooms/times.
-    const pendingEditQuery = {
-      status: 'published',
-      'pendingEditRequest.status': 'pending',
-      $or: [
-        { 'pendingEditRequest.proposedChanges.locations': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.requestedRooms': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } },
-      ]
-    };
-    if (excludeId) {
-      pendingEditQuery._id = { $ne: new ObjectId(excludeId) };
-    }
-
-    const pendingEditEvents = await unifiedEventsCollection.find(pendingEditQuery).toArray();
-
-    // Add pending edit categories to the lookup map if not already present
-    const missingPeCategoryNames = new Set();
-    for (const peEvent of pendingEditEvents) {
-      for (const catName of (peEvent.categories || [])) {
-        if (!conflictCategoryDocsMap[catName]) {
-          missingPeCategoryNames.add(catName);
-        }
-      }
-    }
-    if (missingPeCategoryNames.size > 0) {
-      const peCatDocs = await categoriesCollection.find({
-        name: { $in: [...missingPeCategoryNames] }
-      }).toArray();
-      for (const doc of peCatDocs) {
-        conflictCategoryDocsMap[doc.name] = doc;
-      }
-    }
 
     // In-memory filter: check effective (merged) rooms/times against candidate event
     const pendingEditConflicts = [];
@@ -2449,7 +2467,7 @@ async function checkRecurringRoomConflicts(params) {
   }
 
   const potentialConflicts = await withCosmosRetry(() =>
-    unifiedEventsCollection.find(query).toArray()
+    unifiedEventsCollection.find(query).project(CONFLICT_PROJECTION).toArray()
   );
 
   // Also find published series masters sharing rooms (excluding self)
@@ -2462,14 +2480,15 @@ async function checkRecurringRoomConflicts(params) {
     recurringQuery._id = { $ne: new ObjectId(excludeEventId) };
   }
   const existingSeriesMasters = await withCosmosRetry(() =>
-    unifiedEventsCollection.find(recurringQuery).toArray()
+    unifiedEventsCollection.find(recurringQuery).project(CONFLICT_PROJECTION).toArray()
   );
 
-  // Look up category docs for concurrent filtering (includes category-level rules)
+  // Look up category docs from cache for concurrent filtering
+  const categoryMap = await getCachedCategories();
   let requestCategoryIds = [];
   let requestCategoryAllowedIds = [];
   if (categories.length > 0) {
-    const categoryDocs = await categoriesCollection.find({ name: { $in: categories } }).toArray();
+    const categoryDocs = categories.map(name => categoryMap.get(name)).filter(Boolean);
     requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
     for (const doc of categoryDocs) {
       for (const allowedId of (doc.allowedConcurrentCategories || [])) {
@@ -2481,18 +2500,19 @@ async function checkRecurringRoomConflicts(params) {
     }
   }
 
-  // Batch-fetch category docs for all potential conflict events + series masters
-  const allRecurConflictCatNames = new Set();
+  // Resolve conflict event categories from cache (no DB query)
+  const recurConflictCatMap = {};
   for (const c of potentialConflicts) {
-    for (const n of (c.calendarData?.categories || c.categories || [])) allRecurConflictCatNames.add(n);
+    for (const n of (c.calendarData?.categories || c.categories || [])) {
+      const doc = categoryMap.get(n);
+      if (doc) recurConflictCatMap[n] = doc;
+    }
   }
   for (const m of existingSeriesMasters) {
-    for (const n of (m.calendarData?.categories || m.categories || [])) allRecurConflictCatNames.add(n);
-  }
-  const recurConflictCatMap = {};
-  if (allRecurConflictCatNames.size > 0) {
-    const docs = await categoriesCollection.find({ name: { $in: [...allRecurConflictCatNames] } }).toArray();
-    for (const doc of docs) recurConflictCatMap[doc.name] = doc;
+    for (const n of (m.calendarData?.categories || m.categories || [])) {
+      const doc = categoryMap.get(n);
+      if (doc) recurConflictCatMap[n] = doc;
+    }
   }
 
   // Helper: check if a conflict is filtered out by concurrent permissions
@@ -5137,6 +5157,23 @@ function getCalendarOwnerFromConfig(calendarId) {
  * @param {string} roleInfo.role - User's effective role: 'viewer' | 'requester' | 'approver' | 'admin'
  * @param {string} roleInfo.userEmail - User's email for requester matching
  */
+// Projection for calendar view — excludes bulk of graphData (response body, attendees, etc.)
+const CALENDAR_VIEW_PROJECTION = {
+  _id: 1, eventId: 1, userId: 1, calendarId: 1, calendarOwner: 1,
+  status: 1, isDeleted: 1, eventType: 1, seriesMasterId: 1,
+  calendarData: 1, roomReservationData: 1,
+  recurrence: 1, occurrenceOverrides: 1,
+  createdByEmail: 1, createdAt: 1, createdBy: 1,
+  pendingEditRequest: 1, statusHistory: 1, _version: 1,
+  lastModifiedDateTime: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
+  categories: 1, start: 1, end: 1, subject: 1,
+  // Only the graphData subfields actually used downstream
+  'graphData.id': 1, 'graphData.iCalUId': 1,
+  'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
+  'graphData.location': 1, 'graphData.organizer': 1,
+  'graphData.categories': 1, 'graphData.bodyPreview': 1,
+  'graphData.type': 1, 'graphData.seriesMasterId': 1,
+};
 async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null, roleInfo = null) {
   try {
     // Guard against null calendarOwner — the default is null but we require it
@@ -5145,13 +5182,11 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       return [];
     }
 
-    // Simple query using top-level fields only (no complex $or conditions)
-    // Filter out deleted events and non-displayable statuses
-    // Use case-insensitive regex for calendarOwner as a safety net for mixed-case stored values
-    const escapedOwner = calendarOwner.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Simple query using top-level fields only
+    // calendarOwner is stored normalized to lowercase (see migrate-normalize-emails.js)
     const query = {
       isDeleted: { $ne: true },
-      calendarOwner: { $regex: new RegExp(`^${escapedOwner}$`, 'i') }
+      calendarOwner: calendarOwner.toLowerCase()
     };
 
     // Role-aware status filtering for pending events
@@ -5256,7 +5291,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
 
     logger.debug('Calendar events query:', JSON.stringify(query));
 
-    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).toArray()))
+    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).project(CALENDAR_VIEW_PROJECTION).toArray()))
       .filter(event => {
         // Exclude incomplete drafts that can't be rendered on calendar (no dates)
         if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
@@ -5276,7 +5311,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     if (creatorEmails.length > 0) {
       try {
         const creators = await withCosmosRetry(() => usersCollection.find(
-          { email: { $in: creatorEmails.map(e => new RegExp(`^${e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) } },
+          { email: { $in: creatorEmails } }, // creatorEmails already lowercased at line 5307
           { projection: { email: 1, department: 1 } }
         ).toArray());
         for (const creator of creators) {
@@ -6924,7 +6959,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       // Insert new event document
       // Use calendarOwner passed from frontend (from Graph API calendar.owner.address)
       // Fallback to config lookup if not provided
-      const effectiveCalendarOwner = calendarOwner || getCalendarOwnerFromConfig(calendarId);
+      const effectiveCalendarOwner = (calendarOwner || getCalendarOwnerFromConfig(calendarId) || '').toLowerCase();
       const newEventDoc = {
         userId: userId,
         eventId: actualEventId,
@@ -6933,7 +6968,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         graphData: updatedGraphData,
         createdAt: new Date(),
         createdBy: req.user.userId,
-        createdByEmail: req.user.email,
+        createdByEmail: (req.user.email || '').toLowerCase(),
         createdByName: req.user.name || req.user.email,
         createdSource: 'unified-form',
         status: 'published',
@@ -7349,11 +7384,11 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
           userId: userId,
           eventId: actualEventId,
           calendarId: calendarId,
-          calendarOwner: batchCalendarOwner, // Email of calendar owner for filtering
+          calendarOwner: (batchCalendarOwner || '').toLowerCase(), // Email of calendar owner for filtering
           graphData: graphData,
           createdAt: new Date(),
           createdBy: req.user.userId,
-          createdByEmail: req.user.email,
+          createdByEmail: (req.user.email || '').toLowerCase(),
           createdByName: req.user.name || req.user.email,
           createdSource: 'batch-create',
           status: 'published',
@@ -8402,17 +8437,17 @@ app.post('/api/admin/unified/force-sync', verifyToken, async (req, res) => {
     
     if (calendarId) {
       // Reset specific calendar
-      await calendarDeltasCollection.updateOne(
+      await withCosmosRetry(() => calendarDeltasCollection.updateOne(
         { userId: userId, calendarId: calendarId },
         { $set: { fullSyncRequired: true } }
-      );
+      ));
       res.status(200).json({ message: `Force sync initiated for calendar ${calendarId}` });
     } else {
       // Reset all calendars for user
-      await calendarDeltasCollection.updateMany(
+      await withCosmosRetry(() => calendarDeltasCollection.updateMany(
         { userId: userId },
         { $set: { fullSyncRequired: true } }
-      );
+      ));
       res.status(200).json({ message: 'Force sync initiated for all calendars' });
     }
   } catch (error) {
@@ -16228,10 +16263,10 @@ app.post('/api/admin/locations/merge', verifyToken, async (req, res) => {
     }
     
     // Update all events that reference the source location
-    const eventUpdateResult = await unifiedEventsCollection.updateMany(
+    const eventUpdateResult = await withCosmosRetry(() => unifiedEventsCollection.updateMany(
       { locationId: sourceLocation._id },
       { $set: { locationId: targetLocation._id } }
-    );
+    ));
     
     // Merge aliases and variations
     const mergedAliases = [...(targetLocation.aliases || [])];
@@ -17284,6 +17319,7 @@ app.post('/api/categories', verifyToken, async (req, res) => {
     };
 
     const result = await categoriesCollection.insertOne(newCategory);
+    invalidateCategoryCache();
     const createdCategory = await categoriesCollection.findOne({ _id: result.insertedId });
 
     res.status(201).json(createdCategory);
@@ -17346,6 +17382,7 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
       { $set: updateData },
       { returnDocument: 'after' }
     );
+    invalidateCategoryCache();
 
     if (!result) {
       return res.status(404).json({ error: 'Category not found' });
@@ -17378,6 +17415,7 @@ app.delete('/api/categories/:id', verifyToken, async (req, res) => {
 
     // Permanently delete the category
     await categoriesCollection.deleteOne({ _id: new ObjectId(id) });
+    invalidateCategoryCache();
 
     res.json({ message: 'Category deleted successfully', category });
   } catch (error) {
@@ -17405,6 +17443,7 @@ app.post('/api/admin/categories/resequence', verifyToken, async (req, res) => {
       );
     }
 
+    invalidateCategoryCache();
     res.json({ message: 'Categories resequenced successfully', count: categories.length });
   } catch (error) {
     logger.error('Error resequencing categories:', error);
@@ -23361,7 +23400,7 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
     try {
       const upcomingDocs = await unifiedEventsCollection
         .find({
-          'roomReservationData.requestedBy.email': { $regex: new RegExp('^' + userEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+          'roomReservationData.requestedBy.email': userEmail.toLowerCase(),
           status: { $in: ['pending', 'draft', 'published'] },
           startDateTime: { $gte: `${todayStr}T00:00:00`, $lte: `${thirtyDaysStr}T23:59:59` }
         })

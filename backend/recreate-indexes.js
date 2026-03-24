@@ -71,19 +71,62 @@ async function recreateIndexes() {
     );
     console.log('   ✅ Created: userId_graphId_unique');
 
-    // Index 3: Date range queries
+    // Index 3: Conflict check hotpath (status + locations + date range overlap)
     await collection.createIndex(
       {
-        userId: 1,
-        calendarId: 1,
-        'graphData.start.dateTime': 1
+        status: 1,
+        'calendarData.locations': 1,
+        'calendarData.startDateTime': 1,
+        'calendarData.endDateTime': 1
       },
       {
-        name: "userId_calendarId_startTime",
+        name: "conflict_status_locations_dates",
         background: true
       }
     );
-    console.log('   ✅ Created: userId_calendarId_startTime');
+    console.log('   ✅ Created: conflict_status_locations_dates');
+
+    // Index 3b: Calendar view (calendarOwner + isDeleted + date range)
+    await collection.createIndex(
+      {
+        calendarOwner: 1,
+        isDeleted: 1,
+        'calendarData.startDateTime': 1,
+        'calendarData.endDateTime': 1
+      },
+      {
+        name: "calendar_view_owner_dates",
+        background: true
+      }
+    );
+    console.log('   ✅ Created: calendar_view_owner_dates');
+
+    // Index 3c: Series master lookup (recurring conflict queries)
+    await collection.createIndex(
+      {
+        status: 1,
+        eventType: 1,
+        'calendarData.locations': 1
+      },
+      {
+        name: "conflict_series_masters",
+        background: true
+      }
+    );
+    console.log('   ✅ Created: conflict_series_masters');
+
+    // Index 3d: Requester email lookup (my-events view)
+    await collection.createIndex(
+      {
+        'roomReservationData.requestedBy.email': 1,
+        status: 1
+      },
+      {
+        name: "requester_email_status",
+        background: true
+      }
+    );
+    console.log('   ✅ Created: requester_email_status');
 
     // Index 4: Change detection
     await collection.createIndex(
