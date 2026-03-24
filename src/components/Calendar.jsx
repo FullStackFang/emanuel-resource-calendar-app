@@ -1917,13 +1917,21 @@ import ConflictDialog from './shared/ConflictDialog';
                     totalOccurrences: visibleCount,
                     isInfiniteSeries,
                     showOccurrenceNumbers,
-                    // Apply any title/description overrides from the expansion
-                    subject: occurrence.subject || event.subject,
-                    eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,
+                    // Apply title/description overrides; [Hold] prefix for null-time occurrences
+                    subject: occurrence.isHoldOverride
+                      ? `[Hold] ${occurrence.subject || event.subject || ''}`
+                      : (occurrence.subject || event.subject),
+                    eventTitle: occurrence.isHoldOverride
+                      ? `[Hold] ${occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle || ''}`
+                      : (occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle),
+                    // Per-occurrence isHold flag for null-time overrides
+                    isHold: occurrence.isHoldOverride || false,
                     // Apply location/timing/category overrides from occurrenceOverrides
                     ...(occurrence.hasOccurrenceOverride ? {
                       ...(occurrence.locations !== undefined && { locations: occurrence.locations }),
                       ...(occurrence.locationDisplayNames !== undefined && { locationDisplayNames: occurrence.locationDisplayNames }),
+                      ...(occurrence.startTime !== undefined && { startTime: occurrence.startTime }),
+                      ...(occurrence.endTime !== undefined && { endTime: occurrence.endTime }),
                       ...(occurrence.setupTime !== undefined && { setupTime: occurrence.setupTime }),
                       ...(occurrence.teardownTime !== undefined && { teardownTime: occurrence.teardownTime }),
                       ...(occurrence.reservationStartTime !== undefined && { reservationStartTime: occurrence.reservationStartTime }),

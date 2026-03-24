@@ -263,6 +263,9 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
         // Check for per-occurrence override
         const override = overrideMap[occurrenceDate] || {};
         const hasOverride = Object.keys(override).length > 0;
+        // [Hold] override: null event times with reservation times — keep master times for positioning
+        const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
+          && 'endTime' in override && !override.endTime;
         const effectiveStartTime = override.startTime
           ? `${occurrenceDate}T${override.startTime}:00.0000000`
           : `${occurrenceDate}T${startTime}`;
@@ -288,6 +291,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
           isRecurring: true,
           isException: hasOverride,
           hasOccurrenceOverride: hasOverride,
+          isHoldOverride,
         });
       }
     }
@@ -307,6 +311,8 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
     const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
     const override = overrideMap[addDate] || {};
     const hasOverride = Object.keys(override).length > 0;
+    const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
+      && 'endTime' in override && !override.endTime;
     const effectiveStartTime = override.startTime
       ? `${addDate}T${override.startTime}:00.0000000`
       : `${addDate}T${startTime}`;
@@ -332,6 +338,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       isRecurring: true,
       isException: hasOverride,
       hasOccurrenceOverride: hasOverride,
+      isHoldOverride,
       isAdHocAddition: true,
     });
   }

@@ -1,5 +1,5 @@
 /**
- * Draft Occurrence Edit Tests (DOE-1 to DOE-9)
+ * Draft Occurrence Edit Tests (DOE-1 to DOE-10)
  *
  * Tests per-occurrence editing of draft recurring events:
  * - thisEvent scope writes to occurrenceOverrides without touching recurrence/eventType
@@ -9,6 +9,7 @@
  * - Multiple thisEvent edits accumulate correctly
  * - Calendar load normalizer promotes recurrence to top level
  * - DOE-8, DOE-9: New trackable override fields
+ * - DOE-10: Null-time overrides ([Hold] occurrence support)
  */
 
 const request = require('supertest');
@@ -420,6 +421,40 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-7)', () => {
       expect(override.isOffsite).toBe(true);
       expect(override.offsiteName).toBe('Park Pavilion');
       expect(override.offsiteAddress).toBe('100 Park Ave');
+    });
+  });
+
+  describe('DOE-10: thisEvent save with null startTime/endTime stores null times and null datetimes', () => {
+    it('should store startTime: null, endTime: null, startDateTime: null, endDateTime: null in override', async () => {
+      const draft = createRecurringDraft();
+      await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          startTime: null,
+          endTime: null,
+          reservationStartTime: '13:30',
+          reservationEndTime: '15:30',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.startTime).toBeNull();
+      expect(override.endTime).toBeNull();
+      expect(override.startDateTime).toBeNull();
+      expect(override.endDateTime).toBeNull();
+      // Reservation times should still be stored
+      expect(override.reservationStartTime).toBe('13:30');
+      expect(override.reservationEndTime).toBe('15:30');
     });
   });
 });

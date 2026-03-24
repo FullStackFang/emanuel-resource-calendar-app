@@ -406,13 +406,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // For thisEvent scope, merge occurrence-specific fields into body as top-level props.
       // Backend reads override values from top-level updates.* (e.g., updates.startTime),
-      // so we must extract them from the overrides array and flatten them into the body.
+      // so we extract stored overrides and use them as FALLBACK only — form data (already
+      // in bodyData via editableData spread) is the source of truth for user edits.
       if (editScope === 'thisEvent' && bodyData.occurrenceDate) {
         const overrideFields = extractOccurrenceOverrideFields(
           bodyData.occurrenceDate,
           savedOverrides
         );
-        Object.assign(bodyData, overrideFields);
+        for (const [key, value] of Object.entries(overrideFields)) {
+          if (bodyData[key] === undefined) bodyData[key] = value;
+        }
       }
 
       const response = await fetch(endpoint, {
@@ -1072,13 +1075,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         delete payload.recurrence;   // Don't overwrite master's recurrence
         delete payload.eventType;    // Don't overwrite master's eventType
 
-        // Merge occurrence-specific fields from overrides into payload.
-        // Backend reads override values from top-level fields (e.g., updates.startTime).
+        // Merge stored override fields as FALLBACK only — payload already has the
+        // user's current form values from buildDraftPayload, which are the source of truth.
         const overrideFields = extractOccurrenceOverrideFields(
           payload.occurrenceDate,
           formData.occurrenceOverrides || []
         );
-        Object.assign(payload, overrideFields);
+        for (const [key, value] of Object.entries(overrideFields)) {
+          if (payload[key] === undefined) payload[key] = value;
+        }
       } else if (editScope === 'allEvents') {
         payload.editScope = 'allEvents';
         // Only clear occurrence overrides when recurrence pattern/range changes

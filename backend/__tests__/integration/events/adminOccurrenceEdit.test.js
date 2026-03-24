@@ -1,10 +1,11 @@
 /**
- * Admin Occurrence Edit Tests (AOE-1 to AOE-16)
+ * Admin Occurrence Edit Tests (AOE-1 to AOE-18)
  *
  * Tests per-occurrence editing via PUT /api/admin/events/:id with editScope='thisEvent':
  * AOE-1 to AOE-7: Core occurrence override CRUD
  * AOE-8 to AOE-13: Addition occurrence Graph sync (exceptionEventIds fast-path)
  * AOE-14 to AOE-16: New trackable override fields (offsite, attendeeCount, notes)
+ * AOE-17 to AOE-18: Null-time overrides ([Hold] occurrence support)
  */
 
 const request = require('supertest');
@@ -644,6 +645,112 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
       expect(override.setupNotes).toBe('Extra chairs needed');
       expect(override.doorNotes).toBe('Use side entrance');
       expect(override.specialRequirements).toBe('AV equipment required');
+    });
+  });
+
+  // --- AOE-17 to AOE-18: Null-time overrides ([Hold] occurrence support) ---
+
+  describe('AOE-17: thisEvent save with null startTime/endTime stores null times and null datetimes', () => {
+    it('should store startTime: null, endTime: null, startDateTime: null, endDateTime: null in override', async () => {
+      const master = createTestSeriesMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          startTime: null,
+          endTime: null,
+          reservationStartTime: '13:30',
+          reservationEndTime: '15:30',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-12');
+      expect(override.startTime).toBeNull();
+      expect(override.endTime).toBeNull();
+      expect(override.startDateTime).toBeNull();
+      expect(override.endDateTime).toBeNull();
+      // Reservation times should still be stored
+      expect(override.reservationStartTime).toBe('13:30');
+      expect(override.reservationEndTime).toBe('15:30');
+
+      // Master calendarData fields should NOT change
+      expect(updated.calendarData.startTime).toBe('14:00');
+      expect(updated.calendarData.endTime).toBe('15:00');
+    });
+  });
+
+  describe('AOE-18: published thisEvent with null times syncs [Hold] subject to Graph', () => {
+    it('should send [Hold] prefix in subject and skip start/end time update in Graph', async () => {
+      const master = createPublishedSeriesMasterWithAddition({
+        calendarData: {
+          eventTitle: 'Daily Standup',
+          eventDescription: 'Original description',
+          startDateTime: '2026-03-18T14:00:00',
+          endDateTime: '2026-03-18T15:00:00',
+          startDate: '2026-03-18',
+          startTime: '14:00',
+          endDate: '2026-03-18',
+          endTime: '15:00',
+          reservationStartTime: '13:30',
+          reservationEndTime: '15:30',
+          locations: [locationA._id],
+          locationDisplayNames: 'Room A',
+          categories: ['Meeting'],
+          recurrence: {
+            pattern: { type: 'daily', interval: 1 },
+            range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+            additions: ['2026-03-21'],
+            exclusions: [],
+          },
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+        },
+      });
+      await insertEvents(db, [master]);
+
+      // Mock getRecurringEventInstances to return a matching occurrence
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        {
+          id: 'AAMkOccurrence0319',
+          start: { dateTime: '2026-03-19T14:00:00', timeZone: 'America/New_York' },
+          end: { dateTime: '2026-03-19T15:00:00', timeZone: 'America/New_York' },
+        },
+      ]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-19',
+          startTime: null,
+          endTime: null,
+          reservationStartTime: '13:30',
+          reservationEndTime: '15:30',
+        });
+
+      expect(res.status).toBe(200);
+
+      // Verify Graph update was called
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls).toHaveLength(1);
+
+      // Should have [Hold] prefix in subject
+      expect(updateCalls[0].eventData.subject).toMatch(/^\[Hold\]/);
+
+      // Should NOT have start/end time updates (keep master times in Outlook)
+      expect(updateCalls[0].eventData.start).toBeUndefined();
+      expect(updateCalls[0].eventData.end).toBeUndefined();
     });
   });
 });

@@ -13880,8 +13880,13 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (endTime !== undefined) overrideFields.endTime = endTime;
       if (eventTitle !== undefined) overrideFields.eventTitle = eventTitle?.trim();
       if (eventDescription !== undefined) overrideFields.eventDescription = eventDescription;
-      if (startTime) overrideFields.startDateTime = `${dateKey}T${startTime}`;
-      if (endTime) overrideFields.endDateTime = `${dateKey}T${endTime}`;
+      // Compute startDateTime/endDateTime — null when time is explicitly null ([Hold] pattern)
+      if (startTime !== undefined) {
+        overrideFields.startDateTime = startTime ? `${dateKey}T${startTime}` : null;
+      }
+      if (endTime !== undefined) {
+        overrideFields.endDateTime = endTime ? `${dateKey}T${endTime}` : null;
+      }
       if (setupTime !== undefined) overrideFields.setupTime = setupTime;
       if (teardownTime !== undefined) overrideFields.teardownTime = teardownTime;
       if (reservationStartTime !== undefined) overrideFields.reservationStartTime = reservationStartTime;
@@ -21131,8 +21136,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       if (updates.endTime !== undefined) overrideFields.endTime = updates.endTime;
       if (updates.eventTitle !== undefined) overrideFields.eventTitle = updates.eventTitle?.trim();
       if (updates.eventDescription !== undefined) overrideFields.eventDescription = updates.eventDescription;
-      if (updates.startTime) overrideFields.startDateTime = `${dateKey}T${updates.startTime}`;
-      if (updates.endTime) overrideFields.endDateTime = `${dateKey}T${updates.endTime}`;
+      // Compute startDateTime/endDateTime — null when time is explicitly null ([Hold] pattern)
+      if (updates.startTime !== undefined) {
+        overrideFields.startDateTime = updates.startTime ? `${dateKey}T${updates.startTime}` : null;
+      }
+      if (updates.endTime !== undefined) {
+        overrideFields.endDateTime = updates.endTime ? `${dateKey}T${updates.endTime}` : null;
+      }
       if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
       if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
       if (updates.reservationStartTime !== undefined) overrideFields.reservationStartTime = updates.reservationStartTime;
@@ -21189,23 +21199,39 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         try {
           const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
 
+          // Detect [Hold] pattern: null event times with reservation times present
+          const isOccurrenceHold = overrideFields.startTime !== undefined && !overrideFields.startTime
+            && overrideFields.endTime !== undefined && !overrideFields.endTime
+            && (overrideFields.reservationStartTime || event.calendarData?.reservationStartTime);
+
           // Build graphUpdate from overrideFields (shared by both addition and regular paths)
           const graphUpdate = {};
-          if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
+
+          // Subject: [Hold] prefix when times are nulled, otherwise use override title
+          if (isOccurrenceHold) {
+            const baseTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+            graphUpdate.subject = `[Hold] ${baseTitle}`;
+          } else if (overrideFields.eventTitle) {
+            graphUpdate.subject = overrideFields.eventTitle;
+          }
+
           if (overrideFields.eventDescription !== undefined) {
             graphUpdate.body = { contentType: 'html', content: overrideFields.eventDescription || '' };
           }
-          if (overrideFields.startDateTime) {
-            graphUpdate.start = {
-              dateTime: overrideFields.startDateTime + ':00',
-              timeZone: graphTimezone
-            };
-          }
-          if (overrideFields.endDateTime) {
-            graphUpdate.end = {
-              dateTime: overrideFields.endDateTime + ':00',
-              timeZone: graphTimezone
-            };
+          // For [Hold] occurrences: skip time update (keep master times in Outlook for positioning)
+          if (!isOccurrenceHold) {
+            if (overrideFields.startDateTime) {
+              graphUpdate.start = {
+                dateTime: overrideFields.startDateTime + ':00',
+                timeZone: graphTimezone
+              };
+            }
+            if (overrideFields.endDateTime) {
+              graphUpdate.end = {
+                dateTime: overrideFields.endDateTime + ':00',
+                timeZone: graphTimezone
+              };
+            }
           }
           if (overrideFields.categories !== undefined) {
             graphUpdate.categories = overrideFields.categories;

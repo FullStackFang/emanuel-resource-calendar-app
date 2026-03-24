@@ -233,22 +233,27 @@ export default function RoomReservationReview({
         ) : null
       };
 
-      // Remove separate date/time fields and old requestedRooms field
+      // Remove separate date/time fields and old requestedRooms field.
+      // For thisEvent scope, keep startTime/endTime — backend reads them from
+      // top-level updates.* and the form values are the source of truth.
       delete updatedData.startDate;
-      delete updatedData.startTime;
       delete updatedData.endDate;
-      delete updatedData.endTime;
       delete updatedData.requestedRooms;  // Remove old field name
+      if (editScope !== 'thisEvent') {
+        delete updatedData.startTime;
+        delete updatedData.endTime;
+      }
 
-      // For thisEvent scope, merge occurrence-specific fields AFTER deletes.
-      // Backend reads startTime/endTime from top-level updates.*, so these must
-      // be re-added from the matching occurrence override.
+      // For thisEvent scope, merge stored override fields as FALLBACK only —
+      // form data (already in updatedData) is the source of truth for user edits.
       if (editScope === 'thisEvent' && updatedData.occurrenceDate) {
         const overrideFields = extractOccurrenceOverrideFields(
           updatedData.occurrenceDate,
           occurrenceOverridesRef.current || []
         );
-        Object.assign(updatedData, overrideFields);
+        for (const [key, value] of Object.entries(overrideFields)) {
+          if (updatedData[key] === undefined) updatedData[key] = value;
+        }
       }
 
       logger.debug('Saving event', { reservationId: reservation._id });
