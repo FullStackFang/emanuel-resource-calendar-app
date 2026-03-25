@@ -29,6 +29,10 @@
   zoom: 0.8;
 }
 
+.calendar-container > .loading-spinner-overlay {
+  position: fixed;
+}
+
 .calendar-layout-container {
   display: flex;
   flex: 1;
