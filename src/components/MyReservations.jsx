@@ -343,15 +343,12 @@ export default function MyReservations({ apiToken }) {
   }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
 
   // Handle rejecting an edit request (approver/admin)
-  // Open the edit request rejection panel
-  const handleRejectEditRequest = useCallback(() => {
+  const handleRejectEditRequest = useCallback(async () => {
     if (!isEditRequestRejectConfirming) {
       setIsEditRequestRejectConfirming(true);
+      return;
     }
-  }, [isEditRequestRejectConfirming]);
 
-  // Submit the edit request rejection (called from ReasonPanel confirm button)
-  const submitRejectEditRequest = useCallback(async () => {
     if (!editRequestRejectionReason.trim()) {
       showError('Please provide a reason for rejecting the edit request.');
       return;
@@ -398,7 +395,7 @@ export default function MyReservations({ apiToken }) {
       setIsRejectingEditRequest(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
+  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -1249,14 +1246,13 @@ export default function MyReservations({ apiToken }) {
         isRejecting={reviewModal.isRejecting}
         rejectionReason={reviewModal.rejectionReason}
         onRejectionReasonChange={reviewModal.setRejectionReason}
-        onSubmitReject={!isRequesterOnly ? reviewModal.submitReject : null}
+        rejectInputRef={reviewModal.rejectInputRef}
         isSaveConfirming={reviewModal.pendingSaveConfirmation}
         onCancelSave={reviewModal.cancelSaveConfirmation}
-        // Delete/withdraw reason (for owner-pending withdraw via ReasonPanel)
+        // Delete reason (for owner-pending delete)
         deleteReason={reviewModal.deleteReason}
         onDeleteReasonChange={reviewModal.setDeleteReason}
-        onOpenWithdrawPanel={reviewModal.openWithdrawPanel}
-        onSubmitDelete={reviewModal.submitDelete}
+        deleteInputRef={reviewModal.deleteInputRef}
         // Requester action buttons
         onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
         isResubmitting={isResubmitting}
@@ -1285,7 +1281,6 @@ export default function MyReservations({ apiToken }) {
         isEditRequestRejectConfirming={isEditRequestRejectConfirming}
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
-        onSubmitEditRequestReject={canApproveReservations ? submitRejectEditRequest : null}
         // Edit request props (requester requesting edits on published events)
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}

@@ -672,15 +672,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, originalEventData, apiToken, graphToken, loadReservations, showError]);
 
-  // Open the edit request rejection panel (admin only)
-  const handleRejectEditRequestInModal = useCallback(() => {
+  // Reject edit request from within ReviewModal (admin only)
+  const handleRejectEditRequestInModal = useCallback(async () => {
     if (!isEditRequestRejectConfirming) {
       setIsEditRequestRejectConfirming(true);
+      return;
     }
-  }, [isEditRequestRejectConfirming]);
 
-  // Submit the edit request rejection (called from ReasonPanel confirm button)
-  const submitRejectEditRequestInModal = useCallback(async () => {
     if (!modalEditRequestRejectionReason.trim()) {
       showError('Please provide a reason for rejecting the edit request.');
       return;
@@ -728,7 +726,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsRejectingEditRequestInModal(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError]);
+  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -1183,7 +1181,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         isRejecting={reviewModal.isRejecting}
         rejectionReason={reviewModal.rejectionReason}
         onRejectionReasonChange={reviewModal.setRejectionReason}
-        onSubmitReject={reviewModal.submitReject}
+        rejectInputRef={reviewModal.rejectInputRef}
         isSaveConfirming={reviewModal.pendingSaveConfirmation}
         onCancelSave={reviewModal.cancelSaveConfirmation}
         // Existing edit request props (viewing pending edit requests)
@@ -1203,7 +1201,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         isEditRequestRejectConfirming={isEditRequestRejectConfirming}
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
-        onSubmitEditRequestReject={canApproveReservations ? submitRejectEditRequestInModal : null}
         // Scheduling conflicts
         isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
         hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}

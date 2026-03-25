@@ -7,7 +7,6 @@ import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
 import DiscardChangesDialog from './DiscardChangesDialog';
 import RecurrenceWarningDialog from './RecurrenceWarningDialog';
-import ReasonPanel from './ReasonPanel';
 import './ReviewModal.css';
 
 /**
@@ -74,7 +73,7 @@ export default function ReviewModal({
   isRejecting = false,
   rejectionReason = '',
   onRejectionReasonChange = null,
-  onSubmitReject = null,
+  rejectInputRef = null,
   // Draft-related props
   isDraft = false,
   onSaveDraft = null,
@@ -117,18 +116,16 @@ export default function ReviewModal({
   isEditRequestRejectConfirming = false,
   onCancelEditRequestApprove = null,
   onCancelEditRequestReject = null,
-  onSubmitEditRequestReject = null,
   // Cancel edit request props (for requesters canceling their own edit request)
   onCancelPendingEditRequest = null,
   isCancelingEditRequest = false,
   isCancelEditRequestConfirming = false,
   onCancelCancelEditRequest = null,
   // Requester action buttons (opt-in, for MyReservations)
-  // Delete/withdraw reason (for owner-pending withdraw via ReasonPanel)
+  // Delete reason (for owner-pending delete)
   deleteReason = '',
   onDeleteReasonChange = null,
-  onOpenWithdrawPanel = null,
-  onSubmitDelete = null,
+  deleteInputRef = null,
   // Resubmit (requester, rejected events)
   onResubmit = null,
   isResubmitting = false,
@@ -196,6 +193,19 @@ export default function ReviewModal({
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
+
+  // Focus inline reason inputs when confirmation state opens (more reliable than autoFocus on re-renders)
+  useEffect(() => {
+    if (isRejectConfirming && rejectInputRef?.current) {
+      requestAnimationFrame(() => rejectInputRef.current?.focus());
+    }
+  }, [isRejectConfirming, rejectInputRef]);
+
+  useEffect(() => {
+    if (isDeleteConfirming && deleteInputRef?.current) {
+      requestAnimationFrame(() => deleteInputRef.current?.focus());
+    }
+  }, [isDeleteConfirming, deleteInputRef]);
 
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -452,14 +462,35 @@ export default function ReviewModal({
                       )}
 
                       {!isRequesterOnly && onRejectEditRequest && (
-                        <button
-                          type="button"
-                          className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
-                          onClick={onRejectEditRequest}
-                          disabled={isRejectingEditRequest || isEditRequestRejectConfirming || (anyConfirming && !isEditRequestRejectConfirming)}
-                        >
-                          {isRejectingEditRequest ? 'Rejecting...' : 'Reject Edit'}
-                        </button>
+                        <div className="confirm-button-group">
+                          {isEditRequestRejectConfirming && (
+                            <input
+                              type="text"
+                              className="inline-reason-input"
+                              placeholder="Rejection reason (required)"
+                              value={editRequestRejectionReason}
+                              onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
+                              autoFocus
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
+                            onClick={onRejectEditRequest}
+                            disabled={isRejectingEditRequest || (anyConfirming && !isEditRequestRejectConfirming)}
+                          >
+                            {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? 'Confirm Reject?' : 'Reject Edit')}
+                          </button>
+                          {isEditRequestRejectConfirming && onCancelEditRequestReject && (
+                            <button
+                              type="button"
+                              className="confirm-cancel-x reject-cancel-x"
+                              onClick={onCancelEditRequestReject}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       {/* Cancel Edit Request button for requesters */}
@@ -511,16 +542,38 @@ export default function ReviewModal({
                     </button>
                   )}
 
-              {/* Withdraw Request button — requester, pending events (opens ReasonPanel) */}
-              {isRequesterOnly && itemStatus === 'pending' && (onOpenWithdrawPanel || onDelete) && !isEditRequestMode && !isViewingEditRequest && (
-                <button
-                  type="button"
-                  className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
-                  onClick={onOpenWithdrawPanel || onDelete}
-                  disabled={isDeleting || isDeleteConfirming || (anyConfirming && !isDeleteConfirming)}
-                >
-                  {isDeleting ? 'Withdrawing...' : 'Withdraw Request'}
-                </button>
+              {/* Withdraw Request button — requester, pending events (delete with reason) */}
+              {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
+                <div className="confirm-button-group">
+                  {isDeleteConfirming && (
+                    <input
+                      type="text"
+                      className="inline-reason-input"
+                      placeholder="Reason for withdrawal (required)"
+                      value={deleteReason}
+                      onChange={(e) => onDeleteReasonChange?.(e.target.value)}
+                      disabled={isDeleting}
+                      ref={deleteInputRef}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                    onClick={onDelete}
+                    disabled={isDeleting || (isDeleteConfirming && !deleteReason?.trim()) || (anyConfirming && !isDeleteConfirming)}
+                  >
+                    {isDeleting ? 'Withdrawing...' : (isDeleteConfirming ? 'Confirm Withdraw?' : 'Withdraw Request')}
+                  </button>
+                  {isDeleteConfirming && onCancelDelete && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x delete-cancel-x"
+                      onClick={onCancelDelete}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Save & Resubmit button — requester, rejected events with changes */}
@@ -617,14 +670,36 @@ export default function ReviewModal({
 
               {/* Reject button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onReject && (
-                <button
-                  type="button"
-                  className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
-                  onClick={onReject}
-                  disabled={isRejecting || isRejectConfirming || (anyConfirming && !isRejectConfirming)}
-                >
-                  {isRejecting ? 'Rejecting...' : 'Reject'}
-                </button>
+                <div className="confirm-button-group">
+                  {isRejectConfirming && (
+                    <input
+                      type="text"
+                      className="inline-reason-input"
+                      placeholder="Rejection reason (required)"
+                      value={rejectionReason}
+                      onChange={(e) => onRejectionReasonChange?.(e.target.value)}
+                      disabled={isRejecting}
+                      ref={rejectInputRef}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
+                    onClick={onReject}
+                    disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim()) || (anyConfirming && !isRejectConfirming)}
+                  >
+                    {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
+                  </button>
+                  {isRejectConfirming && onCancelReject && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x reject-cancel-x"
+                      onClick={onCancelReject}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Delete button in review mode - for approvers and admins */}
@@ -854,54 +929,6 @@ export default function ReviewModal({
             </div>
           )}
         </div>
-
-        {/* Rejection reason panel — slides down between action bar and tabs */}
-        {onSubmitReject && (
-          <ReasonPanel
-            isOpen={isRejectConfirming}
-            reason={rejectionReason}
-            onReasonChange={onRejectionReasonChange}
-            onConfirm={onSubmitReject}
-            onCancel={onCancelReject}
-            isSubmitting={isRejecting}
-            placeholder="Reason for rejection (required)"
-            confirmLabel="Reject"
-            submittingLabel="Rejecting..."
-            variant="error"
-          />
-        )}
-
-        {/* Edit request rejection reason panel */}
-        {onSubmitEditRequestReject && isViewingEditRequest && (
-          <ReasonPanel
-            isOpen={isEditRequestRejectConfirming}
-            reason={editRequestRejectionReason}
-            onReasonChange={onEditRequestRejectionReasonChange}
-            onConfirm={onSubmitEditRequestReject}
-            onCancel={onCancelEditRequestReject}
-            isSubmitting={isRejectingEditRequest}
-            placeholder="Reason for rejecting edit request (required)"
-            confirmLabel="Reject Edit"
-            submittingLabel="Rejecting..."
-            variant="error"
-          />
-        )}
-
-        {/* Withdraw request reason panel */}
-        {onSubmitDelete && (
-          <ReasonPanel
-            isOpen={isDeleteConfirming}
-            reason={deleteReason}
-            onReasonChange={onDeleteReasonChange}
-            onConfirm={onSubmitDelete}
-            onCancel={onCancelDelete}
-            isSubmitting={isDeleting}
-            placeholder="Reason for withdrawal (required)"
-            confirmLabel="Withdraw"
-            submittingLabel="Withdrawing..."
-            variant="warning"
-          />
-        )}
 
         {/* Tab Navigation */}
         {showTabs && (

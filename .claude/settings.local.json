@@ -107,7 +107,8 @@
       "Bash(rm -rf /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/simplify-delete-workflow)",
       "Bash(cd:*)",
       "Bash(xargs -I {} basename {})",
-      "Bash(/dev/null:*)"
+      "Bash(/dev/null:*)",
+      "Bash(git:*)"
     ],
     "deny": []
   }
