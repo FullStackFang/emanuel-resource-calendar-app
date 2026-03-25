@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
+import { buildDraftPayload } from '../utils/eventPayloadBuilder';
 import APP_CONFIG from '../config/config';
 
 /**
@@ -967,82 +968,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setSoftConflictConfirmation(null);
   }, []);
 
-  /**
-   * Build draft payload from form data
-   */
-  const buildDraftPayload = useCallback((formData) => {
-    // Helper function to convert time difference to minutes
-    const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
-      if (!eventTime || !bufferTime) return 0;
-      const eventDate = new Date(`1970-01-01T${eventTime}:00`);
-      const bufferDate = new Date(`1970-01-01T${bufferTime}:00`);
-      const diffMs = Math.abs(eventDate.getTime() - bufferDate.getTime());
-      return Math.floor(diffMs / (1000 * 60));
-    };
-
-    // Combine date and time if both exist (event times fall back to reservation times)
-    const effectiveStartTime = formData.startTime || formData.reservationStartTime;
-    const effectiveEndTime = formData.endTime || formData.reservationEndTime;
-    const startDateTime = formData.startDate && effectiveStartTime
-      ? `${formData.startDate}T${effectiveStartTime}`
-      : null;
-    const endDateTime = formData.endDate && effectiveEndTime
-      ? `${formData.endDate}T${effectiveEndTime}`
-      : null;
-
-    let reservationStartMinutes = formData.reservationStartMinutes || 0;
-    let reservationEndMinutes = formData.reservationEndMinutes || 0;
-
-    if (formData.reservationStartTime && effectiveStartTime) {
-      reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, formData.reservationStartTime);
-    }
-    if (formData.reservationEndTime && effectiveEndTime) {
-      reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, formData.reservationEndTime);
-    }
-
-    return {
-      eventTitle: formData.eventTitle,
-      eventDescription: formData.eventDescription,
-      startDateTime,
-      endDateTime,
-      attendeeCount: parseInt(formData.attendeeCount) || 0,
-      requestedRooms: formData.requestedRooms || formData.locations || [],
-      requiredFeatures: formData.requiredFeatures || [],
-      specialRequirements: formData.specialRequirements || '',
-      department: formData.department || '',
-      phone: formData.phone || '',
-      setupTimeMinutes: reservationStartMinutes,
-      teardownTimeMinutes: reservationEndMinutes,
-      reservationStartMinutes,
-      reservationEndMinutes,
-      reservationStartTime: formData.reservationStartTime || null,
-      reservationEndTime: formData.reservationEndTime || null,
-      setupTime: formData.setupTime || null,
-      teardownTime: formData.teardownTime || null,
-      doorOpenTime: formData.doorOpenTime || null,
-      doorCloseTime: formData.doorCloseTime || null,
-      setupNotes: formData.setupNotes || '',
-      doorNotes: formData.doorNotes || '',
-      eventNotes: formData.eventNotes || '',
-      isOnBehalfOf: formData.isOnBehalfOf || false,
-      contactName: formData.contactName || '',
-      contactEmail: formData.contactEmail || '',
-      categories: formData.categories || formData.mecCategories || [],
-      mecCategories: formData.categories || formData.mecCategories || [],  // Read from 'categories' (mecCategories is deprecated)
-      services: formData.services || {},
-      recurrence: formData.recurrence || null,
-      virtualMeetingUrl: formData.virtualMeetingUrl || null,
-      isOffsite: formData.isOffsite || false,
-      offsiteName: formData.offsiteName || '',
-      offsiteAddress: formData.offsiteAddress || '',
-      offsiteLat: formData.offsiteLat || null,
-      offsiteLon: formData.offsiteLon || null,
-      startDate: formData.startDate || null,
-      endDate: formData.endDate || null,
-      startTime: formData.startTime || null,
-      endTime: formData.endTime || null
-    };
-  }, []);
+  // buildDraftPayload is now imported from ../utils/eventPayloadBuilder
 
   /**
    * Internal: execute draft save without confirmation gate or modal close.
@@ -1132,7 +1058,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setSavingDraft(false);
     }
-  }, [apiToken, draftId, buildDraftPayload, onError, editScope, currentItem]);
+  }, [apiToken, draftId, onError, editScope, currentItem]);
 
   /**
    * Save form data as a draft (two-click confirmation pattern)

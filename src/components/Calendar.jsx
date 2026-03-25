@@ -28,6 +28,7 @@
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
   import { useReviewModal } from '../hooks/useReviewModal';
+  import { useEventCreation } from '../hooks/useEventCreation';
   import ReviewModal from './shared/ReviewModal';
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
@@ -208,7 +209,6 @@ import ConflictDialog from './shared/ConflictDialog';
     const loadInProgressRef = useRef(false);
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
-    const eventReviewFormDataGetterRef = useRef(null);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
@@ -374,31 +374,6 @@ import ConflictDialog from './shared/ConflictDialog';
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
 
-    // Event creation ReviewModal state
-    const [eventReviewModal, setEventReviewModal] = useState({
-      isOpen: false,
-      event: null,
-      mode: 'event', // 'event' for direct creation, 'create' for reservation requests
-      hasChanges: false, // Track if form has been modified
-      isFormValid: true, // Track if all required fields are filled
-      isNavigating: false // Track if navigating between series events
-    });
-
-    // Multi-day event confirmation state
-    const [pendingMultiDayConfirmation, setPendingMultiDayConfirmation] = useState(null); // { eventCount: number } or null
-
-    // Event delete confirmation state
-    const [pendingEventDeleteConfirmation, setPendingEventDeleteConfirmation] = useState(false);
-
-    // Save/Create confirmation state (for single events - multi-day has its own confirmation)
-    const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
-
-    // Draft state for reservation requests
-    const [draftId, setDraftId] = useState(null);
-    const [savingDraft, setSavingDraft] = useState(false);
-    const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
-    const [pendingDraftSaveConfirmation, setPendingDraftSaveConfirmation] = useState(false);
-
     // Edit request mode state (for inline editing to create edit requests)
     const [isEditRequestMode, setIsEditRequestMode] = useState(false);
     const [originalEventData, setOriginalEventData] = useState(null);
@@ -476,23 +451,14 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     });
 
-    // Reset hasChanges after event review modal form initializes
-    // This prevents false "unsaved changes" prompts when opening and immediately closing
-    useEffect(() => {
-      if (eventReviewModal.isOpen && eventReviewModal.event) {
-        // Small delay to allow form to initialize, then reset hasChanges
-        const timer = setTimeout(() => {
-          setEventReviewModal(prev => {
-            // Only reset if still open and hasChanges was set during initialization
-            if (prev.isOpen && prev.hasChanges) {
-              return { ...prev, hasChanges: false };
-            }
-            return prev;
-          });
-        }, 150);
-        return () => clearTimeout(timer);
-      }
-    }, [eventReviewModal.isOpen, eventReviewModal.event?._id, eventReviewModal.event?.eventId]);
+    // Shared creation hook — handles admin publish, requester submit, and draft save
+    const eventCreation = useEventCreation({
+      apiToken,
+      selectedCalendarId,
+      availableCalendars,
+      onSuccess: () => loadEvents(true),
+      refreshSource: 'calendar-creation',
+    });
 
     // Reset edit request mode when review modal closes
     useEffect(() => {
@@ -2074,9 +2040,9 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Poll for updates every 120s (silent — no loading spinner, skip in demo mode or while modal is open)
     const silentCalendarRefresh = useCallback(() => {
-      if (reviewModal.isOpen || eventReviewModal?.isOpen) return;
+      if (reviewModal.isOpen || eventCreation.isOpen) return;
       loadEvents(false, null, { silent: true });
-    }, [loadEvents, reviewModal.isOpen, eventReviewModal?.isOpen]);
+    }, [loadEvents, reviewModal.isOpen, eventCreation.isOpen]);
     usePolling(silentCalendarRefresh, 300_000, !!apiToken && !isDemoMode && !initializing);
 
     // Manual refresh handler for FreshnessIndicator
@@ -2667,9 +2633,9 @@ import ConflictDialog from './shared/ConflictDialog';
         eventId: result.event?.id
       });
 
-      // For new events, handle the case where we need to create the event first
+      // Legacy fallback for new events created via EventForm (not the primary creation path).
+      // Primary creation now goes through useEventCreation → POST /api/events/new/audit-update.
       if (!eventId && !result.event?.id) {
-        // Fall back to backend batch API for new events (uses app-only auth)
         logger.debug('[patchEventBatch] Creating new event via backend batch API');
 
         const batchBody = makeBatchBody(null, coreBody, extPayload, targetCalendarId, calendarOwner);
@@ -3788,105 +3754,16 @@ import ConflictDialog from './shared/ConflictDialog';
      * Open the Add, Edit, Delete, Save modal
      */
     const handleAddEvent = useCallback(() => {
-      logger.debug('handleAddEvent called');
-      logger.debug('Permissions:', userPermissions);
-
-      // Block if user has no creation permissions at all (Viewer role)
-      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) {
-        logger.debug('User has no creation permissions - blocking modal open');
-        return;
-      }
+      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) return;
 
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-
-      // Check if user can edit the selected calendar
       if (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit) {
         showError("You don't have permission to create events in this calendar");
         return;
       }
 
-      // Determine mode based on permissions
-      // Users WITH createEvents permission: create events directly (mode='event')
-      // Users WITHOUT createEvents permission: create reservation requests (mode='create')
-      const mode = effectivePermissions.createEvents ? 'event' : 'create';
-
-      // Debug logging for reservation mode determination
-      logger.debug('handleAddEvent: Mode determination', {
-        mode,
-        isSimulating,
-        effectivePermissions: {
-          createEvents: effectivePermissions.createEvents,
-          submitReservation: effectivePermissions.submitReservation
-        }
-      });
-
-      // Create blank event template with current date/time
-      const now = new Date();
-      const startTime = new Date(now);
-      startTime.setHours(9, 0, 0, 0); // Default to 9 AM
-
-      const endTime = new Date(startTime);
-      endTime.setHours(startTime.getHours() + 1); // 1 hour duration
-
-      // Create reservation object structure (not event structure)
-      // RoomReservationReview expects reservation fields like startDateTime, eventTitle, etc.
-      const newReservation = {
-        // Submitter Information
-        requesterName: currentUser?.name || '',
-        requesterEmail: currentUser?.email || '',
-        department: '',
-        phone: '',
-        contactEmail: '',
-        contactName: '',
-        isOnBehalfOf: false,
-
-        // Event Details
-        eventTitle: '',
-        eventDescription: '',
-        startDateTime: standardizeDate(startTime),
-        endDateTime: standardizeDate(endTime),
-        isAllDayEvent: false,
-
-        // Location & Setup
-        requestedRooms: [],
-        setupTime: '',
-        teardownTime: '',
-        reservationStartTime: '',
-        reservationEndTime: '',
-        doorOpenTime: '',
-        doorCloseTime: '',
-        setupTimeMinutes: 0,
-        teardownTimeMinutes: 0,
-        reservationStartMinutes: 0,
-        reservationEndMinutes: 0,
-        setupNotes: '',
-        doorNotes: '',
-        eventNotes: '',
-
-        // Additional Details
-        attendeeCount: '',
-        specialRequirements: '',
-        reviewNotes: '',
-
-        // Calendar Info
-        calendarId: selectedCalendarId,
-        calendarName: selectedCalendar?.name,
-
-        // Virtual Meeting
-        virtualMeetingUrl: null,
-        graphData: null
-      };
-
-      // Open ReviewModal with appropriate mode
-      setEventReviewModal({
-        isOpen: true,
-        event: newReservation,
-        mode: mode,
-        hasChanges: false
-      });
-
-      logger.debug('EventReviewModal opened for adding new event', { mode });
-    }, [availableCalendars, effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, showError, standardizeDate, currentUser]);
+      eventCreation.open();
+    }, [availableCalendars, effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, showError, eventCreation]);
 
     /**
      * Handle changing the calendar view type (day/week/month)
@@ -4000,123 +3877,33 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [viewType, currentDate, startNavigation]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
-      // Block if user has no creation permissions at all (Viewer role)
-      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) {
-        logger.debug('User has no creation permissions - blocking modal open');
-        return;
-      }
+      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) return;
 
-      // Determine mode based on permissions
-      // Users WITH createEvents permission: create events directly (mode='event')
-      // Users WITHOUT createEvents permission: create reservation requests (mode='create')
-      const mode = effectivePermissions.createEvents ? 'event' : 'create';
-
-      // Debug logging for reservation mode determination
-      logger.debug('handleDayCellClick: Mode determination', {
-        mode,
-        isSimulating,
-        effectivePermissions: {
-          createEvents: effectivePermissions.createEvents,
-          submitReservation: effectivePermissions.submitReservation
-        }
-      });
-
-      // Get the date string without times - let user fill in times
       const dateString = day.toISOString().split('T')[0];
 
-      // Set the category based on what view we're in
-      let eventCategory = 'Uncategorized';
-      let eventLocation = 'Unspecified';
-
-      if (groupBy === 'categories' && category) {
-        eventCategory = category;
-
-        // Check if this category exists in Outlook categories
-        if (category !== 'Uncategorized') {
-          const categoryExists = outlookCategories.some(cat => cat.name === category);
-
-          if (!categoryExists) {
-            logger.debug(`Category ${category} doesn't exist in Outlook categories, creating it...`);
-            await createOutlookCategory(category);
-          }
+      // Auto-create Outlook category if it doesn't exist yet
+      if (groupBy === 'categories' && category && category !== 'Uncategorized') {
+        if (!outlookCategories.some(cat => cat.name === category)) {
+          await createOutlookCategory(category);
         }
-      } else if (groupBy === 'locations' && location && location !== 'Unspecified') {
-        eventLocation = location;
       }
 
-      // Create reservation object structure (not event structure)
-      // RoomReservationReview expects reservation fields like startDateTime, eventTitle, etc.
-      const newReservation = {
-        // Submitter Information
-        requesterName: currentUser?.name || '',
-        requesterEmail: currentUser?.email || '',
-        department: '',
-        phone: '',
-        contactEmail: '',
-        contactName: '',
-        isOnBehalfOf: false,
+      // Resolve location ObjectId from display name
+      let locationIds = [];
+      if (groupBy === 'locations' && location && location !== 'Unspecified') {
+        const locationDoc = rooms.find(loc =>
+          loc.name === location || loc.displayName === location
+        );
+        if (locationDoc) locationIds = [locationDoc._id];
+      }
 
-        // Event Details
-        eventTitle: '',
-        eventDescription: '',
+      eventCreation.open({
         startDate: dateString,
-        startTime: '',
         endDate: dateString,
-        endTime: '',
-        isAllDayEvent: false,
-
-        // Location & Setup
-        locations: (() => {
-          // Convert location display name to ObjectId reference
-          if (groupBy === 'locations' && eventLocation !== 'Unspecified') {
-            const locationDoc = rooms.find(loc =>
-              loc.name === eventLocation || loc.displayName === eventLocation
-            );
-            return locationDoc ? [locationDoc._id] : [];
-          }
-          return [];
-        })(),
-        setupTime: '',
-        teardownTime: '',
-        reservationStartTime: '',
-        reservationEndTime: '',
-        doorOpenTime: '',
-        doorCloseTime: '',
-        setupTimeMinutes: 0,
-        teardownTimeMinutes: 0,
-        reservationStartMinutes: 0,
-        reservationEndMinutes: 0,
-        setupNotes: '',
-        doorNotes: '',
-        eventNotes: '',
-
-        // Additional Details
-        attendeeCount: '',
-        specialRequirements: '',
-        reviewNotes: '',
-
-        // Calendar Info
-        calendarId: selectedCalendarId,
-        calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name,
-
-        // Categories (from grouped row click)
+        locations: locationIds,
         categories: (category && category !== 'Uncategorized') ? [category] : [],
-
-        // Virtual Meeting
-        virtualMeetingUrl: null,
-        graphData: null
-      };
-
-      // Open ReviewModal with appropriate mode
-      setEventReviewModal({
-        isOpen: true,
-        event: newReservation,
-        mode: mode,
-        hasChanges: false
       });
-
-      logger.debug('EventReviewModal opened from day cell click', { mode, day });
-    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, currentUser]);
+    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, groupBy, outlookCategories, createOutlookCategory, rooms, eventCreation]);
 
     /**
      * Handle quick-add from WeekTimelineModal grid click
@@ -4127,69 +3914,25 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleTimelineQuickAdd = useCallback((locationId, dateStr, decimalHour) => {
       if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) return;
 
-      const mode = effectivePermissions.createEvents ? 'event' : 'create';
-
       // Convert decimal hour to HH:MM strings
       const startHours = Math.floor(decimalHour);
       const startMinutes = Math.round((decimalHour - startHours) * 60);
       const startTime = `${String(startHours).padStart(2, '0')}:${String(startMinutes).padStart(2, '0')}`;
 
-      // Default 1-hour block
       const endDecimal = Math.min(decimalHour + 1, 24);
       const endHours = Math.floor(endDecimal);
       const endMinutes = Math.round((endDecimal - endHours) * 60);
       const endTime = `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
 
-      const newReservation = {
-        requesterName: currentUser?.name || '',
-        requesterEmail: currentUser?.email || '',
-        department: '',
-        phone: '',
-        contactEmail: '',
-        contactName: '',
-        isOnBehalfOf: false,
-        eventTitle: '',
-        eventDescription: '',
-        startDate: dateStr,
-        startTime,
-        endDate: dateStr,
-        endTime,
-        isAllDayEvent: false,
-        locations: locationId ? [locationId] : [],
-        setupTime: '',
-        teardownTime: '',
-        reservationStartTime: '',
-        reservationEndTime: '',
-        doorOpenTime: '',
-        doorCloseTime: '',
-        setupTimeMinutes: 0,
-        teardownTimeMinutes: 0,
-        reservationStartMinutes: 0,
-        reservationEndMinutes: 0,
-        setupNotes: '',
-        doorNotes: '',
-        eventNotes: '',
-        attendeeCount: '',
-        specialRequirements: '',
-        reviewNotes: '',
-        calendarId: selectedCalendarId,
-        calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name,
-        categories: [],
-        virtualMeetingUrl: null,
-        graphData: null
-      };
-
-      // Close timeline modal and open reservation form
       setTimelineModal(prev => ({ ...prev, isOpen: false }));
-      setEventReviewModal({
-        isOpen: true,
-        event: newReservation,
-        mode: mode,
-        hasChanges: false
+      eventCreation.open({
+        startDate: dateStr,
+        endDate: dateStr,
+        startTime,
+        endTime,
+        locations: locationId ? [locationId] : [],
       });
-
-      logger.debug('EventReviewModal opened from timeline quick-add', { mode, dateStr, decimalHour, locationId });
-    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, availableCalendars, currentUser]);
+    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, eventCreation]);
 
     /**
      * Handle clicking on a location row to open timeline modal
@@ -5134,375 +4877,6 @@ import ConflictDialog from './shared/ConflictDialog';
     };
 
     /**
-     * Handle save from EventReviewModal
-     * Routes to appropriate handler based on mode:
-     * - mode='event': Direct calendar event creation
-     * - mode='create': Reservation request submission
-     *
-     * Note: Receives parameter from ReviewModal but uses eventReviewModal.event state
-     * which is updated via onDataChange callback in RoomReservationReview
-     */
-    const handleEventReviewModalSave = useCallback(async () => {
-      const { mode: originalMode, event: reservationData } = eventReviewModal;
-
-      logger.log('Form data being saved:', reservationData);
-
-      if (!reservationData) {
-        logger.error('No event data available to save');
-        return;
-      }
-
-      // Safety check: Override mode if user can only submit reservations (not create events)
-      // This handles edge cases where mode was set incorrectly or permissions changed after modal opened
-      const mode = !effectivePermissions.createEvents && effectivePermissions.submitReservation
-        ? 'create'
-        : originalMode;
-
-      // Debug logging for mode verification
-      if (mode !== originalMode) {
-        logger.debug('handleEventReviewModalSave: Mode overridden based on current permissions', {
-          originalMode,
-          newMode: mode,
-          createEvents: effectivePermissions.createEvents,
-          submitReservation: effectivePermissions.submitReservation
-        });
-      }
-
-      try {
-        if (mode === 'event') {
-          // Direct event creation - transform reservation structure to event structure
-
-          // Validate required fields - date range is always required (even if ad hoc dates are added)
-          const hasDateRange = reservationData.startDate && reservationData.endDate;
-          const hasTimes = reservationData.startTime && reservationData.endTime;
-
-          if (!hasDateRange || !hasTimes) {
-            showError('Date range and times are required');
-            return;
-          }
-
-          // Detect if editing existing event or creating new one
-          const isEditingExistingEvent = !!(reservationData.eventId || reservationData.id);
-
-          // Check for multi-day event creation - combines date range with ad hoc dates
-          const hasAdHocDates = reservationData.adHocDates && reservationData.adHocDates.length > 0;
-          const isMultiDayRange = reservationData.startDate !== reservationData.endDate;
-          const isMultiDay = hasAdHocDates || isMultiDayRange;
-
-          // Two-step save confirmation for SINGLE-DAY events only
-          // (multi-day events already have their own confirmation via pendingMultiDayConfirmation)
-          if (!isMultiDay && !pendingSaveConfirmation) {
-            setPendingSaveConfirmation(true);
-            return; // Exit early on first click - button text will change to show confirmation
-          }
-
-          // Reset single-day confirmation after second click (user confirmed)
-          if (!isMultiDay && pendingSaveConfirmation) {
-            setPendingSaveConfirmation(false);
-          }
-
-          if (isMultiDay) {
-
-            // Generate list of dates based on whether this is new or existing event
-            const allDates = new Set();
-
-            if (isEditingExistingEvent) {
-              // EDITING EXISTING EVENT: Only create events for NEW ad hoc dates
-              // Don't regenerate the date range - those events already exist
-              if (hasAdHocDates) {
-                reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
-              }
-            } else {
-              // CREATING NEW EVENT: Combine range + ad hoc dates
-              // Add dates from range
-              const startDate = new Date(reservationData.startDate);
-              const endDate = new Date(reservationData.endDate);
-              const rangeDayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-              for (let i = 0; i < rangeDayCount; i++) {
-                const currentDate = new Date(startDate);
-                currentDate.setDate(startDate.getDate() + i);
-                const dateStr = currentDate.toISOString().split('T')[0];
-                allDates.add(dateStr);
-              }
-
-              // Add ad hoc dates (if any)
-              if (hasAdHocDates) {
-                reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
-              }
-            }
-
-            const dayCount = allDates.size;
-
-            // Two-step confirmation: First click shows confirmation, second click creates
-            if (!pendingMultiDayConfirmation) {
-              // First click: Set pending confirmation state and return
-              setPendingMultiDayConfirmation({ eventCount: dayCount });
-              setPendingSaveConfirmation(true); // Drive standard "Confirm Save?" button text
-              return;
-            }
-
-            // Second click: User confirmed, proceed with creation
-            setPendingMultiDayConfirmation(null); // Reset confirmation state
-            setPendingSaveConfirmation(false); // Reset save confirmation
-            setSavingEvent(true); // Show "Saving..." message
-
-            // Generate unique series ID for linking events
-            const eventSeriesId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-            logger.debug(`Creating multi-day event series: ${dayCount} events`);
-
-            // Convert Set to sorted array
-            const dates = Array.from(allDates).sort();
-
-            // Transform locations array to Graph API location format (once for all events)
-            // FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
-            const multiDayRoomIds = reservationData.requestedRooms?.length > 0
-              ? reservationData.requestedRooms
-              : (reservationData.locations || []);
-            let locationField = undefined;
-            let locationsArray = [];
-            if (multiDayRoomIds.length > 0) {
-              const locationDocs = rooms.filter(room =>
-                multiDayRoomIds.includes(room._id)
-              );
-              if (locationDocs.length > 0) {
-                // Build array of separate location objects for Graph API
-                locationsArray = locationDocs.map(loc => ({
-                  displayName: loc.displayName || loc.name,
-                  locationType: 'default'
-                }));
-                // Primary location is the first one (for backwards compatibility)
-                locationField = locationsArray[0];
-              }
-            }
-
-            // Create events using batch API for better performance
-            logger.debug(`Creating ${dates.length} events using batch API`);
-
-            // Prepare all events data — spread reservationData as base so ALL fields flow through
-            const eventsData = dates.map((dateStr, i) => {
-              const startDateTime = `${dateStr}T${reservationData.startTime || reservationData.reservationStartTime}:00`;
-              const endDateTime = `${dateStr}T${reservationData.endTime || reservationData.reservationEndTime}:00`;
-
-              return {
-                ...reservationData,
-                // Override with Graph API-formatted fields
-                subject: reservationData.eventTitle || 'Untitled Event',
-                start: { dateTime: startDateTime, timeZone: getOutlookTimezone(userTimezone) },
-                end: { dateTime: endDateTime, timeZone: getOutlookTimezone(userTimezone) },
-                location: locationField,
-                locations: locationsArray.length > 0 ? locationsArray : undefined,
-                body: { contentType: 'text', content: reservationData.eventDescription || '' },
-                categories: reservationData.categories || [],
-                isAllDay: reservationData.isAllDayEvent || false,
-                calendarId: reservationData.calendarId,
-                // Computed fields
-                locationIds: multiDayRoomIds,
-                eventSeriesId: eventSeriesId,
-                seriesLength: dayCount,
-                seriesIndex: i,
-              };
-            });
-
-            try {
-              // Create all events in batches with progress callback
-              const result = await handleBatchCreateEvents(eventsData);
-
-              const { successCount, failCount } = result;
-
-              // Show summary notification
-              if (successCount > 0 && failCount > 0) {
-                showError(`Created ${successCount} events, ${failCount} failed`);
-              } else {
-                showError(`Failed to create events`);
-              }
-
-              logger.debug(`Multi-day batch creation complete: ${successCount} succeeded, ${failCount} failed`);
-
-            } catch (error) {
-              logger.error('Batch creation error:', error);
-              showError('Error creating multi-day events');
-            } finally {
-              // Always clear the saving state
-              setSavingEvent(false);
-            }
-
-            // Close modal and refresh calendar ONCE after all events are created
-            setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
-            loadEvents(true);
-          } else {
-            // Single day event - existing logic
-            let startDateTime, endDateTime;
-
-            if (reservationData.startDate && (reservationData.startTime || reservationData.reservationStartTime)) {
-              startDateTime = `${reservationData.startDate}T${reservationData.startTime || reservationData.reservationStartTime}:00`;
-            } else if (reservationData.startDateTime) {
-              startDateTime = reservationData.startDateTime;
-            }
-
-            if (reservationData.endDate && (reservationData.endTime || reservationData.reservationEndTime)) {
-              endDateTime = `${reservationData.endDate}T${reservationData.endTime || reservationData.reservationEndTime}:00`;
-            } else if (reservationData.endDateTime) {
-              endDateTime = reservationData.endDateTime;
-            }
-
-            // Transform locations array to Graph API location format
-            // FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
-            const roomIds = reservationData.requestedRooms?.length > 0
-              ? reservationData.requestedRooms
-              : (reservationData.locations || []);
-            let locationField = undefined;
-            let locationsArray = [];
-            if (roomIds.length > 0) {
-              const locationDocs = rooms.filter(room =>
-                roomIds.includes(room._id)
-              );
-              if (locationDocs.length > 0) {
-                // Build array of separate location objects for Graph API
-                locationsArray = locationDocs.map(loc => ({
-                  displayName: loc.displayName || loc.name,
-                  locationType: 'default'
-                }));
-                // Primary location is the first one (for backwards compatibility)
-                locationField = locationsArray[0];
-              }
-            }
-
-            // Transform reservation structure to event structure expected by handleSaveEvent.
-            // Spread reservationData as base so ALL form fields flow through to buildInternalFields
-            // (prevents field-mapping omissions like the reservationStartTime bug).
-            const eventData = {
-              ...reservationData,
-              // Override with Graph API-formatted fields
-              subject: reservationData.eventTitle || 'Untitled Event',
-              start: { dateTime: startDateTime, timeZone: getOutlookTimezone(userTimezone) },
-              end: { dateTime: endDateTime, timeZone: getOutlookTimezone(userTimezone) },
-              location: locationField,
-              locations: locationsArray.length > 0 ? locationsArray : undefined,
-              body: { contentType: 'text', content: reservationData.eventDescription || '' },
-              categories: reservationData.categories || [],
-              isAllDay: reservationData.isAllDayEvent || false,
-              calendarId: reservationData.calendarId,
-              recurrence: reservationData.recurrence || null,
-              // Computed fields
-              locationIds: roomIds,
-              eventSeriesId: reservationData.recurrence ? undefined : null,
-            };
-
-            const success = await handleSaveEvent(eventData);
-
-            if (success) {
-              setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
-              loadEvents(true);
-            }
-          }
-        } else if (mode === 'create') {
-          // Reservation request submission - transform data to match API expectations
-          logger.debug('Creating reservation request', reservationData);
-
-          // Two-step submit confirmation for reservation requests
-          if (!pendingSaveConfirmation) {
-            setPendingSaveConfirmation(true);
-            return; // Exit early on first click - button text will change to show confirmation
-          }
-
-          // Reset confirmation after second click (user confirmed)
-          setPendingSaveConfirmation(false);
-          setSavingEvent(true); // Show "Submitting..." with disabled button
-
-          try {
-            // Transform data to match /api/events/request endpoint expectations
-            const requestPayload = {
-              eventTitle: reservationData.eventTitle || reservationData.subject || '',
-              eventDescription: reservationData.eventDescription || reservationData.description || '',
-              // Combine date + time into ISO datetime format expected by API
-              startDateTime: `${reservationData.startDate}T${reservationData.startTime || reservationData.reservationStartTime}:00`,
-              endDateTime: `${reservationData.endDate}T${reservationData.endTime || reservationData.reservationEndTime}:00`,
-              // Ensure requestedRooms is passed (API requires this field)
-              requestedRooms: reservationData.requestedRooms || reservationData.locations || [],
-              attendeeCount: reservationData.attendeeCount || 0,
-              department: reservationData.department || '',
-              phone: reservationData.phone || '',
-              specialRequirements: reservationData.specialRequirements || '',
-              setupTimeMinutes: reservationData.reservationStartMinutes || reservationData.setupTimeMinutes || 0,
-              teardownTimeMinutes: reservationData.reservationEndMinutes || reservationData.teardownTimeMinutes || 0,
-              reservationStartMinutes: reservationData.reservationStartMinutes || 0,
-              reservationEndMinutes: reservationData.reservationEndMinutes || 0,
-              setupTime: reservationData.reservationStartTime || reservationData.setupTime || '',
-              teardownTime: reservationData.reservationEndTime || reservationData.teardownTime || '',
-              reservationStartTime: reservationData.reservationStartTime || '',
-              reservationEndTime: reservationData.reservationEndTime || '',
-              doorOpenTime: reservationData.doorOpenTime || '',
-              doorCloseTime: reservationData.doorCloseTime || '',
-              setupNotes: reservationData.setupNotes || '',
-              doorNotes: reservationData.doorNotes || '',
-              eventNotes: reservationData.eventNotes || '',
-              requesterName: reservationData.requesterName || userProfile?.displayName || '',
-              requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
-              // Include calendarId and calendarOwner so the event shows up in the user's calendar view
-              calendarId: reservationData.calendarId || selectedCalendarId,
-              calendarOwner: availableCalendars.find(cal => cal.id === (reservationData.calendarId || selectedCalendarId))?.owner?.address?.toLowerCase() || null,
-              // Offsite location fields
-              isOffsite: reservationData.isOffsite || false,
-              offsiteName: reservationData.offsiteName || '',
-              offsiteAddress: reservationData.offsiteAddress || '',
-              offsiteLat: reservationData.offsiteLat || null,
-              offsiteLon: reservationData.offsiteLon || null,
-              // Categories (syncs with Outlook) and Services (internal use only)
-              categories: reservationData.categories || [],
-              services: reservationData.services || {},
-              // Recurring event fields
-              recurrence: reservationData.recurrence || null,
-              occurrenceOverrides: reservationData.occurrenceOverrides || null
-            };
-
-            logger.debug('Transformed request payload', requestPayload);
-
-            const response = await fetch(`${API_BASE_URL}/events/request`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiToken}`
-              },
-              body: JSON.stringify(requestPayload)
-            });
-
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}));
-              throw new Error(errorData.error || `Failed to create reservation request: ${response.statusText}`);
-            }
-
-            setEventReviewModal({ isOpen: false, event: null, mode: 'create', hasChanges: false });
-            loadEvents(true);
-          } finally {
-            setSavingEvent(false);
-          }
-        }
-      } catch (error) {
-        logger.error('Error saving event from ReviewModal:', error);
-        showError(`Error: ${error.message}`);
-        throw error;
-      }
-    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showError, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone, effectivePermissions]);
-
-    /**
-     * Handle closing the EventReviewModal
-     */
-    const handleEventReviewModalClose = useCallback((force = false) => {
-      // Show draft save dialog if there are unsaved changes in create mode (not for edit mode)
-      if (!force && eventReviewModal.mode === 'create' && eventReviewModal.hasChanges && !draftId) {
-        setShowDraftSaveDialog(true);
-        return;
-      }
-      setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
-      setPendingEventDeleteConfirmation(false); // Reset delete confirmation
-      setPendingMultiDayConfirmation(null); // Reset multi-day confirmation
-      setPendingSaveConfirmation(false); // Reset save confirmation
-      setDraftId(null); // Reset draft ID
-      setShowDraftSaveDialog(false);
-      eventReviewFormDataGetterRef.current = null; // Clear stale form data getter
-    }, [eventReviewModal.mode, eventReviewModal.hasChanges, draftId]);
-
-    /**
      * Handle enabling edit request mode for published events
      * This allows requesters to edit the form inline and submit changes for approval
      */
@@ -6103,187 +5477,6 @@ import ConflictDialog from './shared/ConflictDialog';
     }, []);
 
     /**
-     * Build draft payload from event data
-     */
-    const buildDraftPayload = useCallback((eventData) => {
-      // Helper function to convert time difference to minutes
-      const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
-        if (!eventTime || !bufferTime) return 0;
-        const eventDate = new Date(`1970-01-01T${eventTime}:00`);
-        const bufferDate = new Date(`1970-01-01T${bufferTime}:00`);
-        const diffMs = Math.abs(eventDate.getTime() - bufferDate.getTime());
-        return Math.floor(diffMs / (1000 * 60));
-      };
-
-      // Combine date and time if both exist (event times fall back to reservation times)
-      const effectiveStartTime = eventData.startTime || eventData.reservationStartTime;
-      const effectiveEndTime = eventData.endTime || eventData.reservationEndTime;
-      const startDateTime = eventData.startDate && effectiveStartTime
-        ? `${eventData.startDate}T${effectiveStartTime}`
-        : null;
-      const endDateTime = eventData.endDate && effectiveEndTime
-        ? `${eventData.endDate}T${effectiveEndTime}`
-        : null;
-
-      let reservationStartMinutes = eventData.reservationStartMinutes || 0;
-      let reservationEndMinutes = eventData.reservationEndMinutes || 0;
-
-      if (eventData.reservationStartTime && effectiveStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, eventData.reservationStartTime);
-      } else if (eventData.setupTime && effectiveStartTime) {
-        reservationStartMinutes = calculateTimeBufferMinutes(effectiveStartTime, eventData.setupTime);
-      }
-      if (eventData.reservationEndTime && effectiveEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, eventData.reservationEndTime);
-      } else if (eventData.teardownTime && effectiveEndTime) {
-        reservationEndMinutes = calculateTimeBufferMinutes(effectiveEndTime, eventData.teardownTime);
-      }
-
-      return {
-        eventTitle: eventData.eventTitle || eventData.subject || '',
-        eventDescription: eventData.eventDescription || eventData.description || '',
-        startDateTime,
-        endDateTime,
-        attendeeCount: parseInt(eventData.attendeeCount) || 0,
-        requestedRooms: eventData.requestedRooms || eventData.locations || [],
-        requiredFeatures: eventData.requiredFeatures || [],
-        specialRequirements: eventData.specialRequirements || '',
-        department: eventData.department || '',
-        phone: eventData.phone || '',
-        setupTimeMinutes: reservationStartMinutes,
-        teardownTimeMinutes: reservationEndMinutes,
-        reservationStartMinutes,
-        reservationEndMinutes,
-        reservationStartTime: eventData.reservationStartTime || null,
-        reservationEndTime: eventData.reservationEndTime || null,
-        setupTime: eventData.setupTime || null,
-        teardownTime: eventData.teardownTime || null,
-        doorOpenTime: eventData.doorOpenTime || null,
-        doorCloseTime: eventData.doorCloseTime || null,
-        setupNotes: eventData.setupNotes || '',
-        doorNotes: eventData.doorNotes || '',
-        eventNotes: eventData.eventNotes || '',
-        isOnBehalfOf: eventData.isOnBehalfOf || false,
-        contactName: eventData.contactName || '',
-        contactEmail: eventData.contactEmail || '',
-        categories: eventData.categories || eventData.mecCategories || [],
-        services: eventData.services || {},
-        recurrence: eventData.recurrence || null,
-        virtualMeetingUrl: eventData.virtualMeetingUrl || null,
-        isOffsite: eventData.isOffsite || false,
-        offsiteName: eventData.offsiteName || '',
-        offsiteAddress: eventData.offsiteAddress || '',
-        offsiteLat: eventData.offsiteLat || null,
-        offsiteLon: eventData.offsiteLon || null,
-        startDate: eventData.startDate || null,
-        endDate: eventData.endDate || null,
-        startTime: eventData.startTime || null,
-        endTime: eventData.endTime || null
-      };
-    }, []);
-
-    /**
-     * Save current form as draft (two-click confirmation, same pattern as create event)
-     */
-    const handleSaveDraft = useCallback(async () => {
-      const eventData = eventReviewModal.event;
-      if (!eventData) {
-        showError('No form data to save');
-        return;
-      }
-
-      // Minimal validation - eventTitle and dates required
-      if (!eventData.eventTitle?.trim()) {
-        showError('Event title is required to save as draft');
-        return;
-      }
-      if (!eventData.startDate || !eventData.endDate) {
-        showError('Start date and end date are required to save as draft');
-        return;
-      }
-
-      // First click - show confirmation
-      if (!pendingDraftSaveConfirmation) {
-        setPendingDraftSaveConfirmation(true);
-        setPendingSaveConfirmation(false); // Clear other confirmations
-        setPendingEventDeleteConfirmation(false);
-        return;
-      }
-
-      // Second click - execute save
-      setPendingDraftSaveConfirmation(false);
-      setSavingDraft(true);
-
-      try {
-        const processedData = eventReviewFormDataGetterRef.current?.({ skipValidation: true }) || eventData;
-        const payload = buildDraftPayload(processedData);
-
-        const endpoint = draftId
-          ? `${API_BASE_URL}/room-reservations/draft/${draftId}`
-          : `${API_BASE_URL}/room-reservations/draft`;
-
-        const method = draftId ? 'PUT' : 'POST';
-
-        const response = await fetch(endpoint, {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to save draft');
-        }
-
-        const result = await response.json();
-        logger.log('Draft saved:', result);
-
-        handleEventReviewModalClose(true);
-        loadEvents(true);
-
-      } catch (error) {
-        logger.error('Error saving draft:', error);
-        showError(`Failed to save draft: ${error.message}`);
-      } finally {
-        setSavingDraft(false);
-      }
-    }, [eventReviewModal.event, draftId, pendingDraftSaveConfirmation, apiToken, buildDraftPayload, showError, handleEventReviewModalClose, loadEvents]);
-
-    /**
-     * Handle draft dialog save
-     */
-    const handleDraftDialogSave = useCallback(async () => {
-      await handleSaveDraft();
-      setShowDraftSaveDialog(false);
-      handleEventReviewModalClose(true);
-    }, [handleSaveDraft, handleEventReviewModalClose]);
-
-    /**
-     * Handle draft dialog discard
-     */
-    const handleDraftDialogDiscard = useCallback(() => {
-      setShowDraftSaveDialog(false);
-      handleEventReviewModalClose(true);
-    }, [handleEventReviewModalClose]);
-
-    /**
-     * Handle draft dialog cancel (continue editing)
-     */
-    const handleDraftDialogCancel = useCallback(() => {
-      setShowDraftSaveDialog(false);
-    }, []);
-
-    /**
-     * Check if draft can be saved (requires title AND changes)
-     */
-    const canSaveDraft = useCallback(() => {
-      return !!eventReviewModal.event?.eventTitle?.trim() && eventReviewModal.hasChanges;
-    }, [eventReviewModal.event, eventReviewModal.hasChanges]);
-
-    /**
      * Handle navigation to another event in the series (close and reopen modal)
      * @param {string} targetEventId - The eventId to navigate to
      */
@@ -6302,20 +5495,12 @@ import ConflictDialog from './shared/ConflictDialog';
       logger.debug('Found target event, reopening modal:', targetEvent);
 
       // Determine which modal is open and reopen with new event
-      if (eventReviewModal.isOpen) {
-        // Close and reopen eventReviewModal with new event
-        setEventReviewModal({
-          isOpen: true,
-          event: targetEvent,
-          mode: eventReviewModal.mode,
-          hasChanges: false,
-          isNavigating: false
-        });
-
-        // Clear any pending confirmations
-        setPendingMultiDayConfirmation(null);
-        setPendingEventDeleteConfirmation(false);
-        setPendingSaveConfirmation(false);
+      if (eventCreation.isOpen) {
+        // Close creation modal and open in the edit/review modal instead
+        eventCreation.close(true);
+        setTimeout(() => {
+          reviewModal.openModal(targetEvent);
+        }, 100);
       } else if (reviewModal.isOpen) {
         // Close current modal
         reviewModal.closeModal();
@@ -6327,24 +5512,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
 
       logger.debug('Modal reopened with new event');
-    }, [allEvents, showError, eventReviewModal, reviewModal]);
-
-    /**
-     * Handle navigation state changes for event review modal
-     */
-    const handleEventReviewIsNavigatingChange = useCallback((isNavigating) => {
-      setEventReviewModal(prev => ({
-        ...prev,
-        isNavigating
-      }));
-    }, []);
-
-    /**
-     * Handle form validity changes for event review modal
-     */
-    const handleEventReviewFormValidChange = useCallback((isValid) => {
-      setEventReviewModal(prev => ({ ...prev, isFormValid: isValid }));
-    }, []);
+    }, [allEvents, showError, eventCreation, reviewModal]);
 
     /**
      * Handle deletion of registration events when a TempleEvents event is deleted
@@ -6561,66 +5729,6 @@ import ConflictDialog from './shared/ConflictDialog';
         throw error;
       }
     };
-
-    /**
-     * Handle event deletion with inline two-step confirmation
-     */
-    const handleEventReviewModalDelete = useCallback(async () => {
-      if (!eventReviewModal.event) return;
-
-      // Two-step confirmation: First click shows confirmation, second click deletes
-      if (!pendingEventDeleteConfirmation) {
-        // First click: Set pending confirmation state and return
-        setPendingEventDeleteConfirmation(true);
-        return;
-      }
-
-      // Second click: User confirmed, proceed with deletion
-      setPendingEventDeleteConfirmation(false);
-
-      const event = eventReviewModal.event;
-
-      try {
-        if (isDemoMode) {
-          const eventId = event.eventId || event.id;
-          await handleDeleteDemoEvent(eventId);
-        } else {
-          // Use MongoDB _id to call backend DELETE endpoint (same logic as useReviewModal.jsx)
-          const mongoId = event._id;
-
-          // All events use the unified events endpoint
-          const endpoint = `${API_BASE_URL}/admin/events/${mongoId}`;
-
-          const response = await fetch(endpoint, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${apiToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              graphToken: graphToken // Backend will use it if needed
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to delete: ${response.status}`);
-          }
-
-          await response.json();
-
-          // Update local state - remove event from allEvents
-          setAllEvents(allEvents.filter(e => e._id !== mongoId));
-
-          // Note: NOT calling loadEvents() here to avoid race condition with Graph API deletion propagation
-          // The local state update is sufficient, and the next natural refresh will sync properly
-        }
-
-        handleEventReviewModalClose();
-      } catch (error) {
-        logger.error('Error deleting event:', error);
-        showError(`Error deleting event: ${error.message}`);
-      }
-    }, [eventReviewModal.event, pendingEventDeleteConfirmation, isDemoMode, handleDeleteDemoEvent, handleEventReviewModalClose, showError, apiToken, graphToken, API_BASE_URL, allEvents]);
 
     /**
      * Delete an event
@@ -7464,75 +6572,41 @@ import ConflictDialog from './shared/ConflictDialog';
           />
         )}
 
-        {/* Review Modal for Event Creation */}
+        {/* Review Modal for Event Creation (via useEventCreation hook) */}
         <ReviewModal
-          isOpen={eventReviewModal.isOpen}
-          title={eventReviewModal.mode === 'create'
-            ? 'Event'
-            : (eventReviewModal.event?.eventTitle || 'Event')}
-          modalMode={eventReviewModal.mode === 'create' ? 'new' : 'edit'}
-          onClose={handleEventReviewModalClose}
-          onSave={handleEventReviewModalSave}
-          onDelete={eventReviewModal.mode === 'event' && (eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleEventReviewModalDelete : null}
-          mode={eventReviewModal.mode === 'create' ? 'create' : 'edit'}
+          isOpen={eventCreation.isOpen}
+          title="Event"
+          modalMode={eventCreation.mode === 'create' ? 'new' : 'edit'}
+          onClose={eventCreation.close}
+          onSave={eventCreation.handleSave}
+          mode={eventCreation.mode === 'create' ? 'create' : 'edit'}
           isPending={false}
-          hasChanges={eventReviewModal.hasChanges}
-          isFormValid={eventReviewModal.isFormValid}
-          isSaving={savingEvent}
-          isNavigating={eventReviewModal.isNavigating}
+          hasChanges={eventCreation.hasChanges}
+          isFormValid={eventCreation.isFormValid}
+          isSaving={eventCreation.isSaving}
           showActionButtons={true}
           showTabs={true}
-          saveButtonLabel={
-            !eventReviewModal.event?.id && effectivePermissions.createEvents
-              ? 'Publish'
-              : null
-          }
-          isDeleteConfirming={pendingEventDeleteConfirmation}
-          onCancelDelete={() => setPendingEventDeleteConfirmation(false)}
-          isSaveConfirming={pendingSaveConfirmation || !!pendingMultiDayConfirmation}
-          onCancelSave={() => { setPendingSaveConfirmation(false); setPendingMultiDayConfirmation(null); }}
-          // Draft-related props - show for new event creation (not editing existing events)
-          onSaveDraft={!(eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleSaveDraft : null}
-          savingDraft={savingDraft}
-          isDraftConfirming={pendingDraftSaveConfirmation}
-          onCancelDraft={() => setPendingDraftSaveConfirmation(false)}
-          showDraftDialog={showDraftSaveDialog}
-          onDraftDialogSave={handleDraftDialogSave}
-          onDraftDialogDiscard={handleDraftDialogDiscard}
-          onDraftDialogCancel={handleDraftDialogCancel}
-          canSaveDraft={canSaveDraft()}
+          saveButtonLabel={eventCreation.mode === 'event' ? 'Publish' : null}
+          isSaveConfirming={eventCreation.isConfirming}
+          onCancelSave={eventCreation.cancelSaveConfirmation}
+          onSaveDraft={eventCreation.handleSaveDraft}
+          savingDraft={eventCreation.savingDraft}
+          isDraftConfirming={eventCreation.isDraftConfirming}
+          onCancelDraft={eventCreation.cancelDraftConfirmation}
+          showDraftDialog={eventCreation.showDraftDialog}
+          onDraftDialogSave={eventCreation.handleDraftDialogSave}
+          onDraftDialogDiscard={eventCreation.handleDraftDialogDiscard}
+          onDraftDialogCancel={eventCreation.handleDraftDialogCancel}
+          canSaveDraft={eventCreation.canSaveDraft()}
         >
-          {eventReviewModal.isOpen && eventReviewModal.event && (
+          {eventCreation.isOpen && eventCreation.prefillData && (
             <RoomReservationReview
-              reservation={eventReviewModal.event}
+              reservation={eventCreation.prefillData}
               apiToken={apiToken}
-              graphToken={graphToken}
-              onDataChange={(updatedData) => {
-                setEventReviewModal(prev => ({
-                  ...prev,
-                  event: {
-                    ...prev.event,  // Preserve original fields like calendarId, calendarName
-                    ...updatedData  // Merge in updated form data
-                  },
-                  hasChanges: true
-                }));
-                // Reset multi-day confirmation when form data changes
-                if (pendingMultiDayConfirmation) {
-                  setPendingMultiDayConfirmation(null);
-                }
-                // Reset delete confirmation when form data changes
-                if (pendingEventDeleteConfirmation) {
-                  setPendingEventDeleteConfirmation(false);
-                }
-                // Reset save confirmation when form data changes
-                if (pendingSaveConfirmation) {
-                  setPendingSaveConfirmation(false);
-                }
-              }}
-              onFormDataReady={(getter) => { eventReviewFormDataGetterRef.current = getter; }}
-              onIsNavigatingChange={handleEventReviewIsNavigatingChange}
+              onDataChange={eventCreation.updateFormData}
+              onFormDataReady={eventCreation.setFormDataReady}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
-              onFormValidChange={handleEventReviewFormValidChange}
+              onFormValidChange={eventCreation.setIsFormValid}
               readOnly={false}
             />
           )}
