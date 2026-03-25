@@ -217,9 +217,10 @@ export default function EditRequestComparison({
                   <input
                     type="text"
                     className="inline-reason-input"
-                    placeholder="Rejection reason (required)"
+                    placeholder="Why are you rejecting this edit?"
                     value={rejectionReason}
                     onChange={(e) => onRejectionReasonChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && rejectionReason?.trim()) handleReject(); }}
                     disabled={isRejecting}
                     autoFocus
                   />

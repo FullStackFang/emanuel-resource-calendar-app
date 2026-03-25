@@ -735,6 +735,15 @@
   position: relative;
   height: var(--btn-height-sm);
   vertical-align: middle;
+  border-radius: var(--radius-lg);
+  transition: background var(--duration-normal) var(--ease-in-out),
+              padding var(--duration-normal) var(--ease-in-out);
+}
+
+/* Cohesive "zone" tint when a reason input is visible — groups input + button + ✕ as one unit */
+.confirm-button-group:has(.inline-reason-input) {
+  background: var(--color-error-50);
+  padding: var(--space-1);
 }
 
 /* Shared input for reason-required inline confirmations (reject, withdraw, etc.) */
@@ -748,9 +757,27 @@
   color: var(--text-primary);
   background: var(--bg-primary);
   box-sizing: border-box;
-  flex: 1 1 180px;
-  min-width: 150px;
-  max-width: 260px;
+  width: 320px;
+  max-width: 320px;
+  min-width: 0;
+  animation: reason-input-enter var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes reason-input-enter {
+  from {
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+    border-color: transparent;
+  }
+  to {
+    max-width: 320px;
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+    opacity: 1;
+    border-color: var(--color-error-300);
+  }
 }
 
 .inline-reason-input:focus {
@@ -1133,6 +1160,7 @@
 
   .inline-reason-input {
     flex: 1 1 100%;
+    width: auto;
     max-width: 100%;
     min-width: 0;
   }

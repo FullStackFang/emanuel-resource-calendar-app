@@ -467,9 +467,10 @@ export default function ReviewModal({
                             <input
                               type="text"
                               className="inline-reason-input"
-                              placeholder="Rejection reason (required)"
+                              placeholder="Why are you rejecting this edit?"
                               value={editRequestRejectionReason}
                               onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter' && editRequestRejectionReason?.trim()) onRejectEditRequest(); }}
                               autoFocus
                             />
                           )}
@@ -549,9 +550,10 @@ export default function ReviewModal({
                     <input
                       type="text"
                       className="inline-reason-input"
-                      placeholder="Reason for withdrawal (required)"
+                      placeholder="Why are you withdrawing?"
                       value={deleteReason}
                       onChange={(e) => onDeleteReasonChange?.(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && deleteReason?.trim()) onDelete(); }}
                       disabled={isDeleting}
                       ref={deleteInputRef}
                     />
@@ -675,9 +677,10 @@ export default function ReviewModal({
                     <input
                       type="text"
                       className="inline-reason-input"
-                      placeholder="Rejection reason (required)"
+                      placeholder="Why are you rejecting this?"
                       value={rejectionReason}
                       onChange={(e) => onRejectionReasonChange?.(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && rejectionReason?.trim()) onReject(); }}
                       disabled={isRejecting}
                       ref={rejectInputRef}
                     />
