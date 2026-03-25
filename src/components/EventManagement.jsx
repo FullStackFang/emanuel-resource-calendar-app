@@ -177,7 +177,7 @@ export default function EventManagement() {
       // Silently fail on poll errors
     }
   }, [authFetch, page, activeTab, startDate, endDate]);
-  usePolling(silentRefresh, 90_000, !!apiToken);
+  usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Listen for refresh events from other views
   useDataRefreshBus('event-management', silentRefresh, !!apiToken);

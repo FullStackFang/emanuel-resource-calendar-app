@@ -1,0 +1,123 @@
+/* ==========================================================================
+   REASON PANEL — Slide-down panel for actions requiring a typed reason
+   (reject, withdraw). Sits between action bar and tab row / body content.
+   ========================================================================== */
+
+.reason-panel {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height var(--duration-slow) var(--ease-out),
+    opacity var(--duration-normal) var(--ease-out);
+}
+
+.reason-panel.open {
+  max-height: 200px;
+  opacity: 1;
+}
+
+/* Variant backgrounds */
+.reason-panel.reason-panel-error {
+  border-bottom: 0 solid var(--color-error-200);
+}
+
+.reason-panel.reason-panel-error.open {
+  border-bottom-width: 1px;
+}
+
+.reason-panel.reason-panel-warning {
+  border-bottom: 0 solid var(--color-warning-200);
+}
+
+.reason-panel.reason-panel-warning.open {
+  border-bottom-width: 1px;
+}
+
+.reason-panel-inner {
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  background: var(--color-error-50);
+}
+
+.reason-panel-warning .reason-panel-inner {
+  background: var(--color-warning-50);
+}
+
+/* Textarea */
+.reason-panel-textarea {
+  flex: 1;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-error-300);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  resize: vertical;
+  line-height: var(--leading-relaxed);
+  box-sizing: border-box;
+}
+
+.reason-panel-textarea.reason-panel-warning {
+  border-color: var(--color-warning-300);
+}
+
+.reason-panel-textarea:focus {
+  outline: none;
+  border-color: var(--color-error-400);
+  box-shadow: 0 0 0 2px var(--color-error-100);
+}
+
+.reason-panel-textarea.reason-panel-warning:focus {
+  border-color: var(--color-warning-400);
+  box-shadow: 0 0 0 2px var(--color-warning-100);
+}
+
+.reason-panel-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Action buttons inside the panel */
+.reason-panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.reason-panel-cancel {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-default) !important;
+}
+
+.reason-panel-cancel:hover:not(:disabled) {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .reason-panel-inner {
+    flex-direction: column;
+    padding: var(--space-3);
+  }
+
+  .reason-panel-textarea {
+    min-height: 72px;
+  }
+
+  .reason-panel-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    width: 100%;
+  }
+}

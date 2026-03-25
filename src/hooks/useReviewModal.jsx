@@ -758,25 +758,30 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
 
   /**
-   * Reject the reservation/event
-   * Uses two-step inline confirmation with rejection reason input
-   * @param {string} [reasonOverride] - Optional reason override (if not provided, uses rejectionReason state)
+   * Open the rejection reason panel.
+   * First click toggles the panel open; no auto-reset timer (the panel stays
+   * open until the user cancels or submits via submitReject).
    */
-  const handleReject = useCallback(async (reasonOverride) => {
-    // Use provided reason or fall back to state
-    const reason = typeof reasonOverride === 'string' ? reasonOverride : rejectionReason;
-
-    // Two-step confirmation: First click shows confirmation input (auto-resets after 3 seconds)
+  const handleReject = useCallback(() => {
     if (!pendingRejectConfirmation) {
       setPendingRejectConfirmation(true);
-      setPendingApproveConfirmation(false); // Clear approve confirmation if any
-      setPendingDeleteConfirmation(false); // Clear delete confirmation if any
-      startConfirmResetTimer(setPendingRejectConfirmation);
+      setPendingApproveConfirmation(false);
+      setPendingDeleteConfirmation(false);
+      // No startConfirmResetTimer — panel stays open until explicit cancel/submit
       return { success: false, cancelled: true, needsConfirmation: true };
     }
+    // If already open, ignore (submit happens via submitReject)
+    return { success: false, cancelled: true };
+  }, [pendingRejectConfirmation]);
 
-    // Second click: User confirmed, proceed with rejection
-    clearConfirmResetTimer();
+  /**
+   * Submit the rejection (called from the ReasonPanel's confirm button).
+   * Separated from handleReject so the panel can stay open while the user types
+   * without any auto-reset timer interference.
+   */
+  const submitReject = useCallback(async (reasonOverride) => {
+    const reason = typeof reasonOverride === 'string' ? reasonOverride : rejectionReason;
+
     if (!currentItem || !reason?.trim()) {
       const message = 'Please provide a reason for rejection';
       if (onError) onError(message);
@@ -794,8 +799,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingRejectConfirmation(false);
 
     try {
-      // All events (including pending reservations) are now stored in templeEvents__Events
-      // Use the unified events endpoint for all rejections
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/reject`;
 
       const response = await fetch(endpoint, {
@@ -832,7 +835,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      setRejectionReason(''); // Clear the reason after successful rejection
+      setRejectionReason('');
       if (onSuccess) onSuccess(result);
       await closeModal(true);
       return { success: true, data: result };
@@ -843,10 +846,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRejecting(false);
     }
-  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
+  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, checkVersionFreshness]);
 
   /**
-   * Cancel the pending reject confirmation
+   * Cancel the pending reject confirmation (closes panel + clears reason)
    */
   const cancelRejectConfirmation = useCallback(() => {
     setPendingRejectConfirmation(false);
@@ -935,9 +938,90 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
   }, [currentItem, apiToken, graphToken, editScope, eventVersion, onSuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
 
+  /**
+   * Open the withdraw reason panel (requester withdrawing own pending request).
+   * Uses pendingDeleteConfirmation state but without the 3-second auto-reset timer.
+   * The admin Delete button continues using handleDelete (with timer, no reason input).
+   */
+  const openWithdrawPanel = useCallback(() => {
+    if (!pendingDeleteConfirmation) {
+      setPendingDeleteConfirmation(true);
+      setPendingApproveConfirmation(false);
+      setPendingRejectConfirmation(false);
+      // No timer — panel stays open until cancel/submit
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+    return { success: false, cancelled: true };
+  }, [pendingDeleteConfirmation]);
+
+  /**
+   * Submit the delete/withdraw (called from the ReasonPanel's confirm button).
+   * Extracted from handleDelete so the Withdraw panel can call it directly.
+   */
+  const submitDelete = useCallback(async () => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    setPendingDeleteConfirmation(false);
+    setIsDeleting(true);
+    try {
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
+
+      const response = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          graphToken: graphToken,
+          editScope: editScope,
+          occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
+          seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
+          calendarId: currentItem.calendarId,
+          _version: eventVersion,
+          reason: deleteReason?.trim() || undefined
+        })
+      });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete: ${response.status}`);
+      }
+
+      const result = await response.json();
+      setDeleteReason('');
+      if (result.occurrenceExcluded) {
+        if (onSuccess) onSuccess({ ...result, occurrenceExcluded: true });
+      } else {
+        if (onSuccess) onSuccess({ ...result, deleted: true });
+      }
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error deleting:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [currentItem, apiToken, graphToken, editScope, eventVersion, deleteReason, onSuccess, onError, closeModal]);
+
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
     setPendingDeleteConfirmation(false);
+    setDeleteReason('');
   }, []);
 
   const cancelApproveConfirmation = useCallback(() => {
@@ -1352,11 +1436,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     hasSoftConflicts: schedulingConflictInfo?.hasSoftConflicts || false,
     hasPendingReservationConflicts: schedulingConflictInfo?.hasPendingReservationConflicts || false,
 
-    // Rejection reason state (for inline input)
+    // Rejection reason state (for ReasonPanel)
     rejectionReason,
     setRejectionReason,
 
-    // Delete reason state (for owner-pending delete)
+    // Delete/withdraw reason state (for ReasonPanel)
     deleteReason,
     setDeleteReason,
 
@@ -1381,7 +1465,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleSave,
     handleApprove,
     handleReject,
+    submitReject,
     handleDelete,
+    openWithdrawPanel,
+    submitDelete,
     cancelDeleteConfirmation,
     cancelApproveConfirmation,
     cancelRejectConfirmation,

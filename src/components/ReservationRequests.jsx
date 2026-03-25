@@ -182,7 +182,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Poll for new reservations every 60s (silent — no loading spinner)
   const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
-  usePolling(silentRefresh, 60_000, !!apiToken);
+  usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Listen for refresh events from other views
   useDataRefreshBus('approval-queue', silentRefresh, !!apiToken);
@@ -672,13 +672,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, originalEventData, apiToken, graphToken, loadReservations, showError]);
 
-  // Reject edit request from within ReviewModal (admin only)
-  const handleRejectEditRequestInModal = useCallback(async () => {
+  // Open the edit request rejection panel (admin only)
+  const handleRejectEditRequestInModal = useCallback(() => {
     if (!isEditRequestRejectConfirming) {
       setIsEditRequestRejectConfirming(true);
-      return;
     }
+  }, [isEditRequestRejectConfirming]);
 
+  // Submit the edit request rejection (called from ReasonPanel confirm button)
+  const submitRejectEditRequestInModal = useCallback(async () => {
     if (!modalEditRequestRejectionReason.trim()) {
       showError('Please provide a reason for rejecting the edit request.');
       return;
@@ -726,7 +728,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsRejectingEditRequestInModal(false);
       setIsEditRequestRejectConfirming(false);
     }
-  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError]);
+  }, [modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showError]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setIsEditRequestApproveConfirming(false);
@@ -1181,6 +1183,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         isRejecting={reviewModal.isRejecting}
         rejectionReason={reviewModal.rejectionReason}
         onRejectionReasonChange={reviewModal.setRejectionReason}
+        onSubmitReject={reviewModal.submitReject}
         isSaveConfirming={reviewModal.pendingSaveConfirmation}
         onCancelSave={reviewModal.cancelSaveConfirmation}
         // Existing edit request props (viewing pending edit requests)
@@ -1200,6 +1203,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         isEditRequestRejectConfirming={isEditRequestRejectConfirming}
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
+        onSubmitEditRequestReject={canApproveReservations ? submitRejectEditRequestInModal : null}
         // Scheduling conflicts
         isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
         hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}

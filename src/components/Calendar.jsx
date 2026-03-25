@@ -2077,7 +2077,7 @@ import ConflictDialog from './shared/ConflictDialog';
       if (reviewModal.isOpen || eventReviewModal?.isOpen) return;
       loadEvents(false, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventReviewModal?.isOpen]);
-    usePolling(silentCalendarRefresh, 120_000, !!apiToken && !isDemoMode && !initializing);
+    usePolling(silentCalendarRefresh, 300_000, !!apiToken && !isDemoMode && !initializing);
 
     // Manual refresh handler for FreshnessIndicator
     const handleManualCalendarRefresh = useCallback(async () => {
@@ -5774,14 +5774,15 @@ import ConflictDialog from './shared/ConflictDialog';
     /**
      * Handle rejecting an edit request (Admin only)
      */
-    const handleRejectEditRequest = useCallback(async () => {
-      // First click shows confirmation
+    // Open the edit request rejection panel
+    const handleRejectEditRequest = useCallback(() => {
       if (!isEditRequestRejectConfirming) {
         setIsEditRequestRejectConfirming(true);
-        return;
       }
+    }, [isEditRequestRejectConfirming]);
 
-      // Second click needs reason
+    // Submit the edit request rejection (called from ReasonPanel confirm button)
+    const submitRejectEditRequest = useCallback(async () => {
       if (!editRequestRejectionReason.trim()) {
         showError('Please provide a reason for rejecting the edit request.');
         return;
@@ -5850,7 +5851,7 @@ import ConflictDialog from './shared/ConflictDialog';
         setIsRejectingEditRequest(false);
         setIsEditRequestRejectConfirming(false);
       }
-    }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
+    }, [editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
 
     /**
      * Cancel edit request approval confirmation
@@ -7334,6 +7335,10 @@ import ConflictDialog from './shared/ConflictDialog';
           }
           isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
           onCancelDelete={reviewModal.cancelDeleteConfirmation}
+          deleteReason={reviewModal.deleteReason}
+          onDeleteReasonChange={reviewModal.setDeleteReason}
+          onOpenWithdrawPanel={reviewModal.openWithdrawPanel}
+          onSubmitDelete={reviewModal.submitDelete}
           isApproveConfirming={reviewModal.pendingApproveConfirmation}
           onCancelApprove={reviewModal.cancelApproveConfirmation}
           isRejectConfirming={reviewModal.pendingRejectConfirmation}
@@ -7341,6 +7346,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isRejecting={reviewModal.isRejecting}
           rejectionReason={reviewModal.rejectionReason}
           onRejectionReasonChange={reviewModal.setRejectionReason}
+          onSubmitReject={canApproveReservations ? reviewModal.submitReject : null}
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}
@@ -7372,6 +7378,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isEditRequestRejectConfirming={isEditRequestRejectConfirming}
           onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
           onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
+          onSubmitEditRequestReject={canApproveReservations ? submitRejectEditRequest : null}
           // Edit request cancellation props (for requesters)
           onCancelPendingEditRequest={handleCancelPendingEditRequest}
           isCancelingEditRequest={isCancelingEditRequest}

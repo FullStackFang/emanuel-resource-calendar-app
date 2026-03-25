@@ -17,6 +17,7 @@ import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
 import { useAuth } from './context/AuthContext';
+import { SSEProvider } from './context/SSEContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { dispatchRefresh } from './hooks/useDataRefreshBus';
 import { useTokenRefresh } from './hooks/useTokenRefresh';
@@ -270,6 +271,7 @@ function App() {
         <main>
           {apiToken && graphToken ? (
             // Wrap authenticated routes with providers
+            <SSEProvider userEmail={instance.getActiveAccount()?.username}>
             <TimezoneProvider
               apiToken={apiToken}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
@@ -402,6 +404,7 @@ function App() {
 
               </RoomProvider>
             </TimezoneProvider>
+            </SSEProvider>
           ) : signedOut ? (
             <div className="signed-out-landing">
               <h2>See you next time!</h2>

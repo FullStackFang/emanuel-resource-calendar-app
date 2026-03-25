@@ -27,6 +27,7 @@ const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 const graphApiService = require('./services/graphApiService');
+const sseService = require('./services/sseService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
@@ -3780,8 +3781,8 @@ app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => 
   try {
     // Get distinct categories from calendarData (authoritative) and top-level
     const [calCats, topCats] = await Promise.all([
-      unifiedEventsCollection.distinct('calendarData.categories'),
-      unifiedEventsCollection.distinct('categories')
+      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
+      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
     ]);
 
     const allCategories = [...new Set([...calCats, ...topCats])];
@@ -3807,12 +3808,12 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
     
     // Check if collection exists, if not return empty stats
     try {
-      const totalEvents = await unifiedEventsCollection.countDocuments({});
-      const deletedEvents = await unifiedEventsCollection.countDocuments({ isDeleted: true });
-      const lastSync = await unifiedEventsCollection.findOne(
+      const totalEvents = await withCosmosRetry(() => unifiedEventsCollection.countDocuments({}));
+      const deletedEvents = await withCosmosRetry(() => unifiedEventsCollection.countDocuments({ isDeleted: true }));
+      const lastSync = await withCosmosRetry(() => unifiedEventsCollection.findOne(
         {},
         { sort: { lastSyncedAt: -1 } }
-      );
+      ));
       
       res.status(200).json({
         totalEvents,
@@ -5131,6 +5132,47 @@ async function withCosmosRetry(operation, maxRetries = 3) {
         throw error;
       }
     }
+  }
+}
+
+// ── Server-side counts cache (30s TTL) ──
+const countsCache = new Map();
+const COUNTS_CACHE_TTL = 30_000;
+
+/**
+ * Broadcast an event change to all SSE-connected clients.
+ * Called after every successful write operation. Non-blocking — failures are logged, never thrown.
+ */
+function broadcastEventChange({ eventId, action, actorEmail, requesterEmail }) {
+  try {
+    const VIEW_MAP = {
+      created:          ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      updated:          ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      published:        ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      rejected:         ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      deleted:          ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      restored:         ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      resubmitted:      ['approval-queue', 'my-reservations'],
+      'edit-requested': ['approval-queue', 'my-reservations'],
+      'edit-published': ['calendar', 'approval-queue', 'my-reservations'],
+      'edit-rejected':  ['approval-queue', 'my-reservations'],
+    };
+    const COUNTS_CHANGING = ['created', 'published', 'rejected', 'deleted', 'restored', 'resubmitted'];
+
+    // Invalidate counts cache on any mutation
+    countsCache.clear();
+
+    sseService.broadcast({
+      eventId: eventId ? String(eventId) : null,
+      action,
+      actorEmail,
+      requesterEmail,
+      affectedViews: VIEW_MAP[action] || ['calendar'],
+      countsChanged: COUNTS_CHANGING.includes(action),
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    logger.warn('[SSE] broadcastEventChange failed:', err.message);
   }
 }
 
@@ -6568,6 +6610,13 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
+    // Server-side counts cache — shared for approval-queue/admin-browse, per-user for my-events
+    const countsCacheKey = view === 'my-events' ? `${view}:${userEmail}` : view;
+    const cachedCounts = countsCache.get(countsCacheKey);
+    if (cachedCounts && cachedCounts.expiresAt > Date.now()) {
+      return res.json(cachedCounts.data);
+    }
+
     if (view === 'my-events') {
       // Single aggregation instead of 7 parallel countDocuments (avoids Cosmos DB rate limits)
       const pipeline = [
@@ -6585,7 +6634,9 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
       const counts = result || { pending: 0, published: 0, rejected: 0, draft: 0, deleted: 0 };
       const all = counts.pending + counts.published + counts.rejected + counts.draft;
-      res.json({ all, ...counts });
+      const responseData = { all, ...counts };
+      countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
+      res.json(responseData);
 
     } else if (view === 'approval-queue') {
       // Single aggregation instead of 4 parallel countDocuments (avoids Cosmos DB rate limits)
@@ -6610,7 +6661,9 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       const counts = result || { pending: 0, publishedTotal: 0, published_edit: 0, rejected: 0 };
       const all = counts.pending + counts.publishedTotal + counts.rejected;
       const published = counts.publishedTotal - counts.published_edit;
-      res.json({ all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected });
+      const responseData = { all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected };
+      countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
+      res.json(responseData);
 
     } else if (view === 'admin-browse') {
       // Single aggregation instead of 6 parallel countDocuments
@@ -6628,6 +6681,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
 
       const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
       const counts = result || { total: 0, pending: 0, published: 0, rejected: 0, deleted: 0, draft: 0 };
+      countsCache.set(countsCacheKey, { data: counts, expiresAt: Date.now() + COUNTS_CACHE_TTL });
       res.json(counts);
     }
 
@@ -7278,6 +7332,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       auditChanges: changeSet.length,
       graphUpdated: !!graphUpdateResult,
       internalUpdated: !!internalFields
+    });
+
+    broadcastEventChange({
+      eventId: actualEventId,
+      action: 'created',
+      actorEmail: userEmail,
+      requesterEmail: userEmail
     });
 
   } catch (error) {
@@ -12324,8 +12385,8 @@ app.get('/api/public/mec-categories', async (req, res) => {
   try {
     // Get distinct categories from calendarData (authoritative) and top-level
     const [calCats, topCats] = await Promise.all([
-      unifiedEventsCollection.distinct('calendarData.categories'),
-      unifiedEventsCollection.distinct('categories')
+      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
+      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
     ]);
 
     const allCategories = [...new Set([...calCats, ...topCats])];
@@ -14359,6 +14420,13 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         draftPublishResponse.recurringConflicts = draftRecurringConflicts;
       }
       res.json(draftPublishResponse);
+
+      broadcastEventChange({
+        eventId: draftId,
+        action: 'published',
+        actorEmail: userEmail,
+        requesterEmail: draft.roomReservationData?.requestedBy?.email
+      });
     } else {
       // --- Standard requester path: draft → pending ---
       const updateData = {
@@ -14448,6 +14516,13 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         pendingResponse.recurringConflicts = draftRecurringConflicts;
       }
       res.json(pendingResponse);
+
+      broadcastEventChange({
+        eventId: draftId,
+        action: 'created',
+        actorEmail: userEmail,
+        requesterEmail: draft.roomReservationData?.requestedBy?.email
+      });
     }
   } catch (error) {
     logger.error('Error submitting draft reservation:', error);
@@ -14788,6 +14863,13 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       graphPublished,
       _version: resultEvent._version
     });
+
+    broadcastEventChange({
+      eventId: reservationId,
+      action: 'restored',
+      actorEmail: userEmail,
+      requesterEmail: reservation.roomReservationData?.requestedBy?.email
+    });
   } catch (error) {
     logger.error('Error restoring reservation:', error);
     res.status(500).json({ error: 'Failed to restore reservation' });
@@ -15046,6 +15128,13 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
       status: previousStatus,
       graphPublished,
       _version: resultEvent._version
+    });
+
+    broadcastEventChange({
+      eventId,
+      action: 'restored',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
     });
   } catch (error) {
     logger.error('Error restoring event (admin):', error);
@@ -15695,6 +15784,13 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       _version: resubmittedEvent._version
     });
 
+    broadcastEventChange({
+      eventId: reservationId,
+      action: 'resubmitted',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
+    });
+
   } catch (error) {
     logger.error('Error resubmitting room reservation:', error);
     res.status(500).json({ error: 'Failed to resubmit reservation' });
@@ -16002,6 +16098,13 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       message: 'Reservation updated successfully',
       reservation: updatedEvent,
       _version: updatedEvent._version
+    });
+
+    broadcastEventChange({
+      eventId: reservationId,
+      action: isResubmitEdit ? 'resubmitted' : 'updated',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
     });
 
   } catch (error) {
@@ -17732,9 +17835,9 @@ app.get('/api/event-service-types', async (req, res) => {
 app.get('/api/feature-config', async (req, res) => {
   try {
     const [categories, capabilities, services] = await Promise.all([
-      featureCategoriesCollection.find({ active: true }).sort({ displayOrder: 1 }).toArray(),
-      roomCapabilityTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray(),
-      eventServiceTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray()
+      withCosmosRetry(() => featureCategoriesCollection.find({ active: true }).sort({ displayOrder: 1 }).toArray()),
+      withCosmosRetry(() => roomCapabilityTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray()),
+      withCosmosRetry(() => eventServiceTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray())
     ]);
     
     // Group capabilities and services by category
@@ -18270,9 +18373,101 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
   }
 });
 
+// ============================================================================
+// SSE (Server-Sent Events) Endpoints
+// ============================================================================
+
+/**
+ * POST /api/sse/ticket
+ * Exchange a JWT for a short-lived, single-use SSE ticket.
+ * EventSource cannot send Authorization headers, so the client uses this ticket
+ * as a query parameter to authenticate the SSE connection.
+ */
+app.post('/api/sse/ticket', sensitiveLimiter, verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+    const role = isAdmin(user, userEmail) ? 'admin'
+      : canViewAllReservations(user, userEmail) ? 'approver'
+      : 'requester';
+
+    const ticket = sseService.createTicket(userId, userEmail, role);
+    res.json({ ticket });
+  } catch (error) {
+    logger.error('Error creating SSE ticket:', error);
+    res.status(500).json({ error: 'Failed to create SSE ticket' });
+  }
+});
+
+/**
+ * GET /api/sse/events?ticket=<ticketId>&lastEventId=<n>
+ * SSE stream endpoint. Authenticated via single-use ticket (not JWT).
+ * Streams event-changed notifications to connected clients.
+ */
+app.get('/api/sse/events', (req, res) => {
+  const { ticket: ticketId, lastEventId } = req.query;
+
+  if (!ticketId) {
+    return res.status(400).json({ error: 'Missing ticket parameter' });
+  }
+
+  const user = sseService.consumeTicket(ticketId);
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid or expired ticket' });
+  }
+
+  // Set SSE headers — disable compression to avoid buffering
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'Content-Encoding': 'identity'
+  });
+
+  // Send initial connection confirmation
+  res.write(`event: connected\ndata: ${JSON.stringify({ userId: user.userId, timestamp: Date.now() })}\n\n`);
+
+  // Replay missed events if client provides lastEventId
+  if (lastEventId) {
+    const parsed = parseInt(lastEventId, 10);
+    if (parsed > 0) {
+      const missed = sseService.getEventsSince(parsed);
+      for (const entry of missed) {
+        res.write(`event: event-changed\nid: ${entry.id}\ndata: ${JSON.stringify(entry.payload)}\n\n`);
+      }
+    }
+  }
+
+  // Register client
+  const client = sseService.addClient(res, user.userId, user.email);
+
+  // Clean up on disconnect
+  req.on('close', () => {
+    sseService.removeClient(client);
+  });
+});
+
+/**
+ * GET /api/sse/health (admin only)
+ * Returns SSE service statistics for monitoring.
+ */
+app.get('/api/sse/health', verifyToken, async (req, res) => {
+  const userId = req.user.userId;
+  const userEmail = req.user.email;
+  const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+  if (!isAdmin(user, userEmail)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  res.json(sseService.getStats());
+});
+
 // Graceful shutdown handling — stop accepting connections, then close DB
 function gracefulShutdown(signal) {
   logger.log(`${signal} received, shutting down gracefully`);
+  // Close all SSE connections first
+  sseService.stop();
   // Force exit after 30s if graceful shutdown stalls
   const forceTimer = setTimeout(() => {
     logger.error('Graceful shutdown timed out after 30s, forcing exit');
@@ -18954,6 +19149,13 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       message: 'Room reservation request submitted successfully'
     });
 
+    broadcastEventChange({
+      eventId: result.insertedId,
+      action: 'created',
+      actorEmail: userEmail,
+      requesterEmail: requesterEmail || userEmail
+    });
+
   } catch (error) {
     logger.error('Error creating room reservation request:', {
       error: error.message,
@@ -19421,6 +19623,13 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       ...(recurringConflicts && recurringConflicts.conflictingOccurrences > 0 ? { recurringConflicts } : {}),
     });
 
+    broadcastEventChange({
+      eventId: id,
+      action: 'published',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
+    });
+
     // Fire-and-forget: send publish notification email (off critical path)
     setImmediate(async () => {
       try {
@@ -19645,6 +19854,13 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       changeKey: newChangeKey,
       _version: rejectedEvent._version,
       message: 'Reservation rejected successfully'
+    });
+
+    broadcastEventChange({
+      eventId: id,
+      action: 'rejected',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
     });
 
   } catch (error) {
@@ -20030,6 +20246,13 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       _version: updatedEvent._version,
       message: 'Edit request submitted successfully',
       proposedChanges
+    });
+
+    broadcastEventChange({
+      eventId: req.params.id,
+      action: 'edit-requested',
+      actorEmail: userEmail,
+      requesterEmail: originalEvent.roomReservationData?.requestedBy?.email
     });
 
   } catch (error) {
@@ -20686,6 +20909,13 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       graphSynced: !!graphSyncResult
     });
 
+    broadcastEventChange({
+      eventId: req.params.id,
+      action: 'edit-published',
+      actorEmail: userEmail,
+      requesterEmail: pendingEditRequest.requestedBy?.email
+    });
+
   } catch (error) {
     logger.error('Error publishing edit request:', error);
     res.status(500).json({ error: 'Failed to publish edit request' });
@@ -20829,6 +21059,13 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
       message: 'Edit request rejected',
       eventId: event.eventId,
       _version: rejectedEditEvent._version
+    });
+
+    broadcastEventChange({
+      eventId: eventId,
+      action: 'edit-rejected',
+      actorEmail: userEmail,
+      requesterEmail: pendingEditRequest.requestedBy?.email
     });
 
   } catch (error) {
@@ -22456,6 +22693,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       message: 'Event updated successfully'
     });
 
+    broadcastEventChange({
+      eventId: id,
+      action: 'updated',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
+    });
+
   } catch (error) {
     logger.error('Error updating event:', error);
     res.status(500).json({ error: 'Failed to update event' });
@@ -22918,6 +23162,13 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       graphDeleted,
       status: 'deleted',
       _version: deletedEvent._version
+    });
+
+    broadcastEventChange({
+      eventId: id,
+      action: 'deleted',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email
     });
 
   } catch (error) {
@@ -24069,6 +24320,7 @@ async function startServer() {
     logger.log(`Server is running on port ${PORT}`);
     logger.log(`Using App ID: ${APP_ID}`);
     logger.log(`Tenant ID: ${TENANT_ID}`);
+    sseService.start();
   });
 }
 

@@ -1,5 +1,6 @@
 // src/components/EditRequestComparison.jsx
 import React, { useState } from 'react';
+import ReasonPanel from './shared/ReasonPanel';
 import './EditRequestComparison.css';
 import './shared/ReviewModal.css';
 
@@ -208,49 +209,35 @@ export default function EditRequestComparison({
           )}
         </div>
 
+        {/* Rejection reason panel — slides between body and footer */}
+        <ReasonPanel
+          isOpen={isRejectConfirming}
+          reason={rejectionReason}
+          onReasonChange={onRejectionReasonChange}
+          onConfirm={handleReject}
+          onCancel={() => {
+            setIsRejectConfirming(false);
+            onRejectionReasonChange('');
+          }}
+          isSubmitting={isRejecting}
+          placeholder="Reason for rejecting edit request (required)"
+          confirmLabel="Reject"
+          submittingLabel="Rejecting..."
+          variant="error"
+        />
+
         {/* Footer Actions */}
         <div className="edit-request-comparison-footer">
           {isPending && (
             <>
-              <div className="confirm-button-group">
-                {isRejectConfirming && (
-                  <input
-                    type="text"
-                    className="inline-reason-input"
-                    placeholder="Rejection reason (required)"
-                    value={rejectionReason}
-                    onChange={(e) => onRejectionReasonChange(e.target.value)}
-                    disabled={isRejecting}
-                    autoFocus
-                  />
-                )}
-                <button
-                  className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
-                  type="button"
-                  onClick={() => {
-                    if (isRejectConfirming) {
-                      handleReject();
-                    } else {
-                      setIsRejectConfirming(true);
-                    }
-                  }}
-                  disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim())}
-                >
-                  {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
-                </button>
-                {isRejectConfirming && (
-                  <button
-                    type="button"
-                    className="confirm-cancel-x reject-cancel-x"
-                    onClick={() => {
-                      setIsRejectConfirming(false);
-                      onRejectionReasonChange('');
-                    }}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+              <button
+                className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
+                type="button"
+                onClick={() => setIsRejectConfirming(true)}
+                disabled={isRejecting || isRejectConfirming}
+              >
+                {isRejecting ? 'Rejecting...' : 'Reject'}
+              </button>
               <button
                 className="action-btn publish-btn"
                 type="button"

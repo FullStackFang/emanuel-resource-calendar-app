@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { usePolling } from '../hooks/usePolling';
+import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useAuth } from '../context/AuthContext';
 import APP_CONFIG from '../config/config';
@@ -51,8 +52,11 @@ export default function Navigation() {
     fetchBadgeCounts();
   }, [fetchBadgeCounts, apiToken, location.pathname]);
 
-  // Poll badges every 2 min
-  usePolling(fetchBadgeCounts, 120_000, !!apiToken && (canSubmitReservation || canApproveReservations));
+  // Poll badges every 5 min (safety net — SSE handles real-time updates via navigation-counts bus)
+  usePolling(fetchBadgeCounts, 300_000, !!apiToken && (canSubmitReservation || canApproveReservations));
+
+  // SSE push: refresh badge counts immediately when server broadcasts a count-changing event
+  useDataRefreshBus('navigation-counts', fetchBadgeCounts, !!apiToken && (canSubmitReservation || canApproveReservations));
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {
