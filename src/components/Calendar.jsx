@@ -382,18 +382,11 @@ import ConflictDialog from './shared/ConflictDialog';
     const flatOriginalEventData = useMemo(() =>
       originalEventData ? transformEventToFlatStructure(originalEventData) : null,
     [originalEventData]);
-    const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
-    const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
     // Existing edit request state (for viewing pending edit requests)
     const [existingEditRequest, setExistingEditRequest] = useState(null);
     const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
     const [loadingEditRequest, setLoadingEditRequest] = useState(false);
     // Edit request approval/rejection state (for admins)
-    const [isApprovingEditRequest, setIsApprovingEditRequest] = useState(false);
-    const [isRejectingEditRequest, setIsRejectingEditRequest] = useState(false);
-    const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
-    const [isEditRequestApproveConfirming, setIsEditRequestApproveConfirming] = useState(false);
-    const [isEditRequestRejectConfirming, setIsEditRequestRejectConfirming] = useState(false);
     // Cancel edit request state (for requesters)
     const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
     const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
@@ -411,8 +404,6 @@ import ConflictDialog from './shared/ConflictDialog';
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
 
     // Department colleague edit state (for non-admin users editing pending/rejected events)
-    const [savingPendingEdit, setSavingPendingEdit] = useState(false);
-    const [savingRejectedEdit, setSavingRejectedEdit] = useState(false);
     const [isResubmitting, setIsResubmitting] = useState(false);
     // Ref to loadEvents (defined later) so handlers declared before it can call it
     const loadEventsRef = useRef(null);
@@ -528,156 +519,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Whether the current user is a non-admin editor (owner or dept colleague)
     const isNonAdminEditor = canEditThisEvent && !canEditEvents && !canApproveReservations;
-
-    // Save Pending Edit handler (for non-admin users editing pending events from calendar)
-    const handleSavePendingEdit = useCallback(async () => {
-      const item = reviewModal.currentItem;
-      const formData = reviewModal.editableData;
-      if (!item || !formData) return;
-
-      if (!formData.eventTitle?.trim()) { showError('Event title is required'); return; }
-      if (!formData.startDate || !formData.endDate) { showError('Start date and end date are required'); return; }
-      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showError('Reservation start time and end time are required'); return; }
-
-      setSavingPendingEdit(true);
-      try {
-        const effectiveStartTime = formData.startTime || formData.reservationStartTime;
-        const effectiveEndTime = formData.endTime || formData.reservationEndTime;
-        const payload = {
-          _version: reviewModal.eventVersion,
-          eventTitle: formData.eventTitle || '',
-          eventDescription: formData.eventDescription || '',
-          startDateTime: `${formData.startDate}T${effectiveStartTime}`,
-          endDateTime: `${formData.endDate}T${effectiveEndTime}`,
-          startDate: formData.startDate,
-          startTime: formData.startTime,
-          endDate: formData.endDate,
-          endTime: formData.endTime,
-          attendeeCount: parseInt(formData.attendeeCount) || 0,
-          requestedRooms: formData.requestedRooms || formData.locations || [],
-          specialRequirements: formData.specialRequirements || '',
-          department: formData.department || '',
-          phone: formData.phone || '',
-          setupTime: formData.setupTime || null,
-          teardownTime: formData.teardownTime || null,
-          reservationStartTime: formData.reservationStartTime || null,
-          reservationEndTime: formData.reservationEndTime || null,
-          doorOpenTime: formData.doorOpenTime || null,
-          doorCloseTime: formData.doorCloseTime || null,
-          categories: formData.categories || [],
-          services: formData.services || {},
-          virtualMeetingUrl: formData.virtualMeetingUrl || null,
-          isOffsite: formData.isOffsite || false,
-          offsiteName: formData.offsiteName || '',
-          offsiteAddress: formData.offsiteAddress || '',
-        };
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-            body: JSON.stringify(payload)
-          }
-        );
-
-        if (response.status === 409) {
-          const errorData = await response.json();
-          if (errorData.error === 'SchedulingConflict') {
-            showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
-            return;
-          }
-          throw new Error(errorData.error || 'Conflict detected');
-        }
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to save changes');
-        }
-
-        reviewModal.closeModal(true);
-        loadEventsRef.current?.(true);
-      } catch (err) {
-        logger.error('Error saving pending edit:', err);
-        showError(err, { context: 'Calendar.handleSavePendingEdit' });
-      } finally {
-        setSavingPendingEdit(false);
-      }
-    }, [reviewModal, apiToken, showError]);
-
-    // Save Rejected Edit handler (for non-admin users editing and resubmitting rejected events from calendar)
-    const handleSaveRejectedEdit = useCallback(async () => {
-      const item = reviewModal.currentItem;
-      const formData = reviewModal.editableData;
-      if (!item || !formData) return;
-
-      if (!formData.eventTitle?.trim()) { showError('Event title is required'); return; }
-      if (!formData.startDate || !formData.endDate) { showError('Start date and end date are required'); return; }
-      if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) { showError('Reservation start time and end time are required'); return; }
-
-      setSavingRejectedEdit(true);
-      try {
-        const effectiveStartTime = formData.startTime || formData.reservationStartTime;
-        const effectiveEndTime = formData.endTime || formData.reservationEndTime;
-        const payload = {
-          _version: reviewModal.eventVersion,
-          eventTitle: formData.eventTitle || '',
-          eventDescription: formData.eventDescription || '',
-          startDateTime: `${formData.startDate}T${effectiveStartTime}`,
-          endDateTime: `${formData.endDate}T${effectiveEndTime}`,
-          startDate: formData.startDate,
-          startTime: formData.startTime,
-          endDate: formData.endDate,
-          endTime: formData.endTime,
-          attendeeCount: parseInt(formData.attendeeCount) || 0,
-          requestedRooms: formData.requestedRooms || formData.locations || [],
-          specialRequirements: formData.specialRequirements || '',
-          department: formData.department || '',
-          phone: formData.phone || '',
-          setupTime: formData.setupTime || null,
-          teardownTime: formData.teardownTime || null,
-          reservationStartTime: formData.reservationStartTime || null,
-          reservationEndTime: formData.reservationEndTime || null,
-          doorOpenTime: formData.doorOpenTime || null,
-          doorCloseTime: formData.doorCloseTime || null,
-          categories: formData.categories || [],
-          services: formData.services || {},
-          virtualMeetingUrl: formData.virtualMeetingUrl || null,
-          isOffsite: formData.isOffsite || false,
-          offsiteName: formData.offsiteName || '',
-          offsiteAddress: formData.offsiteAddress || '',
-        };
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-            body: JSON.stringify(payload)
-          }
-        );
-
-        if (response.status === 409) {
-          const errorData = await response.json();
-          if (errorData.error === 'SchedulingConflict') {
-            showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
-            return;
-          }
-          throw new Error(errorData.error || 'Conflict detected');
-        }
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to save changes');
-        }
-
-        reviewModal.closeModal(true);
-        loadEventsRef.current?.(true);
-      } catch (err) {
-        logger.error('Error saving rejected edit:', err);
-        showError(err, { context: 'Calendar.handleSaveRejectedEdit' });
-      } finally {
-        setSavingRejectedEdit(false);
-      }
-    }, [reviewModal, apiToken, showError]);
 
     // Resubmit handler (for non-admin users resubmitting rejected events without changes)
     const handleResubmitFromCalendar = useCallback(async () => {
@@ -5066,180 +4907,15 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     }, [originalEventData, reviewModal]);
 
-    /**
-     * Handle approving an edit request (Admin only)
-     */
-    const handleApproveEditRequest = useCallback(async () => {
-      // First click shows confirmation
-      if (!isEditRequestApproveConfirming) {
-        setIsEditRequestApproveConfirming(true);
-        return;
-      }
+    // Wrappers for hook's edit request approve/reject handlers
+    const handleApproveEditRequest = useCallback(() => {
+      const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
+      return reviewModal.handleApproveEditRequest(approverChanges);
+    }, [reviewModal, originalEventData]);
 
-      // Second click confirms
-      const currentItem = reviewModal.currentItem;
-      if (!currentItem || !existingEditRequest) {
-        logger.error('No edit request to approve');
-        return;
-      }
-
-      try {
-        setIsApprovingEditRequest(true);
-        const eventId = currentItem._id || currentItem.eventId;
-
-        // Compute approver's modifications (compares current form state against original published event)
-        const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`
-            },
-            body: JSON.stringify({
-              notes: '',
-              ...(approverChanges && { approverChanges })
-            })
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to approve edit request');
-        }
-
-        logger.info('Edit request approved:', eventId);
-
-        // Optimistic update: immediately clear pending edit badge
-        setAllEvents(prev => prev.map(e =>
-          (e._id === eventId || e.eventId === eventId)
-            ? { ...e, pendingEditRequest: { ...e.pendingEditRequest, status: 'approved' } }
-            : e
-        ));
-
-        // Reset state
-        setIsEditRequestApproveConfirming(false);
-        setIsViewingEditRequest(false);
-        setExistingEditRequest(null);
-        setOriginalEventData(null);
-
-        // Close the modal
-        reviewModal.closeModal();
-
-        // Refresh events to show updated data
-        if (refreshEvents) {
-          refreshEvents();
-        }
-
-        // Notify MyReservations to refresh
-        dispatchRefresh('calendar');
-
-      } catch (error) {
-        logger.error('Error approving edit request:', error);
-        showError(`Failed to approve edit request: ${error.message}`);
-      } finally {
-        setIsApprovingEditRequest(false);
-        setIsEditRequestApproveConfirming(false);
-      }
-    }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, refreshEvents, showError]);
-
-    /**
-     * Handle rejecting an edit request (Admin only)
-     */
-    const handleRejectEditRequest = useCallback(async () => {
-      // First click shows confirmation
-      if (!isEditRequestRejectConfirming) {
-        setIsEditRequestRejectConfirming(true);
-        return;
-      }
-
-      // Second click needs reason
-      if (!editRequestRejectionReason.trim()) {
-        showError('Please provide a reason for rejecting the edit request.');
-        return;
-      }
-
-      const currentItem = reviewModal.currentItem;
-      if (!currentItem || !existingEditRequest) {
-        logger.error('No edit request to reject');
-        return;
-      }
-
-      try {
-        setIsRejectingEditRequest(true);
-        const eventId = currentItem._id || currentItem.eventId;
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`
-            },
-            body: JSON.stringify({
-              reason: editRequestRejectionReason.trim()
-            })
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to reject edit request');
-        }
-
-        logger.info('Edit request rejected:', eventId);
-
-        // Optimistic update: immediately clear pending edit badge
-        setAllEvents(prev => prev.map(e =>
-          (e._id === eventId || e.eventId === eventId)
-            ? { ...e, pendingEditRequest: { ...e.pendingEditRequest, status: 'rejected' } }
-            : e
-        ));
-
-        // Reset state
-        setIsEditRequestRejectConfirming(false);
-        setEditRequestRejectionReason('');
-        setIsViewingEditRequest(false);
-        setExistingEditRequest(null);
-        setOriginalEventData(null);
-
-        // Close the modal
-        reviewModal.closeModal();
-
-        // Refresh events
-        if (refreshEvents) {
-          refreshEvents();
-        }
-
-        // Notify MyReservations to refresh
-        dispatchRefresh('calendar');
-
-      } catch (error) {
-        logger.error('Error rejecting edit request:', error);
-        showError(`Failed to reject edit request: ${error.message}`);
-      } finally {
-        setIsRejectingEditRequest(false);
-        setIsEditRequestRejectConfirming(false);
-      }
-    }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
-
-    /**
-     * Cancel edit request approval confirmation
-     */
-    const cancelEditRequestApproveConfirmation = useCallback(() => {
-      setIsEditRequestApproveConfirming(false);
-    }, []);
-
-    /**
-     * Cancel edit request rejection confirmation
-     */
-    const cancelEditRequestRejectConfirmation = useCallback(() => {
-      setIsEditRequestRejectConfirming(false);
-      setEditRequestRejectionReason('');
-    }, []);
+    const handleRejectEditRequest = useCallback(() => {
+      return reviewModal.handleRejectEditRequest();
+    }, [reviewModal]);
 
     /**
      * Handle canceling own pending edit request (Requester only)
@@ -5378,103 +5054,10 @@ import ConflictDialog from './shared/ConflictDialog';
       return changes;
     }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
 
-    /**
-     * Handle submitting the edit request
-     * Uses two-step inline confirmation
-     */
-    const handleSubmitEditRequest = useCallback(async () => {
-      if (!reviewModal.currentItem) {
-        return;
-      }
-
-      const detectedChanges = computeDetectedChanges();
-      if (detectedChanges.length === 0) {
-        showError('No changes detected. Please modify some fields before submitting.');
-        return;
-      }
-
-      // Two-step confirmation: First click shows confirmation, second click submits
-      if (!pendingEditRequestConfirmation) {
-        setPendingEditRequestConfirmation(true);
-        return;
-      }
-
-      // Second click: User confirmed, proceed with submission
-      setPendingEditRequestConfirmation(false);
-      setIsSubmittingEditRequest(true);
-
-      try {
-        const eventId = reviewModal.currentItem._id || reviewModal.currentItem.eventId;
-
-        // Read live form data from the form component (same source as handleApprove/handleSave)
-        const liveFormData = reviewModal.getFormData({ skipValidation: true });
-        if (!liveFormData) {
-          showError('Unable to read form data');
-          setIsSubmittingEditRequest(false);
-          return;
-        }
-
-        // Normalize datetime: append `:00` seconds if missing (backend stores with seconds)
-        const normalizeDT = (dt) => dt && dt.length === 16 ? `${dt}:00` : dt;
-
-        // Build the edit request payload
-        const requestBody = {
-          eventTitle: liveFormData.eventTitle,
-          eventDescription: liveFormData.eventDescription,
-          startDateTime: normalizeDT(liveFormData.startDateTime) || null,
-          endDateTime: normalizeDT(liveFormData.endDateTime) || null,
-          attendeeCount: parseInt(liveFormData.attendeeCount) || 0,
-          requestedRooms: liveFormData.requestedRooms || liveFormData.locations || [],
-          specialRequirements: liveFormData.specialRequirements,
-          setupTime: liveFormData.setupTime,
-          teardownTime: liveFormData.teardownTime,
-          reservationStartTime: liveFormData.reservationStartTime,
-          reservationEndTime: liveFormData.reservationEndTime,
-          doorOpenTime: liveFormData.doorOpenTime,
-          doorCloseTime: liveFormData.doorCloseTime,
-          categories: liveFormData.categories || liveFormData.mecCategories || [],
-          services: liveFormData.services || {},
-        };
-
-        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          },
-          body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to submit edit request');
-        }
-
-        // Reset edit request mode and close modal
-        setIsEditRequestMode(false);
-        setOriginalEventData(null);
-        setPendingEditRequestConfirmation(false);
-        reviewModal.closeModal();
-
-        // Refresh events to show the pending edit indicator
-        if (refreshEvents) {
-          refreshEvents();
-        }
-
-      } catch (err) {
-        logger.error('Error submitting edit request:', err);
-        showError(err.message || 'Failed to submit edit request');
-      } finally {
-        setIsSubmittingEditRequest(false);
-      }
-    }, [reviewModal, computeDetectedChanges, apiToken, showError, pendingEditRequestConfirmation, refreshEvents]);
-
-    /**
-     * Cancel edit request confirmation
-     */
-    const cancelEditRequestConfirmation = useCallback(() => {
-      setPendingEditRequestConfirmation(false);
-    }, []);
+    // Wrapper to pass computeDetectedChanges to the hook's handleSubmitEditRequest
+    const handleSubmitEditRequest = useCallback(() => {
+      return reviewModal.handleSubmitEditRequest(computeDetectedChanges);
+    }, [reviewModal, computeDetectedChanges]);
 
     /**
      * Handle navigation to another event in the series (close and reopen modal)
@@ -6464,23 +6047,23 @@ import ConflictDialog from './shared/ConflictDialog';
           isEditRequestMode={isEditRequestMode}
           onSubmitEditRequest={handleSubmitEditRequest}
           onCancelEditRequest={handleCancelEditRequest}
-          isSubmittingEditRequest={isSubmittingEditRequest}
-          isEditRequestConfirming={pendingEditRequestConfirmation}
-          onCancelEditRequestConfirm={cancelEditRequestConfirmation}
+          isSubmittingEditRequest={reviewModal.isSubmittingEditRequest}
+          isEditRequestConfirming={reviewModal.pendingEditRequestConfirmation}
+          onCancelEditRequestConfirm={reviewModal.cancelEditRequestConfirmation}
           originalData={flatOriginalEventData}
           detectedChanges={computeDetectedChanges()}
           hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
           // Edit request approval/rejection props (for admins)
           onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
           onRejectEditRequest={canApproveReservations ? handleRejectEditRequest : null}
-          isApprovingEditRequest={isApprovingEditRequest}
-          isRejectingEditRequest={isRejectingEditRequest}
-          editRequestRejectionReason={editRequestRejectionReason}
-          onEditRequestRejectionReasonChange={setEditRequestRejectionReason}
-          isEditRequestApproveConfirming={isEditRequestApproveConfirming}
-          isEditRequestRejectConfirming={isEditRequestRejectConfirming}
-          onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
-          onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
+          isApprovingEditRequest={reviewModal.isApprovingEditRequest}
+          isRejectingEditRequest={reviewModal.isRejectingEditRequest}
+          editRequestRejectionReason={reviewModal.editRequestRejectionReason}
+          onEditRequestRejectionReasonChange={reviewModal.setEditRequestRejectionReason}
+          isEditRequestApproveConfirming={reviewModal.pendingEditRequestApproveConfirmation}
+          isEditRequestRejectConfirming={reviewModal.pendingEditRequestRejectConfirmation}
+          onCancelEditRequestApprove={reviewModal.cancelEditRequestApproveConfirmation}
+          onCancelEditRequestReject={reviewModal.cancelEditRequestRejectConfirmation}
           // Edit request cancellation props (for requesters)
           onCancelPendingEditRequest={handleCancelPendingEditRequest}
           isCancelingEditRequest={isCancelingEditRequest}
@@ -6511,10 +6094,10 @@ import ConflictDialog from './shared/ConflictDialog';
           hasPendingReservationConflicts={reviewModal.hasPendingReservationConflicts}
           isHold={reviewModal.isHold}
           reservation={reviewModal.currentItem}
-          onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
-          savingPendingEdit={savingPendingEdit}
-          onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleSaveRejectedEdit : null}
-          savingRejectedEdit={savingRejectedEdit}
+          onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
+          savingPendingEdit={reviewModal.isSavingOwnerEdit}
+          onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? reviewModal.handleOwnerEdit : null}
+          savingRejectedEdit={reviewModal.isSavingOwnerEdit}
           onResubmit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleResubmitFromCalendar : null}
           isResubmitting={isResubmitting}
         >

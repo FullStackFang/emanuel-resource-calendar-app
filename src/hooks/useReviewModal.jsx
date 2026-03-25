@@ -2,7 +2,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
-import { buildDraftPayload } from '../utils/eventPayloadBuilder';
+import { buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload } from '../utils/eventPayloadBuilder';
 import APP_CONFIG from '../config/config';
 
 /**
@@ -26,6 +26,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSavingOwnerEdit, setIsSavingOwnerEdit] = useState(false);
+  const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
+  const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
+  const [isApprovingEditRequest, setIsApprovingEditRequest] = useState(false);
+  const [pendingEditRequestApproveConfirmation, setPendingEditRequestApproveConfirmation] = useState(false);
+  const [isRejectingEditRequest, setIsRejectingEditRequest] = useState(false);
+  const [pendingEditRequestRejectConfirmation, setPendingEditRequestRejectConfirmation] = useState(false);
+  const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [editableData, setEditableData] = useState(null);
   const [eventVersion, setEventVersion] = useState(null);
@@ -955,6 +963,286 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Owner edit handler for pending/rejected events.
+   * Replaces 4 duplicate handlers (handleSavePendingEdit + handleSaveRejectedEdit
+   * in both Calendar.jsx and MyReservations.jsx).
+   *
+   * Uses getFormData() for live form data (fixes stale-data bug where Calendar.jsx
+   * previously read editableData, missing ref-managed fields like categories/services).
+   * Uses buildOwnerEditPayload() for complete field coverage (fixes 13+ silently dropped fields).
+   */
+  const handleOwnerEdit = useCallback(async () => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Read LIVE form data (fixes Calendar stale-data bug)
+    const formData = getFormData?.({ skipValidation: true }) || editableData;
+    if (!formData) return { success: false, error: 'No form data' };
+
+    // Validate required fields
+    if (!formData.eventTitle?.trim()) {
+      if (onError) onError('Event title is required');
+      return { success: false, error: 'Event title is required' };
+    }
+    if (!formData.startDate || !formData.endDate) {
+      if (onError) onError('Start date and end date are required');
+      return { success: false, error: 'Start date and end date are required' };
+    }
+    if (!(formData.startTime || formData.reservationStartTime) || !(formData.endTime || formData.reservationEndTime)) {
+      if (onError) onError('Reservation start time and end time are required');
+      return { success: false, error: 'Reservation start time and end time are required' };
+    }
+
+    setIsSavingOwnerEdit(true);
+    try {
+      const payload = buildOwnerEditPayload(formData, { eventVersion });
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservations/${currentItem._id}/edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === 'SchedulingConflict') {
+          if (onError) onError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+          return { success: false, error: 'SchedulingConflict', conflicts: errorData.conflicts };
+        }
+        // VERSION_CONFLICT
+        if (errorData.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: errorData.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        throw new Error(errorData.error || 'Conflict detected');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save changes');
+      }
+
+      const result = await response.json();
+      if (onSuccess) onSuccess({ ownerEdit: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error saving owner edit:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsSavingOwnerEdit(false);
+    }
+  }, [currentItem, apiToken, eventVersion, editableData, onSuccess, onError, closeModal, getFormData]);
+
+  /**
+   * Submit an edit request for a published event (owner-only).
+   * Replaces 2 duplicate handlers in Calendar.jsx and MyReservations.jsx.
+   * Uses two-click confirmation (consistent with other actions in this hook).
+   *
+   * @param {Function} computeDetectedChanges - Returns array of detected changes (for zero-change guard)
+   */
+  const handleSubmitEditRequest = useCallback(async (computeDetectedChanges) => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Check for changes (zero-change guard)
+    if (computeDetectedChanges) {
+      const detectedChanges = computeDetectedChanges();
+      if (detectedChanges.length === 0) {
+        if (onError) onError('No changes detected. Please modify some fields before submitting.');
+        return { success: false, error: 'No changes detected' };
+      }
+    }
+
+    // Two-click confirmation
+    if (!pendingEditRequestConfirmation) {
+      setPendingEditRequestConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Second click: proceed
+    setPendingEditRequestConfirmation(false);
+
+    // Read live form data
+    const liveFormData = getFormData?.({ skipValidation: true });
+    if (!liveFormData) {
+      if (onError) onError('Unable to read form data');
+      return { success: false, error: 'No form data' };
+    }
+
+    setIsSubmittingEditRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+      const payload = buildEditRequestPayload(liveFormData, { eventVersion });
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit edit request');
+      }
+
+      const result = await response.json();
+      if (onSuccess) onSuccess({ editRequestSubmitted: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error submitting edit request:', error);
+      if (onError) onError(error.message || 'Failed to submit edit request');
+      return { success: false, error: error.message };
+    } finally {
+      setIsSubmittingEditRequest(false);
+    }
+  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
+
+  const cancelEditRequestConfirmation = useCallback(() => {
+    setPendingEditRequestConfirmation(false);
+  }, []);
+
+  /**
+   * Approve an edit request on a published event (admin/approver only).
+   * Replaces 3 in-modal copies across Calendar.jsx, MyReservations.jsx, ReservationRequests.jsx.
+   * Uses two-click confirmation.
+   *
+   * @param {Object|null} approverChanges - Pre-computed approver modifications (from computeApproverChanges)
+   */
+  const handleApproveEditRequest = useCallback(async (approverChanges) => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Two-click confirmation
+    if (!pendingEditRequestApproveConfirmation) {
+      setPendingEditRequestApproveConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    setPendingEditRequestApproveConfirmation(false);
+    setIsApprovingEditRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            notes: '',
+            ...(approverChanges && { approverChanges })
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve edit request');
+      }
+
+      const result = await response.json();
+      if (onSuccess) onSuccess({ editRequestApproved: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error approving edit request:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsApprovingEditRequest(false);
+      setPendingEditRequestApproveConfirmation(false);
+    }
+  }, [currentItem, apiToken, onSuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+
+  const cancelEditRequestApproveConfirmation = useCallback(() => {
+    setPendingEditRequestApproveConfirmation(false);
+  }, []);
+
+  /**
+   * Reject an edit request on a published event (admin/approver only).
+   * Replaces 3 in-modal copies across Calendar.jsx, MyReservations.jsx, ReservationRequests.jsx.
+   * Uses two-click confirmation with reason required.
+   */
+  const handleRejectEditRequest = useCallback(async () => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Two-click confirmation
+    if (!pendingEditRequestRejectConfirmation) {
+      setPendingEditRequestRejectConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Reason required
+    if (!editRequestRejectionReason.trim()) {
+      if (onError) onError('Please provide a reason for rejecting the edit request.');
+      return { success: false, error: 'Reason required' };
+    }
+
+    setPendingEditRequestRejectConfirmation(false);
+    setIsRejectingEditRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            reason: editRequestRejectionReason.trim()
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reject edit request');
+      }
+
+      const result = await response.json();
+      setEditRequestRejectionReason('');
+      if (onSuccess) onSuccess({ editRequestRejected: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error rejecting edit request:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsRejectingEditRequest(false);
+      setPendingEditRequestRejectConfirmation(false);
+    }
+  }, [currentItem, apiToken, editRequestRejectionReason, onSuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+
+  const cancelEditRequestRejectConfirmation = useCallback(() => {
+    setPendingEditRequestRejectConfirmation(false);
+    setEditRequestRejectionReason('');
+  }, []);
+
+  /**
    * Dismiss the conflict dialog
    */
   const dismissConflict = useCallback(() => {
@@ -1312,6 +1600,22 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleApprove,
     handleReject,
     handleDelete,
+    handleOwnerEdit,
+    isSavingOwnerEdit,
+    handleSubmitEditRequest,
+    isSubmittingEditRequest,
+    pendingEditRequestConfirmation,
+    cancelEditRequestConfirmation,
+    handleApproveEditRequest,
+    isApprovingEditRequest,
+    pendingEditRequestApproveConfirmation,
+    cancelEditRequestApproveConfirmation,
+    handleRejectEditRequest,
+    isRejectingEditRequest,
+    pendingEditRequestRejectConfirmation,
+    cancelEditRequestRejectConfirmation,
+    editRequestRejectionReason,
+    setEditRequestRejectionReason,
     cancelDeleteConfirmation,
     cancelApproveConfirmation,
     cancelRejectConfirmation,

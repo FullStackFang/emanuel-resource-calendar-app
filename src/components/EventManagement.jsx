@@ -12,6 +12,7 @@ import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
+import { deleteEvent } from '../utils/eventPayloadBuilder';
 import './EventManagement.css';
 
 const TABS = [
@@ -280,25 +281,19 @@ export default function EventManagement() {
     try {
       setDeletingId(eventId);
       setConfirmDeleteId(null);
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ _version: event._version }),
+
+      const result = await deleteEvent(eventId, {
+        apiToken,
+        version: event._version,
       });
 
-      if (res.status === 409) {
-        const conflict = await res.json();
+      if (!result.ok && result.status === 409) {
         setConflictDialog({
-          ...conflict,
+          ...result.data,
           eventTitle: getTitle(event),
           staleData: event,
         });
         return;
-      }
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete event');
       }
 
       setSelectedEvent(null);

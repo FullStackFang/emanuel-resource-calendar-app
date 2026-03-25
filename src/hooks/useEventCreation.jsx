@@ -522,8 +522,8 @@ export function useEventCreation({
     setShowDraftDialog(false);
     resetState();
     if (savedOk) {
-      dispatchRefresh(refreshSource);
-      if (onSuccess) onSuccess();
+      if (onSuccess) onSuccess();      // Non-silent calendar refresh FIRST
+      dispatchRefresh(refreshSource);  // Then notify other views via bus
     }
   }, [formData, _executeDraftSave, resetState, showError, refreshSource, onSuccess]);
 
@@ -543,8 +543,8 @@ export function useEventCreation({
   // ── Shared success handler ──
   const _onSuccess = useCallback(() => {
     resetState();
-    dispatchRefresh(refreshSource);
-    if (onSuccess) onSuccess();
+    if (onSuccess) onSuccess();      // Non-silent calendar refresh FIRST
+    dispatchRefresh(refreshSource);  // Then notify other views via bus
   }, [resetState, refreshSource, onSuccess]);
 
   // ══════════════════════════════════════════════
