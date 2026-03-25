@@ -108,7 +108,8 @@
       "Bash(cd:*)",
       "Bash(xargs -I {} basename {})",
       "Bash(/dev/null:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(npx -y acorn-jsx --ecma2020 src/components/SchedulingAssistant.jsx)"
     ],
     "deny": []
   }

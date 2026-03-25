@@ -184,13 +184,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     const itemRooms = item.locations || item.requestedRooms ||
       item.roomReservationData?.requestedRooms ||
       item.calendarData?.locations || [];
+    // Extract date/time via string operations (timezone-safe — no new Date() on local-time strings)
     const itemStartDate = item.startDate || item.calendarData?.startDate ||
       (item.startDateTime ? item.startDateTime.split('T')[0] : null) ||
-      (item.start?.dateTime ? new Date(item.start.dateTime).toISOString().split('T')[0] : null);
+      (item.start?.dateTime ? item.start.dateTime.split('T')[0] : null);
     const itemStartTime = item.startTime || item.reservationStartTime ||
       item.calendarData?.startTime || item.calendarData?.reservationStartTime ||
       (item.startDateTime ? item.startDateTime.split('T')[1]?.substring(0, 5) : null) ||
-      (item.start?.dateTime ? new Date(item.start.dateTime).toTimeString().slice(0, 5) : null);
+      (item.start?.dateTime ? item.start.dateTime.split('T')[1]?.substring(0, 5) : null);
     const roomIds = itemRooms
       .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
       .filter(Boolean);

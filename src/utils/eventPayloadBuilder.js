@@ -105,12 +105,13 @@ export function buildDraftPayload(data) {
   // Event times fall back to reservation times
   const effectiveStartTime = data.startTime || data.reservationStartTime;
   const effectiveEndTime = data.endTime || data.reservationEndTime;
-  const startDateTime = data.startDate && effectiveStartTime
-    ? `${data.startDate}T${effectiveStartTime}`
-    : null;
-  const endDateTime = data.endDate && effectiveEndTime
-    ? `${data.endDate}T${effectiveEndTime}`
-    : null;
+  const rawStartDT = data.startDate && effectiveStartTime
+    ? `${data.startDate}T${effectiveStartTime}` : null;
+  const rawEndDT = data.endDate && effectiveEndTime
+    ? `${data.endDate}T${effectiveEndTime}` : null;
+  // Normalize: always include seconds (e.g., "T16:00" → "T16:00:00")
+  const startDateTime = rawStartDT && rawStartDT.length === 16 ? rawStartDT + ':00' : rawStartDT;
+  const endDateTime = rawEndDT && rawEndDT.length === 16 ? rawEndDT + ':00' : rawEndDT;
 
   // Calculate reservation buffer minutes from times when available
   let reservationStartMinutes = data.reservationStartMinutes || 0;
@@ -206,8 +207,8 @@ export function buildOwnerEditPayload(data, { eventVersion } = {}) {
     _version: eventVersion ?? null,
     eventTitle: data.eventTitle || '',
     eventDescription: data.eventDescription || '',
-    startDateTime: `${data.startDate}T${effectiveStartTime}`,
-    endDateTime: `${data.endDate}T${effectiveEndTime}`,
+    startDateTime: `${data.startDate}T${effectiveStartTime}${effectiveStartTime?.length === 5 ? ':00' : ''}`,
+    endDateTime: `${data.endDate}T${effectiveEndTime}${effectiveEndTime?.length === 5 ? ':00' : ''}`,
     startDate: data.startDate,
     startTime: data.startTime,
     endDate: data.endDate,

@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
-import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
+import { formatEventTime } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
@@ -314,9 +314,9 @@ const DayView = memo(({
                           endDateTime = event.end.dateTime;
                         }
 
-                        // Calculate duration using Date objects
-                        const startDate = new Date(ensureUTCFormat(startDateTime));
-                        const endDate = new Date(ensureUTCFormat(endDateTime));
+                        // Calculate duration — parse local-time strings directly (no Z append)
+                        const startDate = new Date(startDateTime);
+                        const endDate = new Date(endDateTime);
                         const duration = Math.round((endDate - startDate) / (1000 * 60)); // duration in minutes
 
                         // Multi-day event detection

@@ -352,7 +352,7 @@ export default function RoomReservationFormBase({
   // Request ID counter to ignore stale responses that arrive after newer ones
   const availabilityRequestId = useRef(0);
   // Track last fetch params to prevent duplicate fetches (race condition fix)
-  const lastFetchParamsRef = useRef({ roomIds: '', date: null });
+  const lastFetchParamsRef = useRef({ roomIds: '', date: null, excludeEventId: null });
   // Seed lastFetchParamsRef when prefetched data arrived before mount.
   // With conditional rendering, the form only mounts after prefetchedAvailability
   // is set (non-null), so this always fires on first mount — preventing the room
@@ -362,7 +362,7 @@ export default function RoomReservationFormBase({
       .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
       .sort().join(',');
     if (seedRoomIds) {
-      lastFetchParamsRef.current = { roomIds: seedRoomIds, date: initialData.startDate };
+      lastFetchParamsRef.current = { roomIds: seedRoomIds, date: initialData.startDate, excludeEventId: currentReservationId };
     }
   }
   // Ref to track current assistantRooms for stale closure protection
@@ -731,19 +731,21 @@ export default function RoomReservationFormBase({
 
       // Skip if params haven't changed (prevents race condition from duplicate fetches)
       const roomIdsStr = roomIds.sort().join(',');
-      if (lastFetchParamsRef.current.roomIds === roomIdsStr && lastFetchParamsRef.current.date === dateToCheck) {
+      if (lastFetchParamsRef.current.roomIds === roomIdsStr
+          && lastFetchParamsRef.current.date === dateToCheck
+          && lastFetchParamsRef.current.excludeEventId === currentReservationId) {
         return;
       }
 
       // Update last fetch params
-      lastFetchParamsRef.current = { roomIds: roomIdsStr, date: dateToCheck };
+      lastFetchParamsRef.current = { roomIds: roomIdsStr, date: dateToCheck, excludeEventId: currentReservationId };
 
       // Set loading IMMEDIATELY to prevent SchedulingAssistant from clearing events
       // before the fetch starts (fixes race condition between room selection and data fetch)
       setAvailabilityLoading(true);
       checkDayAvailability(roomIds, dateToCheck);
     }
-  }, [assistantRooms, formData.startDate]);
+  }, [assistantRooms, formData.startDate, currentReservationId]);
 
   // Cleanup: abort any in-flight availability requests on unmount
   useEffect(() => {
@@ -757,7 +759,7 @@ export default function RoomReservationFormBase({
   // Reset fetch params when rooms are deselected (allows re-fetch when rooms are re-selected)
   useEffect(() => {
     if (assistantRooms.length === 0) {
-      lastFetchParamsRef.current = { roomIds: '', date: null };
+      lastFetchParamsRef.current = { roomIds: '', date: null, excludeEventId: null };
     }
   }, [assistantRooms.length]);
 
@@ -772,7 +774,7 @@ export default function RoomReservationFormBase({
         // Re-check day availability for scheduling assistant rooms
         const roomIds = assistantRoomsRef.current.map(room => room._id);
         const dateToCheck = formData.startDate;
-        lastFetchParamsRef.current = { roomIds: '', date: null }; // Reset to force re-fetch
+        lastFetchParamsRef.current = { roomIds: '', date: null, excludeEventId: null }; // Reset to force re-fetch
         setAvailabilityLoading(true);
         checkDayAvailability(roomIds, dateToCheck);
       } else {

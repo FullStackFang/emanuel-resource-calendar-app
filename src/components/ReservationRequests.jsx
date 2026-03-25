@@ -579,9 +579,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setExistingEditRequest(null);
       setIsViewingEditRequest(false);
       setOriginalEventData(null);
-      setIsEditRequestApproveConfirming(false);
-      setIsEditRequestRejectConfirming(false);
-      setModalEditRequestRejectionReason('');
+      setApprovingEditRequest(false);
+      setRejectingEditRequest(false);
+      setEditRequestRejectionReason('');
     }
   }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
 

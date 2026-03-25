@@ -223,228 +223,143 @@ The frontend still passes `graphToken` in some API calls for backward compatibil
 ## DateTime Data Architecture
 
 ### Overview
-This document describes how datetime data flows through the application from Microsoft Graph API to MongoDB storage to frontend display, with emphasis on timezone handling and data standardization.
+All datetimes in this application use the **Graph API format**: naive local-time strings
+(representing America/New_York wall-clock time) with the timezone stored separately.
+This matches what Microsoft Graph API expects and avoids UTC-conversion bugs.
+
+---
+
+## The Standard
+
+| Aspect | Format | Example |
+|--------|--------|---------|
+| **Storage** | Local-time string, NO Z suffix, always with seconds | `"2026-03-25T16:30:00"` |
+| **Timezone** | Stored separately (IANA or Outlook name) | `"America/New_York"` / `"Eastern Standard Time"` |
+| **Graph API** | Same format + Outlook timezone | `{ dateTime: "2026-03-25T16:30:00", timeZone: "Eastern Standard Time" }` |
+
+### Parsing Rules
+1. **NEVER** append Z to stored datetime strings - they are NOT UTC
+2. **NEVER** use `new Date(storedDateTimeStr)` to extract date/time components - browser timezone varies
+3. **DO** extract via string operations: `.split('T')[0]` for date, regex/split for time
+4. **DO** use `dateTimeToDecimalHours()` from `src/utils/timezoneUtils.js` for positioning
+5. **DO** use `Intl.DateTimeFormat` with known source timezone for cross-timezone display
+
+### Utility Files
+- `src/utils/timezoneUtils.js` - Timezone-safe string parsing (parseTimeFromString, parseDateFromString, dateTimeToDecimalHours, formatTimeFromDateTimeString, normalizeDateTimeSeconds)
+- `src/utils/timezoneUtils.jsx` - React timezone components and display formatting (formatEventTime, formatDateTimeWithTimezone, TimezoneSelector)
 
 ---
 
 ## Data Flow
 
 ### 1. Microsoft Graph API (Source)
-**Format**: Graph API returns datetimes WITHOUT 'Z' suffix, with separate timezone field
-
+Graph API returns datetimes WITHOUT Z suffix, with separate timezone field:
 ```javascript
 {
   start: {
-    dateTime: "2025-11-11T19:00:00.0000000",  // No Z suffix
-    timeZone: "UTC"                            // Separate timezone field
-  },
-  end: {
-    dateTime: "2025-11-11T20:00:00.0000000",  // No Z suffix
-    timeZone: "UTC"
+    dateTime: "2026-03-25T16:30:00.0000000",  // No Z suffix
+    timeZone: "Eastern Standard Time"          // Separate timezone field
   }
 }
 ```
 
-**Why**: Graph API uses Windows timezone identifiers and expects clients to handle timezone conversion.
-
----
-
-### 2. Backend Storage (MongoDB - templeEvents__Events)
-**Format**: Top-level fields WITH 'Z' suffix (UTC), graphData preserves original
-
-**Note**: Previously stored in `templeEvents__InternalEvents` (now deprecated and consolidated into `templeEvents__Events`)
-
+### 2. Backend Storage (MongoDB - calendarData)
+Backend strips Z suffix and stores as local-time strings. The `calendarData` object
+in `templeEvents__Events` is the single source of truth:
 ```javascript
 {
-  // APPLICATION STANDARD - Single Source of Truth
-  startDateTime: "2025-11-11T19:00:00.0000000Z",  // ✓ WITH Z (UTC)
-  endDateTime: "2025-11-11T20:00:00.0000000Z",    // ✓ WITH Z (UTC)
-  startDate: "2025-11-11",                         // Extracted date
-  startTime: "19:00",                              // Extracted time (UTC)
-  endDate: "2025-11-11",
-  endTime: "20:00",
-
-  // AUDIT TRAIL - Preserves original Graph API format
-  graphData: {
-    start: {
-      dateTime: "2025-11-11T19:00:00.0000000",    // Without Z (original)
-      timeZone: "UTC"
-    },
-    end: {
-      dateTime: "2025-11-11T20:00:00.0000000",    // Without Z (original)
-      timeZone: "UTC"
-    }
+  calendarData: {
+    startDateTime: "2026-03-25T16:30:00",  // Local time, NO Z
+    endDateTime: "2026-03-25T17:30:00",    // Local time, NO Z
+    startDate: "2026-03-25",               // Extracted date
+    startTime: "16:30",                    // Extracted time (HH:MM)
+    endDate: "2026-03-25",
+    endTime: "17:30",
+  },
+  graphData: {                             // Raw Graph API data (audit trail)
+    start: { dateTime: "2026-03-25T16:30:00.0000000", timeZone: "Eastern Standard Time" },
+    end: { ... }
   }
 }
 ```
 
-**Backend Processing** (`backend/api-server.js`):
+All creation/update endpoints explicitly strip Z: `startDateTime.replace(/Z$/, '')`
 
-#### Event Storage (Lines 2504-2514)
+### 3. Backend API Response
+API constructs `start`/`end` wrappers from calendarData for frontend compatibility:
 ```javascript
-// Convert to UTC strings with Z suffix
-const utcStartString = startDateTime ?
-  (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-const utcEndString = endDateTime ?
-  (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
-
-// Store datetime with Z suffix to ensure UTC interpretation
-unifiedEvent.startDateTime = utcStartString;
-unifiedEvent.endDateTime = utcEndString;
-
-// Extract date and time in UTC
-unifiedEvent.startDate = utcStartString ?
-  new Date(utcStartString).toISOString().split('T')[0] : '';
-unifiedEvent.startTime = utcStartString ?
-  new Date(utcStartString).toISOString().slice(11, 16) : '';
-```
-
-#### Delta Sync (Lines 4173-4183)
-Same Z suffix logic applied during synchronization from Graph API.
-
-#### Update Operations (Lines 4255-4265)
-Same Z suffix logic applied during event updates.
-
-#### Room Reservations (Lines 14807-14813)
-Same Z suffix logic applied for reservation events.
-
----
-
-### 3. Backend API Response (Dynamically Constructed)
-**Format**: API constructs `start`/`end` objects from top-level fields for frontend consistency
-
-**API Response Construction** (`backend/api-server.js:3533-3540`):
-```javascript
-// Construct Graph-like format from application standard
 start: {
-  dateTime: event.startDateTime,  // Use top-level WITH Z
-  timeZone: event.graphData?.start?.timeZone || 'UTC'
-},
-end: {
-  dateTime: event.endDateTime,    // Use top-level WITH Z
-  timeZone: event.graphData?.end?.timeZone || 'UTC'
+  dateTime: event.calendarData?.startDateTime,  // Local-time string, no Z
+  timeZone: event.graphData?.start?.timeZone || 'America/New_York'
 }
 ```
 
-**Frontend Receives**:
-```javascript
-{
-  start: {
-    dateTime: "2025-11-11T19:00:00.0000000Z",  // Constructed from top-level
-    timeZone: "UTC"
-  },
-  startDateTime: "2025-11-11T19:00:00.0000000Z",  // Also included
-  startDate: "2025-11-11",
-  startTime: "19:00",
-  graphData: { ... }  // Original preserved
-}
-```
-
----
-
-### 4. Frontend Usage (Standardized)
-**Rule**: Frontend ONLY uses `event.start.dateTime` (API-constructed field)
-
-#### Files Standardized (Completed 2025-11-13):
-1. **EventDetailsModal.jsx**: Uses `event.start.dateTime` / `event.end.dateTime`
-2. **Calendar.jsx**: Removed fallback patterns, uses `event.start.dateTime` directly
-3. **DayTimelineModal.jsx**: Uses `event.start.dateTime` / `event.end.dateTime`
-4. **WeekTimelineModal.jsx**: Updated all 5 instances to use standardized fields
-5. **CSVImportWithCalendar.jsx**: Added fallback for CSV preview data
-
-#### Timezone Display (`src/utils/timezoneUtils.jsx`):
-```javascript
-export const formatEventTime = (dateString, timezone, eventSubject) => {
-  // Parse datetime string as UTC (backend ensures Z suffix)
-  const date = new Date(dateString);  // Correctly parses as UTC with Z
-
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: getSafeTimezone(timezone),  // Convert to user's timezone
-  });
-};
-```
+### 4. Frontend Usage
+Frontend accesses `event.start.dateTime` (local-time string) and `event.start.timeZone`:
+- **Same timezone display**: Regex-extract time from string (no Date object needed)
+- **Cross-timezone display**: Compute UTC offset via Intl.DateTimeFormat, then format
+- **Form population**: String extraction via regex (`/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/`)
+- **Positioning (SA, WeekView, DayView)**: Use decimal hours from string
 
 ---
 
 ## Key Architectural Decisions
 
-### 1. Why Z Suffix as Standard?
-- **JavaScript Safety**: Strings with Z parse as UTC; without Z parse as local time
-- **Industry Standard**: ISO 8601 with Z is the international standard
-- **Single Transformation**: One conversion point (Graph API → Storage)
-- **Fewer Bugs**: Explicit timezone handling reduces ambiguity
+### 1. Why Local-Time Strings (Not UTC)?
+- **Matches Graph API**: No conversion needed for Graph API communication
+- **Human-Readable**: "16:30" in the database IS "4:30 PM Eastern"
+- **DST-Safe**: No UTC-to-local conversion means no DST boundary bugs
+- **String Comparison**: MongoDB date-range queries work with string comparison
 
 ### 2. Why Preserve graphData?
-- **Audit Trail**: Keep original Graph API format for reference
-- **Debugging**: Compare application standard vs. original
-- **Backward Compatibility**: Some features may still reference original
+- **Audit Trail**: Keep original Graph API format for debugging
 - **Data Integrity**: Never lose source data
+- **Timezone Source**: `graphData.start.timeZone` provides the authoritative timezone
 
-### 3. Why Dynamic API Construction?
-- **Frontend Consistency**: Always use `event.start.dateTime` regardless of source
-- **Separation of Concerns**: Database schema != API response format
-- **Flexibility**: Can change storage without breaking frontend
-- **Migration Safety**: Gradual transition from old to new format
+### 3. Why String Extraction Over Date Parsing?
+- **Browser-Independent**: `"2026-03-25T16:30:00".split('T')` gives the same result everywhere
+- **No Timezone Ambiguity**: `new Date("2026-03-25T16:30:00")` interprets differently per browser timezone
+- **Simpler**: Regex is faster and more predictable than Date parsing + formatting
 
 ---
 
 ## Data Flow Diagram
 
 ```
-┌─────────────────────┐
-│  Graph API          │
-│  (No Z suffix)      │
-│  "...19:00:00"      │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Backend Processing │
-│  (Adds Z suffix)    │
-│  "...19:00:00Z"     │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  MongoDB Storage    │
-│  ┌─────────────────┐│
-│  │ Top-level: Z    ││  ← Single Source of Truth
-│  │ graphData: No Z ││  ← Audit Trail
-│  └─────────────────┘│
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  API Response       │
-│  (Constructs start) │
-│  start.dateTime: Z  │  ← Uses top-level
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Frontend Display   │
-│  event.start.dateTime│ ← Standardized access
-│  + user timezone    │
-└─────────────────────┘
+┌─────────────────────────┐
+│  Graph API              │
+│  "...16:30:00"          │
+│  timeZone: "Eastern..." │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Backend Processing     │
+│  Strips Z suffix        │
+│  Stores as local-time   │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  MongoDB (calendarData) │
+│  "2026-03-25T16:30:00"  │  ← Source of truth (local time, no Z)
+│  graphData preserved    │  ← Audit trail
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  API Response           │
+│  start.dateTime (no Z)  │
+│  start.timeZone         │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Frontend Display       │
+│  String extraction      │  ← No new Date() on stored strings
+│  + user timezone pref   │
+└─────────────────────────┘
 ```
-
----
-
-## Exception: Demo Data
-
-**Demo Data** (uploaded JSON files) uses top-level `startDateTime` without nested structure:
-```javascript
-{
-  startDateTime: "2025-11-11T19:00:00.0000000Z",  // Direct field
-  endDateTime: "2025-11-11T20:00:00.0000000Z"     // Direct field
-}
-```
-
-**Files handling demo data** (`src/services/calendarDataService.js`):
-- `_getDemoEvents()`: Uses `event.startDateTime` directly (correct for demo data)
 - `_convertDemoEventToCalendarFormat()`: Converts demo format to application format
 
 ---

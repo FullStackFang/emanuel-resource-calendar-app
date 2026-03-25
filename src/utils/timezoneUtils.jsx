@@ -58,24 +58,15 @@ export const getSafeTimezone = (timezone) => {
 };
 
 /**
- * Ensure date string is in proper UTC format
- * @param {string} dateString - Date string to format
- * @returns {string} UTC formatted date string
+ * @deprecated Do NOT append Z to stored datetime strings — they are local-time
+ * (America/New_York), not UTC. This function is now an identity/passthrough.
+ * Callers should be migrated to use string extraction from timezoneUtils.js instead.
+ * @param {string} dateString - Date string
+ * @returns {string} The same date string, unchanged
  */
 export const ensureUTCFormat = (dateString) => {
   if (!dateString) return '';
-  return dateString.endsWith('Z') ? dateString : `${dateString}Z`;
-};
-
-/**
- * Convert date to UTC ISO string
- * @param {Date|string} date - Date to convert
- * @returns {string} UTC ISO string
- */
-export const toUTCISOString = (date) => {
-  if (!date) return '';
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return dateObj.toISOString();
+  return dateString;
 };
 
 /**
@@ -168,100 +159,51 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
   if (!dateString) return '';
 
   try {
-    let date;
+    // All stored datetimes are local-time strings in America/New_York.
+    // Default sourceTimezone accordingly when callers don't provide it.
+    const effectiveSourceTz = getSafeTimezone(sourceTimezone || 'America/New_York');
+    const effectiveDisplayTz = getSafeTimezone(displayTimezone);
 
-    // If source timezone is provided and matches display timezone,
-    // the datetime value represents local time in that timezone.
-    // We extract time components directly from the string to avoid
-    // JavaScript Date parsing issues with timezones.
-    if (sourceTimezone && sourceTimezone !== 'UTC' && displayTimezone === sourceTimezone) {
-      // Strip 'Z' suffix if present - the time is actually in the source timezone
-      const localTimeString = dateString.replace(/Z$/, '').replace(/\.0+Z$/, '');
+    // Strip any Z suffix — stored times are local, not UTC
+    const localTimeString = String(dateString).replace(/Z$/, '').replace(/\.0+Z?$/, '');
 
-      // Extract time components directly from the string (e.g., "2026-01-03T13:30:00")
-      // This avoids browser-local timezone interpretation issues
+    // FAST PATH: source timezone matches display timezone.
+    // Extract time directly from the string — no Date object needed.
+    if (effectiveSourceTz === effectiveDisplayTz) {
       const timeMatch = localTimeString.match(/T(\d{2}):(\d{2})/);
       if (timeMatch) {
-        let hours = parseInt(timeMatch[1], 10);
+        const hours = parseInt(timeMatch[1], 10);
         const minutes = timeMatch[2];
         const period = hours >= 12 ? 'PM' : 'AM';
         const displayHours = hours === 0 ? 12 : (hours > 12 ? hours - 12 : hours);
         return `${displayHours}:${minutes} ${period}`;
       }
-
-      // Fallback to Date parsing if regex fails
-      date = new Date(localTimeString);
-
-      if (isNaN(date.getTime())) {
-        console.error(`Invalid date format for "${eventSubject}":`, dateString);
-        return '';
-      }
-
-      // Format in the source timezone explicitly
-      return date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: getSafeTimezone(sourceTimezone),
-      });
     }
 
-    // If source timezone differs from display timezone, we need proper conversion
-    // For now, if source timezone is provided but different from display,
-    // parse without 'Z' to get the local time value, then format for display timezone
-    if (sourceTimezone && sourceTimezone !== 'UTC') {
-      // The datetime represents time in sourceTimezone, not UTC
-      // Strip the 'Z' and parse - the numeric value represents local time in source TZ
-      const localTimeString = dateString.replace(/Z$/, '').replace(/\.0+Z$/, '');
-
-      // Create a formatter that will parse the time as if in source timezone
-      // and output in display timezone
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: getSafeTimezone(displayTimezone),
-      });
-
-      // Parse the datetime - JavaScript will interpret it as local browser time
-      // To properly convert between timezones, we need to format it in source TZ first
-      // Then parse that to get the actual moment in time
-
-      // Get the offset between source timezone and UTC at this datetime
-      const tempDate = new Date(localTimeString);
-
-      // Format in source timezone to get the "wall clock" time there
-      const sourceFormatter = new Intl.DateTimeFormat('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: getSafeTimezone(sourceTimezone),
-      });
-
-      // If source and display are the same, return source-formatted time
-      if (getSafeTimezone(sourceTimezone) === getSafeTimezone(displayTimezone)) {
-        return sourceFormatter.format(tempDate);
-      }
-
-      // Otherwise, we need the actual UTC moment
-      // The localTimeString represents time in sourceTimezone
-      // We can use toLocaleString to get the value at that timezone
-      return formatter.format(tempDate);
-    }
-
-    // Default behavior: treat as UTC (original logic)
-    date = new Date(ensureUTCFormat(dateString));
-
-    if (isNaN(date.getTime())) {
+    // CROSS-TIMEZONE PATH: source timezone differs from display timezone.
+    // We need to find the UTC instant that corresponds to localTimeString in
+    // sourceTimezone, then format that instant in displayTimezone.
+    //
+    // Technique: new Date(str) interprets Z-less strings as browser-local time.
+    // We compute the offset between browser-local and sourceTimezone, then adjust.
+    const browserDate = new Date(localTimeString);
+    if (isNaN(browserDate.getTime())) {
       console.error(`Invalid date format for "${eventSubject}":`, dateString);
       return '';
     }
 
-    return date.toLocaleTimeString('en-US', {
+    // What wall-clock time does browserDate show in the source timezone?
+    const inSourceTz = new Date(browserDate.toLocaleString('en-US', { timeZone: effectiveSourceTz }));
+    // The difference tells us how far off browser-local is from source timezone
+    const offsetMs = browserDate.getTime() - inSourceTz.getTime();
+    // Corrected Date represents the true UTC instant for "localTimeString in sourceTimezone"
+    const correctedDate = new Date(browserDate.getTime() + offsetMs);
+
+    return correctedDate.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: getSafeTimezone(displayTimezone),
+      timeZone: effectiveDisplayTz,
     });
   } catch (err) {
     console.error(`Error formatting event time for "${eventSubject}":`, err);
@@ -292,80 +234,49 @@ export const formatDateHeader = (date, timezone = DEFAULT_TIMEZONE) => {
  * @param {string} timezone - Target timezone for display
  * @returns {string} Formatted date and time string
  */
-export const formatDateTimeWithTimezone = (dateTimeString, timezone = DEFAULT_TIMEZONE) => {
+export const formatDateTimeWithTimezone = (dateTimeString, timezone = DEFAULT_TIMEZONE, sourceTimezone = null) => {
   if (!dateTimeString) return '';
-  
+
   try {
-    const date = new Date(ensureUTCFormat(dateTimeString));
-    
-    if (isNaN(date.getTime())) {
+    // Stored datetimes are local-time strings in America/New_York (no Z suffix).
+    // We must interpret them in the source timezone, not as UTC.
+    const effectiveSourceTz = getSafeTimezone(sourceTimezone || 'America/New_York');
+    const effectiveDisplayTz = getSafeTimezone(timezone);
+    const localTimeString = String(dateTimeString).replace(/Z$/, '').replace(/\.0+Z?$/, '');
+
+    // Parse as browser-local, then correct to source timezone
+    const browserDate = new Date(localTimeString);
+    if (isNaN(browserDate.getTime())) {
       console.error('Invalid date for formatting:', dateTimeString);
-      return new Date(dateTimeString).toLocaleString();
+      return '';
     }
-    
-    const safeTimezone = getSafeTimezone(timezone);
-    
+
+    // Compute offset between browser-local and source timezone
+    const inSourceTz = new Date(browserDate.toLocaleString('en-US', { timeZone: effectiveSourceTz }));
+    const offsetMs = browserDate.getTime() - inSourceTz.getTime();
+    const correctedDate = new Date(browserDate.getTime() + offsetMs);
+
     const dateOptions = {
-      timeZone: safeTimezone,
+      timeZone: effectiveDisplayTz,
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     };
-    
+
     const timeOptions = {
-      timeZone: safeTimezone,
+      timeZone: effectiveDisplayTz,
       hour: '2-digit',
       minute: '2-digit',
       hour12: true
     };
-    
-    const formattedDate = date.toLocaleDateString('en-US', dateOptions);
-    const formattedTime = date.toLocaleTimeString('en-US', timeOptions);
-    
+
+    const formattedDate = correctedDate.toLocaleDateString('en-US', dateOptions);
+    const formattedTime = correctedDate.toLocaleTimeString('en-US', timeOptions);
+
     return `${formattedDate} ${formattedTime}`;
   } catch (error) {
     console.error('Error formatting date with timezone:', error);
-    return new Date(dateTimeString).toLocaleString();
-  }
-};
-
-/**
- * Check if an event occurs on a specific day in the given timezone
- * @param {Object} event - Event object with start.dateTime
- * @param {Date} day - Day to check against
- * @param {string} timezone - Timezone for comparison
- * @returns {boolean} True if event occurs on the specified day
- */
-export const isEventOnDay = (event, day, timezone = DEFAULT_TIMEZONE) => {
-  if (!event?.start?.dateTime || !day) return false;
-  
-  try {
-    const utcDateString = ensureUTCFormat(event.start.dateTime);
-    const eventDateUTC = new Date(utcDateString);
-    
-    if (isNaN(eventDateUTC.getTime())) {
-      console.error('Invalid event date:', event.start.dateTime, event?.subject || event?.id);
-      return false;
-    }
-    
-    const safeTimezone = getSafeTimezone(timezone);
-    
-    // Convert event time to specified timezone for date comparison
-    const eventInTimezone = new Date(eventDateUTC.toLocaleString('en-US', {
-      timeZone: safeTimezone
-    }));
-    
-    // Reset time to midnight for date-only comparison
-    const eventDay = new Date(eventInTimezone);
-    eventDay.setHours(0, 0, 0, 0);
-    
-    const compareDay = new Date(day);
-    compareDay.setHours(0, 0, 0, 0);
-    
-    return eventDay.getTime() === compareDay.getTime();
-  } catch (err) {
-    console.error('Error comparing event date:', err, event?.subject || event?.id);
-    return false;
+    return '';
   }
 };
 

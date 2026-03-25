@@ -129,30 +129,32 @@ export function transformEventToFlatStructure(event) {
     endDate = getField(event, 'endDate', '');
     endTime = getField(event, 'endTime', '');
   } else if (startDateTime && endDateTime) {
-    try {
-      const startDT = new Date(startDateTime);
-      const endDT = new Date(endDateTime);
-
-      if (!isNaN(startDT.getTime()) && !isNaN(endDT.getTime())) {
-        startDate = `${startDT.getFullYear()}-${String(startDT.getMonth() + 1).padStart(2, '0')}-${String(startDT.getDate()).padStart(2, '0')}`;
-        startTime = startDT.toTimeString().slice(0, 5);
-        endDate = `${endDT.getFullYear()}-${String(endDT.getMonth() + 1).padStart(2, '0')}-${String(endDT.getDate()).padStart(2, '0')}`;
-        endTime = endDT.toTimeString().slice(0, 5);
-      }
-    } catch (err) {
-      console.error('Error parsing date/time in transformEventToFlatStructure:', err);
+    // Extract date/time directly from the string (timezone-safe).
+    // Stored datetimes are local-time strings (e.g., "2026-03-15T14:30:00")
+    // — using new Date() would interpret them in the browser's timezone, which
+    // gives wrong results when the browser is outside America/New_York.
+    const startMatch = String(startDateTime).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    const endMatch = String(endDateTime).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    if (startMatch) {
+      startDate = startMatch[1];
+      startTime = startMatch[2];
+    }
+    if (endMatch) {
+      endDate = endMatch[1];
+      endTime = endMatch[2];
     }
   }
 
   // For MongoDB documents, prefer explicit startTime/endTime from calendarData
-  // over values parsed from startDateTime. These fields represent user intent:
-  // null = "no time specified", '09:00' = "user entered 9am"
+  // over values parsed from startDateTime — but only when the value is a truthy
+  // string.  calendarData.startTime = null means "no explicit time override",
+  // so the value parsed from startDateTime should be kept.
   if (event.calendarData) {
-    if ('startTime' in event.calendarData) {
-      startTime = event.calendarData.startTime || '';
+    if (event.calendarData.startTime) {
+      startTime = event.calendarData.startTime;
     }
-    if ('endTime' in event.calendarData) {
-      endTime = event.calendarData.endTime || '';
+    if (event.calendarData.endTime) {
+      endTime = event.calendarData.endTime;
     }
   }
 

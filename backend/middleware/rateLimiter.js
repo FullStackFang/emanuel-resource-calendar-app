@@ -73,6 +73,28 @@ const sensitiveLimiter = rateLimit({
 });
 
 /**
+ * Per-user rate limiter for SSE ticket exchange
+ * 120 requests per 15 minutes per authenticated user
+ * Runs AFTER verifyToken so req.user is available for keying
+ */
+const sseTicketLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120, // limit each user to 120 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user.userId,
+  message: {
+    error: 'Too many requests',
+    message: 'SSE ticket rate limit exceeded. Please try again later.',
+    retryAfter: '15 minutes'
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`SSE ticket rate limit exceeded for user: ${req.user.userId}, path: ${req.path}`);
+    res.status(429).json(options.message);
+  }
+});
+
+/**
  * Burst limiter for high-frequency endpoints (e.g., search, autocomplete)
  * 50 requests per minute per IP
  */
@@ -96,5 +118,6 @@ module.exports = {
   standardLimiter,
   publicLimiter,
   sensitiveLimiter,
+  sseTicketLimiter,
   burstLimiter
 };

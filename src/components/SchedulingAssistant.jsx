@@ -1,5 +1,12 @@
 // src/components/SchedulingAssistant.jsx
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import {
+  dateTimeToDecimalHours,
+  parseDateFromString,
+  formatTimeFromDateTimeString,
+  formatHoursMinutes,
+  normalizeDateTimeSeconds,
+} from '../utils/appTimeUtils';
 import './SchedulingAssistant.css';
 
 export default function SchedulingAssistant({
@@ -154,6 +161,45 @@ export default function SchedulingAssistant({
       let roomEventCount = 0;
       let eventIndexInRoom = 0; // Track event order within room for color variation
 
+      // ----- Timezone-safe block positioning helper -----
+      // Extracts hours/minutes directly from datetime strings (no new Date()).
+      // This avoids browser-timezone interpretation of local-time strings.
+      const buildBlockFromStrings = (rawStartStr, rawEndStr) => {
+        const startStr = normalizeDateTimeSeconds(rawStartStr);
+        const endStr = normalizeDateTimeSeconds(rawEndStr);
+        const startDate = parseDateFromString(startStr);
+        const endDate = parseDateFromString(endStr);
+
+        // Skip events entirely outside the viewed day (pure string comparison)
+        if (startDate > effectiveDate && endDate > effectiveDate) return null;
+        if (endDate < effectiveDate) return null;
+
+        // Extract decimal hours and clamp multi-day events to day boundaries
+        let startHours = dateTimeToDecimalHours(startStr);
+        let endHours = dateTimeToDecimalHours(endStr);
+        if (startDate < effectiveDate) startHours = 0;
+        if (endDate > effectiveDate) endHours = 24;
+
+        const clampedStart = Math.max(START_HOUR, Math.min(END_HOUR, startHours));
+        const adjustedEnd = endHours < startHours ? endHours + 24 : endHours;
+        const clampedEnd = Math.max(START_HOUR, Math.min(END_HOUR, adjustedEnd));
+
+        const topPx = clampedStart * PIXELS_PER_HOUR;
+        const heightPx = Math.max((clampedEnd - clampedStart) * PIXELS_PER_HOUR, 20);
+        return {
+          startTime: startHours,   // decimal hours (e.g., 16.5 = 4:30 PM)
+          endTime: endHours,
+          originalStartTime: dateTimeToDecimalHours(rawStartStr),
+          originalEndTime: dateTimeToDecimalHours(rawEndStr),
+          startTimeStr: startStr,  // normalized string for label formatting
+          endTimeStr: endStr,
+          originalStartTimeStr: normalizeDateTimeSeconds(rawStartStr),
+          originalEndTimeStr: normalizeDateTimeSeconds(rawEndStr),
+          top: topPx,
+          height: heightPx,
+        };
+      };
+
       // Process reservations
       if (roomAvailability.conflicts.reservations) {
         roomAvailability.conflicts.reservations.forEach(reservation => {
@@ -167,32 +213,23 @@ export default function SchedulingAssistant({
           // Check if this event has been manually adjusted
           const manualAdjustment = manuallyAdjustedPositions.current[reservationId];
 
-          let startTime, endTime, position;
-          let originalStartTime, originalEndTime;
-
+          let blockTimes;
           if (manualAdjustment) {
-            // Use the manually adjusted position and times
-            startTime = manualAdjustment.startTime;
-            endTime = manualAdjustment.endTime;
-            originalStartTime = startTime;
-            originalEndTime = endTime;
-            position = {
+            const adjStartH = manualAdjustment.startTime.getHours() + manualAdjustment.startTime.getMinutes() / 60;
+            const adjEndH = manualAdjustment.endTime.getHours() + manualAdjustment.endTime.getMinutes() / 60;
+            blockTimes = {
+              startTime: adjStartH,
+              endTime: adjEndH,
+              originalStartTime: adjStartH,
+              originalEndTime: adjEndH,
+              startTimeStr: null, endTimeStr: null,
+              originalStartTimeStr: null, originalEndTimeStr: null,
               top: manualAdjustment.top,
-              height: (manualAdjustment.endTime - manualAdjustment.startTime) / (1000 * 60 * 60) * PIXELS_PER_HOUR
+              height: (adjEndH - adjStartH) * PIXELS_PER_HOUR,
             };
           } else {
-            // Use the effective blocking times from API (includes setup/teardown)
-            startTime = new Date(reservation.effectiveStart);
-            endTime = new Date(reservation.effectiveEnd);
-            originalStartTime = new Date(startTime);
-            originalEndTime = new Date(endTime);
-            // Clamp multi-day events to the viewed day's boundaries
-            const dayStart = new Date(`${effectiveDate}T00:00:00`);
-            const dayEnd = new Date(`${effectiveDate}T23:59:59`);
-            if (startTime < dayStart) startTime = dayStart;
-            if (endTime > dayEnd) endTime = dayEnd;
-
-            position = calculateEventPosition(startTime, endTime);
+            blockTimes = buildBlockFromStrings(reservation.effectiveStart, reservation.effectiveEnd);
+            if (!blockTimes) return; // outside viewed day
           }
 
           // Apply color variation based on event index
@@ -207,16 +244,12 @@ export default function SchedulingAssistant({
             baseColor: roomColor,
             eventIndexInRoom,
             title: reservation.eventTitle,
-            startTime,
-            endTime,
             organizer: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail,
             status: reservation.status,
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
             categories: reservation.categories || [],
-            originalStartTime,
-            originalEndTime,
-            ...position
+            ...blockTimes,
           });
 
           roomEventCount++;
@@ -232,18 +265,10 @@ export default function SchedulingAssistant({
             return; // Skip this event
           }
 
-          // Use effectiveStart/effectiveEnd if available (includes setup/teardown), otherwise fall back to base times
-          let startTime = new Date(event.effectiveStart || event.start.dateTime || event.start);
-          let endTime = new Date(event.effectiveEnd || event.end.dateTime || event.end);
-          const originalStartTime = new Date(startTime);
-          const originalEndTime = new Date(endTime);
-          // Clamp multi-day events to the viewed day's boundaries
-          const dayStart = new Date(`${effectiveDate}T00:00:00`);
-          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
-          if (startTime < dayStart) startTime = dayStart;
-          if (endTime > dayEnd) endTime = dayEnd;
-
-          const position = calculateEventPosition(startTime, endTime);
+          const rawStart = event.effectiveStart || event.start?.dateTime || event.start;
+          const rawEnd = event.effectiveEnd || event.end?.dateTime || event.end;
+          const blockTimes = buildBlockFromStrings(rawStart, rawEnd);
+          if (!blockTimes) return; // outside viewed day
 
           // Apply color variation based on event index
           const variedColor = adjustColorShade(roomColor, eventIndexInRoom);
@@ -257,15 +282,11 @@ export default function SchedulingAssistant({
             baseColor: roomColor,
             eventIndexInRoom,
             title: event.subject || 'Calendar Event',
-            startTime,
-            endTime,
             organizer: event.organizer?.emailAddress?.name || 'Unknown',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: event.isAllowedConcurrent ?? false,
             categories: event.categories || [],
-            originalStartTime,
-            originalEndTime,
-            ...position
+            ...blockTimes,
           });
 
           roomEventCount++;
@@ -283,21 +304,10 @@ export default function SchedulingAssistant({
             return;
           }
 
-          let startTime = new Date(pendingEdit.effectiveStart || pendingEdit.originalStart);
-          let endTime = new Date(pendingEdit.effectiveEnd || pendingEdit.originalEnd);
-          const originalStartTime = new Date(startTime);
-          const originalEndTime = new Date(endTime);
-          // Clamp multi-day events to the viewed day's boundaries
-          const dayStart = new Date(`${effectiveDate}T00:00:00`);
-          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
-
-          // Skip pending edits entirely outside the viewed day
-          if (startTime >= dayEnd || endTime <= dayStart) return;
-
-          if (startTime < dayStart) startTime = dayStart;
-          if (endTime > dayEnd) endTime = dayEnd;
-
-          const position = calculateEventPosition(startTime, endTime);
+          const rawStart = pendingEdit.effectiveStart || pendingEdit.originalStart;
+          const rawEnd = pendingEdit.effectiveEnd || pendingEdit.originalEnd;
+          const blockTimes = buildBlockFromStrings(rawStart, rawEnd);
+          if (!blockTimes) return; // outside viewed day
 
           blocks.push({
             id: `${pendingEditId}-pending-edit`,
@@ -308,17 +318,13 @@ export default function SchedulingAssistant({
             baseColor: '#f59e0b',
             eventIndexInRoom,
             title: pendingEdit.eventTitle || 'Pending Edit',
-            startTime,
-            endTime,
             organizer: pendingEdit.requesterName || pendingEdit.requesterEmail || '',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: pendingEdit.isAllowedConcurrent ?? false,
             categories: pendingEdit.categories || [],
             isPendingEdit: true,
             originalLocations: pendingEdit.originalLocations,
-            originalStartTime,
-            originalEndTime,
-            ...position
+            ...blockTimes,
           });
 
           roomEventCount++;
@@ -336,21 +342,10 @@ export default function SchedulingAssistant({
             return;
           }
 
-          let startTime = new Date(pendingRes.effectiveStart || pendingRes.originalStart);
-          let endTime = new Date(pendingRes.effectiveEnd || pendingRes.originalEnd);
-          const originalStartTime = new Date(startTime);
-          const originalEndTime = new Date(endTime);
-          // Clamp multi-day events to the viewed day's boundaries
-          const dayStart = new Date(`${effectiveDate}T00:00:00`);
-          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
-
-          // Skip pending reservations entirely outside the viewed day
-          if (startTime >= dayEnd || endTime <= dayStart) return;
-
-          if (startTime < dayStart) startTime = dayStart;
-          if (endTime > dayEnd) endTime = dayEnd;
-
-          const position = calculateEventPosition(startTime, endTime);
+          const rawStart = pendingRes.effectiveStart || pendingRes.originalStart;
+          const rawEnd = pendingRes.effectiveEnd || pendingRes.originalEnd;
+          const blockTimes = buildBlockFromStrings(rawStart, rawEnd);
+          if (!blockTimes) return; // outside viewed day
 
           blocks.push({
             id: `${pendingResId}-pending-reservation`,
@@ -361,16 +356,12 @@ export default function SchedulingAssistant({
             baseColor: '#eab308',
             eventIndexInRoom,
             title: pendingRes.eventTitle || 'Pending Request',
-            startTime,
-            endTime,
             organizer: pendingRes.requesterName || pendingRes.requesterEmail || '',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: pendingRes.isAllowedConcurrent ?? false,
             categories: pendingRes.categories || [],
             isPendingReservation: true,
-            originalStartTime,
-            originalEndTime,
-            ...position
+            ...blockTimes,
           });
 
           roomEventCount++;
@@ -392,38 +383,56 @@ export default function SchedulingAssistant({
         // Check if user event has been manually dragged
         const adjustment = userEventAdjustment.current;
 
-        let startTime, endTime, position;
+        let userStartHours, userEndHours, userStartDate, userEndDate, position;
 
         if (adjustment) {
-          // Use the manually adjusted times
-          startTime = adjustment.startTime;
-          endTime = adjustment.endTime;
-          position = calculateEventPosition(startTime, endTime);
+          // Use the manually adjusted times (Date objects from drag handler)
+          userStartHours = adjustment.startTime.getHours() + adjustment.startTime.getMinutes() / 60;
+          userEndHours = adjustment.endTime.getHours() + adjustment.endTime.getMinutes() / 60;
+          userStartDate = adjustment.startTime;
+          userEndDate = adjustment.endTime;
+          position = calculateEventPosition(adjustment.startTime, adjustment.endTime);
         } else {
           // Calculate effective blocking times (setup to teardown)
-          const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
-          const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
+          // Parse directly from time strings — timezone-safe
+          // Guard against empty strings (calendarData.startTime can be null → '')
+          let eventStartDecimal = NaN, eventEndDecimal = NaN;
+          if (eventStartTime && eventStartTime.includes(':')) {
+            const [eStartH, eStartM] = eventStartTime.split(':').map(Number);
+            eventStartDecimal = eStartH + (eStartM || 0) / 60;
+          }
+          if (eventEndTime && eventEndTime.includes(':')) {
+            const [eEndH, eEndM] = eventEndTime.split(':').map(Number);
+            eventEndDecimal = eEndH + (eEndM || 0) / 60;
+          }
 
-          // Use setupTime if provided, otherwise use event start
           if (setupTime) {
-            const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
-            startTime = new Date(effectiveDate + 'T00:00:00');
-            startTime.setHours(setupHours, setupMinutes, 0, 0);
+            const [sH, sM] = setupTime.split(':').map(Number);
+            userStartHours = sH + (sM || 0) / 60;
           } else {
-            startTime = eventStart;
+            userStartHours = eventStartDecimal;
           }
 
-          // Use teardownTime if provided, otherwise use event end
           if (teardownTime) {
-            const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
-            endTime = new Date(effectiveDate + 'T00:00:00');
-            endTime.setHours(teardownHours, teardownMinutes, 0, 0);
+            const [tH, tM] = teardownTime.split(':').map(Number);
+            userEndHours = tH + (tM || 0) / 60;
           } else {
-            endTime = eventEnd;
+            userEndHours = eventEndDecimal;
           }
 
-          position = calculateEventPosition(startTime, endTime);
+          // Build Date objects only for drag handler compatibility
+          userStartDate = new Date(`${effectiveDate}T00:00:00`);
+          userStartDate.setHours(Math.floor(userStartHours), Math.round((userStartHours % 1) * 60), 0, 0);
+          userEndDate = new Date(`${effectiveDate}T00:00:00`);
+          userEndDate.setHours(Math.floor(userEndHours), Math.round((userEndHours % 1) * 60), 0, 0);
 
+          const clampedStart = Math.max(START_HOUR, Math.min(END_HOUR, userStartHours));
+          const adjustedEnd = userEndHours < userStartHours ? userEndHours + 24 : userEndHours;
+          const clampedEnd = Math.max(START_HOUR, Math.min(END_HOUR, adjustedEnd));
+          position = {
+            top: clampedStart * PIXELS_PER_HOUR,
+            height: Math.max((clampedEnd - clampedStart) * PIXELS_PER_HOUR, 20),
+          };
         }
 
         const roomColor = locationColors[roomIndex % locationColors.length];
@@ -437,8 +446,10 @@ export default function SchedulingAssistant({
           baseColor: '#0078d4',
           eventIndexInRoom: 0, // Always first in visual stacking
           title: eventTitle || 'Untitled Event',
-          startTime,
-          endTime,
+          startTime: userStartHours,   // decimal hours (consistent with locked events)
+          endTime: userEndHours,
+          startDate: userStartDate,    // Date object — used by drag handler only
+          endDate: userEndDate,
           organizer: organizerName || organizerEmail || 'You',
           isUserEvent: true,
           isDraggable: true,
@@ -633,24 +644,18 @@ export default function SchedulingAssistant({
     // Subtract the click offset to get where event top should be
     const desiredEventTop = cursorYInTimeline - dragClickOffset.current;
 
-    // Calculate time boundaries
-    const eventDurationMs = draggedBlock.endTime - draggedBlock.startTime;
-    const desiredStartTimeMs = (desiredEventTop / PIXELS_PER_HOUR) * 60 * 60 * 1000;
-    const dayStart = new Date(effectiveDate + 'T00:00:00');
-    // Allow events to end at exactly midnight (24:00 = next day's 00:00)
-    const dayEnd = new Date(effectiveDate + 'T00:00:00');
-    dayEnd.setDate(dayEnd.getDate() + 1); // Next day's midnight
-    const desiredStartTime = new Date(dayStart.getTime() + desiredStartTimeMs);
-    const desiredEndTime = new Date(desiredStartTime.getTime() + eventDurationMs);
+    // Calculate time boundaries using decimal hours (timezone-safe)
+    const eventDurationHours = draggedBlock.endTime - draggedBlock.startTime;
+    const desiredStartHours = desiredEventTop / PIXELS_PER_HOUR;
+    const desiredEndHours = desiredStartHours + eventDurationHours;
 
     // Calculate the maximum allowed position (event ending at midnight)
-    const eventDurationHours = draggedBlock.height / PIXELS_PER_HOUR;
     const maxStartPixels = (24 - eventDurationHours) * PIXELS_PER_HOUR;
 
     // Clamp to time boundaries (12am to 12am next day)
     let clampedEventTop = desiredEventTop;
-    const hitTopBoundary = desiredStartTime < dayStart;
-    const hitBottomBoundary = desiredEndTime > dayEnd;
+    const hitTopBoundary = desiredStartHours < 0;
+    const hitBottomBoundary = desiredEndHours > 24;
 
     // Check if cursor is at the edges of the viewport (user wants to go further)
     const cursorAtBottomEdge = mouseY >= timelineRect.bottom - 10; // 10px tolerance
@@ -858,13 +863,25 @@ export default function SchedulingAssistant({
     return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
   };
 
-  // Format time for display
-  const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
+  // Format time for display — accepts decimal hours OR a Date object (for drag handler)
+  const formatTime = (value) => {
+    if (value instanceof Date) {
+      return value.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+    // Decimal hours (e.g., 16.5 → "4:30 PM")
+    if (typeof value === 'number') {
+      const h = Math.floor(value);
+      const m = Math.round((value % 1) * 60);
+      return formatHoursMinutes(h, m);
+    }
+    return '';
+  };
+
+  // Format a block's time — prefers the datetime string if available (timezone-safe)
+  const formatBlockTime = (block, which) => {
+    const str = which === 'start' ? block.startTimeStr : block.endTimeStr;
+    if (str) return formatTimeFromDateTimeString(str);
+    return formatTime(which === 'start' ? block.startTime : block.endTime);
   };
 
   // Format time string from HH:MM (24-hour) to "H:MM AM/PM" (12-hour)
@@ -943,8 +960,8 @@ export default function SchedulingAssistant({
     resizeOriginalDims.current = {
       top: block.top,
       height: block.height,
-      startTime: new Date(block.startTime),
-      endTime: new Date(block.endTime)
+      startTime: block.startDate || new Date(`${effectiveDate}T00:00:00`),
+      endTime: block.endDate || new Date(`${effectiveDate}T00:00:00`)
     };
 
     liveDragOffset.current = 0;
@@ -1071,9 +1088,10 @@ export default function SchedulingAssistant({
           // Anchor the block position so the main useEffect rebuild preserves it
           userEventAdjustment.current = { startTime: orig.startTime, endTime: newBlockEnd };
 
+          const newEndH = newBlockEnd.getHours() + newBlockEnd.getMinutes() / 60;
           const newHeight = (newBlockEnd.getTime() - orig.startTime.getTime()) / 3600000 * PIXELS_PER_HOUR;
           setEventBlocks(prev => prev.map(b =>
-            b.isUserEvent ? { ...b, endTime: newBlockEnd, height: newHeight } : b
+            b.isUserEvent ? { ...b, endTime: newEndH, endDate: newBlockEnd, height: newHeight } : b
           ));
 
         } else {
@@ -1094,8 +1112,9 @@ export default function SchedulingAssistant({
           // Anchor the block position so the main useEffect rebuild preserves it
           userEventAdjustment.current = { startTime: newBlockStart, endTime: orig.endTime };
 
+          const newStartH = newBlockStart.getHours() + newBlockStart.getMinutes() / 60;
           setEventBlocks(prev => prev.map(b =>
-            b.isUserEvent ? { ...b, startTime: newBlockStart, top: newTop, height: newHeight } : b
+            b.isUserEvent ? { ...b, startTime: newStartH, startDate: newBlockStart, top: newTop, height: newHeight } : b
           ));
         }
 
@@ -1106,8 +1125,11 @@ export default function SchedulingAssistant({
         const draggedBlock = eventBlocks.find(b => b.id === draggingEventId);
 
         if (draggedBlock) {
-        const durationMs = draggedBlock.endTime - draggedBlock.startTime;
-        let newStartTime = new Date(draggedBlock.startTime.getTime() + hourOffset * 60 * 60 * 1000);
+        // Use Date objects from startDate/endDate (set on user event blocks for drag compatibility)
+        const blockStartDate = draggedBlock.startDate || new Date(`${effectiveDate}T00:00:00`);
+        const blockEndDate = draggedBlock.endDate || new Date(`${effectiveDate}T00:00:00`);
+        const durationMs = blockEndDate - blockStartDate;
+        let newStartTime = new Date(blockStartDate.getTime() + hourOffset * 60 * 60 * 1000);
         // Snap to nearest 15-minute increment
         newStartTime = snapToQuarterHour(newStartTime);
         let newEndTime = new Date(newStartTime.getTime() + durationMs);
@@ -1142,7 +1164,7 @@ export default function SchedulingAssistant({
         if (draggedBlock.isUserEvent) {
           // Block boundaries ARE reservation times — set them directly.
           // Shift event/door times by the same delta to preserve their offset.
-          const delta = newStartTime.getTime() - draggedBlock.startTime.getTime();
+          const delta = newStartTime.getTime() - blockStartDate.getTime();
 
           const updatedTimes = {
             reservationStartTime: formatTime(newStartTime),
@@ -1169,14 +1191,18 @@ export default function SchedulingAssistant({
           }
 
           // Update all user event blocks across all rooms
+          const newStartHours = newStartTime.getHours() + newStartTime.getMinutes() / 60;
+          const newEndHours = newEndTime.getHours() + newEndTime.getMinutes() / 60;
+          const newTop = newStartHours * PIXELS_PER_HOUR;
           setEventBlocks(prev => prev.map(block => {
             if (block.isUserEvent) {
-              const newTop = calculateEventPosition(newStartTime, newEndTime).top;
               return {
                 ...block,
                 top: newTop,
-                startTime: newStartTime,
-                endTime: newEndTime
+                startTime: newStartHours,
+                endTime: newEndHours,
+                startDate: newStartTime,
+                endDate: newEndTime,
               };
             }
             return block;
@@ -1193,13 +1219,15 @@ export default function SchedulingAssistant({
           };
 
           // Update only this specific event block
+          const adjStartH = newStartTime.getHours() + newStartTime.getMinutes() / 60;
+          const adjEndH = newEndTime.getHours() + newEndTime.getMinutes() / 60;
           setEventBlocks(prev => prev.map(block => {
             if (block.id === draggingEventId) {
               return {
                 ...block,
                 top: newTop,
-                startTime: newStartTime,
-                endTime: newEndTime
+                startTime: adjStartH,
+                endTime: adjEndH,
               };
             }
             return block;
@@ -1256,9 +1284,9 @@ export default function SchedulingAssistant({
     // Lock ALL backend events (only user events are draggable)
     const isLocked = !isUserEvent;
 
-    // Detect multi-day events
-    const originalStartDate = block.originalStartTime?.toISOString().split('T')[0];
-    const originalEndDate = block.originalEndTime?.toISOString().split('T')[0];
+    // Detect multi-day events (use string dates — timezone-safe)
+    const originalStartDate = block.originalStartTimeStr ? parseDateFromString(block.originalStartTimeStr) : null;
+    const originalEndDate = block.originalEndTimeStr ? parseDateFromString(block.originalEndTimeStr) : null;
     const isMultiDayBlock = originalStartDate && originalEndDate && originalStartDate !== originalEndDate;
 
     // Detect if this locked event conflicts with the user's event
@@ -1279,15 +1307,15 @@ export default function SchedulingAssistant({
       // Use live drag offset from ref (updated during drag without re-renders)
       const currentDragOffset = liveDragOffset.current;
       const hourOffset = currentDragOffset / PIXELS_PER_HOUR;
-      const durationMs = block.endTime - block.startTime;
-      const draggedStart = new Date(block.startTime.getTime() + hourOffset * 60 * 60 * 1000);
-      const draggedEnd = new Date(draggedStart.getTime() + durationMs);
+      const durationHours = block.endTime - block.startTime;
+      const draggedStartH = block.startTime + hourOffset;
+      const draggedEndH = draggedStartH + durationHours;
 
-      // Check conflicts with other events (excluding self)
+      // Check conflicts with other events (excluding self) — decimal hours comparison
       hasConflict = allVisibleBlocks.some(otherBlock =>
         otherBlock.id !== block.id &&
-        draggedStart < otherBlock.endTime &&
-        draggedEnd > otherBlock.startTime
+        draggedStartH < otherBlock.endTime &&
+        draggedEndH > otherBlock.startTime
       );
     }
 
@@ -1368,7 +1396,7 @@ export default function SchedulingAssistant({
           boxShadow: boxShadow,
           filter: filter,
           zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : (5 + (offset.column || 0)))),
-          transition: isDragging ? 'none' : 'all 0.2s'
+          transition: isDragging ? 'none' : 'opacity 0.2s, box-shadow 0.2s, filter 0.2s, background-color 0.2s'
         }}
         onMouseDown={!isLocked && !disabled ? (e) => handleMouseDown(e, block) : undefined}
         onMouseEnter={(e) => {
@@ -1417,7 +1445,7 @@ export default function SchedulingAssistant({
             )}
             <span className="event-title">{block.title}</span>
             <span className="event-time-inline">
-              {formatTime(block.startTime)} - {formatTime(block.endTime)}
+              {formatBlockTime(block, 'start')} - {formatBlockTime(block, 'end')}
             </span>
             {/* Clear button for user event */}
             {isUserEvent && !disabled && (
@@ -1454,14 +1482,14 @@ export default function SchedulingAssistant({
             )}
           </div>
           <div className="event-time">
-            {formatTime(block.startTime)} - {formatTime(block.endTime)}
+            {formatBlockTime(block, 'start')} - {formatBlockTime(block, 'end')}
           </div>
           {(block.isAllowedConcurrent || allowedByCategory) && !isUserEvent && (
             <div className="event-concurrent-label">Allows Overlap</div>
           )}
           {isMultiDayBlock && (
             <div className="event-multi-day-label">
-              Multi-day ({new Date(block.originalStartTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(block.originalEndTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+              Multi-day ({originalStartDate ? new Date(block.originalStartTimeStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'} - {originalEndDate ? new Date(block.originalEndTimeStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'})
             </div>
           )}
           {block.status && block.status === 'pending' && (
@@ -2045,7 +2073,7 @@ export default function SchedulingAssistant({
           {tooltipInfo.block.isPendingReservation && <div className="tooltip-badge pending-reservation">PENDING REQUEST</div>}
           <div className="tooltip-title">{tooltipInfo.block.title}</div>
           <div className="tooltip-time">
-            {formatTime(tooltipInfo.block.startTime)} - {formatTime(tooltipInfo.block.endTime)}
+            {formatBlockTime(tooltipInfo.block, 'start')} - {formatBlockTime(tooltipInfo.block, 'end')}
           </div>
           {tooltipInfo.block.organizer && (
             <div className="tooltip-organizer">{tooltipInfo.block.organizer}</div>

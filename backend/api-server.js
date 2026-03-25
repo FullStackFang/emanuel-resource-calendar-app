@@ -16,7 +16,7 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
-const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
+const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
@@ -13198,9 +13198,14 @@ app.get('/api/rooms/availability', async (req, res) => {
     const setupMinutes = parseInt(reservationStartMinutes) || parseInt(setupTimeMinutes) || 0;
     const teardownMinutes = parseInt(reservationEndMinutes) || parseInt(teardownTimeMinutes) || 0;
 
-    // Extended time window including setup/teardown buffers (keep as ISO strings for string comparison)
-    const start = new Date(new Date(startDateTime).getTime() - (setupMinutes * 60 * 1000)).toISOString();
-    const end = new Date(new Date(endDateTime).getTime() + (teardownMinutes * 60 * 1000)).toISOString();
+    // Extended time window including setup/teardown buffers
+    // IMPORTANT: Use local-time strings (no Z suffix) to match calendarData.startDateTime format.
+    // .toISOString() returns UTC which mismatches local-time strings in MongoDB string comparisons.
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const toLocalISO = (d) =>
+      `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    const start = toLocalISO(new Date(new Date(startDateTime).getTime() - (setupMinutes * 60 * 1000)));
+    const end = toLocalISO(new Date(new Date(endDateTime).getTime() + (teardownMinutes * 60 * 1000)));
 
     logger.log('[AVAILABILITY DEBUG] Query parameters:', {
       originalStart: startDateTime,
@@ -13323,6 +13328,10 @@ app.get('/api/rooms/availability', async (req, res) => {
       const pad = (n) => String(n).padStart(2, '0');
       const toLocalISOString = (d) =>
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      // Helper: normalize datetime string to always include seconds (e.g., "T16:00" → "T16:00:00")
+      const normDT = (dt) => dt && dt.length === 16 && dt.includes('T') ? dt + ':00' : dt;
+      // Helper: normalize HH:MM time to HH:MM:SS (e.g., "16:00" → "16:00:00")
+      const normTime = (t) => t && t.length === 5 ? t + ':00' : (t || '');
 
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
       // All effectiveStart/effectiveEnd are local-time strings (no Z suffix) to avoid UTC shift
@@ -13331,28 +13340,9 @@ app.get('/api/rooms/availability', async (req, res) => {
         const startDate = (cd.startDateTime || '').split('T')[0];
         const endDate = (cd.endDateTime || '').split('T')[0];
 
-        // Compute blocking window from calendarData fields only (local-time strings)
-        let effectiveStart, effectiveEnd;
-
-        if (cd.setupTime) {
-          effectiveStart = `${startDate}T${cd.setupTime}:00`;
-        } else if (cd.setupTimeMinutes) {
-          const start = new Date(cd.startDateTime);
-          start.setMinutes(start.getMinutes() - cd.setupTimeMinutes);
-          effectiveStart = toLocalISOString(start);
-        } else {
-          effectiveStart = cd.startDateTime;
-        }
-
-        if (cd.teardownTime) {
-          effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
-        } else if (cd.teardownTimeMinutes) {
-          const end = new Date(cd.endDateTime);
-          end.setMinutes(end.getMinutes() + cd.teardownTimeMinutes);
-          effectiveEnd = toLocalISOString(end);
-        } else {
-          effectiveEnd = cd.endDateTime;
-        }
+        // Blocking window: reservationStartTime/EndTime are the sole authority
+        const effectiveStart = `${startDate}T${normTime(cd.reservationStartTime)}`;
+        const effectiveEnd = `${endDate}T${normTime(cd.reservationEndTime)}`;
 
         return {
           id: res._id,
@@ -13364,8 +13354,6 @@ app.get('/api/rooms/availability', async (req, res) => {
           originalEnd: cd.endDateTime,
           effectiveStart,
           effectiveEnd,
-          setupTimeMinutes: cd.setupTimeMinutes || 0,
-          teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           isAllowedConcurrent: res.isAllowedConcurrent ?? false,
           categories: res.calendarData?.categories || res.categories || []
         };
@@ -13380,28 +13368,14 @@ app.get('/api/rooms/availability', async (req, res) => {
         const startDate = (startDT || '').split('T')[0];
         const endDate = (endDT || '').split('T')[0];
 
-        // Compute blocking window from calendarData fields only (local-time strings)
-        let effectiveStart, effectiveEnd;
-
-        if (cd.setupTime) {
-          effectiveStart = `${startDate}T${cd.setupTime}:00`;
-        } else if (cd.setupTimeMinutes) {
-          const start = new Date(startDT);
-          start.setMinutes(start.getMinutes() - cd.setupTimeMinutes);
-          effectiveStart = toLocalISOString(start);
-        } else {
-          effectiveStart = startDT;
-        }
-
-        if (cd.teardownTime) {
-          effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
-        } else if (cd.teardownTimeMinutes) {
-          const end = new Date(endDT);
-          end.setMinutes(end.getMinutes() + cd.teardownTimeMinutes);
-          effectiveEnd = toLocalISOString(end);
-        } else {
-          effectiveEnd = endDT;
-        }
+        // Blocking window: reservationStartTime/EndTime if present, else event times
+        // Calendar events from Graph API may not have reservation times
+        const effectiveStart = cd.reservationStartTime
+          ? `${startDate}T${normTime(cd.reservationStartTime)}`
+          : normDT(startDT);
+        const effectiveEnd = cd.reservationEndTime
+          ? `${endDate}T${normTime(cd.reservationEndTime)}`
+          : normDT(endDT);
 
         return {
           id: event._id,
@@ -13434,27 +13408,13 @@ app.get('/api/rooms/availability', async (req, res) => {
           const startDate = (effectiveStartDT || '').split('T')[0];
           const endDate = (effectiveEndDT || '').split('T')[0];
 
-          let effectiveStart, effectiveEnd;
-
-          if (effective.setupTime) {
-            effectiveStart = `${startDate}T${effective.setupTime}:00`;
-          } else if (effective.setupTimeMinutes) {
-            const s = new Date(effectiveStartDT);
-            s.setMinutes(s.getMinutes() - effective.setupTimeMinutes);
-            effectiveStart = toLocalISOString(s);
-          } else {
-            effectiveStart = effectiveStartDT;
-          }
-
-          if (effective.teardownTime) {
-            effectiveEnd = `${endDate}T${effective.teardownTime}:00`;
-          } else if (effective.teardownTimeMinutes) {
-            const e = new Date(effectiveEndDT);
-            e.setMinutes(e.getMinutes() + effective.teardownTimeMinutes);
-            effectiveEnd = toLocalISOString(e);
-          } else {
-            effectiveEnd = effectiveEndDT;
-          }
+          // Blocking window: reservationStartTime/EndTime are the sole authority
+          const effectiveStart = effective.reservationStartTime
+            ? `${startDate}T${normTime(effective.reservationStartTime)}`
+            : normDT(effectiveStartDT);
+          const effectiveEnd = effective.reservationEndTime
+            ? `${endDate}T${normTime(effective.reservationEndTime)}`
+            : normDT(effectiveEndDT);
 
           return {
             id: peEvent._id,
@@ -13486,27 +13446,9 @@ app.get('/api/rooms/availability', async (req, res) => {
           const startDate = (cd.startDateTime || '').split('T')[0];
           const endDate = (cd.endDateTime || '').split('T')[0];
 
-          let effectiveStart, effectiveEnd;
-
-          if (cd.setupTime) {
-            effectiveStart = `${startDate}T${cd.setupTime}:00`;
-          } else if (cd.setupTimeMinutes) {
-            const s = new Date(cd.startDateTime);
-            s.setMinutes(s.getMinutes() - cd.setupTimeMinutes);
-            effectiveStart = toLocalISOString(s);
-          } else {
-            effectiveStart = cd.startDateTime;
-          }
-
-          if (cd.teardownTime) {
-            effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
-          } else if (cd.teardownTimeMinutes) {
-            const e = new Date(cd.endDateTime);
-            e.setMinutes(e.getMinutes() + cd.teardownTimeMinutes);
-            effectiveEnd = toLocalISOString(e);
-          } else {
-            effectiveEnd = cd.endDateTime;
-          }
+          // Blocking window: reservationStartTime/EndTime are the sole authority
+          const effectiveStart = `${startDate}T${normTime(cd.reservationStartTime)}`;
+          const effectiveEnd = `${endDate}T${normTime(cd.reservationEndTime)}`;
 
           return {
             id: res._id,
@@ -18383,7 +18325,7 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
  * EventSource cannot send Authorization headers, so the client uses this ticket
  * as a query parameter to authenticate the SSE connection.
  */
-app.post('/api/sse/ticket', sensitiveLimiter, verifyToken, async (req, res) => {
+app.post('/api/sse/ticket', verifyToken, sseTicketLimiter, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
