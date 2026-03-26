@@ -810,21 +810,67 @@ const DEFAULT_TEMPLATES = {
 };
 
 /**
- * Format datetime for email display
+ * Determine EDT vs EST for a naive Eastern Time datetime string.
+ * Uses noon on the date to avoid DST boundary ambiguity (transitions at 2 AM).
+ */
+function getEasternTimezoneLabel(naiveStr) {
+  const [datePart] = String(naiveStr).split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const noonUtc = new Date(Date.UTC(year, month - 1, day, 17, 0, 0)); // ~noon Eastern
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    timeZoneName: 'short'
+  }).formatToParts(noonUtc);
+  return parts.find(p => p.type === 'timeZoneName')?.value || 'ET';
+}
+
+/**
+ * Check if a value is a naive datetime string (no Z suffix, no timezone offset).
+ * Naive strings from calendarData represent Eastern Time wall-clock values.
+ */
+function isNaiveDateTimeString(value) {
+  if (value instanceof Date) return false;
+  const str = String(value);
+  return !str.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(str);
+}
+
+/**
+ * Format datetime for email display.
+ * Handles Date objects, ISO strings with timezone, and naive Eastern Time strings.
  */
 function formatDateTime(isoString) {
   if (!isoString) return '';
-  const date = new Date(isoString);
-  return date.toLocaleString('en-US', {
+
+  // Date objects (e.g., createdAt from new Date()) are UTC — format normally
+  // Strings with timezone info (Z or offset) — parse and convert to Eastern normally
+  if (!isNaiveDateTimeString(isoString)) {
+    return new Date(isoString).toLocaleString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/New_York',
+      timeZoneName: 'short'
+    });
+  }
+
+  // Naive datetime string — represents Eastern Time wall-clock values.
+  // On UTC servers, new Date(str) misinterprets as UTC, shifting by 4-5 hours.
+  // Fix: append Z to treat values as UTC, then display in UTC to preserve wall-clock time.
+  const str = String(isoString);
+  const utcDate = new Date(str + 'Z');
+  const tzLabel = getEasternTimezoneLabel(str);
+  return utcDate.toLocaleString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'America/New_York',
-    timeZoneName: 'short'
-  });
+    timeZone: 'UTC'
+  }) + ' ' + tzLabel;
 }
 
 /**
@@ -832,13 +878,24 @@ function formatDateTime(isoString) {
  */
 function formatDate(isoString) {
   if (!isoString) return '';
-  const date = new Date(isoString);
-  return date.toLocaleDateString('en-US', {
+
+  if (!isNaiveDateTimeString(isoString)) {
+    return new Date(isoString).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'America/New_York'
+    });
+  }
+
+  const utcDate = new Date(String(isoString) + 'Z');
+  return utcDate.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'America/New_York'
+    timeZone: 'UTC'
   });
 }
 
@@ -847,11 +904,20 @@ function formatDate(isoString) {
  */
 function formatTime(isoString) {
   if (!isoString) return '';
-  const date = new Date(isoString);
-  return date.toLocaleTimeString('en-US', {
+
+  if (!isNaiveDateTimeString(isoString)) {
+    return new Date(isoString).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/New_York'
+    });
+  }
+
+  const utcDate = new Date(String(isoString) + 'Z');
+  return utcDate.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'America/New_York'
+    timeZone: 'UTC'
   });
 }
 

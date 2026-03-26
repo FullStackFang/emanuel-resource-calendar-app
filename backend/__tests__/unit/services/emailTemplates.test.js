@@ -1,13 +1,16 @@
 /**
- * Email Template URL Tests (EU-1 to EU-4)
+ * Email Template Tests (EU-1 to EU-4, TZ-1 to TZ-5)
  *
- * Verifies that email templates render the correct admin panel URLs,
- * including deep-link eventId query parameters.
+ * EU-*: Verifies admin panel URLs with deep-link eventId query parameters.
+ * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
 const {
   generateAdminNewRequestAlert,
   generateAdminEditRequestAlert,
+  formatDateTime,
+  formatDate,
+  formatTime,
 } = require('../../../services/emailTemplates');
 
 describe('Email Template URL Tests', () => {
@@ -60,5 +63,47 @@ describe('Email Template URL Tests', () => {
     const { html } = await generateAdminEditRequestAlert(mockEditRequest, '');
 
     expect(html).not.toContain('Review Edit Request');
+  });
+});
+
+describe('Email Timezone Formatting Tests', () => {
+  // These tests verify that naive Eastern Time strings are formatted correctly
+  // regardless of the server's timezone (critical for Azure which runs in UTC).
+
+  it('TZ-1: formatDateTime with naive string preserves wall-clock time', () => {
+    const result = formatDateTime('2026-03-25T16:30:00');
+
+    // Should show 4:30 PM, not 12:30 PM (UTC→Eastern shift)
+    expect(result).toContain('4:30 PM');
+    expect(result).toContain('March 25, 2026');
+  });
+
+  it('TZ-2: formatTime with naive string preserves wall-clock time', () => {
+    const result = formatTime('2026-03-25T16:30:00');
+
+    expect(result).toContain('4:30 PM');
+  });
+
+  it('TZ-3: formatDate with naive string preserves correct date', () => {
+    const result = formatDate('2026-03-25T16:30:00');
+
+    expect(result).toContain('March 25, 2026');
+    expect(result).toContain('Wednesday');
+  });
+
+  it('TZ-4: formatDateTime with Date object formats to Eastern Time', () => {
+    // Date objects (like createdAt) are UTC timestamps — should convert to Eastern
+    const date = new Date('2026-03-25T20:30:00Z'); // 8:30 PM UTC = 4:30 PM EDT
+    const result = formatDateTime(date);
+
+    expect(result).toContain('4:30 PM');
+    expect(result).toContain('EDT');
+  });
+
+  it('TZ-5: formatDateTime with Z-suffixed string converts to Eastern', () => {
+    const result = formatDateTime('2026-03-25T20:30:00Z'); // 8:30 PM UTC = 4:30 PM EDT
+
+    expect(result).toContain('4:30 PM');
+    expect(result).toContain('EDT');
   });
 });
