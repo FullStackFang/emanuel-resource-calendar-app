@@ -1143,6 +1143,18 @@
   cursor: not-allowed;
 }
 
+.reset-button.confirm {
+  background: var(--color-error-500);
+  color: white;
+  border-color: var(--color-error-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
 /* ==========================================================================
    NO TEMPLATE SELECTED
    ========================================================================== */

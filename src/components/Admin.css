@@ -328,6 +328,16 @@
   background-color: var(--color-error-600);
 }
 
+.delete-button.confirm {
+  background: var(--color-error-600);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
 .create-user-button {
   background-color: var(--color-primary-500);
   color: var(--text-inverse);

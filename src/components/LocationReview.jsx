@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useLocations } from '../context/LocationContext';
+import { useNotification } from '../context/NotificationContext';
 import { usePolling } from '../hooks/usePolling';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './LocationReview.css';
@@ -10,14 +11,12 @@ import './LocationReview.css';
 export default function LocationReview({ apiToken }) {
   // Get refreshLocations from global context to sync after changes
   const { refreshLocations: refreshGlobalLocations } = useLocations();
+  const { showSuccess, showError } = useNotification();
 
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-
-  // Toast notification state
-  const [toast, setToast] = useState(null);
 
   // Deletion progress state
   const [deletionProgress, setDeletionProgress] = useState(null);
@@ -44,12 +43,6 @@ export default function LocationReview({ apiToken }) {
     description: '',
     notes: ''
   });
-
-  // Show toast notification
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   // Silent background refresh (no loading spinner, swallow errors)
   const silentRefresh = useCallback(async () => {
@@ -176,10 +169,10 @@ export default function LocationReview({ apiToken }) {
         setAllLocations(prev => prev.map(loc =>
           loc._id === savedLocation._id ? savedLocation : loc
         ));
-        showToast(`Updated location: ${savedLocation.name}`, 'success');
+        showSuccess(`Updated location: ${savedLocation.name}`);
       } else {
         setAllLocations(prev => [savedLocation, ...prev]);
-        showToast(`Created location: ${savedLocation.name}`, 'success');
+        showSuccess(`Created location: ${savedLocation.name}`);
       }
 
       refreshGlobalLocations();
@@ -187,7 +180,7 @@ export default function LocationReview({ apiToken }) {
       setEditingLocation(null);
     } catch (err) {
       logger.error('Error saving location:', err);
-      showToast(`Error: ${err.message}`, 'error');
+      showError(err, { context: 'LocationReview.handleSaveLocation' });
     }
   };
 
@@ -206,11 +199,11 @@ export default function LocationReview({ apiToken }) {
 
       const updatedLocation = await response.json();
       setAllLocations(prev => prev.map(l => l._id === updatedLocation._id ? updatedLocation : l));
-      showToast(`${updatedLocation.name} is now ${updatedLocation.isReservable ? 'reservable' : 'not reservable'}`, 'success');
+      showSuccess(`${updatedLocation.name} is now ${updatedLocation.isReservable ? 'reservable' : 'not reservable'}`);
       refreshGlobalLocations();
     } catch (err) {
       logger.error('Error updating location reservable status:', err);
-      showToast(`Error: ${err.message}`, 'error');
+      showError(err, { context: 'LocationReview.handleToggleReservable' });
     }
   };
 
@@ -317,7 +310,7 @@ export default function LocationReview({ apiToken }) {
           ? `Deleted "${location.name}" and removed it from ${result.eventsUpdated} event${result.eventsUpdated === 1 ? '' : 's'}`
           : `Deleted location: ${location.name}`;
 
-        showToast(successMessage, 'success');
+        showSuccess(successMessage);
       }, 1500);
 
     } catch (err) {
@@ -332,7 +325,7 @@ export default function LocationReview({ apiToken }) {
       setTimeout(() => {
         setShowDeletionModal(false);
         setDeletionProgress(null);
-        showToast(`Error: ${err.message}`, 'error');
+        showError(err, { context: 'LocationReview.handleDeleteLocation' });
       }, 2000);
     }
   };
@@ -354,13 +347,6 @@ export default function LocationReview({ apiToken }) {
 
   return (
     <div className="location-review">
-      {toast && (
-        <div className={`toast-notification ${toast.type}`}>
-          {toast.message}
-          <button onClick={() => setToast(null)} className="toast-close">×</button>
-        </div>
-      )}
-
       {/* Page Header */}
       <div className="location-review-header">
         <div className="location-review-header-content">

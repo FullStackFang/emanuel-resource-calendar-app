@@ -21,7 +21,7 @@ import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
   const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
-  const { showError } = useNotification();
+  const { showSuccess, showWarning, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -43,9 +43,27 @@ export default function MyReservations({ apiToken }) {
     apiToken,
     onSuccess: (result) => {
       loadMyReservations();
+
+      // Show success/warning toast based on action type
       if (result?.conflictDowngradedToPending) {
         const rc = result.recurringConflicts;
-        showError(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+        showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+      } else if (result?.ownerEdit) {
+        showSuccess('Changes saved');
+      } else if (result?.savedAsDraft) {
+        showSuccess('Draft saved');
+      } else if (result?.draftSubmitted) {
+        showSuccess(result.autoPublished ? 'Event created and published' : 'Request submitted for approval');
+      } else if (result?.deleted) {
+        showSuccess('Event deleted');
+      } else if (result?.editRequestSubmitted) {
+        showSuccess('Edit request submitted for review');
+      } else if (result?.event?.status === 'published') {
+        showSuccess('Event published');
+      } else if (result?.event?.status === 'rejected') {
+        showSuccess('Event rejected');
+      } else {
+        showSuccess('Changes saved');
       }
     },
     onError: (error) => { showError(error, { context: 'MyReservations' }); }
@@ -440,6 +458,7 @@ export default function MyReservations({ apiToken }) {
 
       if (!response.ok) throw new Error('Failed to resubmit reservation');
 
+      showSuccess('Request resubmitted for approval');
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {
@@ -478,6 +497,7 @@ export default function MyReservations({ apiToken }) {
       if (!response.ok) throw new Error('Failed to restore reservation');
 
       const result = await response.json();
+      showSuccess('Reservation restored');
       reviewModal.closeModal(true);
       loadMyReservations();
     } catch (err) {

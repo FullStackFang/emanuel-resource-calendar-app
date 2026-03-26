@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useUserPreferences } from '../hooks/useUserPreferences';
+import { useNotification } from '../context/NotificationContext';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
@@ -13,6 +14,7 @@ const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 export default function UserSettingsManager() {
   const { instance } = useMsal();
   const { prefs, updatePrefs } = useUserPreferences();
+  const { showSuccess } = useNotification();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -189,11 +191,12 @@ export default function UserSettingsManager() {
       // Update existing user
       const updated = await updateUser(selectedUser._id, formData);
       if (updated) {
-        setUsers(users.map(user => 
+        setUsers(users.map(user =>
           user._id === selectedUser._id ? { ...user, ...formData } : user
         ));
         setSelectedUser({ ...selectedUser, ...formData });
         setEditMode(false);
+        showSuccess('User updated');
       }
     } else {
       // Create new user
@@ -202,6 +205,7 @@ export default function UserSettingsManager() {
         setUsers([...users, created]);
         setSelectedUser(created);
         setEditMode(false);
+        showSuccess('User created');
       }
     }
   };

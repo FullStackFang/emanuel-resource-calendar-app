@@ -177,6 +177,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const [isDemoMode, setIsDemoMode] = useState(false);
     const [demoData, setDemoData] = useState(null);
     const [isUploadingDemo, setIsUploadingDemo] = useState(false);
+    const [confirmModeSwitch, setConfirmModeSwitch] = useState(false);
 
     const [initializing, setInitializing] = useState(true);
     const [loading, setLoading] = useState(false);
@@ -287,7 +288,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
     const { generalLocations, loading: locationsLoading } = useLocations();
-    const { showError } = useNotification();
+    const { showSuccess, showWarning, showError } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -431,13 +432,37 @@ import ConflictDialog from './shared/ConflictDialog';
         // Reset edit request mode
         setIsEditRequestMode(false);
         setOriginalEventData(null);
-        // Show recurring conflict warning if applicable
+
+        // Show success/warning toast based on action type
         if (result?.conflictDowngradedToPending) {
           const rc = result.recurringConflicts;
-          showError(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
-        } else if (result?.recurringConflicts?.conflictingOccurrences > 0) {
-          const rc = result.recurringConflicts;
-          showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+          showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+        } else if (result?.deleted) {
+          showSuccess('Event deleted');
+        } else if (result?.occurrenceExcluded) {
+          showSuccess('Occurrence excluded from series');
+        } else if (result?.savedAsDraft) {
+          showSuccess('Draft saved');
+        } else if (result?.draftSubmitted) {
+          showSuccess(result.autoPublished ? 'Event created and published' : 'Request submitted for approval');
+        } else if (result?.ownerEdit) {
+          showSuccess('Changes saved');
+        } else if (result?.editRequestSubmitted) {
+          showSuccess('Edit request submitted for review');
+        } else if (result?.editRequestApproved) {
+          showSuccess('Edit request approved and published');
+        } else if (result?.editRequestRejected) {
+          showSuccess('Edit request rejected');
+        } else if (result?.event?.status === 'published') {
+          showSuccess('Event published');
+          if (result?.recurringConflicts?.conflictingOccurrences > 0) {
+            const rc = result.recurringConflicts;
+            showWarning(`${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+          }
+        } else if (result?.event?.status === 'rejected') {
+          showSuccess('Event rejected');
+        } else {
+          showSuccess('Changes saved');
         }
       },
       onError: (error) => {
@@ -760,16 +785,19 @@ import ConflictDialog from './shared/ConflictDialog';
      * */
     const handleModeToggle = async () => {
       if (isDemoMode) {
-        // Switching from demo to API mode
-        const confirmSwitch = window.confirm('Switch to API mode? This will clear your demo data.');
-        if (confirmSwitch) {
-          calendarDataService.setApiMode();
-          setIsDemoMode(false);
-          setDemoData(null);
-          
-          // Reload events from API
-          await loadEvents();
+        // Two-click confirmation: first click shows confirm, second click executes
+        if (!confirmModeSwitch) {
+          setConfirmModeSwitch(true);
+          setTimeout(() => setConfirmModeSwitch(false), 3000);
+          return;
         }
+        setConfirmModeSwitch(false);
+        calendarDataService.setApiMode();
+        setIsDemoMode(false);
+        setDemoData(null);
+
+        // Reload events from API
+        await loadEvents();
       } else {
         // Switching from API to demo mode - need to upload data first
         showError('Please upload JSON data to enable demo mode');
@@ -789,9 +817,9 @@ import ConflictDialog from './shared/ConflictDialog';
               <div className="mode-toggle-group">
                 <button
                   onClick={handleModeToggle}
-                  className={`mode-toggle-btn ${isDemoMode ? 'demo-mode' : 'api-mode'}`}
+                  className={`mode-toggle-btn ${isDemoMode ? 'demo-mode' : 'api-mode'}${confirmModeSwitch ? ' confirm' : ''}`}
                 >
-                  {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
+                  {confirmModeSwitch ? 'Confirm? (clears demo data)' : (isDemoMode ? 'Demo Mode' : 'API Mode')}
                 </button>
               </div>
 

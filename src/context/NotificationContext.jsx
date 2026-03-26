@@ -14,7 +14,9 @@ let criticalErrorCallback = null;
 
 // Notification severities and their configurations
 const SEVERITY_CONFIG = {
+  success: { duration: 3000, autoLog: false },
   info: { duration: 4000, autoLog: false },
+  warning: { duration: 5000, autoLog: false },
   error: { duration: 5000, autoLog: false },
   critical: { duration: 8000, autoLog: true }
 };
@@ -68,16 +70,22 @@ export function NotificationProvider({ children }) {
     criticalErrorCallbackRef.current = callback;
   }, []);
 
-  // Remove a notification
+  // Remove a notification (with exit animation)
   const removeNotification = useCallback((id) => {
-    // Clear any existing timer
+    // Clear any existing auto-dismiss timer
     const timer = timersRef.current.get(id);
     if (timer) {
       clearTimeout(timer);
       timersRef.current.delete(id);
     }
 
-    setNotifications(prev => prev.filter(n => n.id !== id));
+    // Mark as exiting to trigger slide-out animation
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, exiting: true } : n));
+
+    // Remove from DOM after animation completes (300ms matches --duration-slow)
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 300);
   }, []);
 
   // Add a notification
@@ -184,8 +192,38 @@ export function NotificationProvider({ children }) {
     });
   }, [addNotification]);
 
+  // Show success notification (brief confirmation of completed action)
+  const showSuccess = useCallback((message, options = {}) => {
+    return addNotification({
+      message,
+      severity: 'success',
+      context: options.context || 'Unknown'
+    });
+  }, [addNotification]);
+
+  // Show warning notification (non-critical issue that may need attention)
+  const showWarning = useCallback((message, options = {}) => {
+    return addNotification({
+      message,
+      severity: 'warning',
+      context: options.context || 'Unknown'
+    });
+  }, [addNotification]);
+
+  // Show info notification (neutral informational message)
+  const showInfo = useCallback((message, options = {}) => {
+    return addNotification({
+      message,
+      severity: 'info',
+      context: options.context || 'Unknown'
+    });
+  }, [addNotification]);
+
   const value = {
     notifications,
+    showSuccess,
+    showWarning,
+    showInfo,
     showError,
     removeNotification,
     setCriticalErrorCallback

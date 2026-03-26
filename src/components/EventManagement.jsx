@@ -64,7 +64,7 @@ function formatTime(timeStr) {
 
 export default function EventManagement() {
   const { isAdmin } = usePermissions();
-  const { showError } = useNotification();
+  const { showSuccess, showError } = useNotification();
   const { getRoomName } = useRooms();
   const { apiToken } = useAuth();
   const authFetch = useAuthenticatedFetch();
@@ -296,6 +296,7 @@ export default function EventManagement() {
         return;
       }
 
+      showSuccess('Event deleted');
       setSelectedEvent(null);
       fetchEvents();
       fetchCounts();
@@ -347,6 +348,7 @@ export default function EventManagement() {
       }
 
       const data = await res.json();
+      showSuccess('Event restored');
       setSelectedEvent(null);
       fetchEvents();
       fetchCounts();

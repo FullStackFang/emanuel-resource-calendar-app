@@ -8,8 +8,11 @@ import './ToastNotification.css';
 
 // Severity icons (using Unicode symbols for simplicity)
 const SEVERITY_ICONS = {
-  error: '\u2717',   // X mark
-  critical: '\u2757' // exclamation
+  success:  '\u2713', // checkmark
+  info:     '\u2139', // info circle
+  warning:  '\u26A0', // warning triangle
+  error:    '\u2717', // X mark
+  critical: '\u2757'  // exclamation
 };
 
 function ToastNotification() {
@@ -24,7 +27,7 @@ function ToastNotification() {
       {notifications.map((notification, index) => (
         <div
           key={notification.id}
-          className={`toast toast-${notification.severity}`}
+          className={`toast toast-${notification.severity}${notification.exiting ? ' toast-exit' : ''}`}
           style={{ '--toast-index': index }}
           role="alert"
         >

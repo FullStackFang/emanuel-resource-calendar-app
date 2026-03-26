@@ -3,12 +3,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import LoadingSpinner from './shared/LoadingSpinner';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import './Admin.css';
 import './EmailTestAdmin.css';
 
 export default function EmailTestAdmin({ apiToken }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+  const { showSuccess, showWarning } = useNotification();
 
   // Tab state
   const [activeTab, setActiveTab] = useState('settings');
@@ -19,7 +21,6 @@ export default function EmailTestAdmin({ apiToken }) {
   const [configLoading, setConfigLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
 
   // Editable settings
   const [editEnabled, setEditEnabled] = useState(false);
@@ -39,6 +40,7 @@ export default function EmailTestAdmin({ apiToken }) {
   const [editSubject, setEditSubject] = useState('');
   const [editBody, setEditBody] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [confirmResetTemplate, setConfirmResetTemplate] = useState(false);
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [editorView, setEditorView] = useState('template'); // 'template' or 'preview'
@@ -131,7 +133,6 @@ export default function EmailTestAdmin({ apiToken }) {
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     setError(null);
-    setSuccessMessage('');
 
     try {
       const response = await fetch(`${API_BASE_URL}/admin/email/settings`, {
@@ -150,7 +151,7 @@ export default function EmailTestAdmin({ apiToken }) {
       const result = await response.json();
 
       if (response.ok) {
-        setSuccessMessage('Settings saved successfully!');
+        showSuccess('Settings saved');
         await loadEmailConfig();
       } else {
         setError(result.error || 'Failed to save settings');
@@ -173,7 +174,6 @@ export default function EmailTestAdmin({ apiToken }) {
 
     setLoading(true);
     setError(null);
-    setSuccessMessage('');
     setTestResult(null);
 
     try {
@@ -195,9 +195,9 @@ export default function EmailTestAdmin({ apiToken }) {
       if (response.ok) {
         setTestResult(result);
         if (result.skipped) {
-          setSuccessMessage('Email was NOT sent (Email Disabled). Check server logs for details.');
+          showWarning('Email was NOT sent (Email Disabled). Check server logs for details.');
         } else {
-          setSuccessMessage('Test email sent successfully!');
+          showSuccess('Test email sent');
         }
       } else {
         setError(result.error || 'Failed to send test email');
@@ -218,7 +218,6 @@ export default function EmailTestAdmin({ apiToken }) {
     setPreviewHtml(null);
     setEditorView('template');
     setError(null);
-    setSuccessMessage('');
   };
 
   const handleSaveTemplate = async () => {
@@ -226,7 +225,6 @@ export default function EmailTestAdmin({ apiToken }) {
 
     setSavingTemplate(true);
     setError(null);
-    setSuccessMessage('');
 
     try {
       const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}`, {
@@ -244,7 +242,7 @@ export default function EmailTestAdmin({ apiToken }) {
       const result = await response.json();
 
       if (response.ok) {
-        setSuccessMessage('Template saved successfully!');
+        showSuccess('Template saved');
         await loadTemplates();
         // Update selected template with new data
         if (result.template) {
@@ -264,13 +262,16 @@ export default function EmailTestAdmin({ apiToken }) {
   const handleResetTemplate = async () => {
     if (!selectedTemplate) return;
 
-    if (!window.confirm('Are you sure you want to reset this template to its default? Any customizations will be lost.')) {
+    // Two-click confirmation (replaces window.confirm for iframe compatibility)
+    if (!confirmResetTemplate) {
+      setConfirmResetTemplate(true);
+      setTimeout(() => setConfirmResetTemplate(false), 3000);
       return;
     }
+    setConfirmResetTemplate(false);
 
     setSavingTemplate(true);
     setError(null);
-    setSuccessMessage('');
 
     try {
       const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}/reset`, {
@@ -283,7 +284,7 @@ export default function EmailTestAdmin({ apiToken }) {
       const result = await response.json();
 
       if (response.ok) {
-        setSuccessMessage('Template reset to default!');
+        showSuccess('Template reset to default');
         await loadTemplates();
         // Update editor with default values
         if (result.template) {
@@ -614,11 +615,11 @@ export default function EmailTestAdmin({ apiToken }) {
                 <h3>Edit: {selectedTemplate.name}</h3>
                 <div className="template-header-actions">
                   <button
-                    className="reset-button"
+                    className={`reset-button${confirmResetTemplate ? ' confirm' : ''}`}
                     onClick={handleResetTemplate}
                     disabled={savingTemplate || !selectedTemplate.isCustomized}
                   >
-                    Reset to Default
+                    {confirmResetTemplate ? 'Confirm?' : 'Reset to Default'}
                   </button>
                   <button
                     className="save-button"
@@ -738,7 +739,6 @@ export default function EmailTestAdmin({ apiToken }) {
       </p>
 
       {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
 
       {/* Tabs */}
       <div className="email-tabs">

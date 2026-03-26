@@ -3,12 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { msalConfig } from '../config/authConfig';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
 function SchemaExtensionAdmin({ accessToken, apiToken }) {
+  const { showSuccess, showWarning } = useNotification();
   // State for extensions and form
   const [extensions, setExtensions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,6 +19,7 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
     properties: [{ name: 'eventCode', type: 'String' }]
   });
   const [message, setMessage] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Load existing schema extensions
   useEffect(() => {
@@ -231,7 +234,8 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
       });
       
       setMessage(`Schema extension created: ${errorData.id}`);
-      
+      showSuccess('Schema extension created');
+
       // Reload extensions
       loadSchemaExtensions();
     } catch (err) {
@@ -260,23 +264,32 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
       if (updateResponse.ok) {
         logger.debug(`Schema extension ${schemaId} updated to Available status`);
         setMessage(`Schema extension ${schemaId} created and set to Available status`);
+        showSuccess('Schema extension set to Available');
       } else {
         const errorData = await updateResponse.json();
         logger.error('Failed to update schema extension status:', errorData);
         setMessage(`Schema created but failed to update status: ${errorData.error?.message || 'Unknown error'}`);
+        showWarning('Schema created but failed to update status');
       }
     } catch (err) {
       logger.error('Error updating schema extension:', err);
       setMessage(`Schema created but error updating status: ${err.message}`);
+      showWarning('Schema created but error updating status');
     }
   };
 
-  // Delete a schema extension
-  const deleteSchemaExtension = async (id) => {
-    if (!window.confirm(`Are you sure you want to delete schema extension ${id}?`)) {
-      return;
+  // Delete a schema extension (two-click confirmation)
+  const handleDeleteClick = (id) => {
+    if (confirmDeleteId === id) {
+      setConfirmDeleteId(null);
+      deleteSchemaExtension(id);
+    } else {
+      setConfirmDeleteId(id);
+      setTimeout(() => setConfirmDeleteId(null), 3000);
     }
+  };
 
+  const deleteSchemaExtension = async (id) => {
     try {
       setMessage(`Deleting schema extension ${id}...`);
 
@@ -296,6 +309,7 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
       }
 
       setMessage(`Schema extension ${id} deleted successfully`);
+      showSuccess('Schema extension deleted');
 
       // Reload extensions
       loadSchemaExtensions();
@@ -415,11 +429,11 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
                     </ul>
                   </div>
                   <div className="schema-actions">
-                    <button 
-                      className="delete-button"
-                      onClick={() => deleteSchemaExtension(extension.id)}
+                    <button
+                      className={`delete-button${confirmDeleteId === extension.id ? ' confirm' : ''}`}
+                      onClick={() => handleDeleteClick(extension.id)}
                     >
-                      Delete
+                      {confirmDeleteId === extension.id ? 'Confirm?' : 'Delete'}
                     </button>
                   </div>
                 </div>

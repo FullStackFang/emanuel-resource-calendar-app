@@ -36,7 +36,7 @@ export function useEventCreation({
 }) {
   const { accounts } = useMsal();
   const { canCreateEvents, canSubmitReservation } = usePermissions();
-  const { showError: defaultShowError } = useNotification();
+  const { showSuccess, showError: defaultShowError } = useNotification();
   const showError = onError || defaultShowError;
 
   // --- Modal state ---
@@ -248,6 +248,7 @@ export function useEventCreation({
 
       try {
         await _batchCreate(data);
+        showSuccess('Events created and published');
         _onSuccess();
       } catch (error) {
         logger.error('Multi-day creation error:', error);
@@ -289,6 +290,7 @@ export function useEventCreation({
         throw new Error(errorData.error || 'Failed to create event');
       }
 
+      showSuccess('Event created and published');
       _onSuccess();
     } catch (error) {
       logger.error('Error creating event:', error);
@@ -417,6 +419,7 @@ export function useEventCreation({
         throw new Error(errorData.error || 'Failed to submit reservation');
       }
 
+      showSuccess('Request submitted for approval');
       _onSuccess();
     } catch (error) {
       logger.error('Error submitting reservation:', error);
@@ -485,6 +488,7 @@ export function useEventCreation({
     setSavingDraft(true);
     try {
       await _executeDraftSave();
+      showSuccess('Draft saved');
       _onSuccess();
     } catch (error) {
       logger.error('Error saving draft:', error);
@@ -522,6 +526,7 @@ export function useEventCreation({
     setShowDraftDialog(false);
     resetState();
     if (savedOk) {
+      showSuccess('Draft saved');
       if (onSuccess) onSuccess();      // Non-silent calendar refresh FIRST
       dispatchRefresh(refreshSource);  // Then notify other views via bus
     }
