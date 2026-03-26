@@ -71,6 +71,7 @@ describe('Recurring Event Request Tests (RR-1 to RR-4)', () => {
           requesterName: requesterUser.name || 'Test Requester',
           requesterEmail: requesterUser.email,
           recurrence: weeklyRecurrence,
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -108,6 +109,7 @@ describe('Recurring Event Request Tests (RR-1 to RR-4)', () => {
             pattern: { type: 'daily', interval: 1 },
             range: { type: 'noEnd', startDate: '2026-04-01' },
           },
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -128,6 +130,7 @@ describe('Recurring Event Request Tests (RR-1 to RR-4)', () => {
           locations: [],
           requesterName: requesterUser.name || 'Test Requester',
           requesterEmail: requesterUser.email,
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -151,6 +154,7 @@ describe('Recurring Event Request Tests (RR-1 to RR-4)', () => {
           requesterName: requesterUser.name || 'Test Requester',
           requesterEmail: requesterUser.email,
           recurrence: weeklyRecurrence,
+          attendeeCount: 10,
         })
         .expect(201);
 

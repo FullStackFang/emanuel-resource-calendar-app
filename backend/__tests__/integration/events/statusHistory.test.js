@@ -551,6 +551,7 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
           categories: ['Meeting'],
           setupTime: '15 minutes',
           doorOpenTime: '09:00',
+          attendeeCount: 10,
         })
         .expect(201);
 

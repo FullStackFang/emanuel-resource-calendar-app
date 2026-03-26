@@ -380,6 +380,7 @@ describe('Resubmit Integration Tests (RS-1 to RS-14)', () => {
           doorOpenTime: '09:00',
           requesterName: requesterUser.displayName,
           requesterEmail: requesterUser.email,
+          attendeeCount: 10,
         });
       expect(draftRes.status).toBe(201);
       const draftId = draftRes.body.draft._id;

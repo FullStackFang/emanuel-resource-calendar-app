@@ -80,6 +80,7 @@ describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
           startTime: '14:00',
           endDate: '2026-06-10',
           endTime: '16:00',
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(200);
@@ -119,6 +120,7 @@ describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
           startTime: '14:30',
           endDate: '2026-06-10',
           endTime: '16:30',
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(409);
@@ -161,6 +163,7 @@ describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
           endDate: '2026-06-10',
           endTime: '12:00',
           requestedRooms: [roomId2],
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(409);
@@ -203,6 +206,7 @@ describe('Edit Conflict Tests (EC-1 to EC-4)', () => {
           endDate: '2026-06-10',
           endTime: '16:30',
           forceUpdate: true,
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(409);

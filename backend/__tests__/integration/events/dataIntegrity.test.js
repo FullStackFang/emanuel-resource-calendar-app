@@ -96,6 +96,7 @@ describe('Data Integrity Tests (DI-1 to DI-5)', () => {
           endDate: '2026-06-10',
           endTime: '12:00',
           requestedRooms: [roomId.toString(), roomId2.toString()],
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(200);
@@ -165,6 +166,7 @@ describe('Data Integrity Tests (DI-1 to DI-5)', () => {
           endDate: '2026-06-15',
           endTime: '12:00',
           requestedRooms: [roomId.toString()],
+          attendeeCount: 10,
         });
 
       // Should detect conflict (409) because edited event overlaps existing

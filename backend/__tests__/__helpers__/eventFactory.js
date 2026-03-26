@@ -135,6 +135,7 @@ function createBaseEvent(options = {}) {
       reservationEndTime: options.reservationEndTime !== undefined ? options.reservationEndTime : '',
       doorOpenTime: options.doorOpenTime !== undefined ? options.doorOpenTime : '09:00',
       doorCloseTime: options.doorCloseTime || null,
+      attendeeCount: options.attendeeCount !== undefined ? options.attendeeCount : 10,
       setupTimeMinutes: options.setupTimeMinutes || 0,
       teardownTimeMinutes: options.teardownTimeMinutes || 0,
       reservationStartMinutes: options.reservationStartMinutes || 0,

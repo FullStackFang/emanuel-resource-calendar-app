@@ -658,6 +658,7 @@ function createTestApp(options = {}) {
         department,
         phone,
         attendees,
+        attendeeCount,
         categories,
         services,
         setupTime,
@@ -709,6 +710,7 @@ function createTestApp(options = {}) {
           doorOpenTime: doorOpenTime || null,
           reservationStartTime: reservationStartTime || '',
           reservationEndTime: reservationEndTime || '',
+          attendeeCount: parseInt(attendeeCount) || 0,
         },
 
         // Room reservation data
@@ -1013,6 +1015,7 @@ function createTestApp(options = {}) {
       if (!cd.endDateTime) validationErrors.push('End date and time are required');
       if (!cd.locations || cd.locations.length === 0) validationErrors.push('At least one room must be selected');
       if (!cd.categories || cd.categories.length === 0) validationErrors.push('At least one category must be selected');
+      if (!cd.attendeeCount || cd.attendeeCount < 1) validationErrors.push('Expected attendee count is required');
 
       if (validationErrors.length > 0) {
         return res.status(400).json({
@@ -2725,7 +2728,7 @@ function createTestApp(options = {}) {
 
       const isResubmitEdit = event.status === 'rejected';
 
-      const { _version, eventTitle, startDate, startTime, endDate, endTime } = req.body;
+      const { _version, eventTitle, startDate, startTime, endDate, endTime, attendeeCount } = req.body;
 
       // Validation
       if (!eventTitle || !eventTitle.trim()) {
@@ -2736,6 +2739,9 @@ function createTestApp(options = {}) {
       }
       if (!startTime || !endTime) {
         return res.status(400).json({ error: 'Start time and end time are required' });
+      }
+      if (!attendeeCount || parseInt(attendeeCount) < 1) {
+        return res.status(400).json({ error: 'Expected attendee count is required and must be at least 1' });
       }
 
       // Version conflict check
@@ -4341,11 +4347,17 @@ function createTestApp(options = {}) {
         // Raw event times for [Hold] detection
         eventStartTime,
         eventEndTime,
+        attendeeCount,
       } = req.body;
 
       // Validate required fields
       if (!eventTitle || !startDateTime || !endDateTime) {
         return res.status(400).json({ error: 'Missing required fields: eventTitle, startDateTime, endDateTime' });
+      }
+
+      // Validate attendee count
+      if (!attendeeCount || parseInt(attendeeCount) < 1) {
+        return res.status(400).json({ error: 'Expected attendee count is required and must be at least 1' });
       }
 
       const now = new Date();

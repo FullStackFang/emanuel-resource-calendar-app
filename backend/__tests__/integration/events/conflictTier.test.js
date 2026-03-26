@@ -360,6 +360,7 @@ describe('Conflict Tier Tests (CT-1 to CT-7)', () => {
           endTime: '12:00',
           requestedRooms: [roomA],
           _version: ownerEvent._version,
+          attendeeCount: 10,
         });
 
       expect(res1.status).toBe(409);
@@ -378,6 +379,7 @@ describe('Conflict Tier Tests (CT-1 to CT-7)', () => {
           requestedRooms: [roomA],
           _version: ownerEvent._version,
           acknowledgeSoftConflicts: true,
+          attendeeCount: 10,
         });
 
       expect(res2.status).toBe(200);

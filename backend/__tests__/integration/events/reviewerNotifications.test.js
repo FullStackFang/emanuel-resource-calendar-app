@@ -204,6 +204,7 @@ describe('Reviewer Notification Tests (RN-1 to RN-20)', () => {
           startTime: '10:00',
           endDate: '2025-04-01',
           endTime: '12:00',
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(200);
@@ -240,6 +241,7 @@ describe('Reviewer Notification Tests (RN-1 to RN-20)', () => {
           startTime: '10:00',
           endDate: '2025-04-01',
           endTime: '12:00',
+          attendeeCount: 10,
         });
 
       expect(res.status).toBe(200);

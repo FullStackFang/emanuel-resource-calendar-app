@@ -14148,7 +14148,9 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     if (!cd.categories || cd.categories.length === 0) {
       validationErrors.push('At least one category must be selected');
     }
-
+    if (!cd.attendeeCount || cd.attendeeCount < 1) {
+      validationErrors.push('Expected attendee count is required');
+    }
 
     if (validationErrors.length > 0) {
       return res.status(400).json({
@@ -15187,6 +15189,13 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       }
     }
 
+    // Validate attendee count
+    if (!attendeeCount || parseInt(attendeeCount) < 1) {
+      return res.status(400).json({
+        error: 'Expected attendee count is required and must be at least 1'
+      });
+    }
+
     // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
     const baseStart = new Date(startDateTime);
     const baseEnd = new Date(endDateTime);
@@ -15856,6 +15865,9 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
     }
     if (!reservationStartTime || !reservationEndTime) {
       return res.status(400).json({ error: 'Reservation start time and end time are required' });
+    }
+    if (!attendeeCount || parseInt(attendeeCount) < 1) {
+      return res.status(400).json({ error: 'Expected attendee count is required and must be at least 1' });
     }
 
     const now = new Date();
@@ -18783,6 +18795,13 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
     if (isOnBehalfOf && (!contactName || !contactEmail)) {
       return res.status(400).json({
         error: 'Contact person name and email required when submitting on behalf of someone else'
+      });
+    }
+
+    // Validate attendee count
+    if (!attendeeCount || parseInt(attendeeCount) < 1) {
+      return res.status(400).json({
+        error: 'Expected attendee count is required and must be at least 1'
       });
     }
 

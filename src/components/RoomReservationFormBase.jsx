@@ -873,8 +873,8 @@ export default function RoomReservationFormBase({
 
   const isFormValid = useMemo(() => {
     const requiredFields = formData.isAllDayEvent
-      ? ['eventTitle', 'startDate', 'endDate']
-      : ['eventTitle', 'startDate', 'endDate', 'reservationStartTime', 'reservationEndTime'];
+      ? ['eventTitle', 'startDate', 'endDate', 'attendeeCount']
+      : ['eventTitle', 'startDate', 'endDate', 'reservationStartTime', 'reservationEndTime', 'attendeeCount'];
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
   }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
@@ -1301,31 +1301,6 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
-            {/* Expected Attendees + Add Services Row */}
-            <div className="time-field-row">
-              <div className={`form-group ${hasFieldChanged('attendeeCount') ? 'field-changed' : ''}`}>
-                <label htmlFor="attendeeCount">Expected Attendees</label>
-                {/* Inline diff for edit request mode */}
-                {hasFieldChanged('attendeeCount') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{getOriginalValue('attendeeCount') || '(empty)'}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <input
-                  type="number"
-                  id="attendeeCount"
-                  name="attendeeCount"
-                  value={formData.attendeeCount}
-                  onChange={handleInputChange}
-                  min="1"
-                  placeholder="0"
-                  disabled={fieldsDisabled}
-                  style={{ width: '100%', maxWidth: 'none' }}
-                  className={hasFieldChanged('attendeeCount') ? 'input-changed' : ''}
-                />
-              </div>
-            </div>
 
             {/* Categories & Services Buttons Row - Side by Side */}
             <div className="time-field-row">
@@ -1484,8 +1459,30 @@ export default function RoomReservationFormBase({
 
             {/* Recurrence is managed entirely via the Recurrence tab */}
 
-            {/* Set All Day */}
+            {/* Expected Attendees + Set All Day Row */}
             <div className="time-field-row">
+              <div className={`form-group required-field ${isFieldValid('attendeeCount') ? 'field-valid' : ''} ${hasFieldChanged('attendeeCount') ? 'field-changed' : ''}`}>
+                <label htmlFor="attendeeCount">Expected Attendees</label>
+                {/* Inline diff for edit request mode */}
+                {hasFieldChanged('attendeeCount') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('attendeeCount') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
+                <input
+                  type="number"
+                  id="attendeeCount"
+                  name="attendeeCount"
+                  value={formData.attendeeCount}
+                  onChange={handleInputChange}
+                  min="1"
+                  placeholder="Enter count"
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', maxWidth: 'none' }}
+                  className={hasFieldChanged('attendeeCount') ? 'input-changed' : ''}
+                />
+              </div>
               <div className="form-group">
                 <button
                   type="button"
@@ -1518,7 +1515,6 @@ export default function RoomReservationFormBase({
                   {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
                 </button>
               </div>
-              <div className="form-group"></div>
             </div>
 
             {/* Ad Hoc Calendar Picker - Show when toggled on */}

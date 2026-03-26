@@ -87,6 +87,7 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
           // Raw event times: empty (user did not specify)
           eventStartTime: '',
           eventEndTime: '',
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -122,6 +123,7 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
           // Raw event times: user specified these
           eventStartTime: '10:00',
           eventEndTime: '16:00',
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -147,6 +149,7 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
           locations: [],
           requesterName: requesterUser.name || requesterUser.displayName,
           requesterEmail: requesterUser.email,
+          attendeeCount: 10,
           // No eventStartTime/eventEndTime fields (older client)
         })
         .expect(201);
@@ -178,6 +181,7 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
           reservationEndTime: '18:00',
           eventStartTime: '',
           eventEndTime: '',
+          attendeeCount: 10,
         })
         .expect(201);
 
@@ -238,6 +242,7 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
           teardownTimeMinutes: 0,
           reservationStartMinutes: 0,
           reservationEndMinutes: 0,
+          attendeeCount: 10,
         },
       });
       const [savedDraft] = await insertEvents(db, [draft]);
