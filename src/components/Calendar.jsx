@@ -437,6 +437,8 @@ import ConflictDialog from './shared/ConflictDialog';
         if (result?.conflictDowngradedToPending) {
           const rc = result.recurringConflicts;
           showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+        } else if (result?.restored) {
+          showSuccess('Event restored');
         } else if (result?.deleted) {
           showSuccess('Event deleted');
         } else if (result?.occurrenceExcluded) {
@@ -6069,7 +6071,9 @@ import ConflictDialog from './shared/ConflictDialog';
           onApprove={canApproveReservations ? reviewModal.handleApprove : null}
           onReject={canApproveReservations ? reviewModal.handleReject : null}
           onSave={canApproveReservations && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
-          onDelete={canDeleteEvents ? reviewModal.handleDelete : null}
+          onDelete={canDeleteEvents && reviewModal.currentItem?.status !== 'deleted' ? reviewModal.handleDelete : null}
+          onRestore={canDeleteEvents && reviewModal.currentItem?.status === 'deleted' ? reviewModal.handleRestore : null}
+          isRestoring={reviewModal.isRestoring}
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
           isFormValid={reviewModal.isFormValid}

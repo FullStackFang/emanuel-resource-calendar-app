@@ -7227,9 +7227,16 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         updateOperations['calendarData.endDateTime'] = endDateTime;
         // Extract date and time components directly from the string (not via Date parsing)
         updateOperations['calendarData.startDate'] = startDateTime ? startDateTime.split('T')[0] : '';
-        updateOperations['calendarData.startTime'] = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
         updateOperations['calendarData.endDate'] = endDateTime ? endDateTime.split('T')[0] : '';
-        updateOperations['calendarData.endTime'] = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+        // Preserve [Hold] empty strings — empty startTime/endTime means user intentionally left
+        // event times blank (room-only hold). Graph event uses reservation times for blocking,
+        // so extracting from Graph response would overwrite the [Hold] indicator.
+        updateOperations['calendarData.startTime'] = currentEvent.calendarData?.startTime === ''
+          ? ''
+          : (startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '');
+        updateOperations['calendarData.endTime'] = currentEvent.calendarData?.endTime === ''
+          ? ''
+          : (endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '');
         updateOperations['calendarData.isAllDayEvent'] = updatedGraphData.isAllDay || false;
         updateOperations['calendarData.virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
         // calendarData categories mirrors graphData.categories
@@ -20674,15 +20681,21 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
 
       // Handle dateTime fields - also update startDate/startTime/endDate/endTime in calendarData
+      // Only derive startTime/endTime from dateTime if they are NOT explicitly in finalChanges
+      // (explicit startTime/endTime takes precedence — preserves [Hold] empty strings)
       if (field === 'startDateTime' && value) {
         const cleanValue = value.replace(/Z$/, '');
         updateFields['calendarData.startDate'] = cleanValue.split('T')[0];
-        updateFields['calendarData.startTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        if (!('startTime' in finalChanges)) {
+          updateFields['calendarData.startTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        }
       }
       if (field === 'endDateTime' && value) {
         const cleanValue = value.replace(/Z$/, '');
         updateFields['calendarData.endDate'] = cleanValue.split('T')[0];
-        updateFields['calendarData.endTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        if (!('endTime' in finalChanges)) {
+          updateFields['calendarData.endTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        }
       }
       // Normalize location IDs to ObjectId format
       if (field === 'locations' || field === 'requestedRooms') {

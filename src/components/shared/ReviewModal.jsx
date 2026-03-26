@@ -624,8 +624,8 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Restore button — owner, deleted events */}
-              {isRequesterOnly && itemStatus === 'deleted' && onRestore && !isEditRequestMode && !isViewingEditRequest && (
+              {/* Restore button — deleted events (parent controls permission via onRestore prop) */}
+              {itemStatus === 'deleted' && onRestore && !isEditRequestMode && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -873,7 +873,7 @@ export default function ReviewModal({
 
               {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
               {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && onSave && !isDraft && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
+              {!isRequesterOnly && onSave && !isDraft && itemStatus !== 'deleted' && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -897,7 +897,7 @@ export default function ReviewModal({
 
               {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
               {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && mode === 'edit' && onDelete && !isViewingEditRequest && (
+              {!isRequesterOnly && mode === 'edit' && onDelete && itemStatus !== 'deleted' && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"

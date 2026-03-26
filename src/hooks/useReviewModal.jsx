@@ -26,6 +26,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [isSavingOwnerEdit, setIsSavingOwnerEdit] = useState(false);
   const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
   const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
@@ -964,6 +965,64 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Restore a deleted event to its previous status.
+   * Uses the admin restore endpoint. Confirmation is handled locally in ReviewModal.
+   */
+  const handleRestore = useCallback(async () => {
+    if (!currentItem) return;
+    setIsRestoring(true);
+    try {
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/restore`;
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          _version: eventVersion,
+          forceRestore: false
+        })
+      });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        if (data.error === 'SchedulingConflict') {
+          throw new Error(data.message || 'Scheduling conflict prevents restore');
+        }
+      }
+
+      if (response.status === 403) {
+        throw new Error('You do not have permission to restore this event');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to restore: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (onSuccess) onSuccess({ ...result, restored: true });
+      await closeModal(true);
+      return { success: true };
+    } catch (error) {
+      logger.error('Restore failed:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsRestoring(false);
+    }
+  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal]);
+
+  /**
    * Owner edit handler for pending/rejected events.
    * Replaces 4 duplicate handlers (handleSavePendingEdit + handleSaveRejectedEdit
    * in both Calendar.jsx and MyReservations.jsx).
@@ -1601,6 +1660,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleApprove,
     handleReject,
     handleDelete,
+    handleRestore,
+    isRestoring,
     handleOwnerEdit,
     isSavingOwnerEdit,
     handleSubmitEditRequest,

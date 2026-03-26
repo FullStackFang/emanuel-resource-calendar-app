@@ -351,6 +351,9 @@ export function buildRequesterPayload(data, { calendarId, calendarOwner } = {}) 
     services: data.services || {},
     recurrence: data.recurrence || null,
     occurrenceOverrides: data.occurrenceOverrides || null,
+    // Raw event times for [Hold] detection (empty when user didn't specify event times)
+    eventStartTime: data.startTime || '',
+    eventEndTime: data.endTime || '',
   };
 }
 
