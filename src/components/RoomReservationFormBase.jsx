@@ -1484,6 +1484,7 @@ export default function RoomReservationFormBase({
                 />
               </div>
               <div className="form-group">
+                <label>&nbsp;</label>
                 <button
                   type="button"
                   className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
@@ -1661,7 +1662,7 @@ export default function RoomReservationFormBase({
             {/* Time Fields — Reservation times paired, Event times paired */}
             <div className="time-fields-stack">
               <div className={`form-group required-field ${isFieldValid('reservationStartTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="reservationStartTime">Reservation Start Time</label>
+                <label htmlFor="reservationStartTime">Res. Start Time</label>
                 {hasFieldChanged('reservationStartTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationStartTime'))}</span>
@@ -1681,7 +1682,7 @@ export default function RoomReservationFormBase({
               </div>
 
               <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="reservationEndTime">Reservation End Time</label>
+                <label htmlFor="reservationEndTime">Res. End Time</label>
                 {hasFieldChanged('reservationEndTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationEndTime'))}</span>

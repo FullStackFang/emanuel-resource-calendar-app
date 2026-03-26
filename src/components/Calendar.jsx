@@ -1,5 +1,6 @@
   // src/components/Calendar.jsx
   import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+  import { useSearchParams } from 'react-router-dom';
   import { apiRequest } from '../config/authConfig';
   import { useMsal } from '@azure/msal-react';
   import { useAuth } from '../context/AuthContext';
@@ -190,6 +191,9 @@ import ConflictDialog from './shared/ConflictDialog';
     const [allEvents, setAllEventsState] = useState([]);
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
     const allEventsRef = useRef(allEvents);
+    // Deep-link support: auto-open event from email link (?eventId=...)
+    const [searchParams, setSearchParams] = useSearchParams();
+    const deepLinkProcessedRef = useRef(false);
     const [showSearch, setShowSearch] = useState(false);
     const [schemaExtensions, setSchemaExtensions] = useState([]);
 
@@ -441,6 +445,44 @@ import ConflictDialog from './shared/ConflictDialog';
         showError(error, { context: 'Calendar.reviewModal' });
       }
     });
+
+    // Deep-link: auto-open event from email link (?eventId=...)
+    useEffect(() => {
+      const eventId = searchParams.get('eventId');
+      if (!eventId || deepLinkProcessedRef.current || !apiToken) return;
+
+      deepLinkProcessedRef.current = true;
+      setSearchParams({}, { replace: true });
+
+      // Check if event is already loaded in calendar
+      const localEvent = allEventsRef.current.find(e => String(e._id) === eventId);
+      if (localEvent) {
+        reviewModal.openModal(localEvent);
+        return;
+      }
+
+      // Fetch from API (event may be outside current date range)
+      (async () => {
+        try {
+          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}`, {
+            headers: { 'Authorization': `Bearer ${apiToken}` }
+          });
+          if (response.status === 404) {
+            showError('The requested event was not found.');
+            return;
+          }
+          if (response.status === 403) {
+            showError('You do not have permission to view this event.');
+            return;
+          }
+          if (!response.ok) throw new Error('Failed to fetch event');
+          const data = await response.json();
+          await reviewModal.openModal(data.event);
+        } catch (err) {
+          showError('Could not open the requested event.');
+        }
+      })();
+    }, [searchParams, apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Shared creation hook — handles admin publish, requester submit, and draft save
     const eventCreation = useEventCreation({

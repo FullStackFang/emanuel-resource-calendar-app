@@ -14440,7 +14440,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         // Send alert to reviewers (approvers + admins)
         const reviewerEmails = await emailService.getReviewerEmails(db);
         if (reviewerEmails.length > 0) {
-          const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+          const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
           await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
         }
 
@@ -15473,7 +15473,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
         await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
       }
     } catch (emailError) {
@@ -15734,7 +15734,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
         await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
       }
     } catch (emailError) {
@@ -16052,7 +16052,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         };
         const reviewerEmails = await emailService.getReviewerEmails(db);
         if (reviewerEmails.length > 0) {
-          const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+          const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
           await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
         }
       } catch (emailError) {
@@ -19091,7 +19091,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       // Send alert to reviewers (approvers + admins)
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
         const reviewerResult = await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
         logger.info('Reviewer alert email sent', {
           eventId: eventDoc.eventId,
@@ -20208,8 +20208,10 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
 
     // Send alert to admins (non-blocking)
     try {
+      const adminPanelUrl = `${webAppURL}/?eventId=${editRequestForEmail._id}`;
       const emailResult = await emailService.sendAdminEditRequestAlert(
-        editRequestForEmail
+        editRequestForEmail,
+        adminPanelUrl
       );
       logger.info('Admin edit request alert email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {
@@ -20235,6 +20237,67 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error creating edit request:', error);
     res.status(500).json({ error: 'Failed to create edit request' });
+  }
+});
+
+/**
+ * Get a single event by ID (Authenticated)
+ * GET /api/events/:id
+ *
+ * Returns the full event document for deep-link viewing from email notifications.
+ * Admin/Approver: can view any event. Others: own events + published events.
+ */
+app.get('/api/events/:id', verifyToken, async (req, res) => {
+  try {
+    const projection = {
+      _id: 1, eventId: 1, status: 1, isDeleted: 1,
+      calendarId: 1, calendarOwner: 1, calendarName: 1,
+      calendarData: 1,
+      roomReservationData: 1,
+      sourceCalendars: 1, lastSyncedAt: 1,
+      pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+      createdAt: 1, createdBy: 1, createdByEmail: 1,
+      lastModifiedDateTime: 1, _version: 1,
+      'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
+      'graphData.location': 1, 'graphData.categories': 1,
+      'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
+    };
+
+    let event;
+    try {
+      event = await unifiedEventsCollection.findOne(
+        { _id: new ObjectId(req.params.id) },
+        { projection }
+      );
+    } catch (e) {
+      // Invalid ObjectId format
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Permission check
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = canViewAllReservations(user, userEmail);
+
+    if (!canViewAll) {
+      const isOwner = event.roomReservationData?.requestedBy?.email === userEmail
+        || event.roomReservationData?.requestedBy?.userId === userId;
+      const isPublished = event.status === 'published';
+
+      if (!isOwner && !isPublished) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    res.json({ event });
+  } catch (error) {
+    logger.error('Error fetching event by ID:', { error: error.message, eventId: req.params.id });
+    res.status(500).json({ error: 'Failed to fetch event' });
   }
 });
 

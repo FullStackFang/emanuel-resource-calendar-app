@@ -4845,6 +4845,59 @@ function createTestApp(options = {}) {
     }
   });
 
+  // GET /api/events/:id — single event by ID (deep-link from email)
+  app.get('/api/events/:id', verifyToken, async (req, res) => {
+    try {
+      const projection = {
+        _id: 1, eventId: 1, status: 1, isDeleted: 1,
+        calendarId: 1, calendarOwner: 1, calendarName: 1,
+        calendarData: 1, roomReservationData: 1,
+        sourceCalendars: 1, lastSyncedAt: 1,
+        pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+        createdAt: 1, createdBy: 1, createdByEmail: 1,
+        lastModifiedDateTime: 1, _version: 1,
+        'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
+        'graphData.location': 1, 'graphData.categories': 1,
+        'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
+      };
+
+      let event;
+      try {
+        event = await testCollections.events.findOne(
+          { _id: new ObjectId(req.params.id) },
+          { projection }
+        );
+      } catch (e) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const user = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+      const canViewAll = canViewAllReservations(user, userEmail);
+
+      if (!canViewAll) {
+        const isOwner = event.roomReservationData?.requestedBy?.email === userEmail
+          || event.roomReservationData?.requestedBy?.userId === userId;
+        const isPublished = event.status === 'published';
+
+        if (!isOwner && !isPublished) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+
+      res.json({ event });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch event' });
+    }
+  });
+
   // Error handling middleware
   app.use((err, req, res, next) => {
     console.error('Test app error:', err);
