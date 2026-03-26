@@ -74,6 +74,43 @@ export default function SchedulingAssistant({
       : `${x + offset}px`;
   }, [tooltipInfo]);
 
+  // Reverse lookup: category ID → name (for showing which rule allows an overlap)
+  const categoryIdToName = useMemo(() => {
+    if (!categoryLookup) return {};
+    const map = {};
+    for (const [name, id] of Object.entries(categoryLookup)) {
+      map[id] = name;
+    }
+    return map;
+  }, [categoryLookup]);
+
+  // Find the specific category pair that allows overlap between the user event and a block
+  const getMatchingOverlapRule = useCallback((block) => {
+    if (!categoryConcurrentRules || !categoryLookup || !userCategories?.length) return null;
+    if (block.isUserEvent) return null;
+    const userCatIds = userCategories.map(n => categoryLookup[n]).filter(Boolean);
+    const blockCatIds = (block.categories || []).map(n => categoryLookup[n]).filter(Boolean);
+    // Check user grants block
+    for (const uId of userCatIds) {
+      const allowed = categoryConcurrentRules[uId] || [];
+      for (const bId of blockCatIds) {
+        if (allowed.includes(bId)) {
+          return { userCategory: categoryIdToName[uId], otherCategory: categoryIdToName[bId] };
+        }
+      }
+    }
+    // Check block grants user (bilateral)
+    for (const bId of blockCatIds) {
+      const allowed = categoryConcurrentRules[bId] || [];
+      for (const uId of userCatIds) {
+        if (allowed.includes(uId)) {
+          return { userCategory: categoryIdToName[uId], otherCategory: categoryIdToName[bId] };
+        }
+      }
+    }
+    return null;
+  }, [categoryConcurrentRules, categoryLookup, categoryIdToName, userCategories]);
+
   // Check if two blocks' categories allow concurrent scheduling via category-level rules
   const isCategoryRuleAllowed = useCallback((block1, block2) => {
     if (!categoryConcurrentRules || !categoryLookup) return false;
@@ -1484,9 +1521,14 @@ export default function SchedulingAssistant({
           <div className="event-time">
             {formatBlockTime(block, 'start')} - {formatBlockTime(block, 'end')}
           </div>
-          {(block.isAllowedConcurrent || allowedByCategory) && !isUserEvent && (
-            <div className="event-concurrent-label">Allows Overlap</div>
-          )}
+          {(block.isAllowedConcurrent || allowedByCategory) && !isUserEvent && (() => {
+            const rule = allowedByCategory ? getMatchingOverlapRule(block) : null;
+            return (
+              <div className="event-concurrent-label">
+                {rule ? `Overlap OK: ${rule.otherCategory}` : 'Allows Overlap'}
+              </div>
+            );
+          })()}
           {isMultiDayBlock && (
             <div className="event-multi-day-label">
               Multi-day ({originalStartDate ? new Date(block.originalStartTimeStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'} - {originalEndDate ? new Date(block.originalEndTimeStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'})
@@ -2081,6 +2123,18 @@ export default function SchedulingAssistant({
           {tooltipInfo.block.status && (
             <div className={`tooltip-status ${tooltipInfo.block.status}`}>{tooltipInfo.block.status}</div>
           )}
+          {(() => {
+            if (tooltipInfo.block.isUserEvent) return null;
+            const rule = getMatchingOverlapRule(tooltipInfo.block);
+            if (!rule && !tooltipInfo.block.isAllowedConcurrent) return null;
+            return (
+              <div className="tooltip-overlap-rule">
+                {rule
+                  ? `Overlap OK: ${rule.userCategory} + ${rule.otherCategory}`
+                  : 'Allows concurrent scheduling'}
+              </div>
+            );
+          })()}
         </div>
       )}
 

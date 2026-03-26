@@ -1248,6 +1248,16 @@
   opacity: 0.7;
 }
 
+.sa-event-tooltip .tooltip-overlap-rule {
+  font-size: 11px;
+  margin-top: 4px;
+  padding: 2px 6px;
+  background: rgba(74, 186, 109, 0.2);
+  color: #4aba6d;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
 /* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */
