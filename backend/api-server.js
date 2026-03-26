@@ -13295,6 +13295,8 @@ app.get('/api/rooms/availability', async (req, res) => {
         // Simplified Q3: pending edits are rare (0-5 total), so fetch all and filter rooms in-memory
         // Avoids un-indexable $or on nested pendingEditRequest.proposedChanges.* fields
         withCosmosRetry(() => unifiedEventsCollection.find({
+          isDeleted: { $ne: true },
+          status: { $nin: ['draft', 'rejected', 'deleted'] },
           'pendingEditRequest.status': 'pending',
         }).project(AVAILABILITY_PROJECTION).toArray()),
       ]);
@@ -23075,7 +23077,8 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
               isDeleted: true,
               deletedAt: new Date(),
               deletedBy: userId,
-              deletedByEmail: userEmail
+              deletedByEmail: userEmail,
+              pendingEditRequest: null,
             },
             $push: {
               statusHistory: {
@@ -23122,6 +23125,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             deletedAt: new Date(),
             deletedBy: userId,
             deletedByEmail: userEmail,
+            pendingEditRequest: null,
           },
           $push: {
             statusHistory: {

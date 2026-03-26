@@ -4699,6 +4699,8 @@ function createTestApp(options = {}) {
 
       // Simplified pending edits: fetch all, filter rooms in-memory
       const pendingEditEvents = await testCollections.events.find({
+        isDeleted: { $ne: true },
+        status: { $nin: ['draft', 'rejected', 'deleted'] },
         'pendingEditRequest.status': 'pending',
       }).toArray();
 

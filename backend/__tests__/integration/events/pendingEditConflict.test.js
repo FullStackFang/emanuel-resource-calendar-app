@@ -1,5 +1,5 @@
 /**
- * Pending Edit Conflict Tests (PEN-1 to PEN-6)
+ * Pending Edit Conflict Tests (PEN-1 to PEN-7)
  *
  * Tests that pending edit requests on published events are detected
  * as hard blocks in scheduling conflict detection.
@@ -21,7 +21,7 @@ const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers
 const { COLLECTIONS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Pending Edit Conflict Tests (PEN-1 to PEN-6)', () => {
+describe('Pending Edit Conflict Tests (PEN-1 to PEN-7)', () => {
   let mongoClient;
   let db;
   let app;
@@ -261,6 +261,55 @@ describe('Pending Edit Conflict Tests (PEN-1 to PEN-6)', () => {
       const pendingEdit = roomBAvailability.conflicts.pendingEdits[0];
       expect(pendingEdit.isPendingEdit).toBe(true);
       expect(pendingEdit.status).toBe('pending-edit');
+    });
+  });
+
+  // PEN-7: Deleted event with pending edit NOT returned in availability
+  describe('PEN-7: Deleted event with pending edit excluded from availability', () => {
+    it('should not return deleted events with pending edits in availability response', async () => {
+      // Create a room in the locations collection
+      await db.collection(COLLECTIONS.LOCATIONS).deleteMany({});
+      await db.collection(COLLECTIONS.LOCATIONS).insertOne({
+        _id: roomB,
+        name: 'Room B',
+        displayName: 'Room B',
+        isReservable: true,
+        active: true,
+      });
+
+      // Published event in Room A with pending edit to Room B — then soft-deleted
+      const deletedEditEvent = createPublishedEventWithEditRequest({
+        locations: [roomA],
+        startDateTime: new Date('2026-04-15T10:00:00'),
+        endDateTime: new Date('2026-04-15T12:00:00'),
+        proposedChanges: {
+          locations: [roomB],
+          locationDisplayNames: 'Room B',
+        },
+      });
+      // Simulate soft-delete: status changed but pendingEditRequest left behind
+      deletedEditEvent.status = 'deleted';
+      deletedEditEvent.isDeleted = true;
+      deletedEditEvent.deletedAt = new Date();
+      await insertEvents(db, [deletedEditEvent]);
+
+      const res = await request(app)
+        .get('/api/rooms/availability')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .query({
+          startDateTime: '2026-04-15T08:00:00',
+          endDateTime: '2026-04-15T18:00:00',
+          roomIds: roomB.toString(),
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toBeInstanceOf(Array);
+      expect(res.body.length).toBe(1);
+
+      const roomBAvailability = res.body[0];
+      // Deleted event should NOT appear in pendingEdits
+      expect(roomBAvailability.conflicts.pendingEdits).toBeDefined();
+      expect(roomBAvailability.conflicts.pendingEdits.length).toBe(0);
     });
   });
 });
