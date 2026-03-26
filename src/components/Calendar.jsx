@@ -6035,7 +6035,7 @@ import ConflictDialog from './shared/ConflictDialog';
         {/* Review Modal for Room Reservations and Event Review */}
         <ReviewModal
           isOpen={reviewModal.isOpen}
-          title={reviewModal.editableData?.eventTitle || 'Event'}
+          title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.subject || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
           modalMode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           onClose={reviewModal.closeModal}
           onApprove={canApproveReservations ? reviewModal.handleApprove : null}
