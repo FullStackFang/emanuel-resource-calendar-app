@@ -3647,7 +3647,8 @@ function createTestApp(options = {}) {
 
             // Subject: [Hold] prefix when times are nulled, otherwise use override title
             if (isOccurrenceHold) {
-              const baseTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+              const rawTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+              const baseTitle = rawTitle.replace(/^(\[Hold\]\s*)+/, '');
               graphUpdate.subject = `[Hold] ${baseTitle}`;
             } else if (overrideFields.eventTitle) {
               graphUpdate.subject = overrideFields.eventTitle;
@@ -4560,8 +4561,9 @@ function createTestApp(options = {}) {
         // Always recompute subject from calendarData to ensure [Hold] prefix is current
         if (event.calendarData?.eventTitle) {
           const cd = event.calendarData;
+          const cleanTitle = cd.eventTitle.replace(/^(\[Hold\]\s*)+/, '');
           const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
-          event.subject = isHold ? `[Hold] ${cd.eventTitle}` : cd.eventTitle;
+          event.subject = isHold ? `[Hold] ${cleanTitle}` : cleanTitle;
         }
         // Promote recurrence and occurrenceOverrides for frontend expansion
         if (!event.recurrence && event.calendarData?.recurrence) {

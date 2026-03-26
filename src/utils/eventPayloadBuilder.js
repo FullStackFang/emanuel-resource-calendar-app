@@ -28,10 +28,11 @@ export function buildGraphFields(data, { timezone = 'Eastern Standard Time' } = 
   const isHold = !data.startTime && !data.endTime &&
     (data.reservationStartTime || data.reservationEndTime);
 
+  // Defensive: strip any existing [Hold] prefix to prevent stacking
+  const cleanTitle = (data.eventTitle || 'Untitled Event').replace(/^(\[Hold\]\s*)+/, '');
+
   return {
-    subject: isHold
-      ? `[Hold] ${data.eventTitle || 'Untitled Event'}`
-      : (data.eventTitle || 'Untitled Event'),
+    subject: isHold ? `[Hold] ${cleanTitle}` : cleanTitle,
     start: { dateTime: startDateTime, timeZone: timezone },
     end: { dateTime: endDateTime, timeZone: timezone },
     body: { contentType: 'text', content: data.eventDescription || '' },

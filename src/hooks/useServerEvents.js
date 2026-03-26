@@ -35,6 +35,14 @@ export function useServerEvents({ apiToken, userEmail }) {
   const disabledRef = useRef(false);
   const connectingRef = useRef(false);   // Prevent concurrent connect attempts
   const mountedRef = useRef(true);
+  const lastTokenRef = useRef(null);     // Prevent reconnect on same-value token re-renders
+
+  // Keep authFetch in a ref so connect() always uses the latest version
+  // without needing it as a useCallback dependency. This breaks the cascade:
+  // RoleSimulationContext change → authFetch recreated → connect recreated →
+  // scheduleReconnect recreated → visibility effect re-runs
+  const authFetchRef = useRef(authFetch);
+  authFetchRef.current = authFetch;
 
   const connect = useCallback(async () => {
     // Guard: skip if disabled, not authenticated, unmounted, or already connecting
@@ -43,7 +51,7 @@ export function useServerEvents({ apiToken, userEmail }) {
 
     try {
       // Step 1: Exchange JWT for single-use SSE ticket
-      const ticketRes = await authFetch(`${APP_CONFIG.API_BASE_URL}/sse/ticket`, {
+      const ticketRes = await authFetchRef.current(`${APP_CONFIG.API_BASE_URL}/sse/ticket`, {
         method: 'POST'
       });
 
@@ -129,7 +137,7 @@ export function useServerEvents({ apiToken, userEmail }) {
     } finally {
       connectingRef.current = false;
     }
-  }, [apiToken, userEmail, authFetch]);
+  }, [apiToken, userEmail]); // authFetch removed — accessed via ref
 
   const cleanup = useCallback(() => {
     if (esRef.current) {
@@ -168,6 +176,12 @@ export function useServerEvents({ apiToken, userEmail }) {
   // Main effect: connect when apiToken becomes available
   useEffect(() => {
     mountedRef.current = true;
+
+    // Skip if token string hasn't actually changed (prevents unnecessary
+    // reconnects when MSAL returns a different JWT with the same user)
+    if (apiToken === lastTokenRef.current) return;
+    lastTokenRef.current = apiToken;
+
     if (apiToken && !disabledRef.current) {
       connect();
     }

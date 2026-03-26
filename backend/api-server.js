@@ -186,7 +186,15 @@ function buildGraphSubject(title, startTime, endTime) {
 
 
 // Middleware
-app.use(compression({ threshold: 1024 })); // Compress responses > 1KB
+app.use(compression({
+  threshold: 1024,
+  // Exclude SSE endpoints — gzip wraps the stream in a zlib buffer that delays
+  // small writes (like the initial 'connected' event) until enough data accumulates.
+  filter: (req, res) => {
+    if (req.path.startsWith('/api/sse/')) return false;
+    return compression.filter(req, res);
+  }
+}));
 // Updated CORS configuration to allow requests from your deployed app domain
 app.use(cors({
   origin: [
@@ -3015,7 +3023,8 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
     // Convert pending events to Graph-like format for frontend compatibility
     const formattedPendingEvents = pendingOnlyEvents.map(event => {
       const cd = event.calendarData;
-      const title = cd?.eventTitle || event.graphData?.subject || 'Untitled';
+      const rawTitle = cd?.eventTitle || event.graphData?.subject || 'Untitled';
+      const title = rawTitle.replace(/^(\[Hold\]\s*)+/, ''); // Defensive: strip stacked [Hold]
       const isHold = cd && !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
       return {
       id: event.eventId || event._id?.toString(),
@@ -5410,8 +5419,9 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       // Always recompute subject from calendarData to ensure [Hold] prefix is current
       if (event.calendarData?.eventTitle) {
         const cd = event.calendarData;
+        const cleanTitle = cd.eventTitle.replace(/^(\[Hold\]\s*)+/, ''); // Defensive: strip stacked [Hold]
         const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
-        event.subject = isHold ? `[Hold] ${cd.eventTitle}` : cd.eventTitle;
+        event.subject = isHold ? `[Hold] ${cleanTitle}` : cleanTitle;
       }
       // Also populate top-level categories for frontend compatibility
       if (!event.categories && event.calendarData?.categories) {
@@ -7208,7 +7218,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         const startDateTime = updatedGraphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
         const endDateTime = updatedGraphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
-        updateOperations['calendarData.eventTitle'] = updatedGraphData.subject || 'Untitled Event';
+        // Strip [Hold] prefix — eventTitle must always be the clean title.
+        // [Hold] is a display-only prefix computed at read time; persisting it causes stacking.
+        updateOperations['calendarData.eventTitle'] = (updatedGraphData.subject || 'Untitled Event').replace(/^(\[Hold\]\s*)+/, '');
         updateOperations['calendarData.eventDescription'] = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
         // Store datetime as local time (no Z suffix) - consistent with sync behavior
         updateOperations['calendarData.startDateTime'] = startDateTime;
@@ -18370,6 +18382,9 @@ app.get('/api/sse/events', (req, res) => {
 
   // Send initial connection confirmation
   res.write(`event: connected\ndata: ${JSON.stringify({ userId: user.userId, timestamp: Date.now() })}\n\n`);
+  // Flush immediately so the client receives the connected event without delay
+  // (matches the flush pattern used in sseService.broadcast)
+  if (typeof res.flush === 'function') res.flush();
 
   // Replay missed events if client provides lastEventId
   if (lastEventId) {
@@ -18379,6 +18394,7 @@ app.get('/api/sse/events', (req, res) => {
       for (const entry of missed) {
         res.write(`event: event-changed\nid: ${entry.id}\ndata: ${JSON.stringify(entry.payload)}\n\n`);
       }
+      if (typeof res.flush === 'function') res.flush();
     }
   }
 
@@ -21374,7 +21390,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
           // Subject: [Hold] prefix when times are nulled, otherwise use override title
           if (isOccurrenceHold) {
-            const baseTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+            const rawTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+            const baseTitle = rawTitle.replace(/^(\[Hold\]\s*)+/, ''); // Defensive: strip stacked [Hold]
             graphUpdate.subject = `[Hold] ${baseTitle}`;
           } else if (overrideFields.eventTitle) {
             graphUpdate.subject = overrideFields.eventTitle;

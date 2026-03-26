@@ -401,4 +401,101 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
       expect(loadedEvent.subject).toBe('[Hold] Published Room Hold');
     });
   });
+
+  describe('HE-8: [Hold] prefix stacking regression — contaminated eventTitle is healed', () => {
+    it('should strip stacked [Hold] prefixes and produce exactly one', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Simulate a contaminated event where Graph sync wrote [Hold] back to eventTitle
+      // multiple times (the bug being fixed)
+      const contaminatedEvent = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: '[Hold] [Hold] [Hold] Stacked Title',
+        calendarData: {
+          eventTitle: '[Hold] [Hold] [Hold] Stacked Title',
+          eventDescription: '',
+          startDateTime: `${dateStr}T08:00`,
+          endDateTime: `${dateStr}T18:00`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+        },
+      });
+      await insertEvents(db, [contaminatedEvent]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(contaminatedEvent._id));
+      expect(loadedEvent).toBeDefined();
+      // Should have exactly one [Hold] prefix, not stacked
+      expect(loadedEvent.subject).toBe('[Hold] Stacked Title');
+    });
+
+    it('should not add [Hold] prefix to contaminated title when event has times', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Event WITH times but with leftover [Hold] in eventTitle (data corruption)
+      const contaminatedNormal = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: '[Hold] Should Not Be Hold',
+        calendarData: {
+          eventTitle: '[Hold] Should Not Be Hold',
+          eventDescription: '',
+          startDateTime: `${dateStr}T10:00`,
+          endDateTime: `${dateStr}T16:00`,
+          startDate: dateStr,
+          startTime: '10:00',
+          endDate: dateStr,
+          endTime: '16:00',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+        },
+      });
+      await insertEvents(db, [contaminatedNormal]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(contaminatedNormal._id));
+      expect(loadedEvent).toBeDefined();
+      // Should strip [Hold] and NOT re-add it (event has times, not a hold)
+      expect(loadedEvent.subject).toBe('Should Not Be Hold');
+    });
+  });
 });
