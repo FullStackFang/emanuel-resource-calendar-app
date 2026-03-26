@@ -17,6 +17,7 @@ import useDepartments from '../hooks/useDepartments';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
+import { clampEventTimesToReservation } from '../utils/timeClampUtils';
 import { usePermissions } from '../hooks/usePermissions';
 import './RoomReservationForm.css';
 
@@ -1009,6 +1010,13 @@ export default function RoomReservationFormBase({
     if ('teardownTime' in updatedTimes) updatedData.teardownTime = updatedTimes.teardownTime;
     if ('reservationStartTime' in updatedTimes) updatedData.reservationStartTime = updatedTimes.reservationStartTime;
     if ('reservationEndTime' in updatedTimes) updatedData.reservationEndTime = updatedTimes.reservationEndTime;
+
+    // Auto-clamp event times when reservation window shrinks past them
+    const clampResult = clampEventTimesToReservation(updatedData);
+    if (clampResult) {
+      updatedData.startTime = clampResult.startTime;
+      updatedData.endTime = clampResult.endTime;
+    }
 
     setFormData(updatedData);
     setHasChanges(true);

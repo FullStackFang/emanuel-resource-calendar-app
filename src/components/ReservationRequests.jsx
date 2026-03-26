@@ -414,7 +414,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify({
-            notes
+            notes,
+            _version: selectedEditRequest?._version ?? null,
           })
         }
       );
@@ -464,7 +465,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify({
-            reason: editRequestRejectionReason.trim()
+            reason: editRequestRejectionReason.trim(),
+            _version: selectedEditRequest?._version ?? null,
           })
         }
       );

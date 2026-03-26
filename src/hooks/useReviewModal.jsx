@@ -1210,11 +1210,31 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           },
           body: JSON.stringify({
             notes: '',
+            _version: eventVersion ?? null,
             ...(approverChanges && { approverChanges })
           })
         }
       );
 
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === 'SchedulingConflict') {
+          if (onError) onError(errorData.message || 'Scheduling conflict detected');
+          return { success: false, error: 'SchedulingConflict', conflictData: errorData };
+        }
+        // OCC version conflict
+        if (errorData.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: errorData.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        if (onError) onError(errorData.error || 'This event was modified by another user');
+        return { success: false, error: errorData.error };
+      }
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to approve edit request');
@@ -1232,7 +1252,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingEditRequest(false);
       setPendingEditRequestApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, onSuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setPendingEditRequestApproveConfirmation(false);
@@ -1272,11 +1292,26 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify({
-            reason: editRequestRejectionReason.trim()
+            reason: editRequestRejectionReason.trim(),
+            _version: eventVersion ?? null,
           })
         }
       );
 
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: errorData.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        if (onError) onError(errorData.error || 'This event was modified by another user');
+        return { success: false, error: errorData.error };
+      }
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to reject edit request');
@@ -1295,7 +1330,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingEditRequest(false);
       setPendingEditRequestRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, editRequestRejectionReason, onSuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+  }, [currentItem, apiToken, eventVersion, editRequestRejectionReason, onSuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
 
   const cancelEditRequestRejectConfirmation = useCallback(() => {
     setPendingEditRequestRejectConfirmation(false);

@@ -9,7 +9,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { computeApproverChanges } from '../utils/editRequestUtils';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
@@ -85,11 +85,12 @@ export default function MyReservations({ apiToken }) {
   const [originalEventData, setOriginalEventData] = useState(null);
 
   // Edit request approval/rejection state (for approvers/admins viewing edit requests)
-  // Transform originalEventData to flat structure for inline diff comparison
-  const flatOriginalEventData = useMemo(() =>
-    originalEventData ? transformEventToFlatStructure(originalEventData) : null,
-  [originalEventData]);
+  // originalEventData is already flat (set from reviewModal.editableData), no transform needed
+  const flatOriginalEventData = originalEventData;
   const [loadingEditRequest, setLoadingEditRequest] = useState(false);
+  // Cancel pending edit request state (for requesters canceling their own edit request)
+  const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
+  const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
 
   // Helper to get event field with calendarData fallback
   const getEventField = (event, field, defaultValue = undefined) => {
@@ -520,12 +521,143 @@ export default function MyReservations({ apiToken }) {
 
   const handleCancelEditRequest = useCallback(() => {
     setIsEditRequestMode(false);
-  }, []);
+    setOriginalEventData(null);
+    // Revert to original data
+    if (originalEventData && reviewModal.editableData) {
+      reviewModal.updateData(originalEventData);
+    }
+  }, [originalEventData, reviewModal]);
 
-  // Wrapper for hook's handleSubmitEditRequest (no change detection in MyReservations context)
+  /**
+   * Compute detected changes between original and current form data.
+   * Used for zero-change guard and inline diff display in edit request mode.
+   * (Ported from Calendar.jsx computeDetectedChanges)
+   */
+  const computeDetectedChanges = useCallback(() => {
+    if (!originalEventData || !reviewModal.editableData || !isEditRequestMode) {
+      return [];
+    }
+
+    const changes = [];
+    const fieldConfig = [
+      { key: 'eventTitle', label: 'Event Title' },
+      { key: 'eventDescription', label: 'Description' },
+      { key: 'startDate', label: 'Start Date' },
+      { key: 'startTime', label: 'Start Time' },
+      { key: 'endDate', label: 'End Date' },
+      { key: 'endTime', label: 'End Time' },
+      { key: 'attendeeCount', label: 'Attendee Count' },
+      { key: 'specialRequirements', label: 'Special Requirements' },
+      { key: 'setupTime', label: 'Setup Time' },
+      { key: 'teardownTime', label: 'Teardown Time' },
+      { key: 'reservationStartTime', label: 'Reservation Start Time' },
+      { key: 'reservationEndTime', label: 'Reservation End Time' },
+      { key: 'doorOpenTime', label: 'Door Open Time' },
+      { key: 'doorCloseTime', label: 'Door Close Time' },
+    ];
+
+    const current = reviewModal.editableData;
+    const original = originalEventData;
+
+    for (const { key, label } of fieldConfig) {
+      const oldVal = original[key] || '';
+      const newVal = current[key] || '';
+      if (String(oldVal) !== String(newVal)) {
+        changes.push({
+          field: key,
+          label,
+          oldValue: String(oldVal),
+          newValue: String(newVal)
+        });
+      }
+    }
+
+    // Handle arrays (locations, categories)
+    const originalLocations = (original.requestedRooms || original.locations || []).join(', ');
+    const currentLocations = (current.requestedRooms || current.locations || []).join(', ');
+    if (originalLocations !== currentLocations) {
+      changes.push({
+        field: 'locations',
+        label: 'Locations',
+        oldValue: originalLocations || '(none)',
+        newValue: currentLocations || '(none)'
+      });
+    }
+
+    const originalCategories = (original.categories || original.mecCategories || []).join(', ');
+    const currentCategories = (current.categories || current.mecCategories || []).join(', ');
+    if (originalCategories !== currentCategories) {
+      changes.push({
+        field: 'categories',
+        label: 'Categories',
+        oldValue: originalCategories || '(none)',
+        newValue: currentCategories || '(none)'
+      });
+    }
+
+    return changes;
+  }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
+
+  // Wrapper to pass computeDetectedChanges to the hook's handleSubmitEditRequest
   const handleSubmitEditRequest = useCallback(() => {
-    return reviewModal.handleSubmitEditRequest();
-  }, [reviewModal]);
+    return reviewModal.handleSubmitEditRequest(computeDetectedChanges);
+  }, [reviewModal, computeDetectedChanges]);
+
+  // Cancel a pending edit request (requester canceling their own edit request)
+  const handleCancelPendingEditRequest = useCallback(async () => {
+    // First click shows confirmation
+    if (!isCancelEditRequestConfirming) {
+      setIsCancelEditRequestConfirming(true);
+      return;
+    }
+
+    // Second click confirms
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      return;
+    }
+
+    try {
+      setIsCancelingEditRequest(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to cancel edit request');
+      }
+
+      // Reset state
+      setIsCancelEditRequestConfirming(false);
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+
+      // Close the modal and refresh
+      reviewModal.closeModal();
+      loadMyReservations();
+
+    } catch (error) {
+      showError(error, { context: 'MyReservations.cancelEditRequest' });
+    } finally {
+      setIsCancelingEditRequest(false);
+      setIsCancelEditRequestConfirming(false);
+    }
+  }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
+
+  const cancelCancelEditRequestConfirmation = useCallback(() => {
+    setIsCancelEditRequestConfirming(false);
+  }, []);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
@@ -886,7 +1018,7 @@ export default function MyReservations({ apiToken }) {
           || reviewModal.currentItem?.department
           || ''
         }
-        hasChanges={isEditRequestMode ? reviewModal.hasChanges : reviewModal.hasChanges}
+        hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
         // Admin confirmation states from hook
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
         onCancelDelete={reviewModal.cancelDeleteConfirmation}
@@ -907,7 +1039,7 @@ export default function MyReservations({ apiToken }) {
         // Requester action buttons
         onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
         isResubmitting={isResubmitting}
-        onRestore={isRequesterOnly && reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}
+        onRestore={reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}
         isRestoring={isRestoring}
         // Owner pending edit (requester editing their own pending event)
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
@@ -939,10 +1071,14 @@ export default function MyReservations({ apiToken }) {
         onSubmitEditRequest={handleSubmitEditRequest}
         onCancelEditRequest={handleCancelEditRequest}
         isSubmittingEditRequest={reviewModal.isSubmittingEditRequest}
-        detectedChanges={reviewModal.hasChanges ? [{ field: 'changes' }] : []}
-        // Edit request submission via modal button
-        onSubmitEditRequestModal={isEditRequestMode ? handleSubmitEditRequest : null}
-        submittingEditRequestModal={reviewModal.isSubmittingEditRequest}
+        isEditRequestConfirming={reviewModal.pendingEditRequestConfirmation}
+        onCancelEditRequestConfirm={reviewModal.cancelEditRequestConfirmation}
+        detectedChanges={isEditRequestMode ? computeDetectedChanges() : []}
+        // Cancel pending edit request props (requester canceling their own edit request)
+        onCancelPendingEditRequest={handleCancelPendingEditRequest}
+        isCancelingEditRequest={isCancelingEditRequest}
+        isCancelEditRequestConfirming={isCancelEditRequestConfirming}
+        onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
         // Draft props from hook
         isDraft={reviewModal.isDraft}
         onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
