@@ -181,6 +181,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     // Convert unified event format to Graph-like format for compatibility
     // Prioritize calendarData (authoritative) over top-level fields and graphData (legacy)
     const convertedResults = results.map(event => ({
+      _id: event._id,
       id: event.eventId,
       subject: event.calendarData?.eventTitle || event.eventTitle || event.subject || event.graphData?.subject,
       start: {
@@ -987,7 +988,7 @@ function EventSearch({
                     className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
-                      onViewInCalendar(selectedEvent, 'week', searchCalendarId);
+                      onViewInCalendar(selectedEvent, 'week', searchCalendarId, { openModal: true });
                     }}
                   >
                     📅 Week
@@ -996,7 +997,7 @@ function EventSearch({
                     className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
-                      onViewInCalendar(selectedEvent, 'day', searchCalendarId);
+                      onViewInCalendar(selectedEvent, 'day', searchCalendarId, { openModal: true });
                     }}
                   >
                     📅 Day

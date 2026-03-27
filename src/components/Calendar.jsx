@@ -3693,7 +3693,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {string} targetViewType - The view type to switch to ('day', 'week', 'month')
      * @param {string} explicitCalendarId - Optional explicit calendar ID to switch to (overrides event.calendarId)
      */
-    const handleViewInCalendar = (event, targetViewType = 'day', explicitCalendarId = null) => {
+    const handleViewInCalendar = (event, targetViewType = 'day', explicitCalendarId = null, options = {}) => {
       logger.debug("View in calendar clicked", { event, targetViewType, explicitCalendarId });
 
       // Navigate to the event's date in the calendar
@@ -3714,6 +3714,22 @@ import ConflictDialog from './shared/ConflictDialog';
       // dateRange is a useMemo that recalculates based on currentDate and viewType
       setViewType(targetViewType);
       setCurrentDate(eventDate);
+
+      // Open the event modal if requested (e.g., from search "View in Calendar")
+      if (options.openModal && event._id) {
+        (async () => {
+          try {
+            const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${event._id}`, {
+              headers: { 'Authorization': `Bearer ${apiToken}` }
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            await reviewModal.openModal(data.event);
+          } catch (error) {
+            logger.error('Error opening event from search:', error);
+          }
+        })();
+      }
     };
 
     /**
