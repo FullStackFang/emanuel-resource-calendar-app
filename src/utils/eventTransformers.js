@@ -146,15 +146,21 @@ export function transformEventToFlatStructure(event) {
   }
 
   // For MongoDB documents, prefer explicit startTime/endTime from calendarData
-  // over values parsed from startDateTime — but only when the value is a truthy
-  // string.  calendarData.startTime = null means "no explicit time override",
-  // so the value parsed from startDateTime should be kept.
+  // over values parsed from startDateTime.
+  // - Truthy string (e.g. "14:30") → use it (user entered a time)
+  // - Explicit null → clear to '' (user did NOT enter a time; don't surface
+  //   the backend's 00:00/23:59 query-fallback as if the user typed it)
+  // - undefined / missing → keep the parsed value (backward compat for older docs)
   if (event.calendarData) {
     if (event.calendarData.startTime) {
       startTime = event.calendarData.startTime;
+    } else if (event.calendarData.startTime === null) {
+      startTime = '';
     }
     if (event.calendarData.endTime) {
       endTime = event.calendarData.endTime;
+    } else if (event.calendarData.endTime === null) {
+      endTime = '';
     }
   }
 
