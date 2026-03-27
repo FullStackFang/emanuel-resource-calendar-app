@@ -19,7 +19,7 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
-  import { computeApproverChanges } from '../utils/editRequestUtils';
+  import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
@@ -4931,32 +4931,10 @@ import ConflictDialog from './shared/ConflictDialog';
         if (currentData) {
           setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
         }
-        // Spread proposed changes into calendarData so getField() in
-        // transformEventToFlatStructure picks up proposed values (it
-        // prioritizes calendarData over top-level fields)
+        // Decompose startDateTime/endDateTime into startDate/startTime/endDate/endTime
+        // so calendarData has the separate fields the form needs for display and diff.
         const proposedChanges = existingEditRequest.proposedChanges || {};
-
-        // Decompose startDateTime/endDateTime into separate date/time fields
-        // so the form comparison can detect individual field changes
-        const decomposed = { ...proposedChanges };
-        if (proposedChanges.startDateTime) {
-          try {
-            const dt = new Date(proposedChanges.startDateTime);
-            if (!isNaN(dt.getTime())) {
-              decomposed.startDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-              decomposed.startTime = dt.toTimeString().slice(0, 5);
-            }
-          } catch (e) { /* ignore parse errors */ }
-        }
-        if (proposedChanges.endDateTime) {
-          try {
-            const dt = new Date(proposedChanges.endDateTime);
-            if (!isNaN(dt.getTime())) {
-              decomposed.endDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-              decomposed.endTime = dt.toTimeString().slice(0, 5);
-            }
-          } catch (e) { /* ignore parse errors */ }
-        }
+        const decomposed = decomposeProposedChanges(proposedChanges);
 
         reviewModal.updateData({
           ...existingEditRequest,

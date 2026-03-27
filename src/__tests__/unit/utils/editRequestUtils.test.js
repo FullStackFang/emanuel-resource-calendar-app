@@ -6,7 +6,68 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeApproverChanges } from '../../../utils/editRequestUtils';
+import { computeApproverChanges, decomposeProposedChanges } from '../../../utils/editRequestUtils';
+
+describe('decomposeProposedChanges', () => {
+  it('returns empty object for null/undefined input', () => {
+    expect(decomposeProposedChanges(null)).toEqual({});
+    expect(decomposeProposedChanges(undefined)).toEqual({});
+  });
+
+  it('passes through non-datetime fields unchanged', () => {
+    const input = { eventTitle: 'Test', attendeeCount: 50, setupTime: '08:30' };
+    const result = decomposeProposedChanges(input);
+    expect(result.eventTitle).toBe('Test');
+    expect(result.attendeeCount).toBe(50);
+    expect(result.setupTime).toBe('08:30');
+  });
+
+  it('decomposes startDateTime into startDate and startTime', () => {
+    const result = decomposeProposedChanges({ startDateTime: '2026-03-25T14:30:00' });
+    expect(result.startDateTime).toBe('2026-03-25T14:30:00');
+    expect(result.startDate).toBe('2026-03-25');
+    expect(result.startTime).toBe('14:30');
+  });
+
+  it('decomposes endDateTime into endDate and endTime', () => {
+    const result = decomposeProposedChanges({ endDateTime: '2026-03-25T18:00:00' });
+    expect(result.endDateTime).toBe('2026-03-25T18:00:00');
+    expect(result.endDate).toBe('2026-03-25');
+    expect(result.endTime).toBe('18:00');
+  });
+
+  it('decomposes both start and end datetimes', () => {
+    const result = decomposeProposedChanges({
+      startDateTime: '2026-04-01T09:00:00',
+      endDateTime: '2026-04-01T17:00:00',
+    });
+    expect(result.startDate).toBe('2026-04-01');
+    expect(result.startTime).toBe('09:00');
+    expect(result.endDate).toBe('2026-04-01');
+    expect(result.endTime).toBe('17:00');
+  });
+
+  it('handles datetime without seconds (HH:MM format)', () => {
+    const result = decomposeProposedChanges({ startDateTime: '2026-03-25T14:30' });
+    expect(result.startDate).toBe('2026-03-25');
+    expect(result.startTime).toBe('14:30');
+  });
+
+  it('does not add date/time fields when no datetime is present', () => {
+    const result = decomposeProposedChanges({ eventTitle: 'Test' });
+    expect(result.startDate).toBeUndefined();
+    expect(result.startTime).toBeUndefined();
+    expect(result.endDate).toBeUndefined();
+    expect(result.endTime).toBeUndefined();
+  });
+
+  it('does not mutate the original object', () => {
+    const input = { startDateTime: '2026-03-25T14:30:00' };
+    decomposeProposedChanges(input);
+    expect(input.startDate).toBeUndefined();
+    expect(input.startTime).toBeUndefined();
+  });
+});
 
 describe('computeApproverChanges', () => {
   describe('null/undefined handling', () => {

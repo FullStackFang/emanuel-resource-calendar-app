@@ -23,7 +23,7 @@ export default function EditRequestComparison({
 
   const isPending = editRequest?.status === 'pending';
 
-  // Format date for display
+  // Format date+time for display
   const formatDateTime = (dateStr) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleString('en-US', {
@@ -36,19 +36,51 @@ export default function EditRequestComparison({
     });
   };
 
+  // Format HH:MM time string for display
+  const formatTime = (timeStr) => {
+    if (!timeStr) return 'N/A';
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours, 10);
+    if (isNaN(hour)) return timeStr;
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  // Format array for display
+  const formatArray = (arr) => {
+    if (!arr || !Array.isArray(arr) || arr.length === 0) return 'N/A';
+    return arr.join(', ');
+  };
+
+  // Check if arrays differ (order-insensitive)
+  const arraysDiffer = (a, b) => {
+    const arrA = Array.isArray(a) ? a.map(String).sort() : [];
+    const arrB = Array.isArray(b) ? b.map(String).sort() : [];
+    return JSON.stringify(arrA) !== JSON.stringify(arrB);
+  };
+
   // Original values come from calendarData (the event's unmodified state)
   const cd = eventCalendarData || {};
   // Proposed changes from the edit request (only fields that changed)
   const proposed = editRequest?.proposedChanges || {};
 
+  // Helper: simple field comparison entry
+  const simpleField = (label, field, formatter) => {
+    const fmt = formatter || ((v) => v?.toString() || 'N/A');
+    return {
+      label,
+      original: fmt(cd[field]),
+      proposed: fmt(proposed[field] !== undefined ? proposed[field] : cd[field]),
+      changed: proposed[field] !== undefined && proposed[field] !== cd[field]
+    };
+  };
+
   // Build comparison data: original from calendarData, proposed from proposedChanges
+  // Covers all fields the backend tracks in fieldsToCompare + rooms/categories/services
   const comparisonFields = [
-    {
-      label: 'Event Title',
-      original: cd.eventTitle || 'N/A',
-      proposed: proposed.eventTitle || cd.eventTitle || 'N/A',
-      changed: proposed.eventTitle !== undefined && proposed.eventTitle !== cd.eventTitle
-    },
+    simpleField('Event Title', 'eventTitle'),
+    simpleField('Description', 'eventDescription'),
     {
       label: 'Start Date/Time',
       original: formatDateTime(cd.startDateTime),
@@ -62,18 +94,6 @@ export default function EditRequestComparison({
       changed: proposed.endDateTime !== undefined && proposed.endDateTime !== cd.endDateTime
     },
     {
-      label: 'Start Time',
-      original: cd.startTime || 'N/A',
-      proposed: proposed.startTime || cd.startTime || 'N/A',
-      changed: proposed.startTime !== undefined && proposed.startTime !== cd.startTime
-    },
-    {
-      label: 'End Time',
-      original: cd.endTime || 'N/A',
-      proposed: proposed.endTime || cd.endTime || 'N/A',
-      changed: proposed.endTime !== undefined && proposed.endTime !== cd.endTime
-    },
-    {
       label: 'Location',
       original: cd.locationDisplayNames || 'N/A',
       proposed: proposed.locationDisplayNames || cd.locationDisplayNames || 'N/A',
@@ -84,7 +104,24 @@ export default function EditRequestComparison({
       original: cd.attendeeCount?.toString() || 'N/A',
       proposed: (proposed.attendeeCount ?? cd.attendeeCount)?.toString() || 'N/A',
       changed: proposed.attendeeCount !== undefined && proposed.attendeeCount !== cd.attendeeCount
-    }
+    },
+    {
+      label: 'Categories',
+      original: formatArray(cd.categories),
+      proposed: formatArray(proposed.categories || cd.categories),
+      changed: proposed.categories !== undefined && arraysDiffer(proposed.categories, cd.categories)
+    },
+    simpleField('Setup Time', 'setupTime', formatTime),
+    simpleField('Teardown Time', 'teardownTime', formatTime),
+    simpleField('Door Open Time', 'doorOpenTime', formatTime),
+    simpleField('Door Close Time', 'doorCloseTime', formatTime),
+    simpleField('Setup Notes', 'setupNotes'),
+    simpleField('Door Notes', 'doorNotes'),
+    simpleField('Event Notes', 'eventNotes'),
+    simpleField('Special Requirements', 'specialRequirements'),
+    simpleField('Offsite', 'isOffsite', (v) => v ? 'Yes' : 'No'),
+    simpleField('Offsite Name', 'offsiteName'),
+    simpleField('Offsite Address', 'offsiteAddress'),
   ];
 
   // Filter to only show changed fields in the "Changes" section

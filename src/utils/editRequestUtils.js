@@ -86,6 +86,37 @@ function objectsEqual(a, b) {
 }
 
 /**
+ * Decompose proposedChanges so that combined datetime fields
+ * (startDateTime / endDateTime) are split into their date/time parts.
+ *
+ * The backend stores only startDateTime/endDateTime in proposedChanges,
+ * but the form needs startDate, startTime, endDate, endTime separately.
+ * Without decomposition, calendarData retains the original date/time
+ * parts and the form shows unchanged times.
+ *
+ * Used by Calendar.jsx and ReservationRequests.jsx when overlaying
+ * proposed changes into calendarData for the ReviewModal form.
+ *
+ * @param {Object} proposedChanges - Delta object from pendingEditRequest.proposedChanges
+ * @returns {Object} Copy with startDate/startTime/endDate/endTime added when applicable
+ */
+export function decomposeProposedChanges(proposedChanges) {
+  if (!proposedChanges) return {};
+  const decomposed = { ...proposedChanges };
+  if (proposedChanges.startDateTime) {
+    const [date, timeWithSec] = proposedChanges.startDateTime.split('T');
+    if (date) decomposed.startDate = date;
+    if (timeWithSec) decomposed.startTime = timeWithSec.substring(0, 5);
+  }
+  if (proposedChanges.endDateTime) {
+    const [date, timeWithSec] = proposedChanges.endDateTime.split('T');
+    if (date) decomposed.endDate = date;
+    if (timeWithSec) decomposed.endTime = timeWithSec.substring(0, 5);
+  }
+  return decomposed;
+}
+
+/**
  * Compose startDateTime from startDate + startTime.
  */
 function composeDateTimeField(data, dateField, timeField) {

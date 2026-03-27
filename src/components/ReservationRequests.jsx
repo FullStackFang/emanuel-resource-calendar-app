@@ -10,7 +10,7 @@ import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
-import { computeApproverChanges } from '../utils/editRequestUtils';
+import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
@@ -594,15 +594,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       if (currentData) {
         setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
       }
-      // Spread proposed changes into calendarData so getField() in
-      // transformEventToFlatStructure picks up proposed values (it
-      // prioritizes calendarData over top-level fields)
+      // Decompose startDateTime/endDateTime into startDate/startTime/endDate/endTime
+      // so calendarData has the separate fields the form needs for display and diff.
       const proposedChanges = existingEditRequest.proposedChanges || {};
+      const decomposed = decomposeProposedChanges(proposedChanges);
       reviewModal.updateData({
         ...existingEditRequest,
         calendarData: {
           ...(currentData?.calendarData || {}),
-          ...proposedChanges
+          ...decomposed
         }
       });
       setIsViewingEditRequest(true);
