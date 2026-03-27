@@ -433,8 +433,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Close modal
       closeEditRequestModal();
 
-      // Notify MyReservations to refresh
+      // Notify MyReservations and nav badge to refresh
       dispatchRefresh('reservation-requests');
+      dispatchRefresh('reservation-requests', 'navigation-counts');
 
     } catch (error) {
       logger.error('Error approving edit request:', error);
@@ -484,8 +485,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Close modal
       closeEditRequestModal();
 
-      // Notify MyReservations to refresh
+      // Notify MyReservations and nav badge to refresh
       dispatchRefresh('reservation-requests');
+      dispatchRefresh('reservation-requests', 'navigation-counts');
 
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
@@ -690,6 +692,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           ? { ...r, status: 'deleted', isDeleted: true }
           : r
       ));
+      dispatchRefresh('reservation-requests', 'navigation-counts');
 
     } catch (err) {
       logger.error('Error deleting reservation:', err);

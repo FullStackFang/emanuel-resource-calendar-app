@@ -3,6 +3,7 @@ import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
 import { buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload } from '../utils/eventPayloadBuilder';
+import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
 
 /**
@@ -60,6 +61,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
+
+  // Wrapper: call onSuccess then immediately refresh nav badge counts
+  const notifySuccess = useCallback((...args) => {
+    if (onSuccess) onSuccess(...args);
+    dispatchRefresh('review-modal', 'navigation-counts');
+  }, [onSuccess]);
 
   // Auto-reset timeout ref for in-button confirmations (3-second auto-reset per UX standard)
   const confirmResetTimerRef = useRef(null);
@@ -481,7 +488,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                   });
                   if (retryResponse.ok) {
                     const retryResult = await retryResponse.json();
-                    if (onSuccess) onSuccess('Changes saved (pending edit conflicts acknowledged)', retryResult.event || retryResult);
+                    notifySuccess('Changes saved (pending edit conflicts acknowledged)', retryResult.event || retryResult);
                     setEventVersion(retryResult.event?._version || retryResult._version);
                     setHasChanges(false);
                     return { success: true, event: retryResult.event || retryResult };
@@ -522,7 +529,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setEventVersion(result._version || eventVersion);
       setHasChanges(false);
 
-      if (onSuccess) onSuccess(result);
+      notifySuccess(result);
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error saving changes:', error);
@@ -531,7 +538,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation, checkVersionFreshness]);
+  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, notifySuccess, onError, pendingSaveConfirmation, checkVersionFreshness]);
 
   /**
    * Approve the reservation/event
@@ -736,7 +743,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                   });
                   if (retryResponse.ok) {
                     const retryResult = await retryResponse.json();
-                    if (onSuccess) onSuccess(retryResult);
+                    notifySuccess(retryResult);
                     await closeModal(true);
                     return { success: true, data: retryResult };
                   }
@@ -763,7 +770,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess(result);
+      notifySuccess(result);
       await closeModal(true);
       return {
         success: true,
@@ -777,7 +784,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
+  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, notifySuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
 
   /**
    * Reject the reservation/event
@@ -854,7 +861,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       setRejectionReason(''); // Clear the reason after successful rejection
-      if (onSuccess) onSuccess(result);
+      notifySuccess(result);
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
@@ -864,7 +871,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRejecting(false);
     }
-  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
+  }, [currentItem, apiToken, eventVersion, rejectionReason, notifySuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
 
   /**
    * Cancel the pending reject confirmation
@@ -940,9 +947,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const result = await response.json();
       if (result.occurrenceExcluded) {
         // Single occurrence was excluded from series - series still alive
-        if (onSuccess) onSuccess({ ...result, occurrenceExcluded: true });
+        notifySuccess({ ...result, occurrenceExcluded: true });
       } else {
-        if (onSuccess) onSuccess({ ...result, deleted: true });
+        notifySuccess({ ...result, deleted: true });
       }
       await closeModal(true);
       return { success: true, data: result };
@@ -953,7 +960,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, editScope, eventVersion, onSuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
+  }, [currentItem, apiToken, graphToken, editScope, eventVersion, notifySuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
 
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
@@ -1017,7 +1024,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess({ ...result, restored: true });
+      notifySuccess({ ...result, restored: true });
       await closeModal(true);
       return { success: true };
     } catch (error) {
@@ -1027,7 +1034,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRestoring(false);
     }
-  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal]);
+  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal]);
 
   /**
    * Owner edit handler for pending/rejected events.
@@ -1100,7 +1107,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess({ ownerEdit: true });
+      notifySuccess({ ownerEdit: true });
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
@@ -1110,7 +1117,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSavingOwnerEdit(false);
     }
-  }, [currentItem, apiToken, eventVersion, editableData, onSuccess, onError, closeModal, getFormData]);
+  }, [currentItem, apiToken, eventVersion, editableData, notifySuccess, onError, closeModal, getFormData]);
 
   /**
    * Submit an edit request for a published event (owner-only).
@@ -1170,7 +1177,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess({ editRequestSubmitted: true });
+      notifySuccess({ editRequestSubmitted: true });
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
@@ -1180,7 +1187,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSubmittingEditRequest(false);
     }
-  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
+  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
 
   const cancelEditRequestConfirmation = useCallback(() => {
     setPendingEditRequestConfirmation(false);
@@ -1248,7 +1255,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess({ editRequestApproved: true });
+      notifySuccess({ editRequestApproved: true });
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
@@ -1259,7 +1266,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingEditRequest(false);
       setPendingEditRequestApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, onSuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setPendingEditRequestApproveConfirmation(false);
@@ -1326,7 +1333,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       setEditRequestRejectionReason('');
-      if (onSuccess) onSuccess({ editRequestRejected: true });
+      notifySuccess({ editRequestRejected: true });
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
@@ -1337,7 +1344,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingEditRequest(false);
       setPendingEditRequestRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, editRequestRejectionReason, onSuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+  }, [currentItem, apiToken, eventVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
 
   const cancelEditRequestRejectConfirmation = useCallback(() => {
     setPendingEditRequestRejectConfirmation(false);
@@ -1490,11 +1497,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingDraftConfirmation(false);
     const result = await _executeDraftSave();
     if (result.success) {
-      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+      notifySuccess({ ...result.data, savedAsDraft: true });
       await closeModal(true);
     }
     return result;
-  }, [pendingDraftConfirmation, hasUncommittedRecurrence, _executeDraftSave, closeModal, onSuccess, onError]);
+  }, [pendingDraftConfirmation, hasUncommittedRecurrence, _executeDraftSave, closeModal, notifySuccess, onError]);
 
   /**
    * Submit an existing draft for approval
@@ -1550,7 +1557,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       logger.log('Draft submitted:', result);
 
       setHasChanges(false);
-      if (onSuccess) onSuccess({ ...result, draftSubmitted: true });
+      notifySuccess({ ...result, draftSubmitted: true });
       await closeModal(true);
       return { success: true, data: result };
 
@@ -1561,7 +1568,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [draftId, apiToken, hasChanges, _executeDraftSave, closeModal, onSuccess, onError]);
+  }, [draftId, apiToken, hasChanges, _executeDraftSave, closeModal, notifySuccess, onError]);
 
   /**
    * Handlers for draft save dialog
@@ -1570,10 +1577,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     // Dialog itself serves as user confirmation — bypass the confirmation gate
     const result = await _executeDraftSave();
     if (result.success) {
-      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+      notifySuccess({ ...result.data, savedAsDraft: true });
       await closeModal(true);
     }
-  }, [_executeDraftSave, closeModal, onSuccess]);
+  }, [_executeDraftSave, closeModal, notifySuccess]);
 
   const handleDraftDialogDiscard = useCallback(async () => {
     setShowDraftDialog(false);
@@ -1602,21 +1609,21 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setTimeout(async () => {
       const result = await _executeDraftSave();
       if (result.success) {
-        if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+        notifySuccess({ ...result.data, savedAsDraft: true });
         await closeModal(true);
       }
     }, 0);
-  }, [_executeDraftSave, closeModal, onSuccess]);
+  }, [_executeDraftSave, closeModal, notifySuccess]);
 
   const handleRecurrenceWarningSaveWithout = useCallback(async () => {
     setShowRecurrenceWarning(false);
     setHasUncommittedRecurrence(false);
     const result = await _executeDraftSave();
     if (result.success) {
-      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+      notifySuccess({ ...result.data, savedAsDraft: true });
       await closeModal(true);
     }
-  }, [_executeDraftSave, closeModal, onSuccess]);
+  }, [_executeDraftSave, closeModal, notifySuccess]);
 
   const handleRecurrenceWarningCancel = useCallback(() => {
     setShowRecurrenceWarning(false);

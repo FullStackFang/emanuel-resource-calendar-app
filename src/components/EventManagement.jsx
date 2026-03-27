@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import DatePickerInput from './DatePickerInput';
 import { usePolling } from '../hooks/usePolling';
-import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
+import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
@@ -300,6 +300,7 @@ export default function EventManagement() {
       setSelectedEvent(null);
       fetchEvents();
       fetchCounts();
+      dispatchRefresh('event-management', 'navigation-counts');
     } catch (err) {
       showError(err, { context: 'EventManagement.handleDelete' });
     } finally {
@@ -352,6 +353,7 @@ export default function EventManagement() {
       setSelectedEvent(null);
       fetchEvents();
       fetchCounts();
+      dispatchRefresh('event-management', 'navigation-counts');
     } catch (err) {
       showError(err, { context: 'EventManagement.handleRestore' });
     } finally {

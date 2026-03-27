@@ -474,12 +474,20 @@ import ConflictDialog from './shared/ConflictDialog';
     });
 
     // Deep-link: auto-open event from email link (?eventId=...)
+    // Reads from URL param first, then falls back to sessionStorage.
+    // sessionStorage is populated in main.jsx before MSAL init, so the eventId
+    // survives even if MSAL's redirect flow strips the query param.
     useEffect(() => {
-      const eventId = searchParams.get('eventId');
-      if (!eventId || deepLinkProcessedRef.current || !apiToken) return;
+      if (deepLinkProcessedRef.current || !apiToken) return;
+
+      // Try URL param first, then sessionStorage fallback
+      const eventId = searchParams.get('eventId')
+        || sessionStorage.getItem('deepLinkEventId');
+      if (!eventId) return;
 
       deepLinkProcessedRef.current = true;
       setSearchParams({}, { replace: true });
+      sessionStorage.removeItem('deepLinkEventId');
 
       // Check if event is already loaded in calendar
       const localEvent = allEventsRef.current.find(e => String(e._id) === eventId);

@@ -8,7 +8,7 @@ import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
-import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
+import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { computeApproverChanges } from '../utils/editRequestUtils';
 import ReviewModal from './shared/ReviewModal';
@@ -462,6 +462,7 @@ export default function MyReservations({ apiToken }) {
       showSuccess('Request resubmitted for approval');
       reviewModal.closeModal(true);
       loadMyReservations();
+      dispatchRefresh('my-reservations', 'navigation-counts');
     } catch (err) {
       logger.error('Error resubmitting reservation:', err);
       showError(err, { context: 'MyReservations.handleResubmit' });
@@ -501,6 +502,7 @@ export default function MyReservations({ apiToken }) {
       showSuccess('Reservation restored');
       reviewModal.closeModal(true);
       loadMyReservations();
+      dispatchRefresh('my-reservations', 'navigation-counts');
     } catch (err) {
       logger.error('Error restoring reservation:', err);
       showError(err, { context: 'MyReservations.handleRestore' });
@@ -646,6 +648,7 @@ export default function MyReservations({ apiToken }) {
       // Close the modal and refresh
       reviewModal.closeModal();
       loadMyReservations();
+      dispatchRefresh('my-reservations', 'navigation-counts');
 
     } catch (error) {
       showError(error, { context: 'MyReservations.cancelEditRequest' });

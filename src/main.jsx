@@ -13,6 +13,19 @@ import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import './index.css'; // optional
 
+// Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
+// MSAL's loginRedirect flow (or popup-blocked fallback) navigates to Azure AD
+// and returns to window.location.origin, stripping query params. By saving
+// eventId to sessionStorage here (module-level, runs before MSAL init),
+// Calendar.jsx can recover it after authentication completes.
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  const eventId = params.get('eventId');
+  if (eventId) {
+    sessionStorage.setItem('deepLinkEventId', eventId);
+  }
+})();
+
 // Force full page reload on HMR for critical modules to prevent React hooks errors
 // The @azure/msal-react library can get out of sync with React during partial HMR updates,
 // causing "Cannot read properties of null (reading 'useEffect')" and "Invalid hook call" errors.

@@ -529,6 +529,7 @@ export function useEventCreation({
       showSuccess('Draft saved');
       if (onSuccess) onSuccess();      // Non-silent calendar refresh FIRST
       dispatchRefresh(refreshSource);  // Then notify other views via bus
+      dispatchRefresh(refreshSource, 'navigation-counts');
     }
   }, [formData, _executeDraftSave, resetState, showError, refreshSource, onSuccess]);
 
@@ -550,6 +551,7 @@ export function useEventCreation({
     resetState();
     if (onSuccess) onSuccess();      // Non-silent calendar refresh FIRST
     dispatchRefresh(refreshSource);  // Then notify other views via bus
+    dispatchRefresh(refreshSource, 'navigation-counts');
   }, [resetState, refreshSource, onSuccess]);
 
   // ══════════════════════════════════════════════
