@@ -23273,6 +23273,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Fires for published events OR when someone else deletes the requester's event
     const requesterEmailForNotif = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
     const isThirdPartyDelete = requesterEmailForNotif && requesterEmailForNotif !== (userEmail || '').toLowerCase();
+    let emailNotification = { sent: false };
     if (event.status === 'published' || isThirdPartyDelete) {
       try {
         const cd = event.calendarData || {};
@@ -23299,12 +23300,24 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           attendeeCount: cd.attendeeCount || 0
         };
 
-        const emailResult = await emailService.sendDeletionNotification(reservationForEmail);
+        const deletedByName = user?.displayName || userEmail;
+        const deletionReason = reason?.trim() || '';
+        const emailResult = await emailService.sendDeletionNotification(reservationForEmail, deletionReason, deletedByName);
         logger.info('Deletion notification email sent', {
           eventId: event.eventId,
+          recipientEmail: reservationForEmail.requesterEmail,
+          deletedByName,
+          deletionReason: deletionReason || '(none)',
           correlationId: emailResult.correlationId,
           skipped: emailResult.skipped
         });
+
+        emailNotification = {
+          sent: !emailResult.skipped,
+          skipped: emailResult.skipped || false,
+          recipientEmail: reservationForEmail.requesterEmail,
+          correlationId: emailResult.correlationId
+        };
 
         // Record in communication history
         await emailService.recordEmailInHistory(
@@ -23320,6 +23333,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           eventId: event.eventId,
           error: emailError.message
         });
+        emailNotification = { sent: false, error: emailError.message };
       }
     }
 
@@ -23329,7 +23343,8 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       message: 'Event deleted successfully',
       graphDeleted,
       status: 'deleted',
-      _version: deletedEvent._version
+      _version: deletedEvent._version,
+      emailNotification
     });
 
     broadcastEventChange({

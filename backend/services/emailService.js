@@ -511,7 +511,7 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendDeletionNotification(reservation) {
+async function sendDeletionNotification(reservation, deletionReason = '', deletedByName = '') {
   const reqData = reservation.roomReservationData || {};
   const requestedBy = reqData.requestedBy || {};
   const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
@@ -526,7 +526,7 @@ async function sendDeletionNotification(reservation) {
   const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
   if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
-  const { subject, html } = await emailTemplates.generateDeletionNotification(reservation);
+  const { subject, html } = await emailTemplates.generateDeletionNotification(reservation, deletionReason, deletedByName);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()

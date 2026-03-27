@@ -99,16 +99,26 @@ export default function RoomReservationReview({
 
   // Handle recurrence pattern changes from form or recurrence tab
   const handleRecurrencePatternChange = useCallback((pattern) => {
+    // Detect actual changes (skip auto-apply rebuild on mount which produces the same pattern)
+    const isActualChange = JSON.stringify(pattern) !== JSON.stringify(recurrencePatternRef.current);
     setRecurrencePattern(pattern);
     recurrencePatternRef.current = pattern;
     onRecurrenceExists?.(!!pattern);
-  }, [onRecurrenceExists]);
+    // Signal to parent so Save button enables in ReviewModal
+    if (isActualChange && onDataChange) {
+      onDataChange({ recurrence: pattern });
+    }
+  }, [onRecurrenceExists, onDataChange]);
 
   // Handle occurrence override changes from recurrence tab detail editor
   const handleOccurrenceOverridesChange = useCallback((overrides) => {
     setOccurrenceOverrides(overrides);
     occurrenceOverridesRef.current = overrides;
-  }, []);
+    // Signal to parent so Save button enables in ReviewModal
+    if (onDataChange) {
+      onDataChange({ occurrenceOverrides: overrides });
+    }
+  }, [onDataChange]);
 
   // Review-specific state
   const [isSaving, setIsSaving] = useState(false);

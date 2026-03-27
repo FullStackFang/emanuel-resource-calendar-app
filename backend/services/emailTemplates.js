@@ -273,7 +273,7 @@ const DEFAULT_TEMPLATES = {
   [TEMPLATE_IDS.DELETION]: {
     id: TEMPLATE_IDS.DELETION,
     name: 'Deletion Notification',
-    description: 'Sent to requester when their published event is cancelled/deleted by an admin',
+    description: 'Sent to requester when their event is cancelled/deleted by an admin or approver',
     subject: 'Event Cancelled: {{eventTitle}}',
     body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
   <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">CANCELLED</span>
@@ -285,7 +285,7 @@ const DEFAULT_TEMPLATES = {
 </p>
 
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  We are writing to let you know that the following event has been cancelled.
+  We are writing to let you know that the following event has been cancelled{{#deletedByName}} by {{deletedByName}}{{/deletedByName}}.
 </p>
 
 <div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
@@ -306,6 +306,13 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
+{{#deletionReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason:</h4>
+  <p style="margin: 0; color: #4a5568;">{{deletionReason}}</p>
+</div>
+{{/deletionReason}}
+
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
   If you have any questions about this cancellation, please contact our office.
 </p>
@@ -313,7 +320,7 @@ const DEFAULT_TEMPLATES = {
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'deletedByName', 'deletionReason']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -1217,8 +1224,11 @@ async function generateRejectionNotification(reservation, rejectionReason = '') 
  * Generate deletion notification email
  * Sent to requester when their published event is cancelled/deleted by an admin
  */
-async function generateDeletionNotification(reservation) {
-  const variables = extractVariables(reservation);
+async function generateDeletionNotification(reservation, deletionReason = '', deletedByName = '') {
+  const extras = {};
+  if (deletionReason) extras.deletionReason = escapeHtml(deletionReason);
+  if (deletedByName) extras.deletedByName = escapeHtml(deletedByName);
+  const variables = extractVariables(reservation, extras);
   return generateFromTemplate(TEMPLATE_IDS.DELETION, variables);
 }
 

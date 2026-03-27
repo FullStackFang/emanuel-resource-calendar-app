@@ -1030,7 +1030,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         onApprove={reviewModal.handleApprove}
         onReject={reviewModal.handleReject}
         onSave={reviewModal.currentItem?.status === 'pending' ? null : reviewModal.handleSave}
-        onDelete={reviewModal.handleDelete}
+        onDelete={reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleDelete : null}
         mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
         isPending={reviewModal.currentItem?.status === 'pending'}
         isFormValid={reviewModal.isFormValid}

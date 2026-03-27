@@ -705,29 +705,6 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Delete button in review mode - for approvers and admins */}
-              {!isRequesterOnly && mode === 'review' && onDelete && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
-                    onClick={onDelete}
-                    disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
-                  >
-                    {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
-                  </button>
-                  {isDeleteConfirming && onCancelDelete && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x delete-cancel-x"
-                      onClick={onCancelDelete}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
               {/* Save Draft button - for new drafts or updating existing drafts */}
               {onSaveDraft && (
                 <div className="confirm-button-group">

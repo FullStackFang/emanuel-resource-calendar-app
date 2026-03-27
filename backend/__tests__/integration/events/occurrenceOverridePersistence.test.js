@@ -416,4 +416,71 @@ describe('Occurrence Override Persistence Tests (OOP-1 to OOP-8)', () => {
       expect(updated.calendarData.occurrenceOverrides[0].eventTitle).toBe('Dual Storage Test');
     });
   });
+
+  // ── Empty Customize Override Tests ──────────────────────────────
+
+  describe('OOP-9: Empty customize override (date-only) persists via admin save', () => {
+    it('should persist an override with only occurrenceDate (Customize click without field edits)', async () => {
+      const master = createTestSeriesMaster();
+      await insertEvents(db, [master]);
+
+      // This is what the frontend sends when user clicks "Customize" on a date
+      // without editing any fields — just { occurrenceDate } with no other keys
+      const overrides = [
+        { occurrenceDate: '2026-03-12' },
+      ];
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Daily Standup',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: RECURRENCE,
+          occurrenceOverrides: overrides,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-12');
+      expect(updated.calendarData.occurrenceOverrides).toHaveLength(1);
+      expect(updated.calendarData.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-12');
+    });
+  });
+
+  describe('OOP-10: Empty customize override persists via draft save', () => {
+    it('should persist a date-only override through draft PUT endpoint', async () => {
+      const draft = createTestDraft();
+      await insertEvents(db, [draft]);
+
+      const overrides = [
+        { occurrenceDate: '2026-03-13' },
+      ];
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Recurring Draft',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: RECURRENCE,
+          occurrenceOverrides: overrides,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-13');
+      expect(updated.calendarData.occurrenceOverrides).toHaveLength(1);
+    });
+  });
 });

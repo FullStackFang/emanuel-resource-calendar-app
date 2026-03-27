@@ -428,6 +428,97 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(emailTracked).not.toBeNull();
       expect(emailTracked.recipientEmail).toBeNull();
     });
+
+    it('DN-6: deletion notification should include deletedByName when third-party deletes', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Event Deleted By Approver',
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.deletedByName).toBe(approverUser.displayName);
+    });
+
+    it('DN-7: deletion notification should include reason when provided', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Event With Deletion Reason',
+      });
+      const [savedPending] = await insertEvents(db, [pending]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .send({ reason: 'Room is under renovation' })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.deletionReason).toBe('Room is under renovation');
+    });
+
+    it('DN-8: deletion notification should have null reason when none provided', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Event Without Reason',
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.deletionReason).toBeNull();
+    });
+
+    it('DN-9: delete response should include emailNotification status', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Response Email Status',
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.emailNotification).toBeDefined();
+      expect(res.body.emailNotification.sent).toBe(true);
+      expect(res.body.emailNotification.recipientEmail).toBe(requesterUser.email);
+    });
+
+    it('DN-10: delete response should have emailNotification.sent=false when no notification needed', async () => {
+      // Owner deleting own draft — no notification
+      const draft = createDraftEvent({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'My Own Draft No Email',
+      });
+      const [savedDraft] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedDraft._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.emailNotification).toBeDefined();
+      expect(res.body.emailNotification.sent).toBe(false);
+    });
   });
 
   describe('Delete idempotency', () => {

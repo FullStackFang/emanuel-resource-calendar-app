@@ -2057,18 +2057,23 @@ function createTestApp(options = {}) {
       // Track deletion notification (published events or third-party deletes)
       const requesterEmailForNotif = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
       const isThirdPartyDelete = requesterEmailForNotif && requesterEmailForNotif !== (userEmail || '').toLowerCase();
+      let emailNotification = { sent: false };
       if (event.status === 'published' || isThirdPartyDelete) {
         const cd = event.calendarData || {};
         const requestedBy = event.roomReservationData?.requestedBy || {};
+        const recipientEmail = requestedBy.email || null;
         req.app.locals.lastDeletionEmail = {
-          recipientEmail: requestedBy.email || null,
+          recipientEmail,
           eventTitle: cd.eventTitle || event.eventTitle,
           startDateTime: cd.startDateTime || event.startDateTime,
           endDateTime: cd.endDateTime || event.endDateTime,
           locationDisplayNames: cd.locationDisplayNames || [],
           requesterName: requestedBy.name || null,
+          deletedByName: userDoc?.displayName || userEmail,
+          deletionReason: reason?.trim() || null,
           sentAt: new Date(),
         };
+        emailNotification = { sent: true, recipientEmail };
       } else {
         req.app.locals.lastDeletionEmail = null;
       }
@@ -2076,6 +2081,7 @@ function createTestApp(options = {}) {
       res.json({
         success: true,
         message: 'Event deleted successfully',
+        emailNotification,
       });
     } catch (error) {
       console.error('Error deleting event:', error);
