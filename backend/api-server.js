@@ -394,6 +394,45 @@ function invalidateCategoryCache() {
   _categoryCacheExpiry = 0;
 }
 
+// ── User cache: 5-min TTL, keyed by userId ──
+// Industry standard (Azure AD/Auth0 accept up to 1 hour).
+// Invalidated immediately on admin write paths for zero-staleness on known mutations.
+const _userCache = new Map();
+const USER_CACHE_TTL = 5 * 60 * 1000;
+
+async function getCachedUser(userId) {
+  const now = Date.now();
+  const cached = _userCache.get(userId);
+  if (cached && now < cached.expiry) return cached.user;
+  const user = await usersCollection.findOne({ userId });
+  _userCache.set(userId, { user, expiry: now + USER_CACHE_TTL });
+  return user;
+}
+
+function invalidateUserCache(userId) {
+  if (userId) _userCache.delete(userId);
+  else _userCache.clear();
+}
+
+// ── Calendar settings cache: 5-min TTL ──
+let _calendarSettingsCache = null;
+let _calendarSettingsCacheExpiry = 0;
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000;
+
+async function getCachedCalendarSettings() {
+  const now = Date.now();
+  if (_calendarSettingsCache && now < _calendarSettingsCacheExpiry) return _calendarSettingsCache;
+  const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+  _calendarSettingsCache = settings;
+  _calendarSettingsCacheExpiry = now + SETTINGS_CACHE_TTL;
+  return _calendarSettingsCache;
+}
+
+function invalidateCalendarSettingsCache() {
+  _calendarSettingsCache = null;
+  _calendarSettingsCacheExpiry = 0;
+}
+
 /**
  * Create indexes for the event cache collection for optimal performance
  */
@@ -2199,17 +2238,17 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
 
-    // Run 3 independent event queries in parallel + load category cache
-    const [conflicts, seriesMasters, pendingEditEvents, categoryMap] = await Promise.all([
-      withCosmosRetry(() => unifiedEventsCollection.find(query).project(CONFLICT_PROJECTION).toArray()),
-      withCosmosRetry(() => unifiedEventsCollection.find(recurringQuery).project(CONFLICT_PROJECTION).toArray())
-        .catch(recurringError => {
-          logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
-          return [];
-        }),
-      withCosmosRetry(() => unifiedEventsCollection.find(pendingEditQuery).project(CONFLICT_PROJECTION).toArray()),
-      getCachedCategories(),
-    ]);
+    // Run conflict queries sequentially to avoid Cosmos DB serverless burst spike.
+    // Parallel queries created a ~30-45 RU spike; sequential spreads over ~200ms.
+    const categoryMap = await getCachedCategories();
+    const conflicts = await unifiedEventsCollection.find(query).project(CONFLICT_PROJECTION).toArray();
+    let seriesMasters = [];
+    try {
+      seriesMasters = await unifiedEventsCollection.find(recurringQuery).project(CONFLICT_PROJECTION).toArray();
+    } catch (recurringError) {
+      logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
+    }
+    const pendingEditEvents = await unifiedEventsCollection.find(pendingEditQuery).project(CONFLICT_PROJECTION).toArray();
 
     // Expand recurring series masters and add overlapping occurrences to conflicts
     // De-duplicate against conflicts already found by the main query
@@ -2719,28 +2758,25 @@ async function connectToDatabase() {
     const dbName = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
     logger.log(`API Server connecting to database: '${dbName}'`);
     db = client.db(dbName);
-    usersCollection = db.collection('templeEvents__Users');
-    // internalEventsCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
-    // eventCacheCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
-    unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
-    calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
-    // roomsCollection removed - DEPRECATED, using locationsCollection instead
-    locationsCollection = db.collection('templeEvents__Locations'); // Unified locations for events AND reservable rooms
-    // unifiedEventsCollection removed - DEPRECATED, room reservations now stored in unifiedEventsCollection (templeEvents__Events)
-    reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
-    roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
-    eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
-    featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
-    categoriesCollection = db.collection('templeEvents__Categories'); // Event categories (base + dynamic)
-    departmentsCollection = db.collection('templeEvents__Departments'); // Departments for user assignment and reservation forms
-    eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
-    reservationAuditHistoryCollection = db.collection('templeEvents__ReservationAuditHistory'); // Audit trail for room reservation changes
+    // All collections wrapped with withRetryCollection() for automatic Cosmos DB rate-limit retry
+    usersCollection = withRetryCollection(db.collection('templeEvents__Users'));
+    unifiedEventsCollection = withRetryCollection(db.collection('templeEvents__Events'));
+    calendarDeltasCollection = withRetryCollection(db.collection('templeEvents__CalendarDeltas'));
+    locationsCollection = withRetryCollection(db.collection('templeEvents__Locations'));
+    reservationTokensCollection = withRetryCollection(db.collection('templeEvents__ReservationTokens'));
+    roomCapabilityTypesCollection = withRetryCollection(db.collection('templeEvents__RoomCapabilityTypes'));
+    eventServiceTypesCollection = withRetryCollection(db.collection('templeEvents__EventServiceTypes'));
+    featureCategoriesCollection = withRetryCollection(db.collection('templeEvents__FeatureCategories'));
+    categoriesCollection = withRetryCollection(db.collection('templeEvents__Categories'));
+    departmentsCollection = withRetryCollection(db.collection('templeEvents__Departments'));
+    eventAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__EventAuditHistory'));
+    reservationAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__ReservationAuditHistory'));
 
-    // Initialize GridFS bucket for file storage
+    // Initialize GridFS bucket for file storage (NOT wrapped — uses streams, not standard collection methods)
     filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
-    eventAttachmentsCollection = db.collection('templeEvents__EventAttachments'); // Event-file relationship tracking
-    reservationAttachmentsCollection = db.collection('templeEvents__ReservationAttachments'); // Reservation-file relationship tracking
-    systemSettingsCollection = db.collection('templeEvents__SystemSettings'); // System-wide settings
+    eventAttachmentsCollection = withRetryCollection(db.collection('templeEvents__EventAttachments'));
+    reservationAttachmentsCollection = withRetryCollection(db.collection('templeEvents__ReservationAttachments'));
+    systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
 
     // Initialize email service with database connection
     emailService.setDbConnection(db);
@@ -5144,6 +5180,44 @@ async function withCosmosRetry(operation, maxRetries = 3) {
   }
 }
 
+/**
+ * Wraps a MongoDB collection with automatic Cosmos DB retry logic on all operations.
+ * Promise-returning methods (findOne, insertOne, etc.) are wrapped with withCosmosRetry().
+ * Cursor-returning methods (find, aggregate) have their toArray() wrapped.
+ * This ensures ALL database operations retry on Cosmos DB error 16500 (rate limit).
+ */
+function withRetryCollection(collection) {
+  const PROMISE_METHODS = new Set([
+    'findOne', 'insertOne', 'insertMany', 'updateOne', 'updateMany',
+    'deleteOne', 'deleteMany', 'findOneAndUpdate', 'findOneAndDelete',
+    'findOneAndReplace', 'countDocuments', 'estimatedDocumentCount',
+    'bulkWrite', 'distinct', 'drop'
+  ]);
+  const CURSOR_METHODS = new Set(['find', 'aggregate']);
+
+  return new Proxy(collection, {
+    get(target, prop) {
+      const value = target[prop];
+      if (typeof value !== 'function') return value;
+
+      if (PROMISE_METHODS.has(prop)) {
+        return (...args) => withCosmosRetry(() => value.apply(target, ...args));
+      }
+
+      if (CURSOR_METHODS.has(prop)) {
+        return (...args) => {
+          const cursor = value.apply(target, ...args);
+          const originalToArray = cursor.toArray.bind(cursor);
+          cursor.toArray = () => withCosmosRetry(() => originalToArray());
+          return cursor;
+        };
+      }
+
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+  });
+}
+
 // ── Server-side counts cache (30s TTL) ──
 const countsCache = new Map();
 const COUNTS_CACHE_TTL = 30_000;
@@ -6102,7 +6176,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
       };
 
       // Check if user can view all reservations
-      const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+      const user = await getCachedUser(userId);
       const canViewAll = canViewAllReservations(user, userEmail);
 
       logger.log('👤 User info:', { userId, userEmail, canViewAll });
@@ -6149,7 +6223,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
 
     // Check if user is admin/approver to also show pending reservations
-    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+    const user = await getCachedUser(userId);
     const isAdminUser = canViewAllReservations(user, userEmail);
 
     logger.debug(`[PENDING] User ${userEmail} isAdminUser: ${isAdminUser}, startDate: ${startDate}, endDate: ${endDate}`);
@@ -6334,7 +6408,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // Look up user for role checks
-    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+    const user = await getCachedUser(userId);
     const canViewAll = canViewAllReservations(user, userEmail);
     const adminUser = isAdmin(user, userEmail);
 
@@ -6609,7 +6683,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
 
-    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+    const user = await getCachedUser(userId);
     const canViewAll = canViewAllReservations(user, userEmail);
     const adminUser = isAdmin(user, userEmail);
 
@@ -8322,7 +8396,7 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -8338,8 +8412,8 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     // Remove the _instructions and allowedDisplayCalendars fields from calendar mappings
     const { _instructions, allowedDisplayCalendars, ...calendars } = calendarConfig;
 
-    // Get current default calendar setting from database
-    let settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+    // Get current default calendar setting (cached, 5-min TTL)
+    let settings = await getCachedCalendarSettings();
 
     // If no settings exist, create default
     if (!settings) {
@@ -8350,6 +8424,7 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
         lastModifiedAt: new Date()
       };
       await systemSettingsCollection.insertOne(settings);
+      invalidateCalendarSettingsCache();
     }
 
     res.json({
@@ -8378,7 +8453,7 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     const { defaultCalendar } = req.body;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -8415,6 +8490,7 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
       { $set: updatedSettings },
       { upsert: true }
     );
+    invalidateCalendarSettingsCache();
 
     logger.info('Calendar settings updated:', {
       defaultCalendar: updatedSettings.defaultCalendar,
@@ -8457,8 +8533,8 @@ app.get('/api/calendar-display-config', verifyToken, async (req, res) => {
       }
     });
 
-    // Get default display calendar from database settings
-    const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+    // Get default display calendar (cached, 5-min TTL)
+    const settings = await getCachedCalendarSettings();
     const defaultCalendar = settings?.defaultCalendar || null;
 
     res.json({
@@ -8484,7 +8560,7 @@ app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) =>
     const { allowedDisplayCalendars } = req.body;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -12509,7 +12585,8 @@ app.get('/api/users/current', verifyToken, async (req, res) => {
       { _id: user._id },
       { $set: { lastLogin: new Date() } }
     );
-    
+    invalidateUserCache(req.user.userId);
+
     logger.log('Returning user:', user._id.toString());
     res.status(200).json(user);
   } catch (error) {
@@ -12570,7 +12647,8 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
       { _id: user._id },
       { $set: updates }
     );
-    
+    invalidateUserCache(req.user.userId);
+
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: user._id });
     logger.log('User updated successfully');
@@ -12633,7 +12711,8 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
       { _id: user._id },
       { $set: updateData }
     );
-    
+    invalidateUserCache(req.user.userId);
+
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: user._id });
     logger.log('User preferences updated successfully');
@@ -12691,6 +12770,7 @@ app.patch('/api/users/current/notification-preferences', verifyToken, async (req
       { _id: user._id },
       { $set: { ...setFields, updatedAt: new Date() } }
     );
+    invalidateUserCache(userId);
 
     const updatedUser = await usersCollection.findOne({ _id: user._id });
     res.json(updatedUser);
@@ -12816,6 +12896,7 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
 
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: new ObjectId(id) });
+    invalidateUserCache(updatedUser?.userId);
     res.status(200).json(updatedUser);
   } catch (error) {
     logger.error('Error updating user:', error);
@@ -12839,6 +12920,7 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    invalidateUserCache(); // Clear all — don't have deleted user's userId
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
     logger.error('Error deleting user:', error);
@@ -14852,7 +14934,7 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
     const { _version, forceRestore } = req.body || {};
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -15517,7 +15599,7 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
     }
 
     // Check permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const canViewAll = canViewAllReservations(user, userEmail);
 
     if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
@@ -15598,7 +15680,7 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
     }
 
     // Check permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const canViewAll = canViewAllReservations(user, userEmail);
 
     if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
@@ -16099,7 +16181,7 @@ app.post('/api/room-reservations/generate-token', sensitiveLimiter, verifyToken,
     const { purpose, recipientEmail, expiresInHours = 24 } = req.body;
     
     // Check permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const canGenerate = canGenerateReservationTokens(user, userEmail);
     
     if (!canGenerate) {
@@ -16158,7 +16240,7 @@ app.post('/api/admin/rooms', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -16210,7 +16292,7 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -16274,7 +16356,7 @@ app.get('/api/admin/locations', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -16307,7 +16389,7 @@ app.post('/api/admin/locations/merge', verifyToken, async (req, res) => {
     const { sourceId, targetId, mergeAliases } = req.body;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -16422,7 +16504,7 @@ app.post('/api/admin/locations/:id/aliases', verifyToken, async (req, res) => {
     const { aliases } = req.body;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -16466,7 +16548,7 @@ app.get('/api/admin/locations/unassigned-strings', verifyToken, async (req, res)
     const userEmail = req.user.email;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -16548,7 +16630,7 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
     const { locationId, locationString } = req.body;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -16663,7 +16745,7 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
     const { locationId, alias } = req.body;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -16765,7 +16847,7 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -16877,7 +16959,7 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -17007,7 +17089,7 @@ app.get('/api/admin/locations/:id/event-count', verifyToken, async (req, res) =>
     const { id } = req.params;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -17043,7 +17125,7 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -17202,7 +17284,7 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -17852,7 +17934,7 @@ app.post('/api/admin/room-capability-types', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -17911,7 +17993,7 @@ app.post('/api/admin/event-service-types', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -17971,7 +18053,7 @@ app.post('/api/admin/feature-categories', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18027,7 +18109,7 @@ app.put('/api/admin/feature-categories/:id', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18091,7 +18173,7 @@ app.delete('/api/admin/feature-categories/:id', verifyToken, async (req, res) =>
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18146,7 +18228,7 @@ app.put('/api/admin/room-capability-types/:id', verifyToken, async (req, res) =>
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18213,7 +18295,7 @@ app.delete('/api/admin/room-capability-types/:id', verifyToken, async (req, res)
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18251,7 +18333,7 @@ app.put('/api/admin/event-service-types/:id', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18319,7 +18401,7 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
     const userEmail = req.user.email;
     
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     
     if (!isAdminUser) {
@@ -18362,7 +18444,7 @@ app.post('/api/sse/ticket', verifyToken, sseTicketLimiter, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+    const user = await getCachedUser(userId);
     const role = isAdmin(user, userEmail) ? 'admin'
       : canViewAllReservations(user, userEmail) ? 'approver'
       : 'requester';
@@ -18435,7 +18517,7 @@ app.get('/api/sse/events', (req, res) => {
 app.get('/api/sse/health', verifyToken, async (req, res) => {
   const userId = req.user.userId;
   const userEmail = req.user.email;
-  const user = await withCosmosRetry(() => usersCollection.findOne({ userId }));
+  const user = await getCachedUser(userId);
   if (!isAdmin(user, userEmail)) {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -19172,8 +19254,8 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
 
     // Fetch user and event in parallel (no dependency between them)
     const [user, event] = await Promise.all([
-      usersCollection.findOne({ userId }),
-      unifiedEventsCollection.findOne({ _id: new ObjectId(id) })
+      getCachedUser(userId),
+      withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: new ObjectId(id) }))
     ]);
 
     const isAdminUser = isAdmin(user, userEmail);
@@ -19285,7 +19367,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         selectedCalendarOwner = event.calendarOwner.toLowerCase();
         selectedCalendarId = event.calendarId || null;
       } else {
-        const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+        const settings = await getCachedCalendarSettings();
         selectedCalendarOwner = (settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
         selectedCalendarId = null;
       }
@@ -19493,7 +19575,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         logger.error('Graph event creation failed after MongoDB publish, rolling back status:', error);
         // Roll back: revert status to pre-publish state
         try {
-          await unifiedEventsCollection.updateOne(
+          await withCosmosRetry(() => unifiedEventsCollection.updateOne(
             { _id: new ObjectId(id) },
             {
               $set: {
@@ -19513,7 +19595,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
               },
               $inc: { _version: 1 }
             }
-          );
+          ));
         } catch (rollbackError) {
           logger.error('Failed to roll back publish status:', rollbackError);
         }
@@ -19589,8 +19671,8 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
       })).catch(err => logger.error('Post-publish audit insert failed:', err))
     );
-    // Don't await — these are non-critical background writes
-    Promise.all(postPublishWrites);
+    // Stagger background writes 500ms to avoid competing with next request's RU budget
+    setTimeout(() => Promise.all(postPublishWrites), 500);
 
     logger.info('Room reservation published:', {
       eventId: event.eventId,
@@ -19686,7 +19768,7 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -20290,7 +20372,7 @@ app.get('/api/events/:id', verifyToken, async (req, res) => {
     // Permission check
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const canViewAll = canViewAllReservations(user, userEmail);
 
     if (!canViewAll) {
@@ -20449,7 +20531,7 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check approver/admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const hasApproverAccess = canApproveReservations(user, userEmail);
 
     if (!hasApproverAccess) {
@@ -20552,7 +20634,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check approver/admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const hasApproverAccess = canApproveReservations(user, userEmail);
 
     if (!hasApproverAccess) {
@@ -20990,7 +21072,7 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check approver/admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const hasApproverAccess = canApproveReservations(user, userEmail);
 
     if (!hasApproverAccess) {
@@ -21262,7 +21344,7 @@ app.put('/api/events/:id/department-fields', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Get user and their department permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const allowedFields = getDepartmentEditableFields(user);
 
     if (allowedFields.length === 0) {
@@ -21366,7 +21448,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -22779,7 +22861,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Check permissions (approver+ can delete with scoping rules)
-    const user = await usersCollection.findOne({ userId });
+    const user = await getCachedUser(userId);
     const isAdminUser = isAdmin(user, userEmail);
     const isApprover = canApproveReservations(user, userEmail);
 
@@ -24047,7 +24129,7 @@ app.post('/api/report-issue', verifyToken, async (req, res) => {
 
     // Check if user is admin
     if (usersCollection) {
-      const userDoc = await usersCollection.findOne({ userId: userContext.userId });
+      const userDoc = await getCachedUser(userContext.userId);
       userContext.isAdmin = userDoc?.isAdmin || false;
     }
 
@@ -24107,7 +24189,7 @@ app.get('/api/admin/error-logs', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24154,7 +24236,7 @@ app.get('/api/admin/error-logs/stats', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24178,7 +24260,7 @@ app.post('/api/admin/test-sentry', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24229,7 +24311,7 @@ app.get('/api/admin/error-logs/:id', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24257,7 +24339,7 @@ app.put('/api/admin/error-logs/:id/review', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24298,7 +24380,7 @@ app.get('/api/admin/error-settings', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -24322,7 +24404,7 @@ app.put('/api/admin/error-settings', verifyToken, async (req, res) => {
     // Check admin permission
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
-    const userDoc = await usersCollection.findOne({ userId });
+    const userDoc = await getCachedUser(userId);
     const isAdminUser = isAdmin(userDoc, userEmail);
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
