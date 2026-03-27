@@ -396,6 +396,11 @@ import ConflictDialog from './shared/ConflictDialog';
     const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
     const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
 
+    // Cancellation request state
+    const [isCancellationRequestMode, setIsCancellationRequestMode] = useState(false);
+    const [cancellationReason, setCancellationReason] = useState('');
+    const [isSubmittingCancellationRequest, setIsSubmittingCancellationRequest] = useState(false);
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -528,13 +533,19 @@ import ConflictDialog from './shared/ConflictDialog';
       refreshSource: 'calendar-creation',
     });
 
-    // Reset edit request mode when review modal closes
+    // Reset edit request mode and cancellation request mode when review modal closes
     useEffect(() => {
-      if (!reviewModal.isOpen && isEditRequestMode) {
-        setIsEditRequestMode(false);
-        setOriginalEventData(null);
+      if (!reviewModal.isOpen) {
+        if (isEditRequestMode) {
+          setIsEditRequestMode(false);
+          setOriginalEventData(null);
+        }
+        if (isCancellationRequestMode) {
+          setIsCancellationRequestMode(false);
+          setCancellationReason('');
+        }
       }
-    }, [reviewModal.isOpen, isEditRequestMode]);
+    }, [reviewModal.isOpen, isEditRequestMode, isCancellationRequestMode]);
 
     // Update calendarDataService when role simulation changes
     // This ensures the X-Simulated-Role header is included in API requests
@@ -574,6 +585,10 @@ import ConflictDialog from './shared/ConflictDialog';
     const canRequestEditThisEvent = useMemo(() => {
       if (!reviewModal.currentItem || !currentUser?.email) return false;
       const item = reviewModal.currentItem;
+
+      // Ownerless events (imported/synced without requestedBy) are open to any requester
+      const hasOwner = !!item.roomReservationData?.requestedBy?.email;
+      if (!hasOwner) return true;
 
       // Check ownership
       const requesterEmail = (
@@ -5060,6 +5075,56 @@ import ConflictDialog from './shared/ConflictDialog';
       setIsCancelEditRequestConfirming(false);
     }, []);
 
+    // --- Cancellation request handlers (Calendar) ---
+
+    const handleRequestCancellationFromCalendar = useCallback(() => {
+      setIsCancellationRequestMode(true);
+      setCancellationReason('');
+    }, []);
+
+    const handleCancelCancellationRequestFromCalendar = useCallback(() => {
+      setIsCancellationRequestMode(false);
+      setCancellationReason('');
+    }, []);
+
+    const handleSubmitCancellationRequestFromCalendar = useCallback(async () => {
+      const currentItem = reviewModal.currentItem;
+      if (!currentItem || !cancellationReason.trim()) return;
+
+      setIsSubmittingCancellationRequest(true);
+      try {
+        const eventId = currentItem._id || currentItem.eventId;
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-cancellation`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              reason: cancellationReason.trim(),
+              _version: currentItem._version,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to submit cancellation request');
+        }
+
+        showSuccess('Cancellation request submitted');
+        setIsCancellationRequestMode(false);
+        setCancellationReason('');
+        reviewModal.closeModal();
+      } catch (error) {
+        showError(error, { context: 'Calendar.submitCancellationRequest' });
+      } finally {
+        setIsSubmittingCancellationRequest(false);
+      }
+    }, [reviewModal, cancellationReason, apiToken, showSuccess, showError]);
+
     /**
      * Compute detected changes between original and current data
      */
@@ -6145,6 +6210,16 @@ import ConflictDialog from './shared/ConflictDialog';
           isCancelingEditRequest={isCancelingEditRequest}
           isCancelEditRequestConfirming={isCancelEditRequestConfirming}
           onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
+          // Cancellation request props
+          canRequestCancellation={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest && canRequestEditThisEvent && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending'}
+          onRequestCancellation={handleRequestCancellationFromCalendar}
+          isCancellationRequestMode={isCancellationRequestMode}
+          cancellationReason={cancellationReason}
+          onCancellationReasonChange={setCancellationReason}
+          onSubmitCancellationRequest={handleSubmitCancellationRequestFromCalendar}
+          onCancelCancellationRequest={handleCancelCancellationRequestFromCalendar}
+          isSubmittingCancellationRequest={isSubmittingCancellationRequest}
+          existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
           // Draft-related props - wire up when viewing an existing draft
           isDraft={reviewModal.isDraft}
           onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}

@@ -33,6 +33,11 @@ const TEMPLATE_IDS = {
   ADMIN_EDIT_REQUEST_ALERT: 'admin-edit-request-alert',
   EDIT_REQUEST_APPROVED: 'edit-request-approved',
   EDIT_REQUEST_REJECTED: 'edit-request-rejected',
+  // Cancellation Request templates
+  CANCELLATION_REQUEST_SUBMITTED: 'cancellation-request-submitted',
+  ADMIN_CANCELLATION_REQUEST_ALERT: 'admin-cancellation-request-alert',
+  CANCELLATION_REQUEST_APPROVED: 'cancellation-request-approved',
+  CANCELLATION_REQUEST_REJECTED: 'cancellation-request-rejected',
   // Event update notification
   EVENT_UPDATED: 'event-updated',
   // Event deletion notification
@@ -614,6 +619,219 @@ const DEFAULT_TEMPLATES = {
   Thank you for your understanding.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+  },
+
+  // =========================================================================
+  // CANCELLATION REQUEST TEMPLATES
+  // =========================================================================
+
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_SUBMITTED]: {
+    id: TEMPLATE_IDS.CANCELLATION_REQUEST_SUBMITTED,
+    name: 'Cancellation Request Submitted',
+    description: 'Sent to requester confirming their cancellation request was received',
+    subject: 'Cancellation Request Received: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">CANCELLATION REQUEST</span>
+  Request Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Your request to cancel the event <strong>{{eventTitle}}</strong> has been submitted and is pending review.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason for cancellation:</h4>
+  <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
+</div>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  You will be notified once a decision has been made regarding your cancellation request.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'cancellationReason']
+  },
+
+  [TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT]: {
+    id: TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT,
+    name: 'Admin Cancellation Request Alert',
+    description: 'Sent to admins when a cancellation request is submitted',
+    subject: '[ACTION REQUIRED] Cancellation Request: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">ACTION REQUIRED</span>
+  Cancellation Request Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  A cancellation request has been submitted for a published event and requires your review.
+</p>
+
+<div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Cancellation Request Summary</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Requester:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{requesterName}} ({{requesterEmail}})</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Submitted:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{submittedAt}}</td>
+    </tr>
+  </table>
+</div>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason for cancellation:</h4>
+  <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
+</div>
+
+{{#adminPanelUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Cancellation Request
+  </a>
+</p>
+{{/adminPanelUrl}}
+
+<p style="color: #718096; font-size: 14px;">
+  Please review this cancellation request at your earliest convenience.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'cancellationReason', 'adminPanelUrl']
+  },
+
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED]: {
+    id: TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED,
+    name: 'Cancellation Request Approved',
+    description: 'Sent to requester when their cancellation request is approved',
+    subject: 'Event Cancelled: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #276749;">
+  <span style="background-color: #c6f6d5; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">APPROVED</span>
+  Cancellation Request Approved
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Your request to cancel the event <strong>{{eventTitle}}</strong> has been approved. The event has been removed from the calendar.
+</p>
+
+<div style="background-color: #f0fff4; border-left: 4px solid #48bb78; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Cancelled Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#approvalNotes}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from reviewer:</h4>
+  <p style="margin: 0; color: #4a5568;">{{approvalNotes}}</p>
+</div>
+{{/approvalNotes}}
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  If you need to rebook this event, please submit a new reservation request.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'approvalNotes']
+  },
+
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED]: {
+    id: TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED,
+    name: 'Cancellation Request Rejected',
+    description: 'Sent to requester when their cancellation request is not approved',
+    subject: 'Cancellation Request Update: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">NOT APPROVED</span>
+  Cancellation Request Update
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  We regret to inform you that your request to cancel the event <strong>{{eventTitle}}</strong> could not be approved at this time. The event remains published on the calendar.
+</p>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#rejectionReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason:</h4>
+  <p style="margin: 0; color: #4a5568;">{{rejectionReason}}</p>
+</div>
+{{/rejectionReason}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What can you do?</strong><br>
+  If you would like to discuss this decision, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your understanding.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'rejectionReason']
   },
 
   // =========================================================================
@@ -1316,6 +1534,51 @@ async function generateEditRequestRejectedNotification(editRequest, rejectionRea
 }
 
 // =============================================================================
+// CANCELLATION REQUEST GENERATOR FUNCTIONS
+// =============================================================================
+
+/**
+ * Generate cancellation request submitted confirmation email
+ */
+async function generateCancellationRequestSubmittedConfirmation(eventData, cancellationReason = '') {
+  const variables = extractVariables(eventData, {
+    cancellationReason: cancellationReason ? escapeHtml(cancellationReason) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.CANCELLATION_REQUEST_SUBMITTED, variables);
+}
+
+/**
+ * Generate admin cancellation request alert email
+ */
+async function generateAdminCancellationRequestAlert(eventData, cancellationReason = '', adminPanelUrl = '') {
+  const variables = extractVariables(eventData, {
+    cancellationReason: cancellationReason ? escapeHtml(cancellationReason) : '',
+    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT, variables);
+}
+
+/**
+ * Generate cancellation request approved notification email
+ */
+async function generateCancellationRequestApprovedNotification(eventData, approvalNotes = '') {
+  const variables = extractVariables(eventData, {
+    approvalNotes: approvalNotes ? escapeHtml(approvalNotes) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED, variables);
+}
+
+/**
+ * Generate cancellation request rejected notification email
+ */
+async function generateCancellationRequestRejectedNotification(eventData, rejectionReason = '') {
+  const variables = extractVariables(eventData, {
+    rejectionReason: rejectionReason ? escapeHtml(rejectionReason) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED, variables);
+}
+
+// =============================================================================
 // ERROR NOTIFICATION GENERATOR FUNCTIONS
 // =============================================================================
 
@@ -1456,6 +1719,12 @@ module.exports = {
   generateAdminEditRequestAlert,
   generateEditRequestApprovedNotification,
   generateEditRequestRejectedNotification,
+
+  // Cancellation request generator functions
+  generateCancellationRequestSubmittedConfirmation,
+  generateAdminCancellationRequestAlert,
+  generateCancellationRequestApprovedNotification,
+  generateCancellationRequestRejectedNotification,
 
   // Error notification generator functions
   generateErrorNotification,

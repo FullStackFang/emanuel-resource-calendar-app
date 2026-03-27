@@ -12,6 +12,7 @@ const { createApprover, createRequester, insertUsers } = require('../../__helper
 const {
   createPublishedEvent,
   createPublishedEventWithEditRequest,
+  createOwnerlessPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -517,6 +518,82 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         action: 'edit-request-cancelled',
         performedBy: requesterUser.odataId,
       });
+    });
+  });
+
+  describe('Ownerless event edit requests (OER-1 to OER-3)', () => {
+    it('OER-1: Requester can submit edit request on ownerless published event', async () => {
+      const ownerless = createOwnerlessPublishedEvent({
+        eventTitle: 'Interfaith Lunch Group',
+      });
+      const [saved] = await insertEvents(db, [ownerless]);
+
+      const res = await request(app)
+        .post(`/api/events/${saved._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          proposedChanges: { eventTitle: 'Interfaith Lunch Group - Cancelled' },
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.pendingEditRequest).toBeDefined();
+      expect(res.body.event.pendingEditRequest.status).toBe('pending');
+      expect(res.body.event.pendingEditRequest.requestedBy.email).toBe(requesterUser.email);
+    });
+
+    it('OER-2: Requester still cannot submit edit request on another user\'s owned event', async () => {
+      const ownedByOther = createPublishedEvent({
+        userId: 'other-user-id',
+        requesterEmail: 'other@emanuelnyc.org',
+        department: 'Other Department',
+        eventTitle: 'Someone Else\'s Event',
+      });
+      const [saved] = await insertEvents(db, [ownedByOther]);
+
+      const res = await request(app)
+        .post(`/api/events/${saved._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          proposedChanges: { eventTitle: 'Attempted Change' },
+        })
+        .expect(403);
+
+      expect(res.body.error).toMatch(/permission|owner|department/i);
+    });
+
+    it('OER-3: Ownerless event with existing pending edit request blocks new request', async () => {
+      const ownerless = createOwnerlessPublishedEvent({
+        eventTitle: 'Graph Synced Event',
+      });
+      // Add a pending edit request manually
+      ownerless.pendingEditRequest = {
+        id: `edit-req-${Date.now()}`,
+        status: 'pending',
+        requestedBy: {
+          userId: 'some-other-user',
+          email: 'other@emanuelnyc.org',
+          name: 'Other User',
+          department: '',
+          phone: '',
+          requestedAt: new Date(),
+        },
+        proposedChanges: { eventTitle: 'Already Requested Change' },
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNotes: '',
+      };
+      const [saved] = await insertEvents(db, [ownerless]);
+
+      const res = await request(app)
+        .post(`/api/events/${saved._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          proposedChanges: { eventTitle: 'Another Change' },
+        })
+        .expect(400);
+
+      expect(res.body.error).toMatch(/already.*exist|already.*pending/i);
     });
   });
 });

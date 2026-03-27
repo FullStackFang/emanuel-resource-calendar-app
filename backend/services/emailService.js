@@ -727,6 +727,97 @@ async function sendEditRequestRejectedNotification(editRequest, rejectionReason 
 }
 
 // =============================================================================
+// CANCELLATION REQUEST EMAIL FUNCTIONS
+// =============================================================================
+
+/**
+ * Send cancellation request submitted confirmation to requester
+ * @param {Object} eventData - Event data
+ * @param {string} cancellationReason - Reason for cancellation
+ * @param {string} requesterEmail - Email of the person who requested cancellation
+ */
+async function sendCancellationRequestSubmittedConfirmation(eventData, cancellationReason, requesterEmail) {
+  if (!requesterEmail) {
+    logger.warn('No requester email for cancellation request confirmation');
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const shouldSend = await shouldSendNotification(requesterEmail, 'emailOnConfirmations');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
+  const { subject, html } = await emailTemplates.generateCancellationRequestSubmittedConfirmation(eventData, cancellationReason);
+
+  return sendEmail(requesterEmail, subject, html, {
+    eventId: eventData._id?.toString()
+  });
+}
+
+/**
+ * Send cancellation request alert to admins
+ * @param {Object} eventData - Event data
+ * @param {string} cancellationReason - Reason for cancellation
+ * @param {string} adminPanelUrl - Optional URL to admin panel
+ */
+async function sendAdminCancellationRequestAlert(eventData, cancellationReason, adminPanelUrl = '') {
+  const reviewerEmails = await getReviewerEmails(dbConnection, 'emailOnCancellationRequests');
+
+  if (reviewerEmails.length === 0) {
+    logger.warn('No reviewer emails configured for cancellation request alert');
+    return { success: false, error: 'No reviewer emails configured' };
+  }
+
+  const { subject, html } = await emailTemplates.generateAdminCancellationRequestAlert(eventData, cancellationReason, adminPanelUrl);
+
+  return sendEmail(reviewerEmails, subject, html, {
+    eventId: eventData._id?.toString()
+  });
+}
+
+/**
+ * Send cancellation request approved notification to requester
+ * @param {Object} eventData - Event data
+ * @param {string} requesterEmail - Email of the person who requested cancellation
+ * @param {string} approvalNotes - Optional notes from approver
+ */
+async function sendCancellationRequestApprovedNotification(eventData, requesterEmail, approvalNotes = '') {
+  if (!requesterEmail) {
+    logger.warn('No requester email for cancellation approval notification');
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const shouldSend = await shouldSendNotification(requesterEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
+  const { subject, html } = await emailTemplates.generateCancellationRequestApprovedNotification(eventData, approvalNotes);
+
+  return sendEmail(requesterEmail, subject, html, {
+    eventId: eventData._id?.toString()
+  });
+}
+
+/**
+ * Send cancellation request rejected notification to requester
+ * @param {Object} eventData - Event data
+ * @param {string} requesterEmail - Email of the person who requested cancellation
+ * @param {string} rejectionReason - Reason for rejection
+ */
+async function sendCancellationRequestRejectedNotification(eventData, requesterEmail, rejectionReason = '') {
+  if (!requesterEmail) {
+    logger.warn('No requester email for cancellation rejection notification');
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const shouldSend = await shouldSendNotification(requesterEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
+  const { subject, html } = await emailTemplates.generateCancellationRequestRejectedNotification(eventData, rejectionReason);
+
+  return sendEmail(requesterEmail, subject, html, {
+    eventId: eventData._id?.toString()
+  });
+}
+
+// =============================================================================
 // ERROR NOTIFICATION EMAIL FUNCTIONS
 // =============================================================================
 
@@ -861,6 +952,12 @@ module.exports = {
   sendAdminEditRequestAlert,
   sendEditRequestApprovedNotification,
   sendEditRequestRejectedNotification,
+
+  // Cancellation request notification helpers
+  sendCancellationRequestSubmittedConfirmation,
+  sendAdminCancellationRequestAlert,
+  sendCancellationRequestApprovedNotification,
+  sendCancellationRequestRejectedNotification,
 
   // Error notification helpers
   sendErrorNotification,

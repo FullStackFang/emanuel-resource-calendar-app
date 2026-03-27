@@ -228,7 +228,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       results = results.filter(r =>
         r.status === 'pending' ||
         r.status === 'room-reservation-request' ||
-        (r.status === 'published' && r.pendingEditRequest?.status === 'pending')
+        (r.status === 'published' && r.pendingEditRequest?.status === 'pending') ||
+        (r.status === 'published' && r.pendingCancellationRequest?.status === 'pending')
       );
     }
 
@@ -238,9 +239,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           case 'pending':
             return r.status === 'pending' || r.status === 'room-reservation-request';
           case 'published':
-            return r.status === 'published' && r.pendingEditRequest?.status !== 'pending';
+            return r.status === 'published' && r.pendingEditRequest?.status !== 'pending' && r.pendingCancellationRequest?.status !== 'pending';
           case 'published_edit':
             return r.status === 'published' && r.pendingEditRequest?.status === 'pending';
+          case 'published_cancellation':
+            return r.status === 'published' && r.pendingCancellationRequest?.status === 'pending';
           case 'rejected':
             return r.status === 'rejected';
           default:
@@ -257,7 +260,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     needs_attention: searchFiltered.filter(r =>
       r.status === 'pending' ||
       r.status === 'room-reservation-request' ||
-      (r.status === 'published' && r.pendingEditRequest?.status === 'pending')
+      (r.status === 'published' && r.pendingEditRequest?.status === 'pending') ||
+      (r.status === 'published' && r.pendingCancellationRequest?.status === 'pending')
     ).length,
     all: searchFiltered.length,
   }), [searchFiltered]);
@@ -370,6 +374,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
     if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
       return { label: 'Edit Requested', className: 'status-published-edit' };
+    }
+    if (reservation.status === 'published' && reservation.pendingCancellationRequest?.status === 'pending') {
+      return { label: 'Cancellation Requested', className: 'status-published-edit' };
     }
     if (reservation.status === 'published') {
       return { label: 'Published', className: 'status-published' };
@@ -952,6 +959,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                     <span className="rr-info-label">Reason</span>
                     <div className="rr-info-value rr-status-info">
                       <span className="rr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cancellation reason (pending cancellation only) */}
+                {reservation.pendingCancellationRequest?.status === 'pending' && (
+                  <div className="rr-info-block">
+                    <span className="rr-info-label">Cancellation Reason</span>
+                    <div className="rr-info-value rr-status-info">
+                      <span className="rr-rejection" title={reservation.pendingCancellationRequest.reason}>
+                        {reservation.pendingCancellationRequest.reason}
+                      </span>
                     </div>
                   </div>
                 )}

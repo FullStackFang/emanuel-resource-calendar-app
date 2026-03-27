@@ -405,6 +405,22 @@ function createRecurringSeriesMaster(options = {}) {
   });
 }
 
+/**
+ * Create a published event with NO owner (simulates Graph-synced or rsSched-imported events)
+ * These events have no roomReservationData.requestedBy, only createdBy/createdByEmail metadata.
+ * @param {Object} options - Event options
+ * @returns {Object} Ownerless published event
+ */
+function createOwnerlessPublishedEvent(options = {}) {
+  const event = createPublishedEvent({
+    roomReservationData: null,
+    createdByEmail: options.createdByEmail || 'system@graph-sync',
+    createdBy: options.createdBy || 'graph-sync-system',
+    ...options,
+  });
+  return event;
+}
+
 module.exports = {
   createBaseEvent,
   createDraftEvent,
@@ -415,6 +431,7 @@ module.exports = {
   createRejectedEvent,
   createDeletedEvent,
   createRecurringSeriesMaster,
+  createOwnerlessPublishedEvent,
   insertEvent,
   insertEvents,
   createEventSetForUser,

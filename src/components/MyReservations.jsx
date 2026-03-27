@@ -92,6 +92,13 @@ export default function MyReservations({ apiToken }) {
   const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
   const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
 
+  // Cancellation request state
+  const [isCancellationRequestMode, setIsCancellationRequestMode] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isSubmittingCancellationRequest, setIsSubmittingCancellationRequest] = useState(false);
+  const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
+  const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
+
   // Helper to get event field with calendarData fallback
   const getEventField = (event, field, defaultValue = undefined) => {
     if (!event) return defaultValue;
@@ -225,6 +232,9 @@ export default function MyReservations({ apiToken }) {
   useEffect(() => {
     if (!reviewModal.isOpen) {
       setIsEditRequestMode(false);
+      setIsCancellationRequestMode(false);
+      setCancellationReason('');
+      setIsWithdrawCancellationConfirming(false);
     }
   }, [reviewModal.isOpen]);
 
@@ -662,6 +672,103 @@ export default function MyReservations({ apiToken }) {
     setIsCancelEditRequestConfirming(false);
   }, []);
 
+  // --- Cancellation request handlers ---
+
+  const handleRequestCancellation = useCallback(() => {
+    setIsCancellationRequestMode(true);
+    setCancellationReason('');
+  }, []);
+
+  const handleCancelCancellationRequest = useCallback(() => {
+    setIsCancellationRequestMode(false);
+    setCancellationReason('');
+  }, []);
+
+  const handleSubmitCancellationRequest = useCallback(async () => {
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !cancellationReason.trim()) return;
+
+    setIsSubmittingCancellationRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-cancellation`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            reason: cancellationReason.trim(),
+            _version: currentItem._version,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit cancellation request');
+      }
+
+      showSuccess('Cancellation request submitted');
+      setIsCancellationRequestMode(false);
+      setCancellationReason('');
+      reviewModal.closeModal();
+      loadMyReservations();
+      dispatchRefresh('my-reservations', 'navigation-counts');
+    } catch (error) {
+      showError(error, { context: 'MyReservations.submitCancellationRequest' });
+    } finally {
+      setIsSubmittingCancellationRequest(false);
+    }
+  }, [reviewModal, cancellationReason, apiToken, loadMyReservations, showSuccess, showError]);
+
+  const handleWithdrawCancellationRequest = useCallback(async () => {
+    if (!isWithdrawCancellationConfirming) {
+      setIsWithdrawCancellationConfirming(true);
+      return;
+    }
+
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem) return;
+
+    setIsWithdrawingCancellationRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/cancellation-requests/${eventId}/cancel`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to withdraw cancellation request');
+      }
+
+      showSuccess('Cancellation request withdrawn');
+      setIsWithdrawCancellationConfirming(false);
+      reviewModal.closeModal();
+      loadMyReservations();
+      dispatchRefresh('my-reservations', 'navigation-counts');
+    } catch (error) {
+      showError(error, { context: 'MyReservations.withdrawCancellationRequest' });
+    } finally {
+      setIsWithdrawingCancellationRequest(false);
+      setIsWithdrawCancellationConfirming(false);
+    }
+  }, [isWithdrawCancellationConfirming, reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+
+  const cancelWithdrawCancellationConfirmation = useCallback(() => {
+    setIsWithdrawCancellationConfirming(false);
+  }, []);
+
   // Show loading while permissions are being determined
   if (permissionsLoading) {
     return <LoadingSpinner variant="card" text="Loading..." />;
@@ -1082,6 +1189,20 @@ export default function MyReservations({ apiToken }) {
         isCancelingEditRequest={isCancelingEditRequest}
         isCancelEditRequestConfirming={isCancelEditRequestConfirming}
         onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
+        // Cancellation request props
+        canRequestCancellation={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
+        onRequestCancellation={handleRequestCancellation}
+        isCancellationRequestMode={isCancellationRequestMode}
+        cancellationReason={cancellationReason}
+        onCancellationReasonChange={setCancellationReason}
+        onSubmitCancellationRequest={handleSubmitCancellationRequest}
+        onCancelCancellationRequest={handleCancelCancellationRequest}
+        isSubmittingCancellationRequest={isSubmittingCancellationRequest}
+        existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
+        onWithdrawCancellationRequest={handleWithdrawCancellationRequest}
+        isWithdrawingCancellationRequest={isWithdrawingCancellationRequest}
+        isWithdrawCancellationConfirming={isWithdrawCancellationConfirming}
+        onCancelWithdrawCancellation={cancelWithdrawCancellationConfirmation}
         // Draft props from hook
         isDraft={reviewModal.isDraft}
         onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}

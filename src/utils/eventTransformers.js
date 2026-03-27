@@ -335,6 +335,9 @@ export function transformEventToFlatStructure(event) {
     // Edit request data (for approval queue filtering)
     pendingEditRequest: event.pendingEditRequest || null,
 
+    // Cancellation request data (for approval queue filtering)
+    pendingCancellationRequest: event.pendingCancellationRequest || null,
+
     // Flags
     _isPreProcessed: true // Flag to tell FormBase that data is pre-processed
   };

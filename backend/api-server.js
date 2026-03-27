@@ -5236,11 +5236,14 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail }) {
       deleted:          ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
       restored:         ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
       resubmitted:      ['approval-queue', 'my-reservations'],
-      'edit-requested': ['approval-queue', 'my-reservations'],
-      'edit-published': ['calendar', 'approval-queue', 'my-reservations'],
-      'edit-rejected':  ['approval-queue', 'my-reservations'],
+      'edit-requested':          ['approval-queue', 'my-reservations'],
+      'edit-published':          ['calendar', 'approval-queue', 'my-reservations'],
+      'edit-rejected':           ['approval-queue', 'my-reservations'],
+      'cancellation-requested':  ['approval-queue', 'my-reservations'],
+      'cancellation-approved':   ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
+      'cancellation-rejected':   ['approval-queue', 'my-reservations'],
     };
-    const COUNTS_CHANGING = ['created', 'published', 'rejected', 'deleted', 'restored', 'resubmitted'];
+    const COUNTS_CHANGING = ['created', 'published', 'rejected', 'deleted', 'restored', 'resubmitted', 'cancellation-approved'];
 
     // Invalidate counts cache on any mutation
     countsCache.clear();
@@ -20064,7 +20067,10 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       }
     }
 
-    if (!isOwner && !isSameDepartment) {
+    // Ownerless events (imported/synced without requestedBy) are open to any requester+
+    const isOwnerlessEvent = !originalEvent.roomReservationData?.requestedBy?.email;
+
+    if (!isOwner && !isSameDepartment && !isOwnerlessEvent) {
       return res.status(403).json({
         error: 'Only the event owner or users in the same department can request edits'
       });
@@ -20075,6 +20081,13 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       return res.status(400).json({
         error: 'There is already a pending edit request for this event',
         existingRequestId: originalEvent.pendingEditRequest.id
+      });
+    }
+
+    // Mutual exclusion: no pending cancellation request
+    if (originalEvent.pendingCancellationRequest && originalEvent.pendingCancellationRequest.status === 'pending') {
+      return res.status(400).json({
+        error: 'Cannot submit an edit request while a cancellation request is pending'
       });
     }
 
@@ -21328,6 +21341,539 @@ app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) =>
 
 // ============================================================================
 // END EDIT REQUEST ENDPOINTS
+// ============================================================================
+
+// ============================================================================
+// CANCELLATION REQUEST ENDPOINTS
+// ============================================================================
+
+/**
+ * Submit a cancellation request on a published event
+ * POST /api/events/:id/request-cancellation
+ *
+ * Permission: owner OR same-department OR ownerless event (any requester+)
+ * Guards: event must be published, no pending edit or cancellation request
+ */
+app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const eventId = req.params.id;
+    const { reason, _version } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Cancellation reason is required' });
+    }
+
+    // Find the event
+    let event;
+    try {
+      event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
+    } catch (e) {
+      event = await unifiedEventsCollection.findOne({ eventId });
+    }
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Must be published (Graph events without explicit status are implicitly published)
+    const hasExplicitStatus = event.status !== undefined;
+    const isPublished = hasExplicitStatus ? event.status === 'published' : true;
+    if (!isPublished) {
+      return res.status(400).json({
+        error: 'Cancellation requests can only be submitted for published events',
+        currentStatus: event.status
+      });
+    }
+
+    // Permission check: owner OR same-department OR ownerless
+    const isOwner = event.createdBy === userId ||
+                    (event.createdByEmail || '').toLowerCase() === (userEmail || '').toLowerCase() ||
+                    event.roomReservationData?.requestedBy?.userId === userId ||
+                    (event.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
+
+    const isOwnerlessEvent = !event.roomReservationData?.requestedBy?.email;
+
+    let isSameDepartment = false;
+    if (!isOwner && !isOwnerlessEvent) {
+      const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+      const myDept = (requestingUser?.department || '').toLowerCase().trim();
+      if (myDept) {
+        const eventDept = (
+          event.roomReservationData?.requestedBy?.department ||
+          event.calendarData?.department ||
+          ''
+        ).toLowerCase().trim();
+        if (eventDept && eventDept === myDept) {
+          isSameDepartment = true;
+        } else {
+          const creatorUserId = event.roomReservationData?.requestedBy?.userId || event.createdBy;
+          const creatorEmail = event.roomReservationData?.requestedBy?.email || event.createdByEmail;
+          if (creatorUserId || creatorEmail) {
+            const creatorUser = await findUserByIdentity(usersCollection, creatorUserId, creatorEmail);
+            const creatorDept = (creatorUser?.department || '').toLowerCase().trim();
+            if (creatorDept && creatorDept === myDept) {
+              isSameDepartment = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (!isOwner && !isSameDepartment && !isOwnerlessEvent) {
+      return res.status(403).json({
+        error: 'Only the event owner, users in the same department, or any user for ownerless events can request cancellation'
+      });
+    }
+
+    // Mutual exclusion: no pending edit or cancellation request
+    if (event.pendingEditRequest && event.pendingEditRequest.status === 'pending') {
+      return res.status(400).json({
+        error: 'Cannot submit a cancellation request while an edit request is pending'
+      });
+    }
+    if (event.pendingCancellationRequest && event.pendingCancellationRequest.status === 'pending') {
+      return res.status(400).json({
+        error: 'There is already a pending cancellation request for this event'
+      });
+    }
+
+    // Build the cancellation request
+    const now = new Date();
+    const cancellationRequestId = `cancel-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+
+    const pendingCancellationRequest = {
+      id: cancellationRequestId,
+      status: 'pending',
+      reason: reason.trim(),
+      requestedBy: {
+        userId,
+        email: userEmail,
+        name: requestingUser?.displayName || userEmail,
+        department: requestingUser?.department || '',
+        phone: requestingUser?.phone || '',
+        requestedAt: now,
+      },
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: '',
+    };
+
+    // Save with OCC
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(eventId) },
+        {
+          $set: {
+            pendingCancellationRequest,
+            lastModifiedDateTime: now,
+            lastModifiedBy: userId,
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Audit log
+    try {
+      await auditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'cancellation-request-submitted',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: now,
+        metadata: {
+          cancellationRequestId,
+          reason: reason.trim(),
+        }
+      });
+    } catch (auditErr) {
+      logger.warn('Failed to create audit log for cancellation request:', auditErr.message);
+    }
+
+    // Send emails (fire-and-forget)
+    try {
+      await emailService.sendCancellationRequestSubmittedConfirmation(event, reason.trim(), userEmail);
+      await emailService.sendAdminCancellationRequestAlert(event, reason.trim());
+    } catch (emailErr) {
+      logger.warn('Failed to send cancellation request emails:', emailErr.message);
+    }
+
+    // SSE broadcast
+    broadcastEventChange({
+      eventId: event._id,
+      action: 'cancellation-requested',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email || userEmail,
+    });
+
+    res.status(201).json({
+      success: true,
+      cancellationRequestId,
+      eventId: event.eventId,
+      _version: updatedEvent._version,
+    });
+
+  } catch (error) {
+    logger.error('Error submitting cancellation request:', error);
+    res.status(500).json({ error: 'Failed to submit cancellation request' });
+  }
+});
+
+/**
+ * Approve a cancellation request (soft-deletes the event)
+ * PUT /api/admin/events/:id/approve-cancellation
+ *
+ * Permission: approver+
+ */
+app.put('/api/admin/events/:id/approve-cancellation', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const eventId = req.params.id;
+    const { notes, _version } = req.body;
+
+    // Permission check: approver+
+    const user = await findUserByIdentity(usersCollection, userId, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Only approvers and admins can approve cancellation requests' });
+    }
+
+    // Find event
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Must have a pending cancellation request
+    if (!event.pendingCancellationRequest || event.pendingCancellationRequest.status !== 'pending') {
+      return res.status(400).json({ error: 'No pending cancellation request found for this event' });
+    }
+
+    const cancellationRequest = event.pendingCancellationRequest;
+    const now = new Date();
+    const cancellationReason = `Cancellation request approved: ${cancellationRequest.reason}`;
+
+    // Soft-delete with OCC (mirrors DELETE /api/admin/events/:id pattern)
+    let deletedEvent;
+    try {
+      deletedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(eventId) },
+        {
+          $set: {
+            status: 'deleted',
+            isDeleted: true,
+            deletedAt: now,
+            deletedBy: userId,
+            deletedByEmail: userEmail,
+            pendingEditRequest: null,
+            'pendingCancellationRequest.status': 'approved',
+            'pendingCancellationRequest.reviewedBy': { userId, name: user?.displayName || userEmail, email: userEmail },
+            'pendingCancellationRequest.reviewedAt': now,
+            'pendingCancellationRequest.reviewNotes': notes?.trim() || '',
+          },
+          $push: {
+            statusHistory: {
+              status: 'deleted',
+              changedAt: now,
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: cancellationReason
+            }
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Delete from Graph if applicable
+    let graphDeleted = false;
+    const graphEventId = event.graphData?.id;
+    const calendarOwner = event.calendarOwner;
+    if (graphEventId && calendarOwner) {
+      try {
+        await graphApiService.deleteCalendarEvent(calendarOwner, event.calendarId || null, graphEventId);
+        graphDeleted = true;
+        logger.log(`Graph event deleted for approved cancellation: ${graphEventId}`);
+      } catch (graphErr) {
+        logger.warn(`Failed to delete Graph event for cancellation: ${graphErr.message}`);
+      }
+    }
+
+    // Audit log
+    try {
+      await auditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'cancellation-request-approved',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: now,
+        metadata: {
+          cancellationRequestId: cancellationRequest.id,
+          requestedByEmail: cancellationRequest.requestedBy?.email,
+          approvalNotes: notes?.trim() || '',
+          graphDeleted,
+        }
+      });
+    } catch (auditErr) {
+      logger.warn('Failed to create audit log for cancellation approval:', auditErr.message);
+    }
+
+    // Send email to cancellation requester
+    try {
+      const requesterEmail = cancellationRequest.requestedBy?.email;
+      if (requesterEmail) {
+        await emailService.sendCancellationRequestApprovedNotification(event, requesterEmail, notes?.trim() || '');
+      }
+    } catch (emailErr) {
+      logger.warn('Failed to send cancellation approval email:', emailErr.message);
+    }
+
+    // SSE broadcast
+    broadcastEventChange({
+      eventId: event._id,
+      action: 'cancellation-approved',
+      actorEmail: userEmail,
+      requesterEmail: cancellationRequest.requestedBy?.email || '',
+    });
+
+    res.json({
+      success: true,
+      message: 'Cancellation request approved. Event has been deleted.',
+      eventId: event.eventId,
+      _version: deletedEvent._version,
+      graphDeleted,
+    });
+
+  } catch (error) {
+    logger.error('Error approving cancellation request:', error);
+    res.status(500).json({ error: 'Failed to approve cancellation request' });
+  }
+});
+
+/**
+ * Reject a cancellation request
+ * PUT /api/admin/events/:id/reject-cancellation
+ *
+ * Permission: approver+
+ */
+app.put('/api/admin/events/:id/reject-cancellation', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const eventId = req.params.id;
+    const { reason, _version } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    // Permission check: approver+
+    const user = await findUserByIdentity(usersCollection, userId, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Only approvers and admins can reject cancellation requests' });
+    }
+
+    // Find event
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Must have a pending cancellation request
+    if (!event.pendingCancellationRequest || event.pendingCancellationRequest.status !== 'pending') {
+      return res.status(400).json({ error: 'No pending cancellation request found for this event' });
+    }
+
+    const cancellationRequest = event.pendingCancellationRequest;
+    const now = new Date();
+
+    // Update with OCC
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(eventId) },
+        {
+          $set: {
+            'pendingCancellationRequest.status': 'rejected',
+            'pendingCancellationRequest.reviewedBy': { userId, name: user?.displayName || userEmail, email: userEmail },
+            'pendingCancellationRequest.reviewedAt': now,
+            'pendingCancellationRequest.reviewNotes': reason.trim(),
+            lastModifiedDateTime: now,
+            lastModifiedBy: userId,
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Audit log
+    try {
+      await auditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'cancellation-request-rejected',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: now,
+        metadata: {
+          cancellationRequestId: cancellationRequest.id,
+          requestedByEmail: cancellationRequest.requestedBy?.email,
+          rejectionReason: reason.trim(),
+        }
+      });
+    } catch (auditErr) {
+      logger.warn('Failed to create audit log for cancellation rejection:', auditErr.message);
+    }
+
+    // Send email to cancellation requester
+    try {
+      const requesterEmail = cancellationRequest.requestedBy?.email;
+      if (requesterEmail) {
+        await emailService.sendCancellationRequestRejectedNotification(event, requesterEmail, reason.trim());
+      }
+    } catch (emailErr) {
+      logger.warn('Failed to send cancellation rejection email:', emailErr.message);
+    }
+
+    // SSE broadcast
+    broadcastEventChange({
+      eventId: event._id,
+      action: 'cancellation-rejected',
+      actorEmail: userEmail,
+      requesterEmail: cancellationRequest.requestedBy?.email || '',
+    });
+
+    res.json({
+      success: true,
+      message: 'Cancellation request rejected. Event remains published.',
+      eventId: event.eventId,
+      _version: updatedEvent._version,
+    });
+
+  } catch (error) {
+    logger.error('Error rejecting cancellation request:', error);
+    res.status(500).json({ error: 'Failed to reject cancellation request' });
+  }
+});
+
+/**
+ * Withdraw own cancellation request
+ * PUT /api/events/cancellation-requests/:id/cancel
+ *
+ * The :id parameter is the event _id.
+ * Only the original requester can withdraw their pending cancellation request.
+ */
+app.put('/api/events/cancellation-requests/:id/cancel', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const eventId = req.params.id;
+
+    // Find event
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Must have a pending cancellation request
+    if (!event.pendingCancellationRequest || event.pendingCancellationRequest.status !== 'pending') {
+      return res.status(400).json({ error: 'No pending cancellation request found for this event' });
+    }
+
+    // Must be the request owner
+    const requestOwner = event.pendingCancellationRequest.requestedBy;
+    const isRequestOwner = requestOwner?.userId === userId ||
+                           (requestOwner?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
+
+    if (!isRequestOwner) {
+      return res.status(403).json({ error: 'Only the original requester can withdraw a cancellation request' });
+    }
+
+    const now = new Date();
+
+    // Update
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          'pendingCancellationRequest.status': 'cancelled',
+          'pendingCancellationRequest.reviewNotes': 'Cancelled by requester',
+          lastModifiedDateTime: now,
+          lastModifiedBy: userId,
+        }
+      }
+    );
+
+    // Audit log
+    try {
+      await auditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'cancellation-request-cancelled',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: now,
+        metadata: {
+          cancellationRequestId: event.pendingCancellationRequest.id,
+          cancelledBy: userEmail,
+        }
+      });
+    } catch (auditErr) {
+      logger.warn('Failed to create audit log for cancellation withdrawal:', auditErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Cancellation request withdrawn',
+      eventId: event.eventId,
+    });
+
+  } catch (error) {
+    logger.error('Error withdrawing cancellation request:', error);
+    res.status(500).json({ error: 'Failed to withdraw cancellation request' });
+  }
+});
+
+// ============================================================================
+// END CANCELLATION REQUEST ENDPOINTS
 // ============================================================================
 
 // ============================================================================

@@ -121,6 +121,21 @@ export default function ReviewModal({
   isCancelingEditRequest = false,
   isCancelEditRequestConfirming = false,
   onCancelCancelEditRequest = null,
+  // Cancellation request props (for requesting cancellation of published events)
+  canRequestCancellation = false,
+  onRequestCancellation = null,
+  isCancellationRequestMode = false,
+  cancellationReason = '',
+  onCancellationReasonChange = null,
+  onSubmitCancellationRequest = null,
+  onCancelCancellationRequest = null,
+  isSubmittingCancellationRequest = false,
+  // Existing cancellation request props (viewing/withdrawing)
+  existingCancellationRequest = null,
+  onWithdrawCancellationRequest = null,
+  isWithdrawingCancellationRequest = false,
+  isWithdrawCancellationConfirming = false,
+  onCancelWithdrawCancellation = null,
   // Requester action buttons (opt-in, for MyReservations)
   // Delete reason (for owner-pending delete)
   deleteReason = '',
@@ -541,6 +556,74 @@ export default function ReviewModal({
                     >
                       {loadingEditRequest ? 'Checking...' : 'Request Edit'}
                     </button>
+                  )}
+
+                  {/* Request Cancellation button */}
+                  {canRequestCancellation && !existingCancellationRequest && itemStatus === 'published' && onRequestCancellation && !isEditRequestMode && !isViewingEditRequest && !isCancellationRequestMode && (
+                    <button
+                      type="button"
+                      className="action-btn delete-btn"
+                      onClick={onRequestCancellation}
+                      disabled={anyConfirming}
+                    >
+                      Request Cancellation
+                    </button>
+                  )}
+
+                  {/* Cancellation request form (inline reason textarea + submit) */}
+                  {isCancellationRequestMode && onSubmitCancellationRequest && (
+                    <div className="cancellation-request-form" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+                      <input
+                        type="text"
+                        className="inline-reason-input"
+                        placeholder="Why should this event be cancelled?"
+                        value={cancellationReason}
+                        onChange={(e) => onCancellationReasonChange?.(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && cancellationReason?.trim()) onSubmitCancellationRequest(); }}
+                        disabled={isSubmittingCancellationRequest}
+                        autoFocus
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="action-btn delete-btn confirming"
+                        onClick={onSubmitCancellationRequest}
+                        disabled={isSubmittingCancellationRequest || !cancellationReason?.trim()}
+                      >
+                        {isSubmittingCancellationRequest ? 'Submitting...' : 'Submit'}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-btn"
+                        onClick={onCancelCancellationRequest}
+                        disabled={isSubmittingCancellationRequest}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Withdraw Cancellation Request button (requester, when their cancellation request is pending) */}
+                  {isRequesterOnly && existingCancellationRequest?.status === 'pending' && onWithdrawCancellationRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn reject-btn ${isWithdrawCancellationConfirming ? 'confirming' : ''}`}
+                        onClick={onWithdrawCancellationRequest}
+                        disabled={isWithdrawingCancellationRequest || (anyConfirming && !isWithdrawCancellationConfirming)}
+                      >
+                        {isWithdrawingCancellationRequest ? 'Withdrawing...' : (isWithdrawCancellationConfirming ? 'Confirm Withdraw?' : 'Withdraw Cancellation')}
+                      </button>
+                      {isWithdrawCancellationConfirming && onCancelWithdrawCancellation && (
+                        <button
+                          type="button"
+                          className="confirm-cancel-x reject-cancel-x"
+                          onClick={onCancelWithdrawCancellation}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   )}
 
               {/* Withdraw Request button — requester, pending events (delete with reason) */}
