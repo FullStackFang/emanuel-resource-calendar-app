@@ -408,28 +408,35 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Remove requestedRooms to avoid confusion (locations is the single source of truth)
       delete bodyData.requestedRooms;
 
-      // Save occurrence overrides before deletion (needed for thisEvent merge below)
-      const savedOverrides = editScope === 'thisEvent'
-        ? (editableData.occurrenceOverrides || [])
-        : [];
-
-      // Protect backend-owned fields: eventType, occurrenceOverrides, exceptionEventIds
-      // These are managed by publish/draft-submit/occurrence-override endpoints only
+      // Protect backend-owned fields: eventType, exceptionEventIds
       delete bodyData.eventType;
-      delete bodyData.occurrenceOverrides;
       delete bodyData.exceptionEventIds;
 
-      // For thisEvent scope, merge occurrence-specific fields into body as top-level props.
-      // Backend reads override values from top-level updates.* (e.g., updates.startTime),
-      // so we extract stored overrides and use them as FALLBACK only — form data (already
-      // in bodyData via editableData spread) is the source of truth for user edits.
-      if (editScope === 'thisEvent' && bodyData.occurrenceDate) {
-        const overrideFields = extractOccurrenceOverrideFields(
-          bodyData.occurrenceDate,
-          savedOverrides
-        );
-        for (const [key, value] of Object.entries(overrideFields)) {
-          if (bodyData[key] === undefined) bodyData[key] = value;
+      if (editScope === 'thisEvent') {
+        // For thisEvent scope: save overrides before deletion, then merge as fallback
+        const savedOverrides = editableData.occurrenceOverrides || [];
+        delete bodyData.occurrenceOverrides;
+
+        // Merge occurrence-specific fields into body as top-level props.
+        // Backend reads override values from top-level updates.* (e.g., updates.startTime),
+        // so we extract stored overrides and use them as FALLBACK only — form data (already
+        // in bodyData via editableData spread) is the source of truth for user edits.
+        if (bodyData.occurrenceDate) {
+          const overrideFields = extractOccurrenceOverrideFields(
+            bodyData.occurrenceDate,
+            savedOverrides
+          );
+          for (const [key, value] of Object.entries(overrideFields)) {
+            if (bodyData[key] === undefined) bodyData[key] = value;
+          }
+        }
+      } else {
+        // For allEvents/no-scope: replace stale editableData overrides with live
+        // overrides from the Recurrence tab (editableData doesn't track those edits)
+        delete bodyData.occurrenceOverrides;
+        const liveFormData = formDataGetterRef.current?.({ skipValidation: true });
+        if (liveFormData?.occurrenceOverrides?.length > 0) {
+          bodyData.occurrenceOverrides = liveFormData.occurrenceOverrides;
         }
       }
 

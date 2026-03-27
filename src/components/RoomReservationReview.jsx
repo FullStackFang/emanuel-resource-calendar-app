@@ -76,6 +76,7 @@ export default function RoomReservationReview({
   // Lifted occurrence overrides — edited via Recurrence tab's detail view
   const [occurrenceOverrides, setOccurrenceOverrides] = useState([]);
   const occurrenceOverridesRef = useRef([]);
+  const commitPendingOverridesRef = useRef(null);
 
   // Initialize recurrence and overrides from reservation data
   // Only re-initialize when the reservation identity changes (new event loaded),
@@ -180,6 +181,8 @@ export default function RoomReservationReview({
 
   // Save changes
   const handleSaveChanges = useCallback(async () => {
+    // Flush any pending occurrence edits from RecurrenceTabContent's detail view
+    commitPendingOverridesRef.current?.();
 
     const formData = formDataRef.current ? formDataRef.current() : {};
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
@@ -338,6 +341,9 @@ export default function RoomReservationReview({
   // Function to get processed form data (used by publish flow and draft save)
   // skipValidation: true for draft saves where dates/times are optional
   const getProcessedFormData = useCallback(({ skipValidation = false } = {}) => {
+    // Flush any pending occurrence edits from RecurrenceTabContent's detail view
+    commitPendingOverridesRef.current?.();
+
     const formData = formDataRef.current ? formDataRef.current() : {};
 
     if (!skipValidation) {
@@ -599,6 +605,7 @@ export default function RoomReservationReview({
                     readOnly={effectiveReadOnly}
                     onHasUncommittedRecurrence={onHasUncommittedRecurrence}
                     createRecurrenceRef={createRecurrenceRef}
+                    commitPendingOverridesRef={commitPendingOverridesRef}
                   />
                 </div>
               )}

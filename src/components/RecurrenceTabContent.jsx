@@ -61,6 +61,7 @@ export default function RecurrenceTabContent({
   readOnly = false,
   onHasUncommittedRecurrence = null,
   createRecurrenceRef = null,
+  commitPendingOverridesRef = null,
 }) {
   // ── Pattern editor state ──────────────────────────────────────
   const [frequency, setFrequency] = useState('weekly');
@@ -539,6 +540,13 @@ export default function RecurrenceTabContent({
   useEffect(() => {
     return () => { commitPendingEdits(); };
   }, [commitPendingEdits]);
+
+  // Expose commitPendingEdits to parent via ref (for programmatic flush before save)
+  useEffect(() => {
+    if (commitPendingOverridesRef) {
+      commitPendingOverridesRef.current = commitPendingEdits;
+    }
+  }, [commitPendingOverridesRef, commitPendingEdits]);
 
   const handleRemoveOverride = useCallback((dateStr) => {
     if (!canEdit || !onOccurrenceOverridesChange) return;
