@@ -906,7 +906,7 @@
 }
 
 .recurrence-detail-input {
-  padding: 6px var(--space-2);
+  padding: var(--space-2) var(--space-2);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -915,17 +915,18 @@
   font-size: var(--text-sm);
   outline: none;
   width: 100%;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: var(--transition-all);
 }
 
 .recurrence-detail-input:focus {
-  border-color: var(--border-focus, var(--color-primary-500));
+  border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .recurrence-detail-input:disabled {
   background: var(--bg-secondary);
   color: var(--text-secondary);
+  border-color: var(--border-default);
   opacity: 1;
   cursor: not-allowed;
 }

@@ -798,7 +798,7 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'Permission denied. Only the owner or an approver can edit this draft.' });
       }
 
-      const { editScope, occurrenceDate, clearOccurrenceOverrides } = req.body;
+      const { editScope, occurrenceDate, clearOccurrenceOverrides, occurrenceOverrides } = req.body;
 
       // --- thisEvent scope: write per-occurrence override and return early ---
       if (editScope === 'thisEvent' && occurrenceDate) {
@@ -936,6 +936,13 @@ function createTestApp(options = {}) {
       // Clear per-occurrence overrides only when explicitly requested (recurrence pattern changed)
       if (clearOccurrenceOverrides) {
         updateFields.occurrenceOverrides = [];
+        updateFields['calendarData.occurrenceOverrides'] = [];
+      }
+
+      // Bulk occurrence overrides from Recurrence tab (allEvents scope or regular draft save)
+      if (!clearOccurrenceOverrides && Array.isArray(occurrenceOverrides) && occurrenceOverrides.length > 0 && editScope !== 'thisEvent') {
+        updateFields.occurrenceOverrides = occurrenceOverrides;
+        updateFields['calendarData.occurrenceOverrides'] = occurrenceOverrides;
       }
 
       updateFields.lastModifiedDateTime = new Date();
@@ -3920,7 +3927,8 @@ function createTestApp(options = {}) {
           mongoUpdate.eventType = 'seriesMaster';
         }
       }
-      // Do NOT let frontend set eventType, occurrenceOverrides, or exceptionEventIds
+      // Do NOT let frontend set eventType or exceptionEventIds
+      const incomingOccurrenceOverrides = mongoUpdate.occurrenceOverrides || updates.occurrenceOverrides;
       delete mongoUpdate.occurrenceOverrides;
       delete mongoUpdate.exceptionEventIds;
 
@@ -4015,6 +4023,23 @@ function createTestApp(options = {}) {
           mongoUpdate.occurrenceOverrides = updatedOverrides;
           mongoUpdate['calendarData.occurrenceOverrides'] = updatedOverrides;
         }
+      }
+
+      // Merge frontend occurrence overrides (from Recurrence tab) with cascade result
+      if (Array.isArray(incomingOccurrenceOverrides) && incomingOccurrenceOverrides.length > 0) {
+        const cascadedOverrides = mongoUpdate.occurrenceOverrides || mongoUpdate['calendarData.occurrenceOverrides'] || event.occurrenceOverrides || [];
+        const overrideMap = new Map();
+        for (const o of cascadedOverrides) {
+          if (o.occurrenceDate) overrideMap.set(o.occurrenceDate, o);
+        }
+        for (const incoming of incomingOccurrenceOverrides) {
+          if (!incoming.occurrenceDate) continue;
+          const existing = overrideMap.get(incoming.occurrenceDate);
+          overrideMap.set(incoming.occurrenceDate, existing ? { ...existing, ...incoming } : incoming);
+        }
+        const mergedOverrides = Array.from(overrideMap.values());
+        mongoUpdate.occurrenceOverrides = mergedOverrides;
+        mongoUpdate['calendarData.occurrenceOverrides'] = mergedOverrides;
       }
 
       // Handle requestedRooms → locations mapping

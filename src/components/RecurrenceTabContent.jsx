@@ -76,6 +76,10 @@ export default function RecurrenceTabContent({
   const [selectedOccurrence, setSelectedOccurrence] = useState(null); // YYYY-MM-DD or null
   const [occurrenceEdits, setOccurrenceEdits] = useState({}); // { field: value } for current detail
 
+  // Refs for auto-commit on unmount/tab-switch (avoids stale closure in cleanup)
+  const occurrenceEditsRef = useRef({});
+  const selectedOccurrenceRef = useRef(null);
+
   // ── Calendar popover state (Customize / Exclude on pattern dates) ──
   const [calendarPopover, setCalendarPopover] = useState(null); // { dateStr, left, top } or null
   const popoverRef = useRef(null);
@@ -505,6 +509,37 @@ export default function RecurrenceTabContent({
     return map;
   }, [overrides]);
 
+  // Keep auto-commit refs in sync with latest values
+  const overridesRef = useRef(overrides);
+  const overridesByDateRef = useRef(overridesByDate);
+  useEffect(() => { occurrenceEditsRef.current = occurrenceEdits; }, [occurrenceEdits]);
+  useEffect(() => { selectedOccurrenceRef.current = selectedOccurrence; }, [selectedOccurrence]);
+  useEffect(() => { overridesRef.current = overrides; }, [overrides]);
+  useEffect(() => { overridesByDateRef.current = overridesByDate; }, [overridesByDate]);
+
+  /**
+   * Commit any pending occurrence edits to the parent overrides array.
+   * Reads from refs so it is safe to call from cleanup effects (no stale closures).
+   */
+  const commitPendingEdits = useCallback(() => {
+    const sel = selectedOccurrenceRef.current;
+    const edits = occurrenceEditsRef.current;
+    if (!sel || !Object.keys(edits).length || !onOccurrenceOverridesChange) return;
+
+    const existing = overridesByDateRef.current[sel];
+    const newOverride = { ...(existing || {}), occurrenceDate: sel, ...edits };
+    const updated = existing
+      ? overridesRef.current.map(o => o.occurrenceDate === sel ? newOverride : o)
+      : [...overridesRef.current, newOverride];
+
+    onOccurrenceOverridesChange(updated);
+  }, [onOccurrenceOverridesChange]);
+
+  // Auto-commit pending edits when the component unmounts (e.g., tab switch)
+  useEffect(() => {
+    return () => { commitPendingEdits(); };
+  }, [commitPendingEdits]);
+
   const handleRemoveOverride = useCallback((dateStr) => {
     if (!canEdit || !onOccurrenceOverridesChange) return;
     onOccurrenceOverridesChange(overrides.filter(o => o.occurrenceDate !== dateStr));
@@ -602,6 +637,9 @@ export default function RecurrenceTabContent({
   }, []);
 
   const handleOpenOccurrenceDetail = useCallback((dateStr) => {
+    // Commit pending edits from the previously selected occurrence (if any)
+    commitPendingEdits();
+
     setSelectedOccurrence(dateStr);
     // Pre-populate edits from existing override
     const override = overridesByDate[dateStr];
@@ -614,33 +652,16 @@ export default function RecurrenceTabContent({
     } else {
       setOccurrenceEdits({});
     }
-  }, [overridesByDate]);
+  }, [overridesByDate, commitPendingEdits]);
 
   const handleBackToList = useCallback(() => {
-    // Commit any pending edits to the overrides array
-    if (selectedOccurrence && Object.keys(occurrenceEdits).length > 0 && onOccurrenceOverridesChange) {
-      const dateKey = selectedOccurrence;
-      const existingOverride = overridesByDate[dateKey];
-      const newOverride = {
-        ...(existingOverride || {}),
-        occurrenceDate: dateKey,
-        ...occurrenceEdits,
-      };
-
-      // Build updated overrides: replace or append
-      const updatedOverrides = existingOverride
-        ? overrides.map(o => o.occurrenceDate === dateKey ? newOverride : o)
-        : [...overrides, newOverride];
-
-      onOccurrenceOverridesChange(updatedOverrides);
-    }
-
+    commitPendingEdits();
     setSelectedOccurrence(null);
     setOccurrenceEdits({});
     setShowRoomPicker(false);
     setShowCategoryPicker(false);
     setShowSecondaryTimes(false);
-  }, [selectedOccurrence, occurrenceEdits, overrides, overridesByDate, onOccurrenceOverridesChange]);
+  }, [commitPendingEdits]);
 
   // ── Calendar popover actions ─────────────────────────────────
   const handlePopoverCustomize = useCallback(() => {

@@ -233,6 +233,11 @@ export default function RoomReservationReview({
         ) : null
       };
 
+      // Include occurrence overrides for series master saves (allEvents scope or no scope)
+      if (editScope !== 'thisEvent' && occurrenceOverridesRef.current?.length > 0) {
+        updatedData.occurrenceOverrides = occurrenceOverridesRef.current;
+      }
+
       // Remove separate date/time fields and old requestedRooms field.
       // For thisEvent scope, keep startTime/endTime — backend reads them from
       // top-level updates.* and the form values are the source of truth.

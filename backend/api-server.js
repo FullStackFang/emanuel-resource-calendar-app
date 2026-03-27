@@ -13946,7 +13946,8 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       // Per-occurrence editing
       editScope,
       occurrenceDate,
-      clearOccurrenceOverrides
+      clearOccurrenceOverrides,
+      occurrenceOverrides
     } = req.body;
 
     // --- thisEvent scope: write per-occurrence override and return early ---
@@ -14140,6 +14141,13 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
     // Clear per-occurrence overrides only when explicitly requested (recurrence pattern changed)
     if (clearOccurrenceOverrides) {
       updateData.occurrenceOverrides = [];
+      updateData['calendarData.occurrenceOverrides'] = [];
+    }
+
+    // Bulk occurrence overrides from Recurrence tab (allEvents scope or regular draft save)
+    if (!clearOccurrenceOverrides && Array.isArray(occurrenceOverrides) && occurrenceOverrides.length > 0 && editScope !== 'thisEvent') {
+      updateData.occurrenceOverrides = occurrenceOverrides;
+      updateData['calendarData.occurrenceOverrides'] = occurrenceOverrides;
     }
 
     await unifiedEventsCollection.updateOne(
@@ -22269,7 +22277,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       changeKey: _changeKey, // Generated server-side
       pendingEditRequest: _pendingEditRequest, // Managed by dedicated endpoints (request-edit, publish-edit, reject-edit)
       eventType: _eventType, // Protected: backend owns eventType lifecycle (set by publish/draft-submit)
-      occurrenceOverrides: _occurrenceOverrides, // Protected: managed by occurrence override endpoints only
+      occurrenceOverrides: incomingOccurrenceOverrides, // Captured: merged with cascade result below
       exceptionEventIds: _exceptionEventIds, // Protected: managed by publish/restore only
       ...safeUpdates
     } = updates;
@@ -22741,6 +22749,26 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           ].filter(Boolean),
         });
       }
+    }
+
+    // Merge frontend occurrence overrides (from Recurrence tab) with cascade result.
+    // Cascade runs first (propagates master changes to inherited overrides), then
+    // frontend overrides merge on top — frontend fields win for explicit user edits.
+    if (Array.isArray(incomingOccurrenceOverrides) && incomingOccurrenceOverrides.length > 0) {
+      const cascadedOverrides = finalUpdateOperations['occurrenceOverrides'] || event.occurrenceOverrides || [];
+      const overrideMap = new Map();
+      for (const o of cascadedOverrides) {
+        if (o.occurrenceDate) overrideMap.set(o.occurrenceDate, o);
+      }
+      for (const incoming of incomingOccurrenceOverrides) {
+        if (!incoming.occurrenceDate) continue;
+        const existing = overrideMap.get(incoming.occurrenceDate);
+        overrideMap.set(incoming.occurrenceDate, existing ? { ...existing, ...incoming } : incoming);
+      }
+      const mergedOverrides = Array.from(overrideMap.values());
+      finalUpdateOperations['occurrenceOverrides'] = mergedOverrides;
+      finalUpdateOperations['calendarData.occurrenceOverrides'] = mergedOverrides;
+      logger.info('Merged frontend occurrence overrides:', { count: mergedOverrides.length });
     }
 
     // Atomically update with version guard
