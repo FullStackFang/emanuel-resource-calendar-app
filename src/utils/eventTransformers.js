@@ -148,18 +148,18 @@ export function transformEventToFlatStructure(event) {
   // For MongoDB documents, prefer explicit startTime/endTime from calendarData
   // over values parsed from startDateTime.
   // - Truthy string (e.g. "14:30") → use it (user entered a time)
-  // - Explicit null → clear to '' (user did NOT enter a time; don't surface
-  //   the backend's 00:00/23:59 query-fallback as if the user typed it)
+  // - Falsy but defined (null or '') → clear to '' (user did NOT enter a time;
+  //   don't surface the backend's reservation-time/query fallback as event time)
   // - undefined / missing → keep the parsed value (backward compat for older docs)
   if (event.calendarData) {
     if (event.calendarData.startTime) {
       startTime = event.calendarData.startTime;
-    } else if (event.calendarData.startTime === null) {
+    } else if (event.calendarData.startTime !== undefined) {
       startTime = '';
     }
     if (event.calendarData.endTime) {
       endTime = event.calendarData.endTime;
-    } else if (event.calendarData.endTime === null) {
+    } else if (event.calendarData.endTime !== undefined) {
       endTime = '';
     }
   }

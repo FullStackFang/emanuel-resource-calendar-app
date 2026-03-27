@@ -5201,12 +5201,12 @@ function withRetryCollection(collection) {
       if (typeof value !== 'function') return value;
 
       if (PROMISE_METHODS.has(prop)) {
-        return (...args) => withCosmosRetry(() => value.apply(target, ...args));
+        return (...args) => withCosmosRetry(() => value.apply(target, args));
       }
 
       if (CURSOR_METHODS.has(prop)) {
         return (...args) => {
-          const cursor = value.apply(target, ...args);
+          const cursor = value.apply(target, args);
           const originalToArray = cursor.toArray.bind(cursor);
           cursor.toArray = () => withCosmosRetry(() => originalToArray());
           return cursor;
