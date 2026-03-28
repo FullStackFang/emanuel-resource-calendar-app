@@ -634,16 +634,17 @@
   background: var(--color-primary-500);
 }
 
-/* Delete Button — outlined style, fills on confirm */
+/* Delete Button — tinted danger style (matches Request Cancellation), fills on confirm */
 .delete-btn {
-  background: var(--bg-primary) !important;
-  color: var(--color-error-500) !important;
-  border: 1px solid var(--color-error-200) !important;
+  background: var(--color-error-50) !important;
+  color: var(--color-error-600) !important;
+  border: 1.5px solid var(--color-error-300) !important;
 }
 
 .delete-btn:hover:not(:disabled) {
-  background: var(--color-error-50) !important;
-  border-color: var(--color-error-300) !important;
+  background: var(--color-error-100) !important;
+  border-color: var(--color-error-400) !important;
+  box-shadow: 0 1px 4px rgba(220, 38, 38, 0.15);
 }
 
 .delete-btn.confirming {
