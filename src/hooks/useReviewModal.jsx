@@ -36,6 +36,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [isRejectingEditRequest, setIsRejectingEditRequest] = useState(false);
   const [pendingEditRequestRejectConfirmation, setPendingEditRequestRejectConfirmation] = useState(false);
   const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
+  // Cancellation request approval/rejection state
+  const [isApprovingCancellation, setIsApprovingCancellation] = useState(false);
+  const [pendingCancellationApproveConfirmation, setPendingCancellationApproveConfirmation] = useState(false);
+  const [isRejectingCancellation, setIsRejectingCancellation] = useState(false);
+  const [pendingCancellationRejectConfirmation, setPendingCancellationRejectConfirmation] = useState(false);
+  const [cancellationRejectionReason, setCancellationRejectionReason] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [editableData, setEditableData] = useState(null);
   const [eventVersion, setEventVersion] = useState(null);
@@ -1351,6 +1357,150 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setEditRequestRejectionReason('');
   }, []);
 
+  // =========================================================================
+  // CANCELLATION REQUEST APPROVE/REJECT (approver/admin only)
+  // =========================================================================
+
+  const handleApproveCancellationRequest = useCallback(async () => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Two-click confirmation
+    if (!pendingCancellationApproveConfirmation) {
+      setPendingCancellationApproveConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    setPendingCancellationApproveConfirmation(false);
+    setIsApprovingCancellation(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-cancellation`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            notes: '',
+            _version: eventVersion ?? null,
+          })
+        }
+      );
+
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: errorData.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        if (onError) onError(errorData.error || 'This event was modified by another user');
+        return { success: false, error: errorData.error };
+      }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve cancellation request');
+      }
+
+      const result = await response.json();
+      notifySuccess({ cancellationApproved: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error approving cancellation request:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsApprovingCancellation(false);
+      setPendingCancellationApproveConfirmation(false);
+    }
+  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, pendingCancellationApproveConfirmation]);
+
+  const cancelCancellationApproveConfirmation = useCallback(() => {
+    setPendingCancellationApproveConfirmation(false);
+  }, []);
+
+  const handleRejectCancellationRequest = useCallback(async () => {
+    if (!currentItem) return { success: false, error: 'No item' };
+
+    // Two-click confirmation
+    if (!pendingCancellationRejectConfirmation) {
+      setPendingCancellationRejectConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Reason required
+    if (!cancellationRejectionReason.trim()) {
+      if (onError) onError('Please provide a reason for rejecting the cancellation request.');
+      return { success: false, error: 'Reason required' };
+    }
+
+    setPendingCancellationRejectConfirmation(false);
+    setIsRejectingCancellation(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-cancellation`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            reason: cancellationRejectionReason.trim(),
+            _version: eventVersion ?? null,
+          })
+        }
+      );
+
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.details?.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: errorData.details || {},
+            staleData: currentItem
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        if (onError) onError(errorData.error || 'This event was modified by another user');
+        return { success: false, error: errorData.error };
+      }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reject cancellation request');
+      }
+
+      const result = await response.json();
+      setCancellationRejectionReason('');
+      notifySuccess({ cancellationRejected: true });
+      await closeModal(true);
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error rejecting cancellation request:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsRejectingCancellation(false);
+      setPendingCancellationRejectConfirmation(false);
+    }
+  }, [currentItem, apiToken, eventVersion, cancellationRejectionReason, notifySuccess, onError, closeModal, pendingCancellationRejectConfirmation]);
+
+  const cancelCancellationRejectConfirmation = useCallback(() => {
+    setPendingCancellationRejectConfirmation(false);
+    setCancellationRejectionReason('');
+  }, []);
+
   /**
    * Dismiss the conflict dialog
    */
@@ -1727,6 +1877,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     cancelEditRequestRejectConfirmation,
     editRequestRejectionReason,
     setEditRequestRejectionReason,
+    // Cancellation request approval/rejection
+    handleApproveCancellationRequest,
+    isApprovingCancellation,
+    pendingCancellationApproveConfirmation,
+    cancelCancellationApproveConfirmation,
+    handleRejectCancellationRequest,
+    isRejectingCancellation,
+    pendingCancellationRejectConfirmation,
+    cancelCancellationRejectConfirmation,
+    cancellationRejectionReason,
+    setCancellationRejectionReason,
     cancelDeleteConfirmation,
     cancelApproveConfirmation,
     cancelRejectConfirmation,

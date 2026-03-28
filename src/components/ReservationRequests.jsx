@@ -823,6 +823,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               <option value="pending">Pending</option>
               <option value="published">Published</option>
               <option value="published_edit">Edit Requested</option>
+              <option value="published_cancellation">Cancellation Requested</option>
               <option value="rejected">Rejected</option>
             </select>
           </div>
@@ -869,7 +870,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               {/* Card Header - Event Title + Actions */}
               <div className="rr-card-header">
                 <div className="rr-card-title-row">
-                  <h3 className="rr-card-title">{reservation.isHold ? `[Hold] ${reservation.eventTitle}` : reservation.eventTitle}</h3>
+                  <h3 className="rr-card-title">{reservation.isHold && !reservation.eventTitle?.startsWith('[Hold]') ? `[Hold] ${reservation.eventTitle}` : reservation.eventTitle}</h3>
                   {(() => {
                     const badge = getStatusBadgeInfo(reservation);
                     return <span className={`rr-status-badge ${badge.className}`}>{badge.label}</span>;
@@ -1102,6 +1103,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         isEditRequestRejectConfirming={reviewModal.pendingEditRequestRejectConfirmation}
         onCancelEditRequestApprove={reviewModal.cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={reviewModal.cancelEditRequestRejectConfirmation}
+        // Cancellation request approval/rejection (admin)
+        existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
+        onApproveCancellationRequest={canApproveReservations ? reviewModal.handleApproveCancellationRequest : null}
+        onRejectCancellationRequest={canApproveReservations ? reviewModal.handleRejectCancellationRequest : null}
+        isApprovingCancellationRequest={reviewModal.isApprovingCancellation}
+        isRejectingCancellationRequest={reviewModal.isRejectingCancellation}
+        cancellationRejectionReason={reviewModal.cancellationRejectionReason}
+        onCancellationRejectionReasonChange={reviewModal.setCancellationRejectionReason}
+        isCancellationApproveConfirming={reviewModal.pendingCancellationApproveConfirmation}
+        isCancellationRejectConfirming={reviewModal.pendingCancellationRejectConfirmation}
+        onCancelCancellationApprove={reviewModal.cancelCancellationApproveConfirmation}
+        onCancelCancellationReject={reviewModal.cancelCancellationRejectConfirmation}
         // Scheduling conflicts
         isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
         hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}

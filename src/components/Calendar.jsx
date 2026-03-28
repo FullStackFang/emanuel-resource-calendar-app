@@ -6220,6 +6220,17 @@ import ConflictDialog from './shared/ConflictDialog';
           onCancelCancellationRequest={handleCancelCancellationRequestFromCalendar}
           isSubmittingCancellationRequest={isSubmittingCancellationRequest}
           existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
+          // Cancellation request approval/rejection (approver/admin from calendar)
+          onApproveCancellationRequest={canApproveReservations ? reviewModal.handleApproveCancellationRequest : null}
+          onRejectCancellationRequest={canApproveReservations ? reviewModal.handleRejectCancellationRequest : null}
+          isApprovingCancellationRequest={reviewModal.isApprovingCancellation}
+          isRejectingCancellationRequest={reviewModal.isRejectingCancellation}
+          cancellationRejectionReason={reviewModal.cancellationRejectionReason}
+          onCancellationRejectionReasonChange={reviewModal.setCancellationRejectionReason}
+          isCancellationApproveConfirming={reviewModal.pendingCancellationApproveConfirmation}
+          isCancellationRejectConfirming={reviewModal.pendingCancellationRejectConfirmation}
+          onCancelCancellationApprove={reviewModal.cancelCancellationApproveConfirmation}
+          onCancelCancellationReject={reviewModal.cancelCancellationRejectConfirmation}
           // Draft-related props - wire up when viewing an existing draft
           isDraft={reviewModal.isDraft}
           onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}

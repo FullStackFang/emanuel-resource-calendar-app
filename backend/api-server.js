@@ -5313,7 +5313,7 @@ const CALENDAR_VIEW_PROJECTION = {
   calendarData: 1, roomReservationData: 1,
   recurrence: 1, occurrenceOverrides: 1,
   createdByEmail: 1, createdAt: 1, createdBy: 1,
-  pendingEditRequest: 1, statusHistory: 1, _version: 1,
+  pendingEditRequest: 1, pendingCancellationRequest: 1, statusHistory: 1, _version: 1,
   lastModifiedDateTime: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
   categories: 1, start: 1, end: 1, subject: 1,
   // Only the graphData subfields actually used downstream
@@ -6459,10 +6459,13 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       }
 
     } else if (view === 'approval-queue') {
-      // Approval queue only shows statuses relevant to approver workflow:
-      // pending (needs action), published (outcome), rejected (outcome)
+      // Approval queue shows events with roomReservationData (reservation workflow)
+      // OR events with a pending cancellation request (even without roomReservationData)
       query.isDeleted = { $ne: true };
-      query.roomReservationData = { $exists: true, $ne: null };
+      query.$or = [
+        { roomReservationData: { $exists: true, $ne: null } },
+        { 'pendingCancellationRequest.status': 'pending' }
+      ];
       if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
       } else if (status === 'published' || status === 'rejected') {
@@ -6611,7 +6614,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       calendarData: 1,
       roomReservationData: 1,
       sourceCalendars: 1, lastSyncedAt: 1,
-      pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+      pendingEditRequest: 1, pendingCancellationRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
       createdAt: 1, createdBy: 1, createdByEmail: 1,
       lastModifiedDateTime: 1, _version: 1,
       'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
@@ -6727,10 +6730,14 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
 
     } else if (view === 'approval-queue') {
       // Single aggregation instead of 4 parallel countDocuments (avoids Cosmos DB rate limits)
+      // Include events with roomReservationData OR pending cancellation requests
       const pipeline = [
         { $match: {
           isDeleted: { $ne: true },
-          roomReservationData: { $exists: true, $ne: null }
+          $or: [
+            { roomReservationData: { $exists: true, $ne: null } },
+            { 'pendingCancellationRequest.status': 'pending' }
+          ]
         }},
         { $group: {
           _id: null,
@@ -6740,15 +6747,19 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
             { $eq: ['$status', 'published'] },
             { $eq: ['$pendingEditRequest.status', 'pending'] }
           ]}, 1, 0] } },
+          published_cancellation: { $sum: { $cond: [{ $and: [
+            { $eq: ['$status', 'published'] },
+            { $eq: ['$pendingCancellationRequest.status', 'pending'] }
+          ]}, 1, 0] } },
           rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } }
         }}
       ];
 
       const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
-      const counts = result || { pending: 0, publishedTotal: 0, published_edit: 0, rejected: 0 };
+      const counts = result || { pending: 0, publishedTotal: 0, published_edit: 0, published_cancellation: 0, rejected: 0 };
       const all = counts.pending + counts.publishedTotal + counts.rejected;
-      const published = counts.publishedTotal - counts.published_edit;
-      const responseData = { all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected };
+      const published = counts.publishedTotal - counts.published_edit - counts.published_cancellation;
+      const responseData = { all, pending: counts.pending, published, published_edit: counts.published_edit, published_cancellation: counts.published_cancellation, rejected: counts.rejected };
       countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
       res.json(responseData);
 
@@ -20367,7 +20378,7 @@ app.get('/api/events/:id', verifyToken, async (req, res) => {
       calendarData: 1,
       roomReservationData: 1,
       sourceCalendars: 1, lastSyncedAt: 1,
-      pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+      pendingEditRequest: 1, pendingCancellationRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
       createdAt: 1, createdBy: 1, createdByEmail: 1,
       lastModifiedDateTime: 1, _version: 1,
       'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,

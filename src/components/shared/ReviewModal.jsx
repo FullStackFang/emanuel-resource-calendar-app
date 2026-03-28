@@ -132,6 +132,17 @@ export default function ReviewModal({
   isSubmittingCancellationRequest = false,
   // Existing cancellation request props (viewing/withdrawing)
   existingCancellationRequest = null,
+  // Cancellation request approval/rejection props (for admins/approvers)
+  onApproveCancellationRequest = null,
+  onRejectCancellationRequest = null,
+  isApprovingCancellationRequest = false,
+  isRejectingCancellationRequest = false,
+  cancellationRejectionReason = '',
+  onCancellationRejectionReasonChange = null,
+  isCancellationApproveConfirming = false,
+  isCancellationRejectConfirming = false,
+  onCancelCancellationApprove = null,
+  onCancelCancellationReject = null,
   onWithdrawCancellationRequest = null,
   isWithdrawingCancellationRequest = false,
   isWithdrawCancellationConfirming = false,
@@ -385,6 +396,14 @@ export default function ReviewModal({
                   ⚠ Overlapping
                 </span>
               )}
+              {existingCancellationRequest?.status === 'pending' && isRequesterOnly && (
+                <span
+                  className="warning-strip warning-cancellation-pending"
+                  title={`${existingCancellationRequest.requestedBy?.name || existingCancellationRequest.requestedBy?.email || 'Someone'} requested cancellation${existingCancellationRequest.requestedBy?.requestedAt ? ' on ' + new Date(existingCancellationRequest.requestedBy.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}`}
+                >
+                  Cancellation pending — {existingCancellationRequest.requestedBy?.name || existingCancellationRequest.requestedBy?.email || 'Unknown'}{existingCancellationRequest.requestedBy?.requestedAt ? `, ${new Date(existingCancellationRequest.requestedBy.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                </span>
+              )}
               {isEditRequestMode && (
                 <span className="meta-item edit-request-mode-badge">
                   Edit Request Mode
@@ -558,20 +577,33 @@ export default function ReviewModal({
                     </button>
                   )}
 
-                  {/* Request Cancellation button */}
-                  {canRequestCancellation && !existingCancellationRequest && itemStatus === 'published' && onRequestCancellation && !isEditRequestMode && !isViewingEditRequest && !isCancellationRequestMode && (
-                    <button
-                      type="button"
-                      className="action-btn delete-btn"
-                      onClick={onRequestCancellation}
-                      disabled={anyConfirming}
-                    >
-                      Request Cancellation
-                    </button>
+                  {/* Request Cancellation button — or disabled info when one already exists */}
+                  {isRequesterOnly && itemStatus === 'published' && !isEditRequestMode && !isViewingEditRequest && !isCancellationRequestMode && (
+                    existingCancellationRequest?.status === 'pending' ? (
+                      <button
+                        type="button"
+                        className="action-btn request-cancellation-btn"
+                        disabled
+                        title={`${existingCancellationRequest.requestedBy?.name || existingCancellationRequest.requestedBy?.email || 'Someone'} submitted a cancellation request${existingCancellationRequest.requestedBy?.requestedAt ? ' on ' + new Date(existingCancellationRequest.requestedBy.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}`}
+                      >
+                        Cancellation Pending
+                      </button>
+                    ) : (
+                      canRequestCancellation && onRequestCancellation && (
+                        <button
+                          type="button"
+                          className="action-btn request-cancellation-btn"
+                          onClick={onRequestCancellation}
+                          disabled={anyConfirming}
+                        >
+                          Request Cancellation
+                        </button>
+                      )
+                    )
                   )}
 
-                  {/* Cancellation request form (inline reason textarea + submit) */}
-                  {isCancellationRequestMode && onSubmitCancellationRequest && (
+                  {/* Cancellation request form (inline reason textarea + submit) — only if no existing request */}
+                  {isCancellationRequestMode && onSubmitCancellationRequest && existingCancellationRequest?.status !== 'pending' && (
                     <div className="cancellation-request-form" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
                       <input
                         type="text"
@@ -600,6 +632,62 @@ export default function ReviewModal({
                       >
                         Cancel
                       </button>
+                    </div>
+                  )}
+
+                  {/* Approve/Reject Cancellation Request buttons (approver/admin) */}
+                  {!isRequesterOnly && existingCancellationRequest?.status === 'pending' && onApproveCancellationRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${isCancellationApproveConfirming ? 'confirming' : ''}`}
+                        onClick={onApproveCancellationRequest}
+                        disabled={isApprovingCancellationRequest || (anyConfirming && !isCancellationApproveConfirming)}
+                      >
+                        {isApprovingCancellationRequest ? 'Approving...' : (isCancellationApproveConfirming ? 'Confirm Cancel Event?' : 'Approve Cancellation')}
+                      </button>
+                      {isCancellationApproveConfirming && onCancelCancellationApprove && (
+                        <button
+                          type="button"
+                          className="confirm-cancel-x publish-cancel-x"
+                          onClick={onCancelCancellationApprove}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {!isRequesterOnly && existingCancellationRequest?.status === 'pending' && onRejectCancellationRequest && (
+                    <div className="confirm-button-group">
+                      {isCancellationRejectConfirming && (
+                        <input
+                          type="text"
+                          className="inline-reason-input"
+                          placeholder="Why are you rejecting this cancellation?"
+                          value={cancellationRejectionReason}
+                          onChange={(e) => onCancellationRejectionReasonChange?.(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && cancellationRejectionReason?.trim()) onRejectCancellationRequest(); }}
+                          autoFocus
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className={`action-btn reject-btn ${isCancellationRejectConfirming ? 'confirming' : ''}`}
+                        onClick={onRejectCancellationRequest}
+                        disabled={isRejectingCancellationRequest || (isCancellationRejectConfirming && !cancellationRejectionReason?.trim()) || (anyConfirming && !isCancellationRejectConfirming)}
+                      >
+                        {isRejectingCancellationRequest ? 'Rejecting...' : (isCancellationRejectConfirming ? 'Confirm Reject?' : 'Reject Cancellation')}
+                      </button>
+                      {isCancellationRejectConfirming && onCancelCancellationReject && (
+                        <button
+                          type="button"
+                          className="confirm-cancel-x reject-cancel-x"
+                          onClick={onCancelCancellationReject}
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1051,6 +1139,20 @@ export default function ReviewModal({
         <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
+              {/* Cancellation request banner — shown to approvers */}
+              {existingCancellationRequest?.status === 'pending' && !isRequesterOnly && (
+                <div className="cancellation-request-banner">
+                  <div className="cancellation-banner-header">Cancellation Requested</div>
+                  <div className="cancellation-banner-reason">{existingCancellationRequest.reason}</div>
+                  <div className="cancellation-banner-requester">
+                    Requested by {existingCancellationRequest.requestedBy?.name || existingCancellationRequest.requestedBy?.email || 'Unknown'}
+                    {existingCancellationRequest.requestedBy?.requestedAt && (
+                      <> on {new Date(existingCancellationRequest.requestedBy.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {React.isValidElement(children)
                 ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef, onDetailsCompleteChange: setAreDetailsComplete })
                 : children

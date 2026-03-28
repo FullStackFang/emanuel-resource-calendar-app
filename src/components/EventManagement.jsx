@@ -264,7 +264,7 @@ export default function EventManagement() {
     const title = event.calendarData?.eventTitle || event.eventTitle || event.graphData?.subject || 'Untitled Event';
     const cd = event.calendarData;
     const isHold = cd && !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
-    return isHold ? `[Hold] ${title}` : title;
+    return isHold && !title?.startsWith('[Hold]') ? `[Hold] ${title}` : title;
   };
 
   // Handle delete (admin)
