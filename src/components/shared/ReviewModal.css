@@ -634,19 +634,22 @@
   background: var(--color-primary-500);
 }
 
-/* Delete Button — tinted danger style (matches Request Cancellation), fills on confirm */
-.delete-btn {
+/* Tinted danger buttons — visual pair so destructive actions read as a group */
+.delete-btn,
+.request-cancellation-btn {
   background: var(--color-error-50) !important;
   color: var(--color-error-600) !important;
   border: 1.5px solid var(--color-error-300) !important;
 }
 
-.delete-btn:hover:not(:disabled) {
+.delete-btn:hover:not(:disabled),
+.request-cancellation-btn:hover:not(:disabled) {
   background: var(--color-error-100) !important;
   border-color: var(--color-error-400) !important;
   box-shadow: 0 1px 4px rgba(220, 38, 38, 0.15);
 }
 
+/* Delete confirm state (request-cancellation has no confirm step) */
 .delete-btn.confirming {
   background: linear-gradient(135deg, var(--color-error-500) 0%, var(--color-error-600) 100%) !important;
   color: var(--text-inverse) !important;
@@ -658,19 +661,6 @@
 .delete-btn.confirming:hover:not(:disabled) {
   background: var(--color-error-500) !important;
   border-color: transparent !important;
-}
-
-/* Request Cancellation Button — outlined danger, pairs with Request Edit */
-.request-cancellation-btn {
-  background: var(--color-error-50) !important;
-  color: var(--color-error-600) !important;
-  border: 1.5px solid var(--color-error-300) !important;
-}
-
-.request-cancellation-btn:hover:not(:disabled) {
-  background: var(--color-error-100) !important;
-  border-color: var(--color-error-400) !important;
-  box-shadow: 0 1px 4px rgba(220, 38, 38, 0.15);
 }
 
 /* Draft Button */
