@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
@@ -57,6 +58,30 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // PWA support: manifest + service worker for mobile "Add to Home Screen"
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        navigateFallback: '/index.html',
+        // Don't cache API calls, auth redirects, or SSE connections
+        navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
+        runtimeCaching: []
+      },
+      manifest: {
+        name: 'Temple Events Scheduler',
+        short_name: 'Temple Events',
+        description: 'Calendar management for Temple Emanuel',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#ffffff',
+        theme_color: '#2b579a',
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+      }
+    }),
     // Sentry plugin for source map upload (only in production builds with auth token)
     process.env.SENTRY_AUTH_TOKEN && sentryVitePlugin({
       org: process.env.SENTRY_ORG || 'your-sentry-org',

@@ -1,0 +1,313 @@
+/* ===================================================
+   MobileLayout — Phone viewport (≤480px)
+   Temple Emanuel branded mobile landing page
+   =================================================== */
+
+.mobile-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--bg-secondary);
+  font-family: var(--font-body);
+}
+
+/* ── Hero Zone ────────────────────────────────── */
+
+.mobile-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10) var(--space-6) var(--space-8);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mobile-hero-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.08) 0%, transparent 60%),
+    linear-gradient(135deg, var(--color-primary-600), var(--color-primary-700));
+  z-index: 0;
+}
+
+.mobile-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mobile-hero-logo-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: var(--radius-2xl);
+  background: #ffffff;
+  box-shadow:
+    0 0 0 3px var(--color-accent-400),
+    var(--shadow-lg);
+}
+
+.mobile-hero-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-xl);
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.mobile-hero-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-inverse);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.mobile-hero-subtitle {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-accent-300);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ── Body Zone ────────────────────────────────── */
+
+.mobile-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-6);
+  gap: var(--space-5);
+}
+
+/* ── User Card ────────────────────────────────── */
+
+.mobile-user-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.mobile-user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  color: var(--text-inverse);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  flex-shrink: 0;
+}
+
+.mobile-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0; /* allow text truncation */
+}
+
+.mobile-user-name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+
+.mobile-user-email {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: var(--leading-snug);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Feature Preview ──────────────────────────── */
+
+.mobile-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.mobile-feature-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
+}
+
+.mobile-feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.mobile-feature-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ── Status Badge ─────────────────────────────── */
+
+.mobile-status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--color-accent-50);
+  border: 1px solid var(--color-accent-200);
+  border-radius: var(--radius-xl);
+}
+
+.mobile-status-icon {
+  font-size: var(--text-lg);
+  color: var(--color-accent-500);
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mobile-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.mobile-status-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent-800);
+  line-height: var(--leading-snug);
+}
+
+.mobile-status-desc {
+  font-size: var(--text-xs);
+  color: var(--color-accent-700);
+  line-height: var(--leading-normal);
+}
+
+/* ── Sign Out Button ──────────────────────────── */
+
+.mobile-signout {
+  margin-top: auto;
+  padding: var(--space-3) var(--space-6);
+  min-height: 44px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mobile-signout:active {
+  background: var(--bg-tertiary);
+}
+
+/* ── Welcome / Unauthenticated ────────────────── */
+
+.mobile-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: center;
+  padding: var(--space-4) 0;
+}
+
+.mobile-welcome-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.mobile-welcome-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  max-width: 280px;
+}
+
+/* ── Sign In Button ───────────────────────────── */
+
+.mobile-signin {
+  width: 100%;
+  padding: var(--space-4);
+  min-height: 48px;
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--text-inverse);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: opacity 0.15s ease;
+}
+
+.mobile-signin:active {
+  opacity: 0.9;
+}
+
+/* ── Footer ───────────────────────────────────── */
+
+.mobile-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  flex-shrink: 0;
+}
+
+.mobile-footer-text {
+  font-family: var(--font-display);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-tertiary);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}

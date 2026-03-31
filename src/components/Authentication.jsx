@@ -41,7 +41,13 @@ function Authentication({ onSignIn, onSignOut }) {
       });
       if (onSignIn) onSignIn(tokenResponse.accessToken);
     } catch (error) {
-      console.error('Microsoft login failed:', error);
+      // Popup failed (blocked by mobile browser or error) — fall back to redirect
+      console.warn('Popup login failed, falling back to redirect:', error.message);
+      try {
+        await instance.loginRedirect(loginRequest);
+      } catch (redirectError) {
+        console.error('Redirect login also failed:', redirectError);
+      }
     }
   };
 
@@ -49,7 +55,14 @@ function Authentication({ onSignIn, onSignOut }) {
     try {
       await instance.logoutPopup();
     } catch (error) {
-      console.error('Microsoft logout failed:', error);
+      // Popup failed (blocked by mobile browser or error) — fall back to redirect
+      console.warn('Popup logout failed, falling back to redirect:', error.message);
+      try {
+        await instance.logoutRedirect();
+        return; // Redirect navigates away — onSignOut not needed
+      } catch (redirectError) {
+        console.error('Redirect logout also failed:', redirectError);
+      }
     }
     if (onSignOut) onSignOut();
   };

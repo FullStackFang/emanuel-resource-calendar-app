@@ -21,6 +21,8 @@ import { SSEProvider } from './context/SSEContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { dispatchRefresh } from './hooks/useDataRefreshBus';
 import { useTokenRefresh } from './hooks/useTokenRefresh';
+import { useDeviceType } from './hooks/useDeviceType';
+import MobileLayout from './components/mobile/MobileLayout';
 import { logger } from './utils/logger';
 import './App.css';
 
@@ -93,6 +95,7 @@ function App() {
   const [signedOut, setSignedOut] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const { instance } = useMsal();
+  const deviceType = useDeviceType();
 
   const [selectedCalendarId, setSelectedCalendarId] = useState(null);
   const [availableCalendars, setAvailableCalendars] = useState([]);
@@ -269,7 +272,10 @@ function App() {
         <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
         <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />
         <main>
-          {apiToken && graphToken ? (
+          {deviceType === 'phone' ? (
+            // Mobile phone viewport — show placeholder (real mobile views coming in follow-up)
+            <MobileLayout />
+          ) : apiToken && graphToken ? (
             // Wrap authenticated routes with providers
             <SSEProvider userEmail={instance.getActiveAccount()?.username}>
             <TimezoneProvider
@@ -330,7 +336,7 @@ function App() {
                 onClick={() => setShowAIChat(true)}
                 title="Open Chat Assistant"
               >
-                <img src="/emanuel_logo.png" alt="Chat" className="ai-chat-fab-icon" />
+                <img src="/emanuel_logo.png?v=4" alt="Chat" className="ai-chat-fab-icon" />
               </button>
 
               {/* AI Chat Reservation Modal */}
@@ -405,18 +411,72 @@ function App() {
               </RoomProvider>
             </TimezoneProvider>
             </SSEProvider>
-          ) : signedOut ? (
-            <div className="signed-out-landing">
-              <h2>See you next time!</h2>
-              <p>You've successfully signed out.</p>
-            </div>
           ) : !isInitialized ? (
             // Show skeleton while MSAL is initializing
             <AppSkeleton />
           ) : (
-            <div className="welcome-message">
-              <p>Welcome to the Outlook Custom Calendar App.</p>
-              <p>Please sign in with your Microsoft account to view your calendar.</p>
+            <div className="welcome-landing">
+              <div className="welcome-hero">
+                <div className="welcome-hero-bg" />
+                <div className="welcome-hero-content">
+                  <div className="welcome-logo-ring">
+                    <img src="/emanuel_logo.png?v=4" alt="Temple Emanu-El" className="welcome-logo" />
+                  </div>
+                  <h1 className="welcome-title">Temple Events</h1>
+                  <span className="welcome-subtitle">SCHEDULER</span>
+                </div>
+              </div>
+              <div className="welcome-body">
+                {signedOut ? (
+                  <>
+                    <h2 className="welcome-heading">See you next time!</h2>
+                    <p className="welcome-desc">You've successfully signed out.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="welcome-desc">
+                      Manage events, rooms, and reservations for Temple Emanu-El.
+                    </p>
+                    <p className="welcome-desc-secondary">
+                      Sign in with your Microsoft account to get started.
+                    </p>
+                  </>
+                )}
+                <div className="welcome-features">
+                  <div className="welcome-feature-item">
+                    <div className="welcome-feature-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" />
+                        <line x1="8" y1="2" x2="8" y2="6" />
+                        <line x1="3" y1="10" x2="21" y2="10" />
+                      </svg>
+                    </div>
+                    <span className="welcome-feature-label">Calendar</span>
+                  </div>
+                  <div className="welcome-feature-item">
+                    <div className="welcome-feature-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                    </div>
+                    <span className="welcome-feature-label">Events</span>
+                  </div>
+                  <div className="welcome-feature-item">
+                    <div className="welcome-feature-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                      </svg>
+                    </div>
+                    <span className="welcome-feature-label">Rooms</span>
+                  </div>
+                </div>
+              </div>
+              <div className="welcome-footer">
+                <span className="welcome-footer-text">TEMPLE EMANU-EL</span>
+              </div>
             </div>
           )}
         </main>
