@@ -278,6 +278,33 @@ main {
   margin-top: auto;
 }
 
+/* Sign-in button on welcome page */
+.welcome-signin-btn {
+  width: 100%;
+  max-width: 320px;
+  padding: var(--space-4);
+  min-height: 48px;
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--text-inverse);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  margin-top: var(--space-2);
+}
+
+.welcome-signin-btn:hover {
+  opacity: 0.95;
+  box-shadow: var(--shadow-lg);
+}
+
+.welcome-signin-btn:active {
+  opacity: 0.9;
+}
+
 .welcome-footer-text {
   font-family: var(--font-display);
   font-size: var(--text-2xs);
@@ -1730,7 +1757,7 @@ main {
     font-size: var(--text-sm);
   }
 
-  /* Hide desktop header on phone — MobileLayout has its own branded header */
+  /* Hide desktop header on phone — MobileApp has its own branded header */
   .app-header {
     display: none;
   }

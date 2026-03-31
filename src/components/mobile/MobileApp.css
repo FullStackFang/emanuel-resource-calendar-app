@@ -1,0 +1,79 @@
+.mobile-app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  background: var(--bg-secondary);
+  font-family: var(--font-body);
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.mobile-app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Thin overlay scrollbar for mobile — doesn't consume layout space */
+.mobile-app-content,
+.mobile-agenda-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-300) transparent;
+}
+
+.mobile-app-content::-webkit-scrollbar,
+.mobile-agenda-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mobile-app-content::-webkit-scrollbar-track,
+.mobile-agenda-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mobile-app-content::-webkit-scrollbar-thumb,
+.mobile-agenda-list::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: var(--radius-full);
+}
+
+.mobile-app-content::-webkit-scrollbar-thumb:active,
+.mobile-agenda-list::-webkit-scrollbar-thumb:active {
+  background: var(--color-neutral-400);
+}
+
+/* Placeholder tabs */
+.mobile-placeholder-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-3);
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.mobile-placeholder-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-primary-50);
+  color: var(--color-primary-400);
+}
+
+.mobile-placeholder-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.mobile-placeholder-desc {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}

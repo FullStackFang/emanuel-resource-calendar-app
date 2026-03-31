@@ -135,34 +135,35 @@ initializeGlobalErrorHandlers({
   }
 });
 
-// Process any pending redirect response before rendering.
-// Required for mobile browsers where loginRedirect() is used instead of loginPopup().
-// On desktop (no redirect in progress), this resolves to null immediately (no-op).
-msalInstance.handleRedirectPromise()
+// Initialize MSAL, then process any pending redirect response.
+// MSAL v3+ requires explicit initialize() before any API calls.
+// handleRedirectPromise() processes the auth response after mobile loginRedirect().
+// On desktop (no redirect in progress), it resolves to null immediately (no-op).
+// Render the app immediately — MsalProvider handles the async init internally.
+msalInstance.initialize()
+  .then(() => msalInstance.handleRedirectPromise())
   .then((response) => {
     if (response) {
-      // Redirect login completed — account is now available in msalInstance
       msalInstance.setActiveAccount(response.account);
     }
   })
   .catch((error) => {
-    console.error('MSAL redirect error:', error);
-  })
-  .finally(() => {
-    ReactDOM.createRoot(document.getElementById('root')).render(
-      // Uncomment Strictmode for Production
-      //<React.StrictMode>
-        <ErrorBoundary>
-          <AuthProvider>
-            <NotificationProvider>
-              <MsalProvider instance={msalInstance}>
-                <App />
-              </MsalProvider>
-              <ToastNotification />
-              <CriticalErrorHandler />
-            </NotificationProvider>
-          </AuthProvider>
-        </ErrorBoundary>
-      //</React.StrictMode>
-    );
+    console.error('MSAL initialization/redirect error:', error);
   });
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  // Uncomment Strictmode for Production
+  //<React.StrictMode>
+    <ErrorBoundary>
+      <AuthProvider>
+        <NotificationProvider>
+          <MsalProvider instance={msalInstance}>
+            <App />
+          </MsalProvider>
+          <ToastNotification />
+          <CriticalErrorHandler />
+        </NotificationProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  //</React.StrictMode>
+);

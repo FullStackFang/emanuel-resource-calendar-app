@@ -6068,7 +6068,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     logger.log(`\n${'='.repeat(60)}`);
     logger.log(`📊 EVENTS LOADED - Summary`);
     logger.log(`${'='.repeat(60)}`);
-    logger.log(`📅 Calendars: ${calendarIds.length} | 📋 Total Events: ${transformedLoadEvents.length}`);
+    logger.log(`📅 Calendars: ${calendarsToLoad.length} | 📋 Total Events: ${transformedLoadEvents.length}`);
     logger.log(`📦 From Cache: ${cachedCount} | 🌐 From Graph API: ${graphCount} (new)`);
 
     // Log details of loaded events

@@ -28,6 +28,22 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* Phone viewports: mobile app handles its own internal scrolling,
+   so remove all page-level scrollbars entirely */
+@media (max-width: 480px) {
+  html, body {
+    scrollbar-gutter: auto !important;
+    overflow: hidden !important;
+    height: 100dvh;
+    scrollbar-width: none;
+  }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+  }
+}
+
 body {
   font-family: var(--font-body);
   font-size: var(--text-base);

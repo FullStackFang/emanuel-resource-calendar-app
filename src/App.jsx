@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { apiRequest } from './config/authConfig';
+import { apiRequest, loginRequest as loginRequestConfig } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
 import UnifiedEventForm from './components/UnifiedEventForm';
@@ -22,7 +22,7 @@ import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { dispatchRefresh } from './hooks/useDataRefreshBus';
 import { useTokenRefresh } from './hooks/useTokenRefresh';
 import { useDeviceType } from './hooks/useDeviceType';
-import MobileLayout from './components/mobile/MobileLayout';
+const MobileApp = lazy(() => import('./components/mobile/MobileApp'));
 import { logger } from './utils/logger';
 import './App.css';
 
@@ -272,11 +272,8 @@ function App() {
         <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
         <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />
         <main>
-          {deviceType === 'phone' ? (
-            // Mobile phone viewport — show placeholder (real mobile views coming in follow-up)
-            <MobileLayout />
-          ) : apiToken && graphToken ? (
-            // Wrap authenticated routes with providers
+          {apiToken && graphToken ? (
+            // Wrap authenticated routes with providers (both desktop and mobile)
             <SSEProvider userEmail={instance.getActiveAccount()?.username}>
             <TimezoneProvider
               apiToken={apiToken}
@@ -284,6 +281,12 @@ function App() {
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
+              {deviceType === 'phone' ? (
+                <Suspense fallback={<div className="mobile-app" />}>
+                  <MobileApp />
+                </Suspense>
+              ) : (
+              <>
               <Navigation />
               <Suspense fallback={<AppSkeleton />}>
                 <Routes>
@@ -408,6 +411,8 @@ function App() {
                 availableCalendars={availableCalendars}
               />
 
+              </>
+              )}
               </RoomProvider>
             </TimezoneProvider>
             </SSEProvider>
@@ -440,6 +445,18 @@ function App() {
                     <p className="welcome-desc-secondary">
                       Sign in with your Microsoft account to get started.
                     </p>
+                    <button
+                      className="welcome-signin-btn"
+                      onClick={async () => {
+                        try {
+                          await instance.loginRedirect(loginRequestConfig);
+                        } catch (error) {
+                          console.error('Login redirect failed:', error);
+                        }
+                      }}
+                    >
+                      Sign in with Microsoft
+                    </button>
                   </>
                 )}
                 <div className="welcome-features">
