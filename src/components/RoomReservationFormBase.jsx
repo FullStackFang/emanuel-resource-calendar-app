@@ -1910,8 +1910,23 @@ export default function RoomReservationFormBase({
                     selectedDate={formData.startDate}
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
-                    setupTime={formData.reservationStartTime}
-                    teardownTime={formData.reservationEndTime}
+                    setupTime={
+                      [formData.reservationStartTime, formData.setupTime, formData.doorOpenTime]
+                        .filter(t => t && t.includes(':'))
+                        .sort()[0] || formData.reservationStartTime
+                    }
+                    teardownTime={
+                      [formData.reservationEndTime, formData.teardownTime, formData.doorCloseTime]
+                        .filter(t => t && t.includes(':'))
+                        .sort()
+                        .pop() || formData.reservationEndTime
+                    }
+                    rawSetupTime={formData.setupTime}
+                    rawTeardownTime={formData.teardownTime}
+                    rawDoorOpenTime={formData.doorOpenTime}
+                    rawDoorCloseTime={formData.doorCloseTime}
+                    reservationStartTime={formData.reservationStartTime}
+                    reservationEndTime={formData.reservationEndTime}
                     eventTitle={formData.eventTitle}
                     availability={availability}
                     availabilityLoading={availabilityLoading}

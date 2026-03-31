@@ -13457,9 +13457,13 @@ app.get('/api/rooms/availability', async (req, res) => {
         const startDate = (cd.startDateTime || '').split('T')[0];
         const endDate = (cd.endDateTime || '').split('T')[0];
 
-        // Blocking window: reservationStartTime/EndTime are the sole authority
-        const effectiveStart = `${startDate}T${normTime(cd.reservationStartTime)}`;
-        const effectiveEnd = `${endDate}T${normTime(cd.reservationEndTime)}`;
+        // Blocking window: widest span of reservation, setup/teardown, and door times
+        const allStarts = [cd.reservationStartTime, cd.setupTime, cd.doorOpenTime].filter(Boolean);
+        const allEnds = [cd.reservationEndTime, cd.teardownTime, cd.doorCloseTime].filter(Boolean);
+        const earliest = allStarts.length ? allStarts.sort()[0] : cd.reservationStartTime;
+        const latest = allEnds.length ? allEnds.sort().pop() : cd.reservationEndTime;
+        const effectiveStart = `${startDate}T${normTime(earliest)}`;
+        const effectiveEnd = `${endDate}T${normTime(latest)}`;
 
         return {
           id: res._id,
@@ -13471,6 +13475,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           originalEnd: cd.endDateTime,
           effectiveStart,
           effectiveEnd,
+          reservationStart: `${startDate}T${normTime(cd.reservationStartTime)}`,
+          reservationEnd: `${endDate}T${normTime(cd.reservationEndTime)}`,
           isAllowedConcurrent: res.isAllowedConcurrent ?? false,
           categories: res.calendarData?.categories || res.categories || []
         };
@@ -13485,13 +13491,15 @@ app.get('/api/rooms/availability', async (req, res) => {
         const startDate = (startDT || '').split('T')[0];
         const endDate = (endDT || '').split('T')[0];
 
-        // Blocking window: reservationStartTime/EndTime if present, else event times
+        // Blocking window: widest span of reservation, setup/teardown, and door times
         // Calendar events from Graph API may not have reservation times
-        const effectiveStart = cd.reservationStartTime
-          ? `${startDate}T${normTime(cd.reservationStartTime)}`
+        const calStarts = [cd.reservationStartTime, cd.setupTime, cd.doorOpenTime].filter(Boolean);
+        const calEnds = [cd.reservationEndTime, cd.teardownTime, cd.doorCloseTime].filter(Boolean);
+        const effectiveStart = calStarts.length
+          ? `${startDate}T${normTime(calStarts.sort()[0])}`
           : normDT(startDT);
-        const effectiveEnd = cd.reservationEndTime
-          ? `${endDate}T${normTime(cd.reservationEndTime)}`
+        const effectiveEnd = calEnds.length
+          ? `${endDate}T${normTime(calEnds.sort().pop())}`
           : normDT(endDT);
 
         return {
@@ -13502,6 +13510,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           end: endDT,
           effectiveStart,
           effectiveEnd,
+          reservationStart: cd.reservationStartTime ? `${startDate}T${normTime(cd.reservationStartTime)}` : null,
+          reservationEnd: cd.reservationEndTime ? `${endDate}T${normTime(cd.reservationEndTime)}` : null,
           setupTimeMinutes: cd.setupTimeMinutes || 0,
           teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           location: cd.locationDisplayNames || event.graphData?.location?.displayName,
@@ -13525,12 +13535,14 @@ app.get('/api/rooms/availability', async (req, res) => {
           const startDate = (effectiveStartDT || '').split('T')[0];
           const endDate = (effectiveEndDT || '').split('T')[0];
 
-          // Blocking window: reservationStartTime/EndTime are the sole authority
-          const effectiveStart = effective.reservationStartTime
-            ? `${startDate}T${normTime(effective.reservationStartTime)}`
+          // Blocking window: widest span of reservation, setup/teardown, and door times
+          const peStarts = [effective.reservationStartTime, effective.setupTime, effective.doorOpenTime].filter(Boolean);
+          const peEnds = [effective.reservationEndTime, effective.teardownTime, effective.doorCloseTime].filter(Boolean);
+          const effectiveStart = peStarts.length
+            ? `${startDate}T${normTime(peStarts.sort()[0])}`
             : normDT(effectiveStartDT);
-          const effectiveEnd = effective.reservationEndTime
-            ? `${endDate}T${normTime(effective.reservationEndTime)}`
+          const effectiveEnd = peEnds.length
+            ? `${endDate}T${normTime(peEnds.sort().pop())}`
             : normDT(effectiveEndDT);
 
           return {
@@ -13543,6 +13555,8 @@ app.get('/api/rooms/availability', async (req, res) => {
             originalEnd: effectiveEndDT,
             effectiveStart,
             effectiveEnd,
+            reservationStart: effective.reservationStartTime ? `${startDate}T${normTime(effective.reservationStartTime)}` : null,
+            reservationEnd: effective.reservationEndTime ? `${endDate}T${normTime(effective.reservationEndTime)}` : null,
             setupTimeMinutes: effective.setupTimeMinutes || 0,
             teardownTimeMinutes: effective.teardownTimeMinutes || 0,
             isAllowedConcurrent: peEvent.isAllowedConcurrent ?? false,
@@ -13563,9 +13577,11 @@ app.get('/api/rooms/availability', async (req, res) => {
           const startDate = (cd.startDateTime || '').split('T')[0];
           const endDate = (cd.endDateTime || '').split('T')[0];
 
-          // Blocking window: reservationStartTime/EndTime are the sole authority
-          const effectiveStart = `${startDate}T${normTime(cd.reservationStartTime)}`;
-          const effectiveEnd = `${endDate}T${normTime(cd.reservationEndTime)}`;
+          // Blocking window: widest span of reservation, setup/teardown, and door times
+          const prStarts = [cd.reservationStartTime, cd.setupTime, cd.doorOpenTime].filter(Boolean);
+          const prEnds = [cd.reservationEndTime, cd.teardownTime, cd.doorCloseTime].filter(Boolean);
+          const effectiveStart = `${startDate}T${normTime(prStarts.length ? prStarts.sort()[0] : cd.reservationStartTime)}`;
+          const effectiveEnd = `${endDate}T${normTime(prEnds.length ? prEnds.sort().pop() : cd.reservationEndTime)}`;
 
           return {
             id: res._id,
@@ -13577,6 +13593,8 @@ app.get('/api/rooms/availability', async (req, res) => {
             originalEnd: cd.endDateTime,
             effectiveStart,
             effectiveEnd,
+            reservationStart: `${startDate}T${normTime(cd.reservationStartTime)}`,
+            reservationEnd: `${endDate}T${normTime(cd.reservationEndTime)}`,
             setupTimeMinutes: cd.setupTimeMinutes || 0,
             teardownTimeMinutes: cd.teardownTimeMinutes || 0,
             isAllowedConcurrent: res.isAllowedConcurrent ?? false,

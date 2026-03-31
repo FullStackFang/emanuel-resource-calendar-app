@@ -486,6 +486,95 @@
   white-space: nowrap;
 }
 
+/* Event time tick marks — edge notches showing event start/end within block */
+.sa-event-tick {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Start notch: green tab on left edge (shown when event time differs from block time) */
+.sa-event-tick-start {
+  left: 0;
+  width: 6px;
+  height: 20px;
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.85), rgba(34, 197, 94, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+  box-shadow: 2px 0 6px rgba(34, 197, 94, 0.35);
+  transform: translateY(-50%);
+}
+
+/* End notch: red tab on right edge (shown when event time differs from block time) */
+.sa-event-tick-end {
+  right: 0;
+  left: auto;
+  width: 6px;
+  height: 20px;
+  background: linear-gradient(180deg, rgba(252, 165, 165, 0.85), rgba(239, 68, 68, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-right: none;
+  border-radius: 3px 0 0 3px;
+  box-shadow: -2px 0 6px rgba(239, 68, 68, 0.35);
+  transform: translateY(-50%);
+}
+
+/* Labels sit next to their notch */
+.sa-event-tick-label {
+  position: absolute;
+  font-size: 7.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  letter-spacing: 0.2px;
+}
+
+.sa-event-tick-start .sa-event-tick-label {
+  left: 9px;
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(22, 163, 74, 0.65);
+}
+
+.sa-event-tick-end .sa-event-tick-label {
+  right: 9px;
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(220, 38, 38, 0.65);
+}
+
+/* Corner border accents — shown when event time matches block edge (no buffer).
+   Colors the block's own border green (start, top-left) and red (end, bottom-right).
+   Uses an L-shaped border div that matches the block's border-radius. */
+.sa-event-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  z-index: 2;
+  background: transparent;
+}
+
+.sa-event-corner-start {
+  top: 0;
+  left: 0;
+  border-top: 3px solid #4ade80;
+  border-left: 3px solid #4ade80;
+  border-top-left-radius: var(--radius-md);
+}
+
+.sa-event-corner-end {
+  bottom: 0;
+  right: 0;
+  border-bottom: 3px solid #f87171;
+  border-right: 3px solid #f87171;
+  border-bottom-right-radius: var(--radius-md);
+}
+
 /* ==========================================================================
    EVENT BLOCKS
    ========================================================================== */

@@ -33,7 +33,13 @@ export default function SchedulingAssistant({
   categoryConcurrentRules = null, // Map of categoryId -> [allowedCategoryIds] from category management
   categoryLookup = null, // Map of category name -> categoryId
   disabled = false, // Read-only mode - disables all interactions
-  onConflictChange // Callback: (hasConflicts: boolean, totalConflicts: number) => void
+  onConflictChange, // Callback: (hasConflicts: boolean, totalConflicts: number) => void
+  rawSetupTime, // Original setupTime from form (for drag sync)
+  rawTeardownTime, // Original teardownTime from form (for drag sync)
+  rawDoorOpenTime, // Original doorOpenTime from form (for drag sync)
+  rawDoorCloseTime, // Original doorCloseTime from form (for drag sync)
+  reservationStartTime, // Raw reservation start (for corner check)
+  reservationEndTime, // Raw reservation end (for corner check)
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -237,6 +243,16 @@ export default function SchedulingAssistant({
         };
       };
 
+      // Helper: extract decimal hours from a datetime string for event tick marks.
+      // Returns null if the datetime falls on a different day than effectiveDate.
+      const eventCoreDH = (dtStr) => {
+        if (!dtStr) return null;
+        const normalized = normalizeDateTimeSeconds(dtStr);
+        const dateStr = parseDateFromString(normalized);
+        if (dateStr !== effectiveDate) return null;
+        return dateTimeToDecimalHours(normalized);
+      };
+
       // Process reservations
       if (roomAvailability.conflicts.reservations) {
         roomAvailability.conflicts.reservations.forEach(reservation => {
@@ -287,6 +303,10 @@ export default function SchedulingAssistant({
             isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
             categories: reservation.categories || [],
             ...blockTimes,
+            eventCoreStart: eventCoreDH(reservation.originalStart),
+            eventCoreEnd: eventCoreDH(reservation.originalEnd),
+            reservationStartDecimal: eventCoreDH(reservation.reservationStart),
+            reservationEndDecimal: eventCoreDH(reservation.reservationEnd),
           });
 
           roomEventCount++;
@@ -324,6 +344,10 @@ export default function SchedulingAssistant({
             isAllowedConcurrent: event.isAllowedConcurrent ?? false,
             categories: event.categories || [],
             ...blockTimes,
+            eventCoreStart: eventCoreDH(typeof event.start === 'string' ? event.start : event.start?.dateTime),
+            eventCoreEnd: eventCoreDH(typeof event.end === 'string' ? event.end : event.end?.dateTime),
+            reservationStartDecimal: eventCoreDH(event.reservationStart),
+            reservationEndDecimal: eventCoreDH(event.reservationEnd),
           });
 
           roomEventCount++;
@@ -362,6 +386,10 @@ export default function SchedulingAssistant({
             isPendingEdit: true,
             originalLocations: pendingEdit.originalLocations,
             ...blockTimes,
+            eventCoreStart: eventCoreDH(pendingEdit.originalStart),
+            eventCoreEnd: eventCoreDH(pendingEdit.originalEnd),
+            reservationStartDecimal: eventCoreDH(pendingEdit.reservationStart),
+            reservationEndDecimal: eventCoreDH(pendingEdit.reservationEnd),
           });
 
           roomEventCount++;
@@ -399,6 +427,10 @@ export default function SchedulingAssistant({
             categories: pendingRes.categories || [],
             isPendingReservation: true,
             ...blockTimes,
+            eventCoreStart: eventCoreDH(pendingRes.originalStart),
+            eventCoreEnd: eventCoreDH(pendingRes.originalEnd),
+            reservationStartDecimal: eventCoreDH(pendingRes.reservationStart),
+            reservationEndDecimal: eventCoreDH(pendingRes.reservationEnd),
           });
 
           roomEventCount++;
@@ -474,6 +506,28 @@ export default function SchedulingAssistant({
 
         const roomColor = locationColors[roomIndex % locationColors.length];
 
+        // Reservation time for corner check (event time vs reservation time)
+        let resStartH = null, resEndH = null;
+        if (reservationStartTime && reservationStartTime.includes(':')) {
+          const [h, m] = reservationStartTime.split(':').map(Number);
+          resStartH = h + (m || 0) / 60;
+        }
+        if (reservationEndTime && reservationEndTime.includes(':')) {
+          const [h, m] = reservationEndTime.split(':').map(Number);
+          resEndH = h + (m || 0) / 60;
+        }
+
+        // Event core time for tick marks (actual event time, not blocking window)
+        let eventCoreStartH = null, eventCoreEndH = null;
+        if (eventStartTime && eventStartTime.includes(':')) {
+          const [h, m] = eventStartTime.split(':').map(Number);
+          eventCoreStartH = h + (m || 0) / 60;
+        }
+        if (eventEndTime && eventEndTime.includes(':')) {
+          const [h, m] = eventEndTime.split(':').map(Number);
+          eventCoreEndH = h + (m || 0) / 60;
+        }
+
         blocks.push({
           id: 'user-event', // Same ID across all rooms so we can track it globally
           type: 'user-event',
@@ -493,6 +547,10 @@ export default function SchedulingAssistant({
           isConflict: false, // Will be calculated below
           isAllowedConcurrent: isAllowedConcurrent, // Propagate from form data
           categories: userCategories || [],
+          eventCoreStart: eventCoreStartH,
+          eventCoreEnd: eventCoreEndH,
+          reservationStartDecimal: resStartH,
+          reservationEndDecimal: resEndH,
           ...position
         });
       });
@@ -1217,6 +1275,14 @@ export default function SchedulingAssistant({
             const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
             updatedTimes.endTime = formatTime(new Date(eventEnd.getTime() + delta));
           }
+          // Shift setup/teardown/door times by same delta to keep block span consistent
+          [['setupTime', rawSetupTime], ['teardownTime', rawTeardownTime],
+           ['doorOpenTime', rawDoorOpenTime], ['doorCloseTime', rawDoorCloseTime]].forEach(([field, val]) => {
+            if (val && val.includes(':')) {
+              const t = new Date(`${effectiveDate}T${val}`);
+              updatedTimes[field] = formatTime(new Date(t.getTime() + delta));
+            }
+          });
           // Store adjustment for user event globally
           userEventAdjustment.current = {
             startTime: newStartTime,
@@ -1288,7 +1354,7 @@ export default function SchedulingAssistant({
     lastMouseY.current = 0;
     setDraggingEventId(null);
     setDragOffsets({});
-  }, [draggingEventId, dragOffsets, eventBlocks, PIXELS_PER_HOUR, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, onEventTimeChange, currentReservationId, stopAutoScroll, setEventBlocks, setDraggingEventId, setDragOffsets, calculateEventPosition, END_HOUR, START_HOUR]);
+  }, [draggingEventId, dragOffsets, eventBlocks, PIXELS_PER_HOUR, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, onEventTimeChange, currentReservationId, stopAutoScroll, setEventBlocks, setDraggingEventId, setDragOffsets, calculateEventPosition, END_HOUR, START_HOUR, rawSetupTime, rawTeardownTime, rawDoorOpenTime, rawDoorCloseTime]);
 
   // Global mouse event listeners for drag (replaces HTML5 drag API)
   useEffect(() => {
@@ -1460,6 +1526,43 @@ export default function SchedulingAssistant({
             />
           </>
         )}
+        {/* Event time tick marks — show where actual event starts/ends within the blocking window */}
+        {block.height >= 35 && (block.eventCoreStart != null || block.eventCoreEnd != null) && (() => {
+          const duration = block.endTime - block.startTime;
+          if (duration <= 0) return null;
+          // Corner L = event time matches RESERVATION time (not extended block time)
+          const resStart = block.reservationStartDecimal ?? block.startTime;
+          const resEnd = block.reservationEndDecimal ?? block.endTime;
+          const hasStartCorner = block.eventCoreStart != null && Math.abs(block.eventCoreStart - resStart) <= 0.05;
+          const hasEndCorner = block.eventCoreEnd != null && Math.abs(block.eventCoreEnd - resEnd) <= 0.05;
+          // Notch tab = event time inside extended block but NOT matching reservation edge
+          const hasStartTick = block.eventCoreStart != null && (block.eventCoreStart - block.startTime) > 0.05 && !hasStartCorner;
+          const hasEndTick = block.eventCoreEnd != null && (block.endTime - block.eventCoreEnd) > 0.05 && !hasEndCorner;
+          if (!hasStartTick && !hasEndTick && !hasStartCorner && !hasEndCorner) return null;
+          const showLabels = block.height >= 150;
+          return (
+            <>
+              {hasStartTick && (
+                <div
+                  className="sa-event-tick sa-event-tick-start"
+                  style={{ top: `${((block.eventCoreStart - block.startTime) / duration) * 100}%` }}
+                >
+                  {showLabels && <span className="sa-event-tick-label">{formatTime(block.eventCoreStart)}</span>}
+                </div>
+              )}
+              {hasEndTick && (
+                <div
+                  className="sa-event-tick sa-event-tick-end"
+                  style={{ top: `${((block.eventCoreEnd - block.startTime) / duration) * 100}%` }}
+                >
+                  {showLabels && <span className="sa-event-tick-label">{formatTime(block.eventCoreEnd)}</span>}
+                </div>
+              )}
+              {hasStartCorner && <div className="sa-event-corner sa-event-corner-start" />}
+              {hasEndCorner && <div className="sa-event-corner sa-event-corner-end" />}
+            </>
+          );
+        })()}
         <div className="event-block-content">
           {isUserEvent && (
             <span className="sa-user-label">YOUR EVENT</span>
