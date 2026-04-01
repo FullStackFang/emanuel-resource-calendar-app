@@ -1,0 +1,5 @@
+rsId,Subject,StartDate,StartTime,StartDateTime,EndDate,EndTime,EndDateTime,AllDayEvent,Location,Description,Categories,Deleted,SetupMinutes,TeardownMinutes
+-1999851755,Cantor Amelia Tutoring,45845,0.75,2025-07-07T18:00:00,45845,0.8125,2025-07-07T19:30:00,0,405,Call Cantor Amelia for details: 908-448-6003,Bar/Bas Mitzvah,0,15,10
+-1999851979,WOE Advanced Bridge,45845,0.6875,2025-07-07T16:30:00,45845,0.770833333,2025-07-07T18:30:00,0,6th Floor Lounge - 602,See Dionne for Details. Ext:355,Women of Emanu-El,0,,
+-1999851641,HHD Meeting,45845,0.583333333,2025-07-07T14:00:00,45845,0.625,2025-07-07T15:00:00,0,6th Floor Lounge - 602,Set for 12 pads and pencils.,Staff Meeting,0,0,0
+-1999853440,Senior Staff Cancelled,45845,0.458333333,2025-07-07T11:00:00,45845,0.5,2025-07-07T12:00:00,0,6th Floor Lounge - 602,,Staff Meeting,0,30,15

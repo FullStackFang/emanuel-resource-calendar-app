@@ -358,6 +358,67 @@ export function transformEventsToFlatStructure(events) {
 }
 
 /**
+ * Transforms a flat event into prefill overrides for duplicating via useEventCreation.open().
+ *
+ * Copies all event details EXCEPT:
+ * - Dates (user must pick new dates)
+ * - Requester info (current user is auto-filled by buildBlankReservation)
+ * - Status, version, IDs (each duplicate is a fresh reservation)
+ *
+ * @param {Object} event - Flat event object (from transformEventToFlatStructure or reviewModal.editableData)
+ * @returns {Object} Overrides object for useEventCreation.open()
+ */
+export function transformEventToDuplicatePrefill(event) {
+  if (!event) return {};
+
+  // Calculate duration for multi-day events
+  const startDate = event.startDate || '';
+  const endDate = event.endDate || '';
+  let durationDays = 0;
+  if (startDate && endDate) {
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+    durationDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  }
+
+  return {
+    // Carry over event details
+    eventTitle: (event.eventTitle || '') + ' (Duplicate)',
+    eventDescription: event.eventDescription || '',
+    startTime: event.startTime || '',
+    endTime: event.endTime || '',
+    reservationStartTime: event.reservationStartTime || '',
+    reservationEndTime: event.reservationEndTime || '',
+    requestedRooms: event.requestedRooms || event.locations || [],
+    attendeeCount: event.attendeeCount || '',
+    categories: [...(event.categories || [])],
+    services: event.services ? { ...event.services } : {},
+    specialRequirements: event.specialRequirements || '',
+    setupTime: event.setupTime || '',
+    teardownTime: event.teardownTime || '',
+    setupTimeMinutes: event.setupTimeMinutes || 0,
+    teardownTimeMinutes: event.teardownTimeMinutes || 0,
+    doorOpenTime: event.doorOpenTime || '',
+    doorCloseTime: event.doorCloseTime || '',
+    isAllDayEvent: event.isAllDayEvent || false,
+    isOffsite: event.isOffsite || false,
+    offsiteName: event.offsiteName || '',
+    offsiteAddress: event.offsiteAddress || '',
+    isOnBehalfOf: event.isOnBehalfOf || false,
+    organizerName: event.organizerName || '',
+    organizerPhone: event.organizerPhone || '',
+    organizerEmail: event.organizerEmail || '',
+    // Dates cleared — user must pick new dates via multi-date picker
+    startDate: '',
+    endDate: '',
+    // Internal duplicate flags (stripped by useEventCreation.open before building reservation)
+    _isDuplicate: true,
+    _sourceEventDate: startDate,
+    _durationDays: durationDays,
+  };
+}
+
+/**
  * Sorts events by their start time (earliest first)
  * Creates a new array to avoid mutating the source
  *

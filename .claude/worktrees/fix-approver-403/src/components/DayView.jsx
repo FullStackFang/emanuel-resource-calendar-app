@@ -1,0 +1,581 @@
+// Fixed DayView.jsx with proper virtual location detection
+import { logger } from '../utils/logger';
+import React, { memo, useMemo } from 'react';
+import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
+import { useTimezone } from '../context/TimezoneContext';
+import { formatEventTime } from '../utils/timezoneUtils';
+import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
+import './shared/CalendarIcons.css';
+
+const DayView = memo(({
+  // Props
+  groupBy,
+  outlookCategories,
+  selectedCategories,
+  availableLocations,
+  selectedLocations,
+  formatDateHeader,
+  getEventPosition,
+  filteredEvents,
+  getCategoryColor,
+  getLocationColor,
+  handleDayCellClick,
+  handleEventClick,
+  renderEventContent,
+  viewType,
+  dynamicCategories,
+  dateRange,
+  // Add these new props from Calendar.jsx
+  isEventVirtual,
+  isUnspecifiedLocation,
+  hasPhysicalLocation,
+  isVirtualLocation,
+  dynamicLocations,
+  showRegistrationTimes,
+  handleLocationRowClick, // New prop for location timeline modal
+  handleCategoryRowClick, // New prop for category timeline modal
+  locationGroups, // Pre-computed location groups from Calendar.jsx (fixes crash on row click)
+  canAddEvent,
+  favorites,
+  onToggleFavorite,
+  hideEmptyGroups
+}) => {
+  // Get user's timezone preference from context
+  const { userTimezone } = useTimezone();
+
+  // For day view, we only need the current day
+  const currentDay = dateRange.start;
+  
+  // DEBUG: Log the showRegistrationTimes prop
+  logger.debug('DayView: showRegistrationTimes prop:', showRegistrationTimes);
+  
+  // DEBUG: Check if any filtered events have registration properties
+  if (filteredEvents && filteredEvents.length > 0) {
+    const eventsWithRegistration = filteredEvents.filter(event => 
+      event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
+    );
+    logger.debug('DayView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    if (eventsWithRegistration.length > 0) {
+      logger.debug('DayView: Sample event with registration data:', eventsWithRegistration[0]);
+    }
+  }
+  
+  // Helper function to get the display location for an event
+  const getEventDisplayLocation = (event) => {
+    // Check for offsite events first
+    if (event.isOffsite) {
+      return 'Offsite';
+    }
+
+    if (isUnspecifiedLocation(event)) {
+      return 'Unspecified';
+    } else if (isEventVirtual(event)) {
+      return 'Virtual';
+    } else {
+      // Return the first physical location
+      const locationText = event.location?.displayName?.trim() || '';
+      const eventLocations = locationText
+        .split(/[;,]/)
+        .map(loc => loc.trim())
+        // Filter out empty strings and "Unspecified" placeholder
+        .filter(loc => loc.length > 0 && loc !== 'Unspecified');
+
+      // Find first non-virtual location
+      for (const location of eventLocations) {
+        if (!isVirtualLocation(location)) {
+          return location;
+        }
+      }
+      return 'Unspecified';
+    }
+  };
+  
+  // Show ALL selected groups (not just those with events) so users can add events to empty groups
+  // When hideEmptyGroups is on, filter out groups with no events on the current day
+  const activeGroupsForDay = useMemo(() => {
+    let sorted;
+    if (groupBy === 'categories') {
+      sorted = [...selectedCategories].sort((a, b) => {
+        if (a === 'Uncategorized') return 1;
+        if (b === 'Uncategorized') return -1;
+        const aFav = favorites?.includes(a) ? 0 : 1;
+        const bFav = favorites?.includes(b) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
+        return a.localeCompare(b);
+      });
+      if (hideEmptyGroups) {
+        sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
+          if (!getEventPosition(event, currentDay)) return false;
+          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          return (categories[0] || 'Uncategorized') === cat;
+        }));
+      }
+    } else {
+      const specialOrder = { 'Unspecified': 1, 'Offsite': 2 };
+      sorted = Object.keys(locationGroups).sort((a, b) => {
+        const aSpecial = specialOrder[a] || 0;
+        const bSpecial = specialOrder[b] || 0;
+        if (aSpecial !== bSpecial) return aSpecial - bSpecial;
+        const aFav = favorites?.includes(a) ? 0 : 1;
+        const bFav = favorites?.includes(b) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
+        return a.localeCompare(b);
+      });
+      if (hideEmptyGroups) {
+        sorted = sorted.filter(group =>
+          favorites?.includes(group) || locationGroups[group]?.events?.some(e => getEventPosition(e, currentDay))
+        );
+      }
+    }
+    return sorted;
+  }, [groupBy, selectedCategories, locationGroups, favorites, hideEmptyGroups, filteredEvents, currentDay, getEventPosition]);
+
+  return (
+    <>
+      {/* Grid Header (Day) */}
+      <div className="grid-header">
+        <div className="grid-cell header-cell category-header">
+          {groupBy === 'categories' ? 'Categories' : 'Locations'}
+        </div>
+        <div className="grid-cell header-cell">
+          {formatDateHeader(currentDay)}
+        </div>
+      </div>
+
+      {/* Dynamic Grid Rows (Only categories/locations with events on this day) */}
+      {activeGroupsForDay.length > 0 ? (
+        activeGroupsForDay.map(group => (
+          <div key={group} className="grid-row">
+            <div
+              className="grid-cell category-cell"
+            >
+              <button
+                className="cell-timeline-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (groupBy === 'locations' && handleLocationRowClick) {
+                    const locationData = locationGroups[group];
+                    const locationId = locationData?.locationId;
+                    handleLocationRowClick(group, currentDay, 'day', locationId);
+                  } else if (groupBy === 'categories' && handleCategoryRowClick) {
+                    handleCategoryRowClick(group, currentDay, 'day');
+                  }
+                }}
+                title="View timeline"
+              >
+                <TimelineIcon size={13} />
+              </button>
+              {/* Color indicator */}
+              <div
+                className="category-color"
+                style={{
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  marginRight: '4px',
+                  flexShrink: 0,
+                  backgroundColor: groupBy === 'categories'
+                    ? getCategoryColor(group)
+                    : getLocationColor(group)
+                }}
+              />
+              <span style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flex: 1,
+                minWidth: 0
+              }}>{group}</span>
+              {onToggleFavorite && (
+                <button
+                  className={`grid-cell-pin-icon${favorites?.includes(group) ? ' pinned' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(group);
+                  }}
+                  title={favorites?.includes(group) ? 'Unpin favorite' : 'Pin as favorite'}
+                >
+                  <ThumbTackIcon size={11} filled={favorites?.includes(group)} />
+                </button>
+              )}
+            </div>
+
+            {/* One Day Cell — card stack */}
+            <div
+                className="grid-cell day-cell"
+                onClick={() => handleDayCellClick(
+                  currentDay,
+                  groupBy === 'categories' ? group : null,
+                  groupBy === 'locations' ? group : null
+                )}
+              >
+                {canAddEvent && (
+                  <button
+                    className="cell-add-event-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDayCellClick(
+                        currentDay,
+                        groupBy === 'categories' ? group : null,
+                        groupBy === 'locations' ? group : null
+                      );
+                    }}
+                    title="Add event"
+                  >+</button>
+                )}
+                {/* Events for this group on this day */}
+                {(() => {
+                  // Filter events for this group and day
+                  const groupEvents = filteredEvents
+                    .map(event => {
+                      const posInfo = getEventPosition(event, currentDay);
+                      return posInfo ? { ...event, _multiDayInfo: posInfo } : null;
+                    })
+                    .filter(Boolean)
+                    .filter(event => {
+                      if (groupBy === 'categories') {
+                        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                        const category = categories[0] || 'Uncategorized';
+                        return category === group;
+                      } else {
+                        const displayLocation = getEventDisplayLocation(event);
+                        return displayLocation === group;
+                      }
+                    });
+
+                  // Sort events by start time
+                  const sortedEvents = sortEventsByStartTime(groupEvents);
+
+                  // Calculate overlap counts for each event
+                  const getOverlapInfo = (event, allEvents) => {
+                    // Timeless drafts should not participate in overlap detection
+                    const isTimelessDraft = event.status === 'draft' &&
+                      !event.calendarData?.startTime && !event.calendarData?.endTime;
+                    if (isTimelessDraft) {
+                      return { overlapCount: 0, hasParentEvent: false, isParentEvent: false };
+                    }
+
+                    const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+                    const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+
+                    const overlapping = allEvents.filter(other => {
+                      if (other.eventId === event.eventId || other.id === event.id) return false;
+                      // Skip timeless drafts as overlap candidates
+                      const otherIsTimelessDraft = other.status === 'draft' &&
+                        !other.calendarData?.startTime && !other.calendarData?.endTime;
+                      if (otherIsTimelessDraft) return false;
+                      const otherStart = new Date(other.start?.dateTime || other.startDateTime);
+                      const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
+                      const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
+
+                      if (!timeOverlaps) return false;
+
+                      // When grouped by categories, only same physical location = conflict
+                      if (groupBy === 'categories') {
+                        const eventLocation = event.location?.displayName || '';
+                        const otherLocation = other.location?.displayName || '';
+
+                        // Only consider it a conflict if both have the same specific physical location
+                        const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
+                        const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
+
+                        // No conflict unless both have the same specific location
+                        if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
+                          return false;
+                        }
+                      }
+
+                      return true;
+                    });
+
+                    const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
+                    const isParentEvent = event.isAllowedConcurrent ?? false;
+
+                    return {
+                      overlapCount: overlapping.length,
+                      hasParentEvent,
+                      isParentEvent
+                    };
+                  };
+
+                  return (
+                    <div className="event-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {sortedEvents.map((event) => {
+                        const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
+                        // Determine which times to use (registration vs actual event times)
+                        let startDateTime, endDateTime;
+                        if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
+                          startDateTime = event.registrationStart;
+                          endDateTime = event.registrationEnd;
+                        } else {
+                          startDateTime = event.start.dateTime;
+                          endDateTime = event.end.dateTime;
+                        }
+
+                        // Calculate duration — parse local-time strings directly (no Z append)
+                        const startDate = new Date(startDateTime);
+                        const endDate = new Date(endDateTime);
+                        const duration = Math.round((endDate - startDate) / (1000 * 60)); // duration in minutes
+
+                        // Multi-day event detection
+                        const isMultiDay = event._multiDayInfo?.isMultiDay;
+                        const multiDayPosition = event._multiDayInfo?.position;
+
+                        // Check if it's an all-day event - use authoritative flag, not just duration
+                        const isAllDay = event.calendarData?.isAllDayEvent === true ||
+                          (!isMultiDay && duration >= 1440);
+
+                        // Detect drafts without specific times (defaulted to 00:00-23:59)
+                        const isTimelessDraft = event.status === 'draft' &&
+                          !event.calendarData?.startTime && !event.calendarData?.endTime;
+
+                        let timeDisplay;
+                        if (isTimelessDraft) {
+                          timeDisplay = "All day (time TBD)";
+                        } else if (isMultiDay && !isAllDay) {
+                          // Multi-day event with specific times
+                          const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+                          if (multiDayPosition === 'start') {
+                            const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
+                            timeDisplay = `${startTimeStr} \u2192`;
+                          } else if (multiDayPosition === 'end') {
+                            const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
+                            timeDisplay = `\u2192 ${endTimeStr}`;
+                          } else {
+                            timeDisplay = "All day";
+                          }
+                        } else if (isAllDay) {
+                          timeDisplay = "All day";
+                        } else {
+                          // Use formatEventTime utility which properly handles timezone conversion
+                          // Pass the source timezone from event data for correct interpretation
+                          const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+                          const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
+                          const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
+
+                          // Format total duration - simplified to prevent overflow
+                          const hours = Math.floor(duration / 60);
+                          const minutes = duration % 60;
+                          let durationStr;
+                          if (hours > 0) {
+                            // Only show hours for events longer than 1 hour
+                            durationStr = `${hours}h`;
+                          } else {
+                            // Show minutes for short events
+                            durationStr = `${minutes}m`;
+                          }
+
+                          timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
+
+                          // Registration time icon rendered inline in JSX below
+                        }
+
+                        // Get primary category for color
+                        const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                        const primaryCategory = eventCategories[0] || 'Uncategorized';
+                        const eventColor = groupBy === 'categories'
+                          ? getCategoryColor(primaryCategory)
+                          : getLocationColor(getEventDisplayLocation(event));
+
+                        // Convert hex color to rgba with transparency
+                        const hexToRgba = (hex, alpha) => {
+                          const r = parseInt(hex.slice(1, 3), 16);
+                          const g = parseInt(hex.slice(3, 5), 16);
+                          const b = parseInt(hex.slice(5, 7), 16);
+                          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                        };
+
+                        // Use different styling if showing registration times
+                        const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
+                        // Check if event is pending approval
+                        const isPending = event.status === 'pending';
+                        // Check if event is a draft
+                        const isDraft = event.status === 'draft';
+                        // Check for pending edit request (role-filtered by Calendar.jsx)
+                        const hasPendingEditRequest = !!event.showPendingEditBadge;
+                        const bgAlpha = isDraft ? 0.1 : isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
+
+                        const transparentColor = hasPendingEditRequest
+                          ? 'rgba(139, 92, 246, 0.15)' // Purple tint for pending edits
+                          : hexToRgba(eventColor, bgAlpha);
+
+                        return (
+                          <div
+                            key={event.eventId}
+                            className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''} ${isMultiDay ? 'multi-day-event' : ''}`}
+                            style={{
+                              position: 'relative',
+                              backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
+                              borderLeft: `3px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                              padding: '8px 10px',
+                              margin: 0,
+                              cursor: 'pointer',
+                              borderRadius: '8px',
+                              color: '#333',
+                              opacity: isDraft ? 0.8 : isPending ? 0.9 : 1,
+                              ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
+                                borderRight: `1px dashed ${eventColor}`,
+                                borderBottom: `1px dashed ${eventColor}`,
+                              }),
+                              ...(hasPendingEditRequest && {
+                                borderRight: `1px dashed #a78bfa`,
+                                borderBottom: `1px dashed #a78bfa`,
+                              })
+                            }}
+                            onClick={(e) => handleEventClick(event, e)}
+                          >
+                            {/* Overlap badge */}
+                            {overlapCount > 0 && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                left: '4px',
+                                fontSize: '9px',
+                                fontWeight: '600',
+                                color: hasParentEvent ? '#166534' : '#9a3412',
+                                backgroundColor: hasParentEvent ? '#dcfce7' : '#ffedd5',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                lineHeight: 1,
+                                zIndex: 5
+                              }}
+                              title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
+                              >
+                                {hasParentEvent ? `+${overlapCount}` : <><WarningIcon size={8} /> {overlapCount + 1}</>}
+                              </div>
+                            )}
+                            {/* Parent event indicator */}
+                            {isParentEvent && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                left: overlapCount > 0 ? '45px' : '4px',
+                                fontSize: '11px',
+                                lineHeight: 1
+                              }}
+                              title="Allows concurrent events"
+                              >
+                                <ConcurrentIcon size={11} />
+                              </div>
+                            )}
+                            <div style={{ lineHeight: '1.3', marginTop: overlapCount > 0 || isParentEvent ? '14px' : '0' }}>
+                              <div style={{
+                                fontSize: '11px',
+                                color: '#555',
+                                fontWeight: '500',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {isShowingRegistrationTime && <TimerIcon size={10} />}{' '}{timeDisplay}
+                              </div>
+                              <div style={{
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                marginTop: '2px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {event.subject}
+                              </div>
+                            </div>
+
+                            {isPending && (
+                              <span className="event-status-badge badge-pending" style={{ fontSize: '9px', padding: '2px 6px' }}>
+                                PENDING
+                              </span>
+                            )}
+                            {isDraft && (
+                              <span className="event-status-badge badge-draft" style={{ fontSize: '9px', padding: '2px 6px' }}>
+                                DRAFT
+                              </span>
+                            )}
+                            {isMultiDay && (
+                              <span className="event-status-badge badge-multi-day" style={{ fontSize: '9px', padding: '2px 6px' }}>
+                                Day {event._multiDayInfo.dayNumber}/{event._multiDayInfo.totalDays}
+                              </span>
+                            )}
+                            {/* Recurring event indicator */}
+                            {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
+                              (event.seriesMasterId || event.graphData?.seriesMasterId) ||
+                              (event.recurrence || event.graphData?.recurrence)) && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: hasPendingEditRequest ? '24px' : '4px',
+                                color: '#444',
+                                lineHeight: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '2px'
+                              }}>
+                                {(event.hasOccurrenceOverride || event.isAdHocAddition)
+                                  ? <RecurringExceptionIcon size={12} />
+                                  : <RecurringIcon size={12} />}
+                              </div>
+                            )}
+                            {/* Pending Edit Request indicator */}
+                            {hasPendingEditRequest && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: '4px',
+                                fontSize: '10px',
+                                lineHeight: 1,
+                                backgroundColor: '#ede9fe',
+                                borderRadius: '3px',
+                                padding: '2px 3px'
+                              }}
+                              title="Has pending edit request"
+                              >
+                                <PencilIcon size={10} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+          </div>
+        ))
+      ) : (
+        // Show message when no groups are selected
+        <div className="grid-row">
+          <div className="grid-cell" style={{
+            gridColumn: '1 / 3',
+            textAlign: 'center',
+            padding: '40px 20px',
+            color: '#666'
+          }}>
+            <div style={{ fontSize: '16px', marginBottom: '10px' }}>
+              No {groupBy === 'categories' ? 'categories' : 'locations'} selected for {formatDateHeader(currentDay)}
+            </div>
+            {canAddEvent && (
+              <button
+                onClick={() => handleDayCellClick(currentDay)}
+                style={{
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                + Add Event
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
+export default DayView;

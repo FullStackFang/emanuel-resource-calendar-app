@@ -1,0 +1,140 @@
+/* ============================================================================
+   SESSION EXPIRED DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Shown when the user's refresh token expires (24-hour cliff) and
+   acquireTokenSilent can no longer obtain a fresh access token.
+   Follows the same patterns as ConflictDialog / RecurringScopeDialog.
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY
+   ========================================================================== */
+
+.session-expired-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: session-fade-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes session-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CONTAINER
+   ========================================================================== */
+
+.session-expired-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 440px;
+  width: 100%;
+  overflow: hidden;
+  animation: session-slide-in var(--duration-normal) var(--ease-out);
+}
+
+@keyframes session-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.session-expired-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+
+.session-expired-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.session-expired-header h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   BODY
+   ========================================================================== */
+
+.session-expired-body {
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.session-expired-body p {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   ACTIONS
+   ========================================================================== */
+
+.session-expired-actions {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  justify-content: flex-end;
+}
+
+.session-expired-actions button {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.session-expired-btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+}
+
+.session-expired-btn-secondary:hover {
+  background: var(--bg-tertiary);
+}
+
+.session-expired-btn-primary {
+  background: var(--color-info-500);
+  color: white;
+  border: none;
+}
+
+.session-expired-btn-primary:hover {
+  background: var(--color-info-600, #2563eb);
+}
+
+.session-expired-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

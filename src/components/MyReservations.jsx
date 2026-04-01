@@ -11,7 +11,7 @@ import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
+import { transformEventsToFlatStructure, getEventField, transformEventToDuplicatePrefill } from '../utils/eventTransformers';
 import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
@@ -427,6 +427,18 @@ export default function MyReservations() {
       setIsRestoring(false);
     }
   }, [reviewModal, authFetch, loadMyReservations, showError]);
+
+  // Duplicate handler — closes details modal and opens NewReservationModal with prefill
+  const handleDuplicate = useCallback(() => {
+    const data = reviewModal.editableData;
+    if (!data) return;
+    const prefill = transformEventToDuplicatePrefill(data);
+    reviewModal.closeModal(true);
+    // Avoids two portaled modals overlapping during React's state flush
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('open-new-reservation-modal', { detail: prefill }));
+    }, 100);
+  }, [reviewModal]);
 
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
@@ -1021,6 +1033,12 @@ export default function MyReservations() {
         isResubmitting={isResubmitting}
         onRestore={reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}
         isRestoring={isRestoring}
+        // Duplicate — available for non-deleted, non-recurring events
+        onDuplicate={
+          reviewModal.currentItem?.status !== 'deleted'
+          && reviewModal.currentItem?.eventType !== 'seriesMaster'
+          ? handleDuplicate : null
+        }
         // Owner edit actions
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
         savingPendingEdit={reviewModal.isSavingOwnerEdit}

@@ -1,0 +1,163 @@
+/* ============================================================================
+   RECURRENCE WARNING DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Confirmation dialog for uncommitted recurrence pattern changes
+   ============================================================================ */
+
+.recurrence-warning-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: fadeIn var(--duration-fast) var(--ease-out);
+}
+
+.recurrence-warning-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 460px;
+  width: 100%;
+  overflow: hidden;
+  animation: draft-save-slide-in var(--duration-normal) var(--ease-out);
+}
+
+.recurrence-warning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.recurrence-warning-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.recurrence-warning-close {
+  background: none;
+  border: none;
+  font-size: var(--text-2xl);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+.recurrence-warning-close:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.recurrence-warning-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recurrence-warning-content {
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+
+.recurrence-warning-icon {
+  font-size: var(--text-5xl);
+  margin-bottom: var(--space-4);
+  color: var(--color-warning-500);
+}
+
+.recurrence-warning-message {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
+}
+
+.recurrence-warning-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.recurrence-warning-btn {
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.recurrence-warning-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recurrence-warning-btn-cancel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.recurrence-warning-btn-cancel:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.recurrence-warning-btn-without {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.recurrence-warning-btn-without:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.recurrence-warning-btn-create {
+  background: var(--color-primary-500);
+  border: none;
+  color: var(--text-inverse);
+}
+
+.recurrence-warning-btn-create:hover:not(:disabled) {
+  background: var(--color-primary-600);
+}
+
+@media (max-width: 480px) {
+  .recurrence-warning-dialog {
+    max-width: 100%;
+    margin: var(--space-3);
+  }
+
+  .recurrence-warning-footer {
+    flex-direction: column;
+  }
+
+  .recurrence-warning-btn {
+    width: 100%;
+  }
+}

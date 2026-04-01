@@ -1,0 +1,272 @@
+/* ============================================================================
+   ROOM TIMELINE - Emanuel Modern Design System
+   ============================================================================
+   Visual timeline showing room availability and conflicts
+   ============================================================================ */
+
+/* ==========================================================================
+   MAIN CONTAINER
+   ========================================================================== */
+
+.room-timeline {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.timeline-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ==========================================================================
+   LEGEND
+   ========================================================================== */
+
+.timeline-legend {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   TIMELINE CONTAINER
+   ========================================================================== */
+
+.timeline-container {
+  position: relative;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.timeline-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* ==========================================================================
+   HOUR MARKERS
+   ========================================================================== */
+
+.hour-marker {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hour-line {
+  width: 1px;
+  height: 60%;
+  background: var(--border-default);
+  margin-top: 20%;
+}
+
+.hour-label {
+  position: absolute;
+  top: var(--space-1);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+}
+
+/* ==========================================================================
+   TIMELINE BLOCKS
+   ========================================================================== */
+
+.timeline-block {
+  position: absolute;
+  top: 25%;
+  height: 50%;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-all);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.timeline-block:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  height: 60%;
+  top: 20%;
+}
+
+.timeline-block.requested {
+  border: 2px solid var(--color-info-600);
+  box-shadow: 0 2px 4px var(--color-info-100);
+}
+
+.timeline-block.setup,
+.timeline-block.teardown,
+.timeline-block.reservation-buffer {
+  opacity: 0.7;
+  height: 30%;
+  top: 35%;
+}
+
+/* ==========================================================================
+   BLOCK CONTENT
+   ========================================================================== */
+
+.block-content {
+  padding: var(--space-1) var(--space-2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.block-title {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-inverse);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  line-height: var(--leading-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-subtitle {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.block-time {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  line-height: 1;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hide detailed text when blocks are too narrow */
+.timeline-block[style*="width: 1%"] .block-subtitle,
+.timeline-block[style*="width: 2%"] .block-subtitle,
+.timeline-block[style*="width: 3%"] .block-subtitle {
+  display: none;
+}
+
+.timeline-block[style*="width: 1%"] .block-time,
+.timeline-block[style*="width: 2%"] .block-time,
+.timeline-block[style*="width: 3%"] .block-time,
+.timeline-block[style*="width: 4%"] .block-time {
+  display: none;
+}
+
+/* ==========================================================================
+   STATUS MESSAGES
+   ========================================================================== */
+
+.no-conflicts-message {
+  text-align: center;
+  color: var(--color-success-600);
+  font-weight: var(--font-medium);
+  margin-top: var(--space-3);
+  padding: var(--space-2);
+  background: var(--color-success-50);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+/* ==========================================================================
+   CONCURRENT EVENTS
+   ========================================================================== */
+
+.timeline-block.allows-concurrent {
+  border-style: dashed !important;
+  border-width: 2px !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.timeline-block.allows-concurrent .block-title {
+  display: flex;
+  align-items: center;
+}
+
+.legend-color[style*="dashed"] {
+  background: var(--color-info-100);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .timeline-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timeline-legend {
+    font-size: var(--text-xs);
+  }
+
+  .timeline-container {
+    height: 70px;
+  }
+
+  .hour-label {
+    font-size: 0.65rem;
+  }
+
+  .block-title {
+    font-size: 0.65rem;
+  }
+
+  .block-subtitle,
+  .block-time {
+    font-size: 0.55rem;
+  }
+}

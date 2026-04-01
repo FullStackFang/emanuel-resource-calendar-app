@@ -1,0 +1,209 @@
+/* ============================================================================
+   DRAFT SAVE DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Confirmation dialog for saving or discarding draft changes
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY
+   ========================================================================== */
+
+.draft-save-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: fadeIn var(--duration-fast) var(--ease-out);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CONTAINER
+   ========================================================================== */
+
+.draft-save-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 420px;
+  width: 100%;
+  overflow: hidden;
+  animation: draft-save-slide-in var(--duration-normal) var(--ease-out);
+}
+
+@keyframes draft-save-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.draft-save-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.draft-save-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.draft-save-close {
+  background: none;
+  border: none;
+  font-size: var(--text-2xl);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+.draft-save-close:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.draft-save-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   CONTENT
+   ========================================================================== */
+
+.draft-save-content {
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+
+.draft-save-icon {
+  font-size: var(--text-5xl);
+  margin-bottom: var(--space-4);
+}
+
+.draft-save-message {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
+}
+
+.draft-save-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
+.draft-save-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.draft-save-btn {
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.draft-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.draft-save-btn-discard {
+  background: var(--bg-primary);
+  border: 1px solid var(--color-error-100);
+  color: var(--color-error-500);
+}
+
+.draft-save-btn-discard:hover:not(:disabled) {
+  background: var(--color-error-50);
+  border-color: var(--color-error-500);
+}
+
+.draft-save-btn-cancel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.draft-save-btn-cancel:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.draft-save-btn-save {
+  background: var(--color-primary-500);
+  border: none;
+  color: var(--text-inverse);
+}
+
+.draft-save-btn-save:hover:not(:disabled) {
+  background: var(--color-primary-600);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 480px) {
+  .draft-save-dialog {
+    max-width: 100%;
+    margin: var(--space-3);
+  }
+
+  .draft-save-footer {
+    flex-direction: column;
+  }
+
+  .draft-save-btn {
+    width: 100%;
+  }
+}

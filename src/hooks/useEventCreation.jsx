@@ -18,6 +18,19 @@ import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 
 /**
+ * Add N days to a YYYY-MM-DD date string, returning YYYY-MM-DD.
+ * Uses local-time getters to avoid UTC timezone shift.
+ */
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
  * @param {Object} config
  * @param {string} config.apiToken - JWT for API calls
  * @param {string} config.selectedCalendarId - Currently selected calendar ID
@@ -61,6 +74,13 @@ export function useEventCreation({
   const [isDraftConfirming, setIsDraftConfirming] = useState(false);
   const [showDraftDialog, setShowDraftDialog] = useState(false);
 
+  // --- Duplicate mode state ---
+  const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+  const [duplicateDates, setDuplicateDates] = useState([]);
+  const [sourceEventDate, setSourceEventDate] = useState('');
+  const [submittingDuplicate, setSubmittingDuplicate] = useState(false);
+  const durationDaysRef = useRef(0);
+
   // --- Form data getter ref (set by RoomReservationReview via onFormDataReady) ---
   const formDataGetterRef = useRef(null);
 
@@ -90,6 +110,11 @@ export function useEventCreation({
     setSavingDraft(false);
     setIsDraftConfirming(false);
     setShowDraftDialog(false);
+    setIsDuplicateMode(false);
+    setDuplicateDates([]);
+    setSourceEventDate('');
+    setSubmittingDuplicate(false);
+    durationDaysRef.current = 0;
     formDataGetterRef.current = null;
   }, []);
 
@@ -144,10 +169,21 @@ export function useEventCreation({
   /**
    * Open the creation modal.
    * @param {Object} [overrides] - Fields to prefill (date, location, category, times, etc.)
+   *   Supports duplicate flags: _isDuplicate, _sourceEventDate, _durationDays
    */
   const open = useCallback((overrides = {}) => {
+    // Extract and strip internal duplicate flags before building reservation
+    const { _isDuplicate, _sourceEventDate, _durationDays, ...cleanOverrides } = overrides;
+
     const resolvedMode = canCreateEvents ? 'event' : 'create';
-    const reservation = buildBlankReservation(overrides);
+    const reservation = buildBlankReservation(cleanOverrides);
+
+    // Set up duplicate mode if flagged
+    setIsDuplicateMode(!!_isDuplicate);
+    setSourceEventDate(_sourceEventDate || '');
+    setDuplicateDates([]);
+    setSubmittingDuplicate(false);
+    durationDaysRef.current = _durationDays || 0;
 
     setPrefillData(reservation);
     setMode(resolvedMode);
@@ -327,48 +363,17 @@ export function useEventCreation({
     let successCount = 0;
     let failCount = 0;
 
-    // Create each event via audit-update endpoint (correct app-only auth path)
     for (let i = 0; i < dates.length; i++) {
       const dateStr = dates[i];
-      const effectiveStartTime = data.startTime || data.reservationStartTime;
-      const effectiveEndTime = data.endTime || data.reservationEndTime;
-
-      // Build per-day form data for the shared builders
-      const dayData = {
-        ...data,
-        startDate: dateStr,
-        endDate: dateStr,
-      };
-
-      const graphFields = buildGraphFields(dayData);
-      const internalFields = {
-        ...buildInternalFields(dayData),
-        eventSeriesId,
-        seriesLength: dates.length,
-        seriesIndex: i,
-      };
+      const dayData = { ...data, startDate: dateStr, endDate: dateStr };
 
       try {
-        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`,
-          },
-          body: JSON.stringify({
-            graphFields,
-            internalFields,
-            calendarId: selectedCalendarId,
-            calendarOwner: getCalendarOwner(),
-          }),
+        await _postAdminEvent(dayData, {
+          eventSeriesId,
+          seriesLength: dates.length,
+          seriesIndex: i,
         });
-
-        if (response.ok) {
-          successCount++;
-        } else {
-          failCount++;
-          logger.error(`[useEventCreation] Batch item ${i} failed:`, response.status);
-        }
+        successCount++;
       } catch (err) {
         failCount++;
         logger.error(`[useEventCreation] Batch item ${i} error:`, err);
@@ -381,7 +386,7 @@ export function useEventCreation({
     } else if (failCount > 0 && successCount === 0) {
       throw new Error('Failed to create events');
     }
-  }, [apiToken, selectedCalendarId, getCalendarOwner, showError]);
+  }, [_postAdminEvent, showError]);
 
   // ══════════════════════════════════════════════
   //  REQUESTER SUBMIT  (POST /api/events/request)
@@ -555,6 +560,84 @@ export function useEventCreation({
   }, [resetState, refreshSource, onSuccess]);
 
   // ══════════════════════════════════════════════
+  //  SHARED SINGLE-EVENT POST HELPERS
+  // ══════════════════════════════════════════════
+
+  const _postAdminEvent = useCallback(async (dayData, extraInternalFields = {}) => {
+    const graphFields = buildGraphFields(dayData);
+    const internalFields = { ...buildInternalFields(dayData), ...extraInternalFields };
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      body: JSON.stringify({
+        graphFields,
+        internalFields,
+        calendarId: selectedCalendarId,
+        calendarOwner: getCalendarOwner(),
+      }),
+    });
+    if (!response.ok) throw new Error('Failed to create event');
+  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+
+  const _postRequesterEvent = useCallback(async (dayData) => {
+    const payload = buildRequesterPayload(dayData, {
+      calendarId: selectedCalendarId,
+      calendarOwner: getCalendarOwner(),
+    });
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Failed to submit reservation');
+  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+
+  // ══════════════════════════════════════════════
+  //  DUPLICATE SUBMIT  (loops existing endpoints)
+  // ══════════════════════════════════════════════
+
+  const handleDuplicateSubmit = useCallback(async () => {
+    if (duplicateDates.length === 0) return;
+    setSubmittingDuplicate(true);
+
+    const data = getFormData();
+    if (!data) { setSubmittingDuplicate(false); return; }
+
+    const durationDays = durationDaysRef.current;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const dateStr of duplicateDates) {
+      const endDate = durationDays > 0 ? addDays(dateStr, durationDays) : dateStr;
+      const dateFormData = { ...data, startDate: dateStr, endDate };
+
+      try {
+        if (canCreateEvents) {
+          await _postAdminEvent(dateFormData);
+        } else {
+          await _postRequesterEvent(dateFormData);
+        }
+        successCount++;
+      } catch (err) {
+        failCount++;
+        logger.error(`[useEventCreation] Duplicate item failed for ${dateStr}:`, err);
+      }
+    }
+
+    setSubmittingDuplicate(false);
+
+    if (successCount > 0 && failCount === 0) {
+      showSuccess(`${successCount} reservation${successCount !== 1 ? 's' : ''} created`);
+      _onSuccess();
+    } else if (successCount > 0 && failCount > 0) {
+      showSuccess(`${successCount} created, ${failCount} failed`);
+      _onSuccess();
+    } else {
+      showError('Failed to create reservations');
+    }
+  }, [duplicateDates, getFormData, canCreateEvents, _postAdminEvent, _postRequesterEvent, showError]);
+
+  // ══════════════════════════════════════════════
   //  RETURN
   // ══════════════════════════════════════════════
 
@@ -595,5 +678,13 @@ export function useEventCreation({
     handleDraftDialogDiscard,
     handleDraftDialogCancel,
     canSaveDraft,
+
+    // Duplicate mode
+    isDuplicateMode,
+    duplicateDates,
+    setDuplicateDates,
+    sourceEventDate,
+    submittingDuplicate,
+    handleDuplicateSubmit,
   };
 }

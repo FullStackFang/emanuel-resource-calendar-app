@@ -1,0 +1,342 @@
+/* ============================================================================
+   MONTH VIEW - Emanuel Modern Design System
+   ============================================================================
+   Calendar month view with event snippet bars and refined grid layout
+   ============================================================================ */
+
+/* ==========================================================================
+   MONTH VIEW WRAPPER
+   ========================================================================== */
+
+.month-view-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   MONTH VIEW CONTAINER
+   ========================================================================== */
+
+.month-view-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  min-width: 400px;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ==========================================================================
+   MONTH HEADER
+   ========================================================================== */
+
+.month-header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
+  padding: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-normal);
+  border-radius: 0;
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ==========================================================================
+   WEEKDAY HEADERS
+   ========================================================================== */
+
+.weekday-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background-color: var(--bg-secondary);
+  color: var(--text-tertiary);
+  border-radius: 0;
+  height: 44px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.weekday {
+  text-align: center;
+  font-family: var(--font-body);
+  font-weight: var(--font-semibold);
+  padding: var(--space-2);
+  border-right: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekday:last-child {
+  border-right: none;
+}
+
+/* ==========================================================================
+   MONTH DAYS GRID
+   ========================================================================== */
+
+.month-days {
+  flex: 1;
+  display: grid !important;
+  grid-template-rows: repeat(6, 1fr) !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+  width: 100%;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* ==========================================================================
+   DAY CELLS
+   ========================================================================== */
+
+.month-view-wrapper .day-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-primary);
+  overflow: hidden;
+  cursor: pointer;
+  transition: var(--transition-all);
+  min-height: 0 !important;
+  max-height: 100%;
+  font-size: var(--text-xs);
+}
+
+.day-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.day-cell:nth-last-child(-n+7) {
+  border-bottom: none;
+}
+
+.day-cell:hover:not(.selected) {
+  background-color: var(--bg-secondary);
+}
+
+.day-cell.selected {
+  background-color: var(--color-primary-50) !important;
+  outline: 2px solid var(--color-primary-400);
+  outline-offset: -2px;
+}
+
+/* Current-month cells get a subtle top accent border */
+.month-view-wrapper .day-cell:not(.outside-month) {
+  border-top: 2px solid var(--color-primary-200);
+}
+
+.day-cell.outside-month {
+  background-color: var(--bg-tertiary);
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.day-cell.outside-month:hover {
+  background-color: var(--bg-primary);
+}
+
+.day-cell.outside-month:hover .day-number {
+  color: var(--text-primary);
+}
+
+.day-cell.outside-month:hover .month-event-snippet {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   CURRENT DAY HIGHLIGHTING
+   ========================================================================== */
+
+.day-cell.current-day {
+  background-color: var(--color-primary-50);
+  box-shadow: inset 0 0 0 1px var(--color-primary-200);
+}
+
+/* ==========================================================================
+   DAY CELL HEADER (flex row: day-number left + add-btn right)
+   ========================================================================== */
+
+.day-cell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 var(--space-1);
+}
+
+/* ==========================================================================
+   DAY NUMBERS
+   ========================================================================== */
+
+.month-view-wrapper .day-cell .day-number {
+  position: static;
+  font-family: var(--font-body);
+  font-weight: var(--font-semibold);
+  padding: var(--space-1);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1;
+  border-bottom: none;
+}
+
+.day-cell.outside-month .day-number {
+  color: var(--text-tertiary);
+}
+
+/* Today's Date Number - Perfect Circle */
+.month-view-wrapper .day-cell .day-number.today-number {
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  border-radius: var(--radius-full);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--font-bold);
+  box-shadow: var(--shadow-sm);
+}
+
+.day-cell.current-day .day-number {
+  color: var(--text-inverse);
+  font-weight: var(--font-bold);
+}
+
+/* ==========================================================================
+   DAY CELL EVENTS CONTAINER
+   ========================================================================== */
+
+.day-cell-events {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  padding: 0 var(--space-1) var(--space-1);
+}
+
+/* ==========================================================================
+   EVENT SNIPPET BARS
+   ========================================================================== */
+
+.month-event-snippet {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-1);
+  border-left: 3px solid var(--color-primary-500);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  line-height: 1.25;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  min-height: 18px;
+  transition: background-color var(--duration-fast) var(--ease-in-out);
+}
+
+.month-event-snippet:hover {
+  filter: brightness(0.95);
+  box-shadow: var(--shadow-xs);
+}
+
+.snippet-time {
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.snippet-title {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.month-event-snippet.snippet-pending {
+  border-left-style: dashed;
+  opacity: 0.85;
+}
+
+.month-event-snippet.snippet-draft {
+  border-left-style: dotted;
+  opacity: 0.7;
+}
+
+/* Outside-month snippets faded */
+.day-cell.outside-month .month-event-snippet {
+  opacity: 0.6;
+}
+
+/* Outside-month "+" button: muted until hovered */
+.day-cell.outside-month .cell-add-event-btn {
+  opacity: 0;
+  background-color: var(--color-neutral-400);
+}
+.day-cell.outside-month:hover .cell-add-event-btn {
+  opacity: 0.7;
+  background-color: var(--color-primary-400);
+}
+.day-cell.outside-month .cell-add-event-btn:hover {
+  opacity: 1;
+  background-color: var(--color-primary-500);
+}
+
+/* ==========================================================================
+   EVENT OVERFLOW LINK
+   ========================================================================== */
+
+.month-event-overflow {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  color: var(--color-primary-600);
+  padding: 1px var(--space-1);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-in-out);
+}
+
+.month-event-overflow:hover {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+/* Remove week-row from layout */
+.month-view-wrapper .week-row {
+  display: contents !important;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 992px) {
+  .month-view-container {
+    min-width: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .month-view-wrapper .day-cell .day-number {
+    font-size: var(--text-xs);
+  }
+}

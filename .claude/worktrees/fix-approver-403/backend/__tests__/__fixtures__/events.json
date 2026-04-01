@@ -1,0 +1,165 @@
+{
+  "graphApiEvent": {
+    "id": "AAMkAGI5MWY5ZmUyLT",
+    "subject": "Team Meeting",
+    "bodyPreview": "Weekly team sync to discuss project updates",
+    "start": {
+      "dateTime": "2024-03-15T14:00:00.0000000",
+      "timeZone": "UTC"
+    },
+    "end": {
+      "dateTime": "2024-03-15T15:00:00.0000000",
+      "timeZone": "UTC"
+    },
+    "location": {
+      "displayName": "Conference Room A",
+      "locationType": "conferenceRoom"
+    },
+    "categories": ["Meeting", "Team"],
+    "organizer": {
+      "emailAddress": {
+        "name": "John Doe",
+        "address": "john@example.com"
+      }
+    },
+    "isAllDay": false
+  },
+  "roomReservationEvent": {
+    "_id": "65f1234567890abcdef12345",
+    "eventId": "evt-request-2024-001",
+    "status": "room-reservation-request",
+    "graphData": {
+      "subject": "Wedding Reception",
+      "start": {
+        "dateTime": "2024-06-15T17:00:00.0000000",
+        "timeZone": "Eastern Standard Time"
+      },
+      "end": {
+        "dateTime": "2024-06-15T22:00:00.0000000",
+        "timeZone": "Eastern Standard Time"
+      },
+      "bodyPreview": "Wedding reception for Smith family",
+      "categories": ["Special Event", "Rental"]
+    },
+    "roomReservationData": {
+      "requestedBy": {
+        "name": "Jane Smith",
+        "email": "jane@example.com",
+        "department": "External",
+        "phone": "555-0123"
+      },
+      "attendeeCount": 150,
+      "priority": "high",
+      "specialRequirements": "Catering setup required",
+      "submittedAt": "2024-05-01T10:00:00.000Z",
+      "timing": {
+        "setupTime": "15:00",
+        "teardownTime": "23:30",
+        "doorOpenTime": "16:30",
+        "doorCloseTime": "22:00"
+      },
+      "internalNotes": {
+        "setupNotes": "Tables and chairs for 150 guests",
+        "doorNotes": "Valet parking available",
+        "eventNotes": "VIP event - extra attention needed"
+      }
+    },
+    "locations": [
+      {
+        "_id": "room-001",
+        "name": "Main Ballroom",
+        "capacity": 200
+      },
+      {
+        "_id": "room-002",
+        "name": "Garden Terrace",
+        "capacity": 50
+      }
+    ]
+  },
+  "flatEvent": {
+    "eventTitle": "Quick Sync",
+    "eventDescription": "Brief meeting to align on deliverables",
+    "startDate": "2024-04-01",
+    "startTime": "09:00",
+    "endDate": "2024-04-01",
+    "endTime": "09:30",
+    "categories": ["Meeting"],
+    "attendeeCount": 5
+  },
+  "recurringEvent": {
+    "id": "AAMkAGI5MWY5ZmUyLT-recurring",
+    "subject": "Weekly Standup",
+    "start": {
+      "dateTime": "2024-03-18T09:00:00.0000000",
+      "timeZone": "UTC"
+    },
+    "end": {
+      "dateTime": "2024-03-18T09:30:00.0000000",
+      "timeZone": "UTC"
+    },
+    "eventSeriesId": "series-weekly-standup-001",
+    "seriesIndex": 12,
+    "seriesLength": 52,
+    "recurrence": {
+      "pattern": {
+        "type": "weekly",
+        "interval": 1,
+        "daysOfWeek": ["monday"]
+      },
+      "range": {
+        "type": "endDate",
+        "startDate": "2024-01-01",
+        "endDate": "2024-12-31"
+      }
+    }
+  },
+  "offsiteEvent": {
+    "id": "AAMkAGI5MWY5ZmUyLT-offsite",
+    "subject": "Client Lunch",
+    "start": {
+      "dateTime": "2024-03-20T12:00:00.0000000",
+      "timeZone": "UTC"
+    },
+    "end": {
+      "dateTime": "2024-03-20T14:00:00.0000000",
+      "timeZone": "UTC"
+    },
+    "location": {
+      "displayName": "The Capital Grille",
+      "address": {
+        "street": "120 Broadway",
+        "city": "New York",
+        "state": "NY",
+        "postalCode": "10271",
+        "countryOrRegion": "United States"
+      },
+      "coordinates": {
+        "latitude": 40.7094,
+        "longitude": -74.0108
+      }
+    }
+  },
+  "errorPayloads": {
+    "connectionTimeout": {
+      "message": "Connection timeout after 30000ms",
+      "stack": "Error: Connection timeout after 30000ms\n    at MongoClient.connect (node_modules/mongodb/lib/mongo_client.js:123)\n    at async connectToDatabase (backend/services/database.js:45)\n    at async startServer (backend/api-server.js:78)",
+      "source": "backend",
+      "endpoint": "/api/events",
+      "statusCode": 500
+    },
+    "authenticationFailed": {
+      "message": "Token validation failed: invalid signature",
+      "stack": "Error: Token validation failed: invalid signature\n    at validateToken (backend/middleware/auth.js:34)\n    at authenticate (backend/middleware/auth.js:67)",
+      "source": "backend",
+      "endpoint": "/api/admin/events",
+      "statusCode": 401
+    },
+    "validationError": {
+      "message": "Validation failed: startDate is required",
+      "source": "backend",
+      "endpoint": "/api/events",
+      "statusCode": 400
+    }
+  }
+}

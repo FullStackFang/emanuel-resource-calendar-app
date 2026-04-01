@@ -1,0 +1,112 @@
+/* ============================================================================
+   OFFSITE LOCATION MODAL - Emanuel Modern Design System
+   ============================================================================
+   Address autocomplete styles for offsite location modal
+   ============================================================================ */
+
+/* ==========================================================================
+   AUTOCOMPLETE WRAPPER
+   ========================================================================== */
+
+.address-autocomplete-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.address-input-container {
+  position: relative;
+  width: 100%;
+}
+
+/* ==========================================================================
+   SEARCH SPINNER
+   ========================================================================== */
+
+.address-search-spinner {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ==========================================================================
+   SUGGESTIONS DROPDOWN
+   ========================================================================== */
+
+.address-suggestions {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: var(--z-dropdown);
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+}
+
+/* ==========================================================================
+   SUGGESTION ITEMS
+   ========================================================================== */
+
+.address-suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.address-suggestion-item:hover {
+  background: var(--color-primary-50);
+}
+
+.address-suggestion-item:active {
+  background: var(--color-primary-100);
+}
+
+.suggestion-icon {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-accent-500);
+}
+
+.suggestion-text {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   CUSTOM SCROLLBAR
+   ========================================================================== */
+
+.address-suggestions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.address-suggestions::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.address-suggestions::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.address-suggestions::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}

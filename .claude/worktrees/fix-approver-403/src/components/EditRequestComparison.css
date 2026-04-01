@@ -1,0 +1,378 @@
+/* ============================================================================
+   EDIT REQUEST COMPARISON - Emanuel Modern Design System
+   ============================================================================
+   Modal for comparing and reviewing edit requests
+   ============================================================================ */
+
+/* ==========================================================================
+   MODAL OVERLAY
+   ========================================================================== */
+
+.edit-request-comparison-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-5);
+  z-index: var(--z-modal);
+  overflow-y: auto;
+}
+
+.edit-request-comparison-modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  margin: var(--space-5) auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.edit-request-comparison-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+}
+
+.edit-request-comparison-header .header-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.edit-request-comparison-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+.edit-request-comparison-header .status-badge {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+}
+
+.status-pending {
+  background-color: var(--color-warning-100);
+  color: var(--color-warning-700);
+}
+
+.status-approved {
+  background-color: var(--color-success-100);
+  color: var(--color-success-700);
+}
+
+.status-rejected {
+  background-color: var(--color-error-100);
+  color: var(--color-error-700);
+}
+
+.edit-request-comparison-header .close-btn {
+  background: none;
+  border: none;
+  font-size: var(--text-2xl);
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.edit-request-comparison-header .close-btn:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   BODY
+   ========================================================================== */
+
+.edit-request-comparison-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+
+/* ==========================================================================
+   REQUEST INFO SECTION
+   ========================================================================== */
+
+.request-info-section {
+  margin-bottom: var(--space-6);
+}
+
+.request-info-section h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-3);
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.info-item label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+}
+
+.info-item span {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   CHANGE REASON SECTION
+   ========================================================================== */
+
+/* ==========================================================================
+   COMPARISON SECTION
+   ========================================================================== */
+
+.comparison-section {
+  margin-bottom: var(--space-6);
+}
+
+.comparison-section h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.comparison-table th {
+  background-color: var(--bg-secondary);
+  padding: var(--space-3);
+  text-align: left;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-default);
+}
+
+.comparison-table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: top;
+}
+
+.comparison-table .field-name {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  width: 20%;
+}
+
+.comparison-table .original-value {
+  color: var(--text-secondary);
+  width: 40%;
+}
+
+.comparison-table .proposed-value {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+  width: 40%;
+}
+
+.comparison-table .changed-row {
+  background-color: var(--color-warning-50);
+}
+
+.comparison-table .changed-row .proposed-value {
+  color: var(--color-warning-600);
+}
+
+.no-changes-message {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: var(--space-4);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+/* ==========================================================================
+   ALL FIELDS SECTION (COLLAPSIBLE)
+   ========================================================================== */
+
+.all-fields-section {
+  margin-bottom: var(--space-6);
+}
+
+.all-fields-section summary {
+  cursor: pointer;
+  padding: var(--space-3);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  user-select: none;
+}
+
+.all-fields-section summary:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.all-fields-section .all-fields-table {
+  margin-top: var(--space-3);
+}
+
+/* ==========================================================================
+   REVIEW NOTES SECTION
+   ========================================================================== */
+
+.review-notes-section {
+  margin-bottom: var(--space-6);
+}
+
+.review-notes-section h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.notes-box {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* ==========================================================================
+   ACTION SECTION
+   ========================================================================== */
+
+.action-section {
+  margin-bottom: var(--space-4);
+}
+
+.approve-form h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.approve-form textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  resize: vertical;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.approve-form textarea:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
+.edit-request-comparison-footer {
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  background: var(--bg-secondary);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .edit-request-comparison-overlay {
+    padding: var(--space-3);
+  }
+
+  .edit-request-comparison-modal {
+    max-height: calc(100vh - var(--space-5));
+  }
+
+  .edit-request-comparison-header {
+    padding: var(--space-4);
+  }
+
+  .edit-request-comparison-body {
+    padding: var(--space-4);
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-table {
+    font-size: var(--text-xs);
+  }
+
+  .comparison-table th,
+  .comparison-table td {
+    padding: var(--space-2);
+  }
+
+  .edit-request-comparison-footer {
+    flex-direction: column;
+  }
+
+  .edit-request-comparison-footer button {
+    width: 100%;
+  }
+}

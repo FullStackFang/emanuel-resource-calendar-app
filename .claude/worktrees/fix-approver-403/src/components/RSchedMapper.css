@@ -1,0 +1,395 @@
+/* ============================================================================
+   RSCHED MAPPER - Emanuel Modern Design System
+   ============================================================================
+   Admin tool for mapping RSched CSV locations/categories to DB entities.
+   Uses em-* base classes from EventManagement.css, rm-* for component-specific.
+   ============================================================================ */
+
+/* ==========================================================================
+   TBD BANNER
+   ========================================================================== */
+
+.rm-tbd-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  margin-top: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-warning-300);
+  background: var(--color-warning-50);
+  color: var(--color-warning-800);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.rm-tbd-banner svg {
+  flex-shrink: 0;
+  color: var(--color-warning-500);
+}
+
+/* ==========================================================================
+   REVIEW HEADER (flex row with title left, buttons right)
+   ========================================================================== */
+
+.rm-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.rm-review-header-left h2 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.rm-parse-summary {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+
+.rm-review-header-right {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.rm-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  transition: var(--transition-all);
+}
+
+.rm-header-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.rm-header-btn.primary {
+  background: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  color: white;
+  font-weight: var(--font-semibold);
+}
+
+.rm-header-btn.primary:hover {
+  background: var(--color-primary-600);
+  border-color: var(--color-primary-600);
+}
+
+/* ==========================================================================
+   COMPACT STATS ROW
+   ========================================================================== */
+
+.rm-compact-stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) 0;
+}
+
+.rm-stat-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.rm-stat-number {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  line-height: 1;
+}
+
+.rm-stat-number.total {
+  color: var(--color-primary-600);
+}
+
+.rm-stat-number.exact {
+  color: var(--color-success-600);
+}
+
+.rm-stat-number.fuzzy {
+  color: var(--color-warning-600);
+}
+
+.rm-stat-number.unmatched {
+  color: var(--color-error-600);
+}
+
+.rm-stat-label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   FILTER BAR
+   ========================================================================== */
+
+.rm-filter-bar {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.rm-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition: var(--transition-all);
+}
+
+.rm-filter-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.rm-filter-btn.active {
+  background: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  color: white;
+}
+
+.rm-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.rm-filter-btn.active .rm-filter-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ==========================================================================
+   CONFIDENCE BADGES (with colored dot)
+   ========================================================================== */
+
+.rm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+.rm-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.rm-badge.exact {
+  background: var(--color-success-50);
+  color: var(--color-success-700);
+}
+
+.rm-badge.exact::before {
+  background: var(--color-success-500);
+}
+
+.rm-badge.alias {
+  background: var(--color-success-50);
+  color: var(--color-success-600);
+}
+
+.rm-badge.alias::before {
+  background: var(--color-success-500);
+}
+
+.rm-badge.fuzzy {
+  background: var(--color-warning-50);
+  color: var(--color-warning-700);
+}
+
+.rm-badge.fuzzy::before {
+  background: var(--color-warning-500);
+}
+
+.rm-badge.unmatched {
+  background: var(--color-error-50);
+  color: var(--color-error-700);
+}
+
+.rm-badge.unmatched::before {
+  background: var(--color-error-500);
+}
+
+.rm-badge.manual {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.rm-badge.manual::before {
+  background: var(--color-primary-500);
+}
+
+/* ==========================================================================
+   TABLE ROW TINTING
+   ========================================================================== */
+
+.rm-row-unmatched {
+  background: color-mix(in srgb, var(--color-error-50) 40%, transparent);
+}
+
+.rm-row-fuzzy {
+  background: color-mix(in srgb, var(--color-warning-50) 30%, transparent);
+}
+
+/* ==========================================================================
+   IDENTIFIER COLUMN
+   ========================================================================== */
+
+.rm-identifier {
+  color: var(--color-primary-600);
+  font-weight: var(--font-medium);
+}
+
+/* ==========================================================================
+   DB STATUS LINE
+   ========================================================================== */
+
+.rm-db-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.rm-db-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-500);
+  flex-shrink: 0;
+}
+
+.rm-db-status-dot.loading {
+  background: var(--color-warning-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   MATCH TABLE (5-column layout)
+   ========================================================================== */
+
+.rm-match-table {
+  table-layout: fixed;
+}
+
+.rm-match-table thead th {
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+}
+
+.rm-match-table th:nth-child(1),
+.rm-match-table td:nth-child(1) {
+  width: 22%;
+}
+
+.rm-match-table th:nth-child(2),
+.rm-match-table td:nth-child(2) {
+  width: 12%;
+}
+
+.rm-match-table th:nth-child(3),
+.rm-match-table td:nth-child(3) {
+  width: 16%;
+}
+
+.rm-match-table th:nth-child(4),
+.rm-match-table td:nth-child(4) {
+  width: 20%;
+}
+
+.rm-match-table th:nth-child(5),
+.rm-match-table td:nth-child(5) {
+  width: 30%;
+}
+
+/* ==========================================================================
+   UPLOAD DISABLED STATE
+   ========================================================================== */
+
+.csv-upload-area.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .rm-review-header {
+    flex-direction: column;
+  }
+
+  .rm-compact-stats {
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .rm-filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .rm-match-table {
+    table-layout: auto;
+  }
+
+  .rm-match-table th:nth-child(1),
+  .rm-match-table td:nth-child(1),
+  .rm-match-table th:nth-child(2),
+  .rm-match-table td:nth-child(2),
+  .rm-match-table th:nth-child(3),
+  .rm-match-table td:nth-child(3),
+  .rm-match-table th:nth-child(4),
+  .rm-match-table td:nth-child(4),
+  .rm-match-table th:nth-child(5),
+  .rm-match-table td:nth-child(5) {
+    width: auto;
+  }
+}

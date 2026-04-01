@@ -1,0 +1,63 @@
+{
+  "name": "outlook-calendar-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "npx vitest",
+    "test:run": "npx vitest run",
+    "test:coverage": "npx vitest run --coverage",
+    "deploy": "npm run build && powershell -Command \"Remove-Item dist.zip -ErrorAction SilentlyContinue; Compress-Archive -Path dist/* -DestinationPath dist.zip -CompressionLevel Fastest\" && az webapp deployment source config-zip --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --src dist.zip"
+  },
+  "dependencies": {
+    "@azure/app-configuration": "^1.9.0",
+    "@azure/identity": "^4.9.1",
+    "@azure/msal-browser": "^4.11.0",
+    "@azure/msal-react": "^3.0.10",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@microsoft/microsoft-graph-types": "^2.40.0",
+    "@sentry/react": "^10.36.0",
+    "@sentry/vite-plugin": "^4.7.0",
+    "@tanstack/query-sync-storage-persister": "^5.90.18",
+    "@tanstack/react-query": "^5.90.16",
+    "@tanstack/react-query-persist-client": "^5.90.18",
+    "jsonwebtoken": "^9.0.2",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
+    "jwks-rsa": "^3.2.0",
+    "react": "^19.0.0",
+    "react-datepicker": "^8.4.0",
+    "react-dom": "^19.0.0",
+    "react-quill-new": "^3.7.0",
+    "react-router-dom": "^7.5.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@tanstack/react-query-devtools": "^5.91.2",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^1.2.0",
+    "eslint": "^9.22.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "jsdom": "^24.0.0",
+    "selfsigned": "^2.4.1",
+    "terser": "^5.43.1",
+    "vite": "^6.3.0",
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^1.2.0"
+  },
+  "overrides": {
+    "@azure/msal-react": {
+      "react": "^16.8.0 || ^17 || ^18 || ^19"
+    }
+  }
+}

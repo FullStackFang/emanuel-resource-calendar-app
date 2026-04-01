@@ -1,0 +1,312 @@
+/* ============================================================================
+   SHARED FORM STYLES - Emanuel Modern Design System
+   ============================================================================
+   Common form layout styles shared across multiple components
+   ============================================================================ */
+
+/* ==========================================================================
+   FORM SECTION CONTAINER
+   ========================================================================== */
+
+.shared-form-section {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.shared-form-section h2 {
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-5) 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  border-bottom: 2px solid var(--border-default);
+  padding-bottom: var(--space-3);
+  letter-spacing: var(--tracking-tight);
+}
+
+.shared-form-section h3 {
+  color: var(--text-secondary);
+  margin: var(--space-4) 0 var(--space-3) 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.shared-form-section h4 {
+  color: var(--text-secondary);
+  margin: var(--space-3) 0 var(--space-2) 0;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+}
+
+/* ==========================================================================
+   FORM GRID LAYOUT
+   ========================================================================== */
+
+.shared-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.shared-form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.shared-form-grid.three-column {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ==========================================================================
+   FORM GROUP
+   ========================================================================== */
+
+.shared-form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--space-4);
+}
+
+.shared-form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.shared-form-group label {
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  display: block;
+}
+
+.shared-form-group label.required::after {
+  content: ' *';
+  color: var(--color-error-500);
+}
+
+/* ==========================================================================
+   FORM INPUTS
+   ========================================================================== */
+
+.shared-form-group input[type="text"],
+.shared-form-group input[type="email"],
+.shared-form-group input[type="tel"],
+.shared-form-group input[type="number"],
+.shared-form-group input[type="date"],
+.shared-form-group input[type="time"],
+.shared-form-group input[type="datetime-local"],
+.shared-form-group select,
+.shared-form-group textarea {
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-all);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.shared-form-group input:focus,
+.shared-form-group select:focus,
+.shared-form-group textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.shared-form-group input:disabled,
+.shared-form-group select:disabled,
+.shared-form-group textarea:disabled {
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  border-color: var(--border-default);
+}
+
+.shared-form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.shared-form-group .readonly-field {
+  background: var(--bg-secondary);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+  cursor: default;
+}
+
+/* ==========================================================================
+   HELP & ERROR TEXT
+   ========================================================================== */
+
+.shared-form-group .help-text {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+  font-style: italic;
+}
+
+.shared-form-group .error-text {
+  font-size: var(--text-xs);
+  color: var(--color-error-500);
+  margin-top: var(--space-1);
+  font-weight: var(--font-medium);
+}
+
+/* ==========================================================================
+   TWO-COLUMN SECTION ROW
+   ========================================================================== */
+
+.shared-section-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+/* ==========================================================================
+   TIME FIELDS STACK
+   ========================================================================== */
+
+.shared-time-fields-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.shared-time-fields-stack .shared-form-group {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   CHECKBOX & RADIO GROUPS
+   ========================================================================== */
+
+.shared-checkbox-group,
+.shared-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.shared-checkbox-group label,
+.shared-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: var(--font-normal);
+}
+
+.shared-checkbox-group input[type="checkbox"],
+.shared-radio-group input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary-500);
+}
+
+/* ==========================================================================
+   VALIDATION ERRORS
+   ========================================================================== */
+
+.shared-validation-errors {
+  background: var(--color-error-50);
+  border: 2px solid var(--color-error-500);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.shared-validation-errors h4 {
+  color: var(--color-error-600);
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+}
+
+.shared-validation-errors ul {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--color-error-700);
+}
+
+.shared-validation-errors li {
+  margin-bottom: var(--space-2);
+}
+
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
+.shared-loading-message {
+  text-align: center;
+  padding: var(--space-5);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   INFO BOXES
+   ========================================================================== */
+
+.shared-info-box {
+  background: var(--color-info-50);
+  border: 1px solid var(--color-info-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-info-700);
+  font-size: var(--text-sm);
+}
+
+.shared-warning-box {
+  background: var(--color-warning-50);
+  border: 1px solid var(--color-warning-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-warning-700);
+  font-size: var(--text-sm);
+}
+
+.shared-error-box {
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-error-700);
+  font-size: var(--text-sm);
+}
+
+.shared-success-box {
+  background: var(--color-success-50);
+  border: 1px solid var(--color-success-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-success-700);
+  font-size: var(--text-sm);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .shared-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shared-section-row-2col {
+    grid-template-columns: 1fr;
+  }
+}

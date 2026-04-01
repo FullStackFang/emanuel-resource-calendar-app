@@ -1,0 +1,157 @@
+/* ============================================================================
+   LOADING SPINNER - Emanuel Modern Design System
+   ============================================================================
+   Standardized loading states for the entire application.
+
+   Variants:
+     default  – spinner centered in flex container (sections/panels)
+     card     – spinner inside elevated card (page-level, modal gates)
+     overlay  – absolute backdrop with blur + card (navigation overlays)
+
+   Shared utility:
+     .btn-spinner – 14px inline spinner for buttons (import this CSS to use)
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   SHARED ANIMATION (single source of truth for all spinners app-wide)
+   -------------------------------------------------------------------------- */
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   SPINNER ELEMENT
+   -------------------------------------------------------------------------- */
+
+.loading-spinner-css {
+  border: 5px solid var(--border-default, #e5e7eb);
+  border-top-color: var(--color-primary-500, #007bff);
+  border-radius: 50%;
+  animation: spinner-rotate 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   DEFAULT VARIANT — centered in container
+   -------------------------------------------------------------------------- */
+
+.loading-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-8);
+  gap: var(--space-3);
+}
+
+.loading-spinner-container.fullscreen {
+  min-height: 100vh;
+}
+
+.loading-spinner-container.inline {
+  padding: var(--space-4);
+}
+
+.loading-spinner-container.compact {
+  display: inline-flex;
+  flex-direction: row;
+  width: auto;
+  padding: 0;
+  min-height: 0 !important;
+}
+
+.loading-spinner-text {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* --------------------------------------------------------------------------
+   CARD — elevated card wrapping the spinner (page-level, modal content gates)
+   -------------------------------------------------------------------------- */
+
+.loading-spinner-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-xl, 16px);
+  background-color: var(--bg-primary, #ffffff);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12), 0 2px 10px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  min-width: 200px;
+}
+
+.loading-spinner-card-text {
+  margin: 0;
+  font-size: var(--text-base, 16px);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   OVERLAY VARIANT — absolute backdrop with blur, spinner centered directly
+   -------------------------------------------------------------------------- */
+
+.loading-spinner-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  z-index: var(--z-modal, 1000);
+  background-color: rgba(248, 250, 252, 0.92);
+  backdrop-filter: blur(4px);
+}
+
+/* Overlay visibility toggle (add .visible to show) */
+.loading-spinner-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out, visibility 0.25s ease-out;
+}
+
+.loading-spinner-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.25s ease-out, visibility 0.25s ease-out;
+}
+
+/* Lighter backdrop for initial loads (content behind is mostly empty) */
+.loading-spinner-overlay.initial {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+
+/* --------------------------------------------------------------------------
+   BUTTON SPINNER — shared 14px inline spinner for action buttons
+   --------------------------------------------------------------------------
+   Usage: <span className="btn-spinner" /> inside a button
+   -------------------------------------------------------------------------- */
+
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spinner-rotate 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Dark-on-light variant for non-filled buttons */
+.btn-spinner.dark {
+  border-color: var(--border-default, #e5e7eb);
+  border-top-color: var(--color-primary-500, #007bff);
+}

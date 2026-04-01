@@ -1,0 +1,230 @@
+/* ============================================================================
+   ACTION BUTTONS - Emanuel Modern Design System
+   ============================================================================
+   Shared button styles for action buttons across the application
+   ============================================================================ */
+
+/* ==========================================================================
+   BASE ACTION BUTTON
+   ========================================================================== */
+
+.shared-action-btn {
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-all);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.shared-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.shared-action-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+/* ==========================================================================
+   PRIMARY BUTTON
+   ========================================================================== */
+
+.shared-action-btn.primary {
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
+}
+
+.shared-action-btn.primary:hover:not(:disabled) {
+  background: var(--color-primary-600);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-primary);
+}
+
+.shared-action-btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   SUCCESS BUTTON
+   ========================================================================== */
+
+.shared-action-btn.success {
+  background: var(--color-success-500);
+  color: var(--text-inverse);
+}
+
+.shared-action-btn.success:hover:not(:disabled) {
+  background: var(--color-success-600);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(5, 150, 105, 0.3);
+}
+
+.shared-action-btn.success:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   DANGER BUTTON
+   ========================================================================== */
+
+.shared-action-btn.danger {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+}
+
+.shared-action-btn.danger:hover:not(:disabled) {
+  background: var(--color-error-600);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(220, 38, 38, 0.3);
+}
+
+.shared-action-btn.danger:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   SECONDARY BUTTON
+   ========================================================================== */
+
+.shared-action-btn.secondary {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.shared-action-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+}
+
+/* ==========================================================================
+   WARNING BUTTON
+   ========================================================================== */
+
+.shared-action-btn.warning {
+  background: var(--color-warning-500);
+  color: var(--text-inverse);
+}
+
+.shared-action-btn.warning:hover:not(:disabled) {
+  background: var(--color-warning-600);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(217, 119, 6, 0.3);
+}
+
+.shared-action-btn.warning:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ==========================================================================
+   GHOST BUTTON
+   ========================================================================== */
+
+.shared-action-btn.ghost {
+  background: transparent;
+  color: var(--color-primary-600);
+  border: none;
+  padding: var(--space-2) var(--space-4);
+}
+
+.shared-action-btn.ghost:hover:not(:disabled) {
+  background: var(--color-primary-50);
+}
+
+/* ==========================================================================
+   SIZE VARIANTS
+   ========================================================================== */
+
+.shared-action-btn.small {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.shared-action-btn.large {
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-lg);
+}
+
+.shared-action-btn.full-width {
+  width: 100%;
+}
+
+.shared-action-btn.icon-only {
+  padding: var(--space-3);
+  aspect-ratio: 1;
+}
+
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
+.shared-action-btn.loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.shared-action-btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-full);
+  border-top-color: transparent;
+  animation: spinner-rotate 0.75s linear infinite;
+}
+
+/* ==========================================================================
+   BUTTON GROUP
+   ========================================================================== */
+
+.shared-button-group {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.shared-button-group.vertical {
+  flex-direction: column;
+}
+
+.shared-button-group.end {
+  justify-content: flex-end;
+}
+
+.shared-button-group.center {
+  justify-content: center;
+}
+
+.shared-button-group.space-between {
+  justify-content: space-between;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .shared-button-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .shared-action-btn {
+    width: 100%;
+  }
+}

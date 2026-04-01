@@ -169,6 +169,10 @@ export default function ReviewModal({
   // Published edit props (for admins/approvers editing published events directly)
   onSavePublishedEdit = null,
   savingPublishedEdit = false,
+  // Duplicate mode props (from NewReservationModal)
+  onDuplicate = null, // Handler to create duplicate reservations (also used as duplicate submit in NewReservationModal)
+  duplicateDateCount = 0, // Number of dates selected for duplication
+  submittingDuplicate = false, // Whether duplicate submission is in progress
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
@@ -970,6 +974,45 @@ export default function ReviewModal({
                     </button>
                   )}
                 </div>
+              )}
+
+              {/* Duplicate submit button — in new-modal duplicate mode (multi-date creation) */}
+              {modalMode === 'new' && onDuplicate && (
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn publish-btn ${localConfirming === 'duplicate' ? 'confirming' : ''}`}
+                    onClick={() => handleLocalConfirmClick('duplicate', onDuplicate)}
+                    disabled={submittingDuplicate || duplicateDateCount === 0 || (anyConfirming && localConfirming !== 'duplicate')}
+                  >
+                    {submittingDuplicate
+                      ? 'Creating...'
+                      : localConfirming === 'duplicate'
+                        ? `Confirm Create ${duplicateDateCount}?`
+                        : `Create ${duplicateDateCount} Reservation${duplicateDateCount !== 1 ? 's' : ''}`}
+                  </button>
+                  {localConfirming === 'duplicate' && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x publish-cancel-x"
+                      onClick={() => setLocalConfirming(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Duplicate action button — in details modal (opens duplicate modal, not a submit) */}
+              {modalMode !== 'new' && onDuplicate && itemStatus !== 'deleted' && (
+                <button
+                  type="button"
+                  className="action-btn duplicate-btn"
+                  onClick={onDuplicate}
+                  disabled={anyConfirming}
+                >
+                  Duplicate
+                </button>
               )}
 
               {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
