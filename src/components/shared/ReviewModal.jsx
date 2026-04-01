@@ -7,6 +7,7 @@ import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
 import DiscardChangesDialog from './DiscardChangesDialog';
 import RecurrenceWarningDialog from './RecurrenceWarningDialog';
+import DuplicateDateDialog from './DuplicateDateDialog';
 import './ReviewModal.css';
 
 /**
@@ -170,9 +171,13 @@ export default function ReviewModal({
   onSavePublishedEdit = null,
   savingPublishedEdit = false,
   // Duplicate mode props (from NewReservationModal)
-  onDuplicate = null, // Handler to create duplicate reservations (also used as duplicate submit in NewReservationModal)
-  duplicateDateCount = 0, // Number of dates selected for duplication
-  submittingDuplicate = false, // Whether duplicate submission is in progress
+  onDuplicate = null, // Opens the duplicate date dialog
+  showDuplicateDialog = false,
+  onDuplicateClose = null,
+  onDuplicateSubmit = null,
+  submittingDuplicate = false,
+  duplicateEventTitle = '',
+  duplicateSourceDate = '',
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
@@ -437,7 +442,16 @@ export default function ReviewModal({
                 </>
               ) : (
                 <>
-                  {/* Viewing Edit Request badge and toggle */}
+                  {/* ═══════════════════════════════════════════════════
+                       STANDARDIZED BUTTON ORDER
+                       Group 1: Primary positive actions (left)
+                       Group 2: Save/edit actions
+                       Group 3: Utility (Duplicate, View/Request Edit)
+                       Group 4: Destructive/negative actions
+                       Group 5: Close (always last, right)
+                     ═══════════════════════════════════════════════════ */}
+
+                  {/* ── Viewing Edit Request: badge + toggle + approve/reject ── */}
                   {isViewingEditRequest && (
                     <>
                       <span className="edit-request-view-badge">
@@ -451,89 +465,254 @@ export default function ReviewModal({
                       >
                         🔄 View Original
                       </button>
-
-                      {/* Approve/Reject buttons for admins viewing edit requests */}
-                      {!isRequesterOnly && onApproveEditRequest && (
-                        <div className="confirm-button-group">
-                          <button
-                            type="button"
-                            className={`action-btn publish-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
-                            onClick={onApproveEditRequest}
-                            disabled={isApprovingEditRequest || (anyConfirming && !isEditRequestApproveConfirming)}
-                          >
-                            {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? 'Confirm Approve?' : 'Approve Edit')}
-                          </button>
-                          {isEditRequestApproveConfirming && onCancelEditRequestApprove && (
-                            <button
-                              type="button"
-                              className="confirm-cancel-x publish-cancel-x"
-                              onClick={onCancelEditRequestApprove}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      {!isRequesterOnly && onRejectEditRequest && (
-                        <div className="confirm-button-group">
-                          {isEditRequestRejectConfirming && (
-                            <input
-                              type="text"
-                              className="inline-reason-input"
-                              placeholder="Why are you rejecting this edit?"
-                              value={editRequestRejectionReason}
-                              onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter' && editRequestRejectionReason?.trim()) onRejectEditRequest(); }}
-                              autoFocus
-                            />
-                          )}
-                          <button
-                            type="button"
-                            className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
-                            onClick={onRejectEditRequest}
-                            disabled={isRejectingEditRequest || (anyConfirming && !isEditRequestRejectConfirming)}
-                          >
-                            {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? 'Confirm Reject?' : 'Reject Edit')}
-                          </button>
-                          {isEditRequestRejectConfirming && onCancelEditRequestReject && (
-                            <button
-                              type="button"
-                              className="confirm-cancel-x reject-cancel-x"
-                              onClick={onCancelEditRequestReject}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Cancel Edit Request button for requesters */}
-                      {isRequesterOnly && onCancelPendingEditRequest && (
-                        <div className="confirm-button-group">
-                          <button
-                            type="button"
-                            className={`action-btn reject-btn ${isCancelEditRequestConfirming ? 'confirming' : ''}`}
-                            onClick={onCancelPendingEditRequest}
-                            disabled={isCancelingEditRequest || (anyConfirming && !isCancelEditRequestConfirming)}
-                          >
-                            {isCancelingEditRequest ? 'Canceling...' : (isCancelEditRequestConfirming ? '⚠️ Confirm Cancel?' : '🚫 Cancel Edit Request')}
-                          </button>
-                          {isCancelEditRequestConfirming && onCancelCancelEditRequest && (
-                            <button
-                              type="button"
-                              className="confirm-cancel-x reject-cancel-x"
-                              onClick={onCancelCancelEditRequest}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </>
                   )}
 
-                  {/* View Edit Request button - when a pending edit request exists */}
+                  {/* ── GROUP 1: Primary positive actions ── */}
+
+                  {/* Publish — admin reviewing pending */}
+                  {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
+                        onClick={onApprove}
+                        disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
+                      >
+                        {isApproving ? 'Publishing...' : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
+                      </button>
+                      {isApproveConfirming && onCancelApprove && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={onCancelApprove}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Submit Request — requester creating new */}
+                  {mode === 'create' && onSave && !isDraft && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${isSaveConfirming ? 'confirming' : ''}`}
+                        onClick={onSave}
+                        disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
+                      >
+                        {isSaving ? 'Submitting...' : (isSaveConfirming ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?') : 'Submit Request')}
+                      </button>
+                      {isSaveConfirming && onCancelSave && (
+                        <button type="button" className="confirm-cancel-x submit-cancel-x" onClick={onCancelSave}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Submit Draft — draft → pending/published */}
+                  {isDraft && onSubmitDraft && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'submitDraft' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('submitDraft', onSubmitDraft)}
+                        disabled={isDraftOccurrenceEdit || isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
+                        title={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : undefined}
+                      >
+                        {isSaving
+                          ? 'Submitting...'
+                          : localConfirming === 'submitDraft'
+                            ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?')
+                            : 'Submit Request'}
+                      </button>
+                      {localConfirming === 'submitDraft' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Save & Resubmit — requester, rejected events with changes */}
+                  {isRequesterOnly && itemStatus === 'rejected' && onSaveRejectedEdit && hasChanges && !isEditRequestMode && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
+                        disabled={savingRejectedEdit || !isFormValid || hardConflictBlocks || (anyConfirming && localConfirming !== 'rejectedEdit')}
+                      >
+                        {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
+                      </button>
+                      {localConfirming === 'rejectedEdit' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Resubmit — requester, rejected events without changes */}
+                  {isRequesterOnly && itemStatus === 'rejected' && onResubmit && !hasChanges && !isEditRequestMode && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'resubmit' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('resubmit', onResubmit)}
+                        disabled={isResubmitting || (anyConfirming && localConfirming !== 'resubmit')}
+                      >
+                        {isResubmitting ? 'Resubmitting...' : (localConfirming === 'resubmit' ? 'Confirm Resubmit?' : 'Resubmit')}
+                      </button>
+                      {localConfirming === 'resubmit' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Restore — deleted events */}
+                  {itemStatus === 'deleted' && onRestore && !isEditRequestMode && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'restore' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('restore', onRestore)}
+                        disabled={isRestoring || (anyConfirming && localConfirming !== 'restore')}
+                      >
+                        {isRestoring ? 'Restoring...' : (localConfirming === 'restore' ? 'Confirm Restore?' : 'Restore')}
+                      </button>
+                      {localConfirming === 'restore' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Submit Edit Request — modal submission */}
+                  {onSubmitEditRequestModal && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'editRequestModal' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('editRequestModal', onSubmitEditRequestModal)}
+                        disabled={!hasChanges || !isFormValid || submittingEditRequestModal || (anyConfirming && localConfirming !== 'editRequestModal')}
+                      >
+                        {submittingEditRequestModal ? 'Submitting...' : (localConfirming === 'editRequestModal' ? 'Confirm Submit?' : 'Submit Edit Request')}
+                      </button>
+                      {localConfirming === 'editRequestModal' && (
+                        <button type="button" className="confirm-cancel-x submit-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Approve Edit Request — admin viewing edit request */}
+                  {isViewingEditRequest && !isRequesterOnly && onApproveEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
+                        onClick={onApproveEditRequest}
+                        disabled={isApprovingEditRequest || (anyConfirming && !isEditRequestApproveConfirming)}
+                      >
+                        {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? 'Confirm Approve?' : 'Approve Edit')}
+                      </button>
+                      {isEditRequestApproveConfirming && onCancelEditRequestApprove && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={onCancelEditRequestApprove}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Approve Cancellation — admin */}
+                  {!isRequesterOnly && existingCancellationRequest?.status === 'pending' && onApproveCancellationRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${isCancellationApproveConfirming ? 'confirming' : ''}`}
+                        onClick={onApproveCancellationRequest}
+                        disabled={isApprovingCancellationRequest || (anyConfirming && !isCancellationApproveConfirming)}
+                      >
+                        {isApprovingCancellationRequest ? 'Approving...' : (isCancellationApproveConfirming ? 'Confirm Cancel Event?' : 'Approve Cancellation')}
+                      </button>
+                      {isCancellationApproveConfirming && onCancelCancellationApprove && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={onCancelCancellationApprove}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── GROUP 2: Save/edit actions ── */}
+
+                  {/* Save — admin save (published/pending) */}
+                  {!isRequesterOnly && onSave && !isDraft && itemStatus !== 'deleted' && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
+                        onClick={onSave}
+                        disabled={!hasChanges || !isFormValid || isSaving || hardConflictBlocks || (anyConfirming && !isSaveConfirming)}
+                      >
+                        {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
+                      </button>
+                      {isSaveConfirming && onCancelSave && (
+                        <button type="button" className="confirm-cancel-x save-cancel-x" onClick={onCancelSave}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Save Published Edit — admin editing published */}
+                  {onSavePublishedEdit && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'publishedEdit' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('publishedEdit', onSavePublishedEdit)}
+                        disabled={!hasChanges || !isFormValid || savingPublishedEdit || hardConflictBlocks || (anyConfirming && localConfirming !== 'publishedEdit')}
+                      >
+                        {savingPublishedEdit ? 'Saving...' : (localConfirming === 'publishedEdit' ? 'Confirm Save?' : 'Save Changes')}
+                      </button>
+                      {localConfirming === 'publishedEdit' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Save Pending Edit — owner editing pending */}
+                  {onSavePendingEdit && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn publish-btn ${localConfirming === 'pendingEdit' ? 'confirming' : ''}`}
+                        onClick={() => handleLocalConfirmClick('pendingEdit', onSavePendingEdit)}
+                        disabled={!hasChanges || !isFormValid || savingPendingEdit || (anyConfirming && localConfirming !== 'pendingEdit')}
+                      >
+                        {savingPendingEdit ? 'Saving...' : (localConfirming === 'pendingEdit' ? 'Confirm Save?' : 'Save Changes')}
+                      </button>
+                      {localConfirming === 'pendingEdit' && (
+                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Save Draft */}
+                  {onSaveDraft && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn draft-btn ${isDraftConfirming ? 'confirming' : ''}`}
+                        onClick={onSaveDraft}
+                        disabled={savingDraft || isSaving || !canSaveDraft || (anyConfirming && !isDraftConfirming)}
+                      >
+                        {savingDraft ? 'Drafting...' : (isDraftConfirming ? 'Confirm Draft?' : 'Save Draft')}
+                      </button>
+                      {isDraftConfirming && onCancelDraft && (
+                        <button type="button" className="confirm-cancel-x draft-cancel-x" onClick={onCancelDraft}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── GROUP 3: Utility actions ── */}
+
+                  {/* Duplicate — opens date picker dialog */}
+                  {onDuplicate && itemStatus !== 'deleted' && (
+                    <button
+                      type="button"
+                      className="action-btn duplicate-btn"
+                      onClick={onDuplicate}
+                      disabled={anyConfirming}
+                    >
+                      Duplicate
+                    </button>
+                  )}
+
+                  {/* View Edit Request */}
                   {existingEditRequest && !isViewingEditRequest && !isEditRequestMode && itemStatus === 'published' && onViewEditRequest && (
                     <button
                       type="button"
@@ -545,7 +724,7 @@ export default function ReviewModal({
                     </button>
                   )}
 
-                  {/* Request Edit button - only shown when NO existing edit request */}
+                  {/* Request Edit */}
                   {canRequestEdit && !existingEditRequest && itemStatus === 'published' && onRequestEdit && !isEditRequestMode && !isViewingEditRequest && (
                     <button
                       type="button"
@@ -557,7 +736,7 @@ export default function ReviewModal({
                     </button>
                   )}
 
-                  {/* Request Cancellation button — or disabled info when one already exists */}
+                  {/* Request Cancellation */}
                   {isRequesterOnly && itemStatus === 'published' && !isEditRequestMode && !isViewingEditRequest && !isCancellationRequestMode && (
                     existingCancellationRequest?.status === 'pending' ? (
                       <button
@@ -582,7 +761,7 @@ export default function ReviewModal({
                     )
                   )}
 
-                  {/* Cancellation request form (inline reason textarea + submit) — only if no existing request */}
+                  {/* Cancellation request form (inline reason) */}
                   {isCancellationRequestMode && onSubmitCancellationRequest && existingCancellationRequest?.status !== 'pending' && (
                     <div className="cancellation-request-form" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
                       <input
@@ -596,48 +775,75 @@ export default function ReviewModal({
                         autoFocus
                         style={{ flex: 1 }}
                       />
-                      <button
-                        type="button"
-                        className="action-btn delete-btn confirming"
-                        onClick={onSubmitCancellationRequest}
-                        disabled={isSubmittingCancellationRequest || !cancellationReason?.trim()}
-                      >
+                      <button type="button" className="action-btn delete-btn confirming" onClick={onSubmitCancellationRequest} disabled={isSubmittingCancellationRequest || !cancellationReason?.trim()}>
                         {isSubmittingCancellationRequest ? 'Submitting...' : 'Submit'}
                       </button>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        onClick={onCancelCancellationRequest}
-                        disabled={isSubmittingCancellationRequest}
-                      >
+                      <button type="button" className="action-btn" onClick={onCancelCancellationRequest} disabled={isSubmittingCancellationRequest}>
                         Cancel
                       </button>
                     </div>
                   )}
 
-                  {/* Approve/Reject Cancellation Request buttons (approver/admin) */}
-                  {!isRequesterOnly && existingCancellationRequest?.status === 'pending' && onApproveCancellationRequest && (
+                  {/* ── GROUP 4: Destructive/negative actions ── */}
+
+                  {/* Reject — admin rejecting pending */}
+                  {!isRequesterOnly && mode === 'review' && isPending && onReject && (
                     <div className="confirm-button-group">
+                      {isRejectConfirming && (
+                        <input
+                          type="text"
+                          className="inline-reason-input"
+                          placeholder="Why are you rejecting this?"
+                          value={rejectionReason}
+                          onChange={(e) => onRejectionReasonChange?.(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && rejectionReason?.trim()) onReject(); }}
+                          disabled={isRejecting}
+                          ref={rejectInputRef}
+                        />
+                      )}
                       <button
                         type="button"
-                        className={`action-btn publish-btn ${isCancellationApproveConfirming ? 'confirming' : ''}`}
-                        onClick={onApproveCancellationRequest}
-                        disabled={isApprovingCancellationRequest || (anyConfirming && !isCancellationApproveConfirming)}
+                        className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
+                        onClick={onReject}
+                        disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim()) || (anyConfirming && !isRejectConfirming)}
                       >
-                        {isApprovingCancellationRequest ? 'Approving...' : (isCancellationApproveConfirming ? 'Confirm Cancel Event?' : 'Approve Cancellation')}
+                        {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
                       </button>
-                      {isCancellationApproveConfirming && onCancelCancellationApprove && (
-                        <button
-                          type="button"
-                          className="confirm-cancel-x publish-cancel-x"
-                          onClick={onCancelCancellationApprove}
-                        >
-                          ✕
-                        </button>
+                      {isRejectConfirming && onCancelReject && (
+                        <button type="button" className="confirm-cancel-x reject-cancel-x" onClick={onCancelReject}>✕</button>
                       )}
                     </div>
                   )}
 
+                  {/* Reject Edit Request — admin viewing edit request */}
+                  {isViewingEditRequest && !isRequesterOnly && onRejectEditRequest && (
+                    <div className="confirm-button-group">
+                      {isEditRequestRejectConfirming && (
+                        <input
+                          type="text"
+                          className="inline-reason-input"
+                          placeholder="Why are you rejecting this edit?"
+                          value={editRequestRejectionReason}
+                          onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && editRequestRejectionReason?.trim()) onRejectEditRequest(); }}
+                          autoFocus
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
+                        onClick={onRejectEditRequest}
+                        disabled={isRejectingEditRequest || (anyConfirming && !isEditRequestRejectConfirming)}
+                      >
+                        {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? 'Confirm Reject?' : 'Reject Edit')}
+                      </button>
+                      {isEditRequestRejectConfirming && onCancelEditRequestReject && (
+                        <button type="button" className="confirm-cancel-x reject-cancel-x" onClick={onCancelEditRequestReject}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reject Cancellation — admin */}
                   {!isRequesterOnly && existingCancellationRequest?.status === 'pending' && onRejectCancellationRequest && (
                     <div className="confirm-button-group">
                       {isCancellationRejectConfirming && (
@@ -660,18 +866,41 @@ export default function ReviewModal({
                         {isRejectingCancellationRequest ? 'Rejecting...' : (isCancellationRejectConfirming ? 'Confirm Reject?' : 'Reject Cancellation')}
                       </button>
                       {isCancellationRejectConfirming && onCancelCancellationReject && (
-                        <button
-                          type="button"
-                          className="confirm-cancel-x reject-cancel-x"
-                          onClick={onCancelCancellationReject}
-                        >
-                          ✕
-                        </button>
+                        <button type="button" className="confirm-cancel-x reject-cancel-x" onClick={onCancelCancellationReject}>✕</button>
                       )}
                     </div>
                   )}
 
-                  {/* Withdraw Cancellation Request button (requester, when their cancellation request is pending) */}
+                  {/* Withdraw Request — requester, pending (delete with reason) */}
+                  {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      {isDeleteConfirming && (
+                        <input
+                          type="text"
+                          className="inline-reason-input"
+                          placeholder="Why are you withdrawing?"
+                          value={deleteReason}
+                          onChange={(e) => onDeleteReasonChange?.(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && deleteReason?.trim()) onDelete(); }}
+                          disabled={isDeleting}
+                          ref={deleteInputRef}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                        onClick={onDelete}
+                        disabled={isDeleting || (isDeleteConfirming && !deleteReason?.trim()) || (anyConfirming && !isDeleteConfirming)}
+                      >
+                        {isDeleting ? 'Withdrawing...' : (isDeleteConfirming ? 'Confirm Withdraw?' : 'Withdraw Request')}
+                      </button>
+                      {isDeleteConfirming && onCancelDelete && (
+                        <button type="button" className="confirm-cancel-x delete-cancel-x" onClick={onCancelDelete}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Withdraw Cancellation — requester */}
                   {isRequesterOnly && existingCancellationRequest?.status === 'pending' && onWithdrawCancellationRequest && (
                     <div className="confirm-button-group">
                       <button
@@ -683,417 +912,54 @@ export default function ReviewModal({
                         {isWithdrawingCancellationRequest ? 'Withdrawing...' : (isWithdrawCancellationConfirming ? 'Confirm Withdraw?' : 'Withdraw Cancellation')}
                       </button>
                       {isWithdrawCancellationConfirming && onCancelWithdrawCancellation && (
-                        <button
-                          type="button"
-                          className="confirm-cancel-x reject-cancel-x"
-                          onClick={onCancelWithdrawCancellation}
-                        >
-                          ✕
-                        </button>
+                        <button type="button" className="confirm-cancel-x reject-cancel-x" onClick={onCancelWithdrawCancellation}>✕</button>
                       )}
                     </div>
                   )}
 
-              {/* Withdraw Request button — requester, pending events (delete with reason) */}
-              {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
-                <div className="confirm-button-group">
-                  {isDeleteConfirming && (
-                    <input
-                      type="text"
-                      className="inline-reason-input"
-                      placeholder="Why are you withdrawing?"
-                      value={deleteReason}
-                      onChange={(e) => onDeleteReasonChange?.(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && deleteReason?.trim()) onDelete(); }}
-                      disabled={isDeleting}
-                      ref={deleteInputRef}
-                    />
+                  {/* Cancel Edit Request — requester */}
+                  {isViewingEditRequest && isRequesterOnly && onCancelPendingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn reject-btn ${isCancelEditRequestConfirming ? 'confirming' : ''}`}
+                        onClick={onCancelPendingEditRequest}
+                        disabled={isCancelingEditRequest || (anyConfirming && !isCancelEditRequestConfirming)}
+                      >
+                        {isCancelingEditRequest ? 'Canceling...' : (isCancelEditRequestConfirming ? '⚠️ Confirm Cancel?' : '🚫 Cancel Edit Request')}
+                      </button>
+                      {isCancelEditRequestConfirming && onCancelCancelEditRequest && (
+                        <button type="button" className="confirm-cancel-x reject-cancel-x" onClick={onCancelCancelEditRequest}>✕</button>
+                      )}
+                    </div>
                   )}
+
+                  {/* Delete — admin delete */}
+                  {!isRequesterOnly && mode === 'edit' && onDelete && itemStatus !== 'deleted' && !isViewingEditRequest && existingCancellationRequest?.status !== 'pending' && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                        onClick={onDelete}
+                        disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
+                      >
+                        {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
+                      </button>
+                      {isDeleteConfirming && onCancelDelete && (
+                        <button type="button" className="confirm-cancel-x delete-cancel-x" onClick={onCancelDelete}>✕</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── GROUP 5: Close (always last) ── */}
                   <button
                     type="button"
-                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
-                    onClick={onDelete}
-                    disabled={isDeleting || (isDeleteConfirming && !deleteReason?.trim()) || (anyConfirming && !isDeleteConfirming)}
+                    className="action-btn cancel-btn"
+                    onClick={onClose}
+                    disabled={anyConfirming}
                   >
-                    {isDeleting ? 'Withdrawing...' : (isDeleteConfirming ? 'Confirm Withdraw?' : 'Withdraw Request')}
+                    {isRequesterOnly ? 'Close' : (mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close')}
                   </button>
-                  {isDeleteConfirming && onCancelDelete && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x delete-cancel-x"
-                      onClick={onCancelDelete}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Save & Resubmit button — requester, rejected events with changes */}
-              {isRequesterOnly && itemStatus === 'rejected' && onSaveRejectedEdit && hasChanges && !isEditRequestMode && !isViewingEditRequest && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
-                    disabled={savingRejectedEdit || !isFormValid || hardConflictBlocks || (anyConfirming && localConfirming !== 'rejectedEdit')}
-                  >
-                    {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
-                  </button>
-                  {localConfirming === 'rejectedEdit' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Resubmit button — requester, rejected events without changes */}
-              {isRequesterOnly && itemStatus === 'rejected' && onResubmit && !hasChanges && !isEditRequestMode && !isViewingEditRequest && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'resubmit' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('resubmit', onResubmit)}
-                    disabled={isResubmitting || (anyConfirming && localConfirming !== 'resubmit')}
-                  >
-                    {isResubmitting ? 'Resubmitting...' : (localConfirming === 'resubmit' ? 'Confirm Resubmit?' : 'Resubmit')}
-                  </button>
-                  {localConfirming === 'resubmit' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Restore button — deleted events (parent controls permission via onRestore prop) */}
-              {itemStatus === 'deleted' && onRestore && !isEditRequestMode && !isViewingEditRequest && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'restore' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('restore', onRestore)}
-                    disabled={isRestoring || (anyConfirming && localConfirming !== 'restore')}
-                  >
-                    {isRestoring ? 'Restoring...' : (localConfirming === 'restore' ? 'Confirm Restore?' : 'Restore')}
-                  </button>
-                  {localConfirming === 'restore' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Publish button - only in review mode for pending items (not for requesters) */}
-              {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
-                    onClick={onApprove}
-                    disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
-                  >
-                    {isApproving ? 'Publishing...' : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
-                  </button>
-                  {isApproveConfirming && onCancelApprove && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={onCancelApprove}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Reject button - only in review mode for pending items (not for requesters) */}
-              {!isRequesterOnly && mode === 'review' && isPending && onReject && (
-                <div className="confirm-button-group">
-                  {isRejectConfirming && (
-                    <input
-                      type="text"
-                      className="inline-reason-input"
-                      placeholder="Why are you rejecting this?"
-                      value={rejectionReason}
-                      onChange={(e) => onRejectionReasonChange?.(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && rejectionReason?.trim()) onReject(); }}
-                      disabled={isRejecting}
-                      ref={rejectInputRef}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
-                    onClick={onReject}
-                    disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim()) || (anyConfirming && !isRejectConfirming)}
-                  >
-                    {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
-                  </button>
-                  {isRejectConfirming && onCancelReject && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x reject-cancel-x"
-                      onClick={onCancelReject}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Save Draft button - for new drafts or updating existing drafts */}
-              {onSaveDraft && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn draft-btn ${isDraftConfirming ? 'confirming' : ''}`}
-                    onClick={onSaveDraft}
-                    disabled={savingDraft || isSaving || !canSaveDraft || (anyConfirming && !isDraftConfirming)}
-                  >
-                    {savingDraft ? 'Drafting...' : (isDraftConfirming ? 'Confirm Draft?' : 'Save Draft')}
-                  </button>
-                  {isDraftConfirming && onCancelDraft && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x draft-cancel-x"
-                      onClick={onCancelDraft}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Submit Draft button - when editing an existing draft */}
-              {isDraft && onSubmitDraft && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'submitDraft' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('submitDraft', onSubmitDraft)}
-                    disabled={isDraftOccurrenceEdit || isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
-                    title={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : undefined}
-                  >
-                    {isSaving
-                      ? 'Submitting...'
-                      : localConfirming === 'submitDraft'
-                        ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?')
-                        : 'Submit Request'}
-                  </button>
-                  {localConfirming === 'submitDraft' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Save Pending Edit button - for editing pending events */}
-              {onSavePendingEdit && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'pendingEdit' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('pendingEdit', onSavePendingEdit)}
-                    disabled={!hasChanges || !isFormValid || savingPendingEdit || (anyConfirming && localConfirming !== 'pendingEdit')}
-                  >
-                    {savingPendingEdit ? 'Saving...' : (localConfirming === 'pendingEdit' ? 'Confirm Save?' : 'Save Changes')}
-                  </button>
-                  {localConfirming === 'pendingEdit' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Save Published Edit button - for admins/approvers editing published events */}
-              {onSavePublishedEdit && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'publishedEdit' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('publishedEdit', onSavePublishedEdit)}
-                    disabled={!hasChanges || !isFormValid || savingPublishedEdit || hardConflictBlocks || (anyConfirming && localConfirming !== 'publishedEdit')}
-                  >
-                    {savingPublishedEdit ? 'Saving...' : (localConfirming === 'publishedEdit' ? 'Confirm Save?' : 'Save Changes')}
-                  </button>
-                  {localConfirming === 'publishedEdit' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Submit Edit Request button - for requesting edits on published events */}
-              {onSubmitEditRequestModal && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'editRequestModal' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('editRequestModal', onSubmitEditRequestModal)}
-                    disabled={!hasChanges || !isFormValid || submittingEditRequestModal || (anyConfirming && localConfirming !== 'editRequestModal')}
-                  >
-                    {submittingEditRequestModal ? 'Submitting...' : (localConfirming === 'editRequestModal' ? 'Confirm Submit?' : 'Submit Edit Request')}
-                  </button>
-                  {localConfirming === 'editRequestModal' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x submit-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Duplicate submit button — in new-modal duplicate mode (multi-date creation) */}
-              {modalMode === 'new' && onDuplicate && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${localConfirming === 'duplicate' ? 'confirming' : ''}`}
-                    onClick={() => handleLocalConfirmClick('duplicate', onDuplicate)}
-                    disabled={submittingDuplicate || duplicateDateCount === 0 || (anyConfirming && localConfirming !== 'duplicate')}
-                  >
-                    {submittingDuplicate
-                      ? 'Creating...'
-                      : localConfirming === 'duplicate'
-                        ? `Confirm Create ${duplicateDateCount}?`
-                        : `Create ${duplicateDateCount} Reservation${duplicateDateCount !== 1 ? 's' : ''}`}
-                  </button>
-                  {localConfirming === 'duplicate' && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x publish-cancel-x"
-                      onClick={() => setLocalConfirming(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Duplicate action button — in details modal (opens duplicate modal, not a submit) */}
-              {modalMode !== 'new' && onDuplicate && itemStatus !== 'deleted' && (
-                <button
-                  type="button"
-                  className="action-btn duplicate-btn"
-                  onClick={onDuplicate}
-                  disabled={anyConfirming}
-                >
-                  Duplicate
-                </button>
-              )}
-
-              {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
-              {mode === 'create' && onSave && !isDraft && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn publish-btn ${isSaveConfirming ? 'confirming' : ''}`}
-                    onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
-                  >
-                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?') : 'Submit Request')}
-                  </button>
-                  {isSaveConfirming && onCancelSave && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x submit-cancel-x"
-                      onClick={onCancelSave}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
-              {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && onSave && !isDraft && itemStatus !== 'deleted' && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
-                    onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving || hardConflictBlocks || (anyConfirming && !isSaveConfirming)}
-                  >
-                    {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
-                  </button>
-                  {isSaveConfirming && onCancelSave && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x save-cancel-x"
-                      onClick={onCancelSave}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
-              {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && mode === 'edit' && onDelete && itemStatus !== 'deleted' && !isViewingEditRequest && existingCancellationRequest?.status !== 'pending' && (
-                <div className="confirm-button-group">
-                  <button
-                    type="button"
-                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
-                    onClick={onDelete}
-                    disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
-                  >
-                    {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
-                  </button>
-                  {isDeleteConfirming && onCancelDelete && (
-                    <button
-                      type="button"
-                      className="confirm-cancel-x delete-cancel-x"
-                      onClick={onCancelDelete}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="action-btn cancel-btn"
-                onClick={onClose}
-                disabled={anyConfirming}
-              >
-                {isRequesterOnly ? 'Close' : (mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close')}
-              </button>
                 </>
               )}
             </div>
@@ -1214,6 +1080,16 @@ export default function ReviewModal({
             saving={savingDraft}
           />
         )}
+
+        {/* Duplicate Date Dialog - shown when user clicks Duplicate */}
+        <DuplicateDateDialog
+          isOpen={showDuplicateDialog}
+          onClose={onDuplicateClose}
+          onSubmit={onDuplicateSubmit}
+          eventTitle={duplicateEventTitle}
+          sourceEventDate={duplicateSourceDate}
+          submitting={submittingDuplicate}
+        />
 
         {/* Discard Dialog - shown when closing pending edit with unsaved changes */}
         <DiscardChangesDialog

@@ -112,12 +112,6 @@ export default function RoomReservationFormBase({
 
   // Pre-fetched series events data from parent (for non-blocking modal open)
   prefetchedSeriesEvents = null,
-
-  // Duplicate mode props (from NewReservationModal → RoomReservationReview)
-  isDuplicateMode = false,
-  duplicateDates = [],
-  onDuplicateDatesChange = null,
-  sourceEventDate = '',
 }) {
   // Form state
   const [formData, setFormData] = useState({
@@ -1654,78 +1648,53 @@ export default function RoomReservationFormBase({
 
             {/* Recurring Conflict Summary is now integrated into the recurrence-active-card above */}
 
-            {/* Date Fields — replaced by MultiDatePicker in duplicate mode */}
-            {isDuplicateMode ? (
-              <div className="duplicate-date-section">
-                <label className="form-label duplicate-date-label">Select Dates for Duplication</label>
-                <p className="duplicate-date-help">
-                  Click dates on the calendar. Each selected date creates a separate reservation with the details above.
-                </p>
-                <MultiDatePicker
-                  selectedDates={duplicateDates}
-                  onDatesChange={(dates) => {
-                    // Filter out the source event date (original event's date)
-                    const filtered = sourceEventDate
-                      ? dates.filter(d => d !== sourceEventDate)
-                      : dates;
-                    onDuplicateDatesChange?.(filtered);
-                  }}
-                  disabled={fieldsDisabled}
-                />
-                {sourceEventDate && (
-                  <p className="duplicate-source-note">
-                    Original event date ({new Date(sourceEventDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}) is excluded.
-                  </p>
+            {/* Date Fields - Always visible */}
+            <div className="time-field-row">
+              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
+                <label htmlFor="startDate">
+                  {recurrencePattern ? 'Occurrence Start Date' : 'Event Date'}
+                  {recurrencePattern && <span className="occurrence-date-sublabel">Date of each occurrence</span>}
+                </label>
+                {hasFieldChanged('startDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
                 )}
+                <DatePickerInput
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  required
+                  className={hasFieldChanged('startDate') ? 'input-changed' : ''}
+                />
               </div>
-            ) : (
-              <div className="time-field-row">
-                <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
-                  <label htmlFor="startDate">
-                    {recurrencePattern ? 'Occurrence Start Date' : 'Event Date'}
-                    {recurrencePattern && <span className="occurrence-date-sublabel">Date of each occurrence</span>}
-                  </label>
-                  {hasFieldChanged('startDate') && (
-                    <div className="inline-diff">
-                      <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
-                      <span className="diff-arrow">→</span>
-                    </div>
-                  )}
-                  <DatePickerInput
-                    id="startDate"
-                    name="startDate"
-                    value={formData.startDate}
-                    onChange={handleInputChange}
-                    disabled={fieldsDisabled}
-                    required
-                    className={hasFieldChanged('startDate') ? 'input-changed' : ''}
-                  />
-                </div>
 
-                <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
-                  <label htmlFor="endDate">
-                    {recurrencePattern ? 'Occurrence End Date' : 'End Date'}
-                    {recurrencePattern && <span className="occurrence-date-sublabel">End date of each occurrence</span>}
-                  </label>
-                  {hasFieldChanged('endDate') && (
-                    <div className="inline-diff">
-                      <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>
-                      <span className="diff-arrow">→</span>
-                    </div>
-                  )}
-                  <DatePickerInput
-                    id="endDate"
-                    name="endDate"
-                    value={formData.endDate}
-                    onChange={handleInputChange}
-                    min={formData.startDate}
-                    disabled={fieldsDisabled}
-                    required
-                    className={hasFieldChanged('endDate') ? 'input-changed' : ''}
-                  />
-                </div>
+              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
+                <label htmlFor="endDate">
+                  {recurrencePattern ? 'Occurrence End Date' : 'End Date'}
+                  {recurrencePattern && <span className="occurrence-date-sublabel">End date of each occurrence</span>}
+                </label>
+                {hasFieldChanged('endDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
+                <DatePickerInput
+                  id="endDate"
+                  name="endDate"
+                  value={formData.endDate}
+                  onChange={handleInputChange}
+                  min={formData.startDate}
+                  disabled={fieldsDisabled}
+                  required
+                  className={hasFieldChanged('endDate') ? 'input-changed' : ''}
+                />
               </div>
-            )}
+            </div>
 
             {/* Virtual Meeting URL - Inline Input */}
             <div className="virtual-url-row">

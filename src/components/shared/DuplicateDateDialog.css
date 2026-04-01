@@ -1,0 +1,214 @@
+/* ============================================================================
+   DUPLICATE DATE DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Focused dialog for selecting dates to duplicate an event.
+   Renders as a centered overlay above the parent ReviewModal.
+   ============================================================================ */
+
+.duplicate-date-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: calc(var(--z-modal) + 10);
+  padding: var(--space-4);
+  animation: dup-fade-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes dup-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CARD
+   ========================================================================== */
+
+.duplicate-date-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.14),
+    0 1px 4px rgba(0, 0, 0, 0.08);
+  max-width: 440px;
+  width: 100%;
+  padding: var(--space-6);
+  animation: dup-slide-up var(--duration-normal) var(--ease-out);
+}
+
+@keyframes dup-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
+.dup-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-3);
+}
+
+.dup-dialog-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dup-dialog-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.dup-dialog-event-name {
+  margin: 2px 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dup-dialog-close {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+  flex-shrink: 0;
+  margin-left: var(--space-3);
+}
+
+.dup-dialog-close:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   DESCRIPTION & NOTES
+   ========================================================================== */
+
+.dup-dialog-desc {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.dup-dialog-source-note {
+  margin: var(--space-2) 0 0 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   PICKER AREA
+   ========================================================================== */
+
+.dup-dialog-picker {
+  margin-bottom: var(--space-2);
+}
+
+/* ==========================================================================
+   ACTIONS
+   ========================================================================== */
+
+.dup-dialog-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+}
+
+.dup-dialog-btn {
+  padding: var(--space-2-5, 10px) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all);
+  line-height: 1.4;
+}
+
+.dup-dialog-btn:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+.dup-dialog-btn-secondary {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.dup-dialog-btn-secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.dup-dialog-btn-primary {
+  background: var(--color-primary-600);
+  border: 1px solid var(--color-primary-600);
+  color: #fff;
+}
+
+.dup-dialog-btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-700);
+  border-color: var(--color-primary-700);
+}
+
+.dup-dialog-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dup-dialog-btn-primary.dup-confirming {
+  background: var(--color-success-500);
+  border-color: var(--color-success-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.dup-dialog-btn-primary.dup-confirming:hover {
+  background: var(--color-success-600);
+  border-color: var(--color-success-600);
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 480px) {
+  .duplicate-date-dialog {
+    max-width: 100%;
+    padding: var(--space-5) var(--space-4) var(--space-4);
+  }
+
+  .dup-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .dup-dialog-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

@@ -2,7 +2,12 @@
 import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
-import { buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload } from '../utils/eventPayloadBuilder';
+import {
+  buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload,
+  buildRequesterPayload, buildGraphFields, buildInternalFields,
+} from '../utils/eventPayloadBuilder';
+import { transformEventToDuplicatePrefill } from '../utils/eventTransformers';
+import { usePermissions } from './usePermissions';
 import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
 
@@ -22,6 +27,7 @@ import APP_CONFIG from '../config/config';
  * @param {Function} onError - Callback after error
  */
 export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
+  const { canCreateEvents } = usePermissions();
   const [isOpen, setIsOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -115,6 +121,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [hasUncommittedRecurrence, setHasUncommittedRecurrence] = useState(false);
   const [showRecurrenceWarning, setShowRecurrenceWarning] = useState(false);
   const createRecurrenceRef = useRef(null);
+
+  // Duplicate dialog state
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [submittingDuplicate, setSubmittingDuplicate] = useState(false);
 
   // Ref to hold form data getter function (set by child form component)
   const formDataGetterRef = useRef(null);
@@ -1771,6 +1781,87 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     return !!formData?.eventTitle?.trim();
   }, []);
 
+  // ── Duplicate handlers ──
+
+  const handleDuplicateOpen = useCallback(() => {
+    if (!editableData) return;
+    if (currentItem?.status === 'deleted' || currentItem?.eventType === 'seriesMaster') return;
+    setShowDuplicateDialog(true);
+  }, [editableData, currentItem]);
+
+  const handleDuplicateClose = useCallback(() => {
+    setShowDuplicateDialog(false);
+  }, []);
+
+  /**
+   * Create duplicate events for each selected date.
+   * Admin/Approver → auto-published via /events/new/audit-update
+   * Requester → pending via /events/request
+   */
+  const handleDuplicateSubmit = useCallback(async (selectedDates) => {
+    if (!selectedDates?.length || !editableData) return;
+    setSubmittingDuplicate(true);
+
+    const prefill = transformEventToDuplicatePrefill(editableData);
+    const calendarOwner = currentItem?.calendarOwner || null;
+    const calendarId = currentItem?.calendarId || selectedCalendarId || null;
+
+    // Calculate duration for multi-day events
+    const durationDays = prefill._durationDays || 0;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const dateStr of selectedDates) {
+      // Compute end date preserving original event duration
+      let endDate = dateStr;
+      if (durationDays > 0) {
+        const d = new Date(dateStr + 'T00:00:00');
+        d.setDate(d.getDate() + durationDays);
+        endDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+
+      const formData = { ...prefill, startDate: dateStr, endDate };
+
+      try {
+        if (canCreateEvents) {
+          const graphFields = buildGraphFields(formData);
+          const internalFields = buildInternalFields(formData);
+          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            body: JSON.stringify({ graphFields, internalFields, calendarId, calendarOwner }),
+          });
+          if (!response.ok) throw new Error('Failed to create event');
+        } else {
+          const payload = buildRequesterPayload(formData, { calendarId, calendarOwner });
+          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error('Failed to submit reservation');
+        }
+        successCount++;
+      } catch (err) {
+        failCount++;
+        logger.error(`[useReviewModal] Duplicate failed for ${dateStr}:`, err);
+      }
+    }
+
+    setSubmittingDuplicate(false);
+    setShowDuplicateDialog(false);
+
+    if (successCount > 0) {
+      if (onSuccess) onSuccess({ duplicated: true, count: successCount, failCount });
+      dispatchRefresh('duplicate');
+      dispatchRefresh('duplicate', 'navigation-counts');
+    }
+    if (failCount > 0 && successCount === 0 && onError) {
+      onError('Failed to create reservations');
+    }
+  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, onSuccess, onError]);
+
   return {
     // State
     isOpen,
@@ -1897,6 +1988,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleRecurrenceWarningSaveWithout,
     handleRecurrenceWarningCancel,
 
+    // Duplicate dialog
+    showDuplicateDialog,
+    handleDuplicateOpen,
+    handleDuplicateClose,
+    handleDuplicateSubmit,
+    submittingDuplicate,
+
     // ── Pre-mapped props for ReviewModal ──
     // Callers can spread this instead of mapping 80+ individual props:
     //   <ReviewModal {...reviewModal.getReviewModalProps()} title={...} ...localOverrides />
@@ -2014,6 +2112,18 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // Reservation data (for recurrence tab auto-detection)
       reservation: currentItem,
+
+      // Duplicate (available for non-deleted, non-recurring events)
+      onDuplicate: (
+        currentItem?.status !== 'deleted'
+        && currentItem?.eventType !== 'seriesMaster'
+      ) ? handleDuplicateOpen : null,
+      showDuplicateDialog,
+      onDuplicateClose: handleDuplicateClose,
+      onDuplicateSubmit: handleDuplicateSubmit,
+      submittingDuplicate,
+      duplicateEventTitle: editableData?.eventTitle || '',
+      duplicateSourceDate: editableData?.startDate || '',
     })
   };
 }

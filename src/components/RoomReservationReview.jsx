@@ -60,12 +60,7 @@ export default function RoomReservationReview({
   onHoldChange = null, // Callback when hold status changes: (isHold) => void
   onRecurrenceExists = null, // Callback when recurrence pattern exists/changes: (hasRecurrence) => void (injected by ReviewModal via cloneElement)
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
-  createRecurrenceRef = null, // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
-  // Duplicate mode props (passed from NewReservationModal)
-  isDuplicateMode = false,
-  duplicateDates = [],
-  onDuplicateDatesChange = null,
-  sourceEventDate = ''
+  createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
 }) {
   const { showError } = useNotification();
   const { isAdmin } = usePermissions();
@@ -522,10 +517,6 @@ export default function RoomReservationReview({
           onHoldChange={onHoldChange}
           externalRecurrencePattern={recurrencePattern}
           onRecurrencePatternChange={handleRecurrencePatternChange}
-          isDuplicateMode={isDuplicateMode}
-          duplicateDates={duplicateDates}
-          onDuplicateDatesChange={onDuplicateDatesChange}
-          sourceEventDate={sourceEventDate}
           renderAdditionalContent={(liveFormData) => (
             <>
               {/* Tab: Attachments */}

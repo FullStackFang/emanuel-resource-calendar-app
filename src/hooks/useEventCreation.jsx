@@ -74,13 +74,6 @@ export function useEventCreation({
   const [isDraftConfirming, setIsDraftConfirming] = useState(false);
   const [showDraftDialog, setShowDraftDialog] = useState(false);
 
-  // --- Duplicate mode state ---
-  const [isDuplicateMode, setIsDuplicateMode] = useState(false);
-  const [duplicateDates, setDuplicateDates] = useState([]);
-  const [sourceEventDate, setSourceEventDate] = useState('');
-  const [submittingDuplicate, setSubmittingDuplicate] = useState(false);
-  const durationDaysRef = useRef(0);
-
   // --- Form data getter ref (set by RoomReservationReview via onFormDataReady) ---
   const formDataGetterRef = useRef(null);
 
@@ -110,11 +103,6 @@ export function useEventCreation({
     setSavingDraft(false);
     setIsDraftConfirming(false);
     setShowDraftDialog(false);
-    setIsDuplicateMode(false);
-    setDuplicateDates([]);
-    setSourceEventDate('');
-    setSubmittingDuplicate(false);
-    durationDaysRef.current = 0;
     formDataGetterRef.current = null;
   }, []);
 
@@ -169,21 +157,10 @@ export function useEventCreation({
   /**
    * Open the creation modal.
    * @param {Object} [overrides] - Fields to prefill (date, location, category, times, etc.)
-   *   Supports duplicate flags: _isDuplicate, _sourceEventDate, _durationDays
    */
   const open = useCallback((overrides = {}) => {
-    // Extract and strip internal duplicate flags before building reservation
-    const { _isDuplicate, _sourceEventDate, _durationDays, ...cleanOverrides } = overrides;
-
     const resolvedMode = canCreateEvents ? 'event' : 'create';
-    const reservation = buildBlankReservation(cleanOverrides);
-
-    // Set up duplicate mode if flagged
-    setIsDuplicateMode(!!_isDuplicate);
-    setSourceEventDate(_sourceEventDate || '');
-    setDuplicateDates([]);
-    setSubmittingDuplicate(false);
-    durationDaysRef.current = _durationDays || 0;
+    const reservation = buildBlankReservation(overrides);
 
     setPrefillData(reservation);
     setMode(resolvedMode);
@@ -593,51 +570,6 @@ export function useEventCreation({
   }, [resetState, refreshSource, onSuccess]);
 
   // ══════════════════════════════════════════════
-  //  DUPLICATE SUBMIT  (loops existing endpoints)
-  // ══════════════════════════════════════════════
-
-  const handleDuplicateSubmit = useCallback(async () => {
-    if (duplicateDates.length === 0) return;
-    setSubmittingDuplicate(true);
-
-    const data = getFormData();
-    if (!data) { setSubmittingDuplicate(false); return; }
-
-    const durationDays = durationDaysRef.current;
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const dateStr of duplicateDates) {
-      const endDate = durationDays > 0 ? addDays(dateStr, durationDays) : dateStr;
-      const dateFormData = { ...data, startDate: dateStr, endDate };
-
-      try {
-        if (canCreateEvents) {
-          await _postAdminEvent(dateFormData);
-        } else {
-          await _postRequesterEvent(dateFormData);
-        }
-        successCount++;
-      } catch (err) {
-        failCount++;
-        logger.error(`[useEventCreation] Duplicate item failed for ${dateStr}:`, err);
-      }
-    }
-
-    setSubmittingDuplicate(false);
-
-    if (successCount > 0 && failCount === 0) {
-      showSuccess(`${successCount} reservation${successCount !== 1 ? 's' : ''} created`);
-      _onSuccess();
-    } else if (successCount > 0 && failCount > 0) {
-      showSuccess(`${successCount} created, ${failCount} failed`);
-      _onSuccess();
-    } else {
-      showError('Failed to create reservations');
-    }
-  }, [duplicateDates, getFormData, canCreateEvents, _postAdminEvent, _postRequesterEvent, showError]);
-
-  // ══════════════════════════════════════════════
   //  RETURN
   // ══════════════════════════════════════════════
 
@@ -678,13 +610,5 @@ export function useEventCreation({
     handleDraftDialogDiscard,
     handleDraftDialogCancel,
     canSaveDraft,
-
-    // Duplicate mode
-    isDuplicateMode,
-    duplicateDates,
-    setDuplicateDates,
-    sourceEventDate,
-    submittingDuplicate,
-    handleDuplicateSubmit,
   };
 }
