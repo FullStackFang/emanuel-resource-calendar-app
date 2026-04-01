@@ -81,8 +81,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           offsiteAddress: editingDraft.offsiteAddress || '',
           offsiteLat: editingDraft.offsiteLat || null,
           offsiteLon: editingDraft.offsiteLon || null,
-          department: editingDraft.roomReservationData?.department || '',
-          phone: editingDraft.roomReservationData?.phone || ''
         });
       } else {
         setInitialData({
@@ -157,12 +155,10 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       eventDescription: formData.eventDescription,
       startDateTime,
       endDateTime,
-      attendeeCount: parseInt(formData.attendeeCount) || 0,
+      attendeeCount: parseInt(formData.attendeeCount) || null,
       requestedRooms: formData.requestedRooms || [],
       requiredFeatures: formData.requiredFeatures || [],
       specialRequirements: formData.specialRequirements || '',
-      department: formData.department || '',
-      phone: formData.phone || '',
       setupTimeMinutes: reservationStartMinutes,
       teardownTimeMinutes: reservationEndMinutes,
       reservationStartMinutes,
@@ -363,7 +359,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         ...formData,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        attendeeCount: parseInt(formData.attendeeCount) || null,
         // Include both old and new field names for backward compatibility
         setupTimeMinutes: reservationStartMinutes,
         teardownTimeMinutes: reservationEndMinutes,

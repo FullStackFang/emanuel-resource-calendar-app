@@ -181,7 +181,6 @@ export default function ReviewModal({
   canEditRecurrence: canEditRecurrenceProp = null,
   // Event owner info (displayed as pills in action bar)
   requesterName = '',
-  requesterDepartment = '',
   // Recurrence warning dialog props (for uncommitted recurrence edits on draft save)
   showRecurrenceWarning = false,
   onRecurrenceWarningCreateAndSave = null,
@@ -358,11 +357,6 @@ export default function ReviewModal({
               {requesterName && (
                 <span className="meta-item" title={`Requested by ${requesterName}`}>
                   {requesterName}
-                </span>
-              )}
-              {requesterName && requesterDepartment && (
-                <span className="meta-item" title={`Department: ${requesterDepartment}`}>
-                  {requesterDepartment}
                 </span>
               )}
               {isHold && (

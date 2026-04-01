@@ -41,7 +41,6 @@ const COMPARABLE_FIELDS = [
   'locationDisplayNames',
   'reviewNotes',
   'contactName',
-  'contactEmail',
   'isOnBehalfOf',
   'priority',
   'virtualMeetingUrl',

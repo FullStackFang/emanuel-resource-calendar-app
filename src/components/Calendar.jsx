@@ -6106,12 +6106,6 @@ import ConflictDialog from './shared/ConflictDialog';
             || reviewModal.currentItem?.requesterName
             || ''
           }
-          requesterDepartment={
-            reviewModal.currentItem?.roomReservationData?.requestedBy?.department
-            || reviewModal.currentItem?.calendarData?.department
-            || reviewModal.currentItem?.department
-            || ''
-          }
           isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
           onCancelDelete={reviewModal.cancelDeleteConfirmation}
           isApproveConfirming={reviewModal.pendingApproveConfirmation}

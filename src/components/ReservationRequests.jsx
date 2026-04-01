@@ -785,7 +785,6 @@ export default function ReservationRequests({ graphToken }) {
       <div className="rr-reservations-list">
         {paginatedReservations.map(reservation => {
           const requesterName = reservation.roomReservationData?.requestedBy?.name || reservation.requesterName;
-          const department = reservation.roomReservationData?.requestedBy?.department || reservation.department;
           const isOnBehalfOf = reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf;
           const contactName = reservation.roomReservationData?.contactPerson?.name || reservation.contactName;
 
@@ -862,7 +861,6 @@ export default function ReservationRequests({ graphToken }) {
                   <span className="rr-info-label">Requested By</span>
                   <div className="rr-info-value rr-requester">
                     <span className="rr-requester-name">{requesterName}</span>
-                    {department && <span className="rr-requester-dept">{department}</span>}
                     {isOnBehalfOf && contactName && (
                       <span className="rr-on-behalf">for {contactName}</span>
                     )}
@@ -988,12 +986,6 @@ export default function ReservationRequests({ graphToken }) {
           reviewModal.currentItem?.roomReservationData?.requestedBy?.name
           || reviewModal.currentItem?.calendarData?.requesterName
           || reviewModal.currentItem?.requesterName
-          || ''
-        }
-        requesterDepartment={
-          reviewModal.currentItem?.roomReservationData?.requestedBy?.department
-          || reviewModal.currentItem?.calendarData?.department
-          || reviewModal.currentItem?.department
           || ''
         }
         hasChanges={reviewModal.hasChanges}

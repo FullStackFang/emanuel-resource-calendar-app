@@ -1133,7 +1133,7 @@ class MCPToolExecutor {
         teardownTime: teardownTime || '',
         locationId: location._id.toString(),
         locationName,
-        attendeeCount: attendeeCount || 0,
+        attendeeCount: attendeeCount || null,
         reservationStartTime: reservationStartTime || '',
         reservationEndTime: reservationEndTime || ''
       },
@@ -1321,7 +1321,7 @@ class MCPToolExecutor {
       location: locationName,
       locationDisplayNames: locationName,
       locations: [locationObjectIdForStorage],  // ObjectId, not string
-      attendeeCount: attendeeCount || 0,
+      attendeeCount: attendeeCount || null,
       specialRequirements: '',
       isAllDayEvent: false,
       virtualMeetingUrl: null,

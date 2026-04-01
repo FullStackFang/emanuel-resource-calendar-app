@@ -1020,12 +1020,6 @@ export default function MyReservations() {
           || reviewModal.currentItem?.requesterName
           || ''
         }
-        requesterDepartment={
-          reviewModal.currentItem?.roomReservationData?.requestedBy?.department
-          || reviewModal.currentItem?.calendarData?.department
-          || reviewModal.currentItem?.department
-          || ''
-        }
         hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
         // Admin confirmation states from hook
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}

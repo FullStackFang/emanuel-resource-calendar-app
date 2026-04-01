@@ -710,7 +710,7 @@ function createTestApp(options = {}) {
           doorOpenTime: doorOpenTime || null,
           reservationStartTime: reservationStartTime || '',
           reservationEndTime: reservationEndTime || '',
-          attendeeCount: parseInt(attendeeCount) || 0,
+          attendeeCount: parseInt(attendeeCount) || null,
         },
 
         // Room reservation data

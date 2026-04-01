@@ -61,8 +61,7 @@ export default function CommunicationHistory({ reservation }) {
     const changes = [];
     const fieldsToCheck = [
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
-      'attendeeCount', 'requestedRooms', 'specialRequirements',
-      'department', 'phone', 'contactEmail'
+      'attendeeCount', 'requestedRooms', 'specialRequirements'
     ];
 
     fieldsToCheck.forEach(field => {
@@ -106,9 +105,6 @@ export default function CommunicationHistory({ reservation }) {
       case 'attendeeCount': return 'Attendees';
       case 'requestedRooms': return 'Requested Rooms';
       case 'specialRequirements': return 'Special Requirements';
-      case 'department': return 'Department';
-      case 'phone': return 'Phone';
-      case 'contactEmail': return 'Contact Email';
       default: return field;
     }
   };

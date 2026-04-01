@@ -630,7 +630,7 @@ export default function RecurrenceTabContent({
       })(),
       services: formData?.services || reservation?.calendarData?.services || {},
       assignedTo: formData?.assignedTo || reservation?.calendarData?.assignedTo || '',
-      attendeeCount: formData?.attendeeCount || reservation?.calendarData?.attendeeCount || 0,
+      attendeeCount: formData?.attendeeCount || reservation?.calendarData?.attendeeCount || null,
       eventNotes: formData?.eventNotes || reservation?.calendarData?.eventNotes || '',
       setupNotes: formData?.setupNotes || reservation?.calendarData?.setupNotes || '',
       doorNotes: formData?.doorNotes || reservation?.calendarData?.doorNotes || '',

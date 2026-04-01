@@ -403,12 +403,6 @@
   box-sizing: border-box;
 }
 
-.owner-department-pill {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-default);
-}
-
 /* ==========================================================================
    FORM TOGGLE BUTTON
    ========================================================================== */

@@ -1798,7 +1798,7 @@ function generateChangeKey(reservation) {
     requestedRooms: reservation.locations || reservation.requestedRooms, // Use locations or requestedRooms
     setupTimeMinutes: reservation.setupTimeMinutes || 0,
     teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-    attendeeCount: reservation.attendeeCount || 0,
+    attendeeCount: reservation.attendeeCount || null,
     status: reservation.status,
     lastModified: reservation.lastModified instanceof Date
       ? reservation.lastModified.toISOString()
@@ -13863,7 +13863,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         services: services || {},
         assignedTo: '',
         // Requester info lives in roomReservationData.requestedBy (single source)
-        attendeeCount: attendeeCount || 0,
+        attendeeCount: attendeeCount || null,
         requiredFeatures: requiredFeatures || [],
         // Delegation
         isOnBehalfOf: isOnBehalfOf || false,
@@ -14119,7 +14119,7 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       'calendarData.startTime': startTime || null,
       'calendarData.endDate': endDate || null,
       'calendarData.endTime': endTime || null,
-      'calendarData.attendeeCount': attendeeCount || 0,
+      'calendarData.attendeeCount': attendeeCount || null,
       'calendarData.locations': requestedRooms || [],
       'calendarData.locationDisplayNames': draftLocationDisplayNames,
       'calendarData.isOffsite': isOffsite || false,
@@ -14561,7 +14561,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
           requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
           locationDisplayNames: emailLocationNames || 'TBD',
-          attendeeCount: submittedCd.attendeeCount || 0
+          attendeeCount: submittedCd.attendeeCount || null
         };
 
         // Send confirmation to requester
@@ -15396,7 +15396,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         eventDescription: eventDescription || '',
         startDateTime: new Date(startDateTime),
         endDateTime: new Date(endDateTime),
-        attendeeCount: attendeeCount || 0,
+        attendeeCount: attendeeCount || null,
         requestedRooms,
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
@@ -15528,7 +15528,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         contactName: isOnBehalfOf ? contactName : null,
         contactEmail: isOnBehalfOf ? contactEmail : null,
         // Event details
-        attendeeCount: attendeeCount || 0,
+        attendeeCount: attendeeCount || null,
         specialRequirements: specialRequirements || '',
         requiredFeatures: requiredFeatures || [],
         // Categories
@@ -15598,7 +15598,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         startTime: startDateTime,
         endTime: endDateTime,
         locationDisplayNames: 'TBD',
-        attendeeCount: attendeeCount || 0
+        attendeeCount: attendeeCount || null
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
@@ -15655,7 +15655,7 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       endDateTime: cd.endDateTime || event.graphData?.end?.dateTime,
       status: event.status === 'room-reservation-request' ? 'pending' : event.status,
       requestedRooms: cd.locations || [],
-      attendeeCount: cd.attendeeCount || 0,
+      attendeeCount: cd.attendeeCount || null,
       requesterId: event.roomReservationData?.requestedBy?.userId,
       requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
       requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
@@ -15858,7 +15858,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         startTime: cd.startDateTime,
         endTime: cd.endDateTime,
         locationDisplayNames: cd.locationDisplayNames || 'TBD',
-        attendeeCount: cd.attendeeCount || 0
+        attendeeCount: cd.attendeeCount || null
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
@@ -16061,7 +16061,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         'calendarData.startTime': startTime || null,
         'calendarData.endDate': endDate || null,
         'calendarData.endTime': endTime || null,
-        'calendarData.attendeeCount': attendeeCount || 0,
+        'calendarData.attendeeCount': attendeeCount || null,
         'calendarData.locations': (requestedRooms || []).map(id => typeof id === 'string' ? new ObjectId(id) : id),
         'calendarData.isOffsite': isOffsite || false,
         'calendarData.offsiteName': offsiteName || '',
@@ -16175,7 +16175,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
           startTime: updatedCd.startDateTime,
           endTime: updatedCd.endDateTime,
           locationDisplayNames: updatedCd.locationDisplayNames || 'TBD',
-          attendeeCount: updatedCd.attendeeCount || 0
+          attendeeCount: updatedCd.attendeeCount || null
         };
         const reviewerEmails = await emailService.getReviewerEmails(db);
         if (reviewerEmails.length > 0) {
@@ -19102,7 +19102,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         location: locationDisplayName,
         locationDisplayNames: locationDisplayName, // Computed display string
         locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
-        attendeeCount: parseInt(attendeeCount) || 0,
+        attendeeCount: parseInt(attendeeCount) || null,
         specialRequirements: specialRequirements || '',
         isAllDayEvent: false,
         virtualMeetingUrl: null,
@@ -19202,7 +19202,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         startTime: startDateTime,
         endTime: endDateTime,
         locationDisplayNames: locationDisplayName,
-        attendeeCount: attendeeCount || 0,
+        attendeeCount: attendeeCount || null,
         createdAt: new Date()
       };
 
@@ -19757,7 +19757,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           locationDisplayNames: publishEmailLocationNames
             ? (Array.isArray(publishEmailLocationNames) ? publishEmailLocationNames : [publishEmailLocationNames])
             : [],
-          attendeeCount: cd.attendeeCount || 0
+          attendeeCount: cd.attendeeCount || null
         };
 
         const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '', reviewChanges || []);
@@ -19925,7 +19925,7 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
         locationDisplayNames: rejectEmailLocationNames
           ? (Array.isArray(rejectEmailLocationNames) ? rejectEmailLocationNames : [rejectEmailLocationNames])
           : [],
-        attendeeCount: cd.attendeeCount || 0
+        attendeeCount: cd.attendeeCount || null
       };
 
       const emailResult = await emailService.sendRejectionNotification(reservationForEmail, reason);
@@ -23864,7 +23864,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           locationDisplayNames: deleteEmailLocationNames
             ? (Array.isArray(deleteEmailLocationNames) ? deleteEmailLocationNames : [deleteEmailLocationNames])
             : [],
-          attendeeCount: cd.attendeeCount || 0
+          attendeeCount: cd.attendeeCount || null
         };
 
         const deletedByName = user?.displayName || userEmail;

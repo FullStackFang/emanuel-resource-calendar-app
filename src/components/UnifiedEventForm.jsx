@@ -250,7 +250,7 @@ export default function UnifiedEventForm({
         ...formData,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0
+        attendeeCount: parseInt(formData.attendeeCount) || null
       };
 
       delete payload.startDate;
@@ -323,7 +323,7 @@ export default function UnifiedEventForm({
         ...formData,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0
+        attendeeCount: parseInt(formData.attendeeCount) || null
       };
 
       delete updatedData.startDate;
@@ -407,7 +407,7 @@ export default function UnifiedEventForm({
         ...formData,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        attendeeCount: parseInt(formData.attendeeCount) || null,
         changeKey: originalChangeKey
       };
 

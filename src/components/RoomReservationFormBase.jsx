@@ -13,7 +13,6 @@ import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { RecurringIcon } from './shared/CalendarIcons';
-import useDepartments from '../hooks/useDepartments';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
@@ -114,15 +113,10 @@ export default function RoomReservationFormBase({
   // Pre-fetched series events data from parent (for non-blocking modal open)
   prefetchedSeriesEvents = null,
 }) {
-  // Load departments from database
-  const { departments: departmentsList } = useDepartments();
-
   // Form state
   const [formData, setFormData] = useState({
     requesterName: '',
     requesterEmail: '',
-    department: '',
-    phone: '',
     eventTitle: '',
     eventDescription: '',
     startDate: '',
@@ -2126,70 +2120,7 @@ export default function RoomReservationFormBase({
                     className="readonly-field"
                   />
                 </div>
-
-                <div className="form-group">
-                  <label htmlFor="department">Department</label>
-                  <select
-                    id="department"
-                    name="department"
-                    value={departmentsList.some(d => d.name === formData.department || d.key === formData.department) ? formData.department : '__other__'}
-                    onChange={(e) => {
-                      if (e.target.value === '__other__') {
-                        handleInputChange({ target: { name: 'department', value: '' } });
-                      } else {
-                        handleInputChange({ target: { name: 'department', value: e.target.value } });
-                      }
-                    }}
-                  >
-                    <option value="">Select a department...</option>
-                    {departmentsList.filter(d => d.key !== '').map((dept) => (
-                      <option key={dept._id || dept.key} value={dept.name}>
-                        {dept.name}
-                      </option>
-                    ))}
-                    <option value="__other__">Other</option>
-                  </select>
-                  {(formData.department && !departmentsList.some(d => d.name === formData.department)) && (
-                    <input
-                      type="text"
-                      name="department"
-                      value={formData.department}
-                      onChange={handleInputChange}
-                      placeholder="Enter department name"
-                      style={{ marginTop: '8px' }}
-                    />
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="phone">Phone</label>
-                  <input
-                    type="tel"
-                    id="phone"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                  />
-                </div>
-
-                <div className="form-group full-width">
-                  <label htmlFor="contactEmail">Contact Person Email</label>
-                  <input
-                    type="email"
-                    id="contactEmail"
-                    name="contactEmail"
-                    value={formData.contactEmail}
-                    onChange={handleInputChange}
-                    placeholder="Email for reservation updates (optional)"
-                  />
-                </div>
               </div>
-
-              {formData.contactEmail && !formData.isOnBehalfOf && (
-                <div className="delegation-info" style={{ marginTop: '8px' }}>
-                  📧 Reservation updates will be sent to <strong>{formData.contactEmail}</strong>
-                </div>
-              )}
 
               {formData.isOnBehalfOf && formData.contactName && (
                 <div className="form-grid" style={{ marginTop: '15px' }}>

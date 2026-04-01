@@ -667,11 +667,6 @@
   color: var(--text-primary);
 }
 
-.rr-requester-dept {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
 .rr-on-behalf {
   font-size: var(--text-xs);
   color: var(--color-info-600);

@@ -23,8 +23,6 @@ export function filterBySearchAndDate(items, { searchTerm, dateFrom, dateTo }) {
       (r.eventTitle || '').toLowerCase().includes(term) ||
       (r.requesterName || '').toLowerCase().includes(term) ||
       (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
-      (r.department || '').toLowerCase().includes(term) ||
-      (r.roomReservationData?.requestedBy?.department || '').toLowerCase().includes(term) ||
       (r.locationDisplayNames || '').toLowerCase().includes(term) ||
       (r.eventDescription || '').toLowerCase().includes(term)
     );
