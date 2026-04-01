@@ -236,6 +236,39 @@ export function useEventCreation({
   }, [formData]);
 
   // ══════════════════════════════════════════════
+  //  SHARED SINGLE-EVENT POST HELPERS
+  // ══════════════════════════════════════════════
+
+  const _postAdminEvent = useCallback(async (dayData, extraInternalFields = {}) => {
+    const graphFields = buildGraphFields(dayData);
+    const internalFields = { ...buildInternalFields(dayData), ...extraInternalFields };
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      body: JSON.stringify({
+        graphFields,
+        internalFields,
+        calendarId: selectedCalendarId,
+        calendarOwner: getCalendarOwner(),
+      }),
+    });
+    if (!response.ok) throw new Error('Failed to create event');
+  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+
+  const _postRequesterEvent = useCallback(async (dayData) => {
+    const payload = buildRequesterPayload(dayData, {
+      calendarId: selectedCalendarId,
+      calendarOwner: getCalendarOwner(),
+    });
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Failed to submit reservation');
+  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+
+  // ══════════════════════════════════════════════
   //  ADMIN PUBLISH  (POST /api/events/new/audit-update)
   // ══════════════════════════════════════════════
 
@@ -558,39 +591,6 @@ export function useEventCreation({
     dispatchRefresh(refreshSource);  // Then notify other views via bus
     dispatchRefresh(refreshSource, 'navigation-counts');
   }, [resetState, refreshSource, onSuccess]);
-
-  // ══════════════════════════════════════════════
-  //  SHARED SINGLE-EVENT POST HELPERS
-  // ══════════════════════════════════════════════
-
-  const _postAdminEvent = useCallback(async (dayData, extraInternalFields = {}) => {
-    const graphFields = buildGraphFields(dayData);
-    const internalFields = { ...buildInternalFields(dayData), ...extraInternalFields };
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-      body: JSON.stringify({
-        graphFields,
-        internalFields,
-        calendarId: selectedCalendarId,
-        calendarOwner: getCalendarOwner(),
-      }),
-    });
-    if (!response.ok) throw new Error('Failed to create event');
-  }, [apiToken, selectedCalendarId, getCalendarOwner]);
-
-  const _postRequesterEvent = useCallback(async (dayData) => {
-    const payload = buildRequesterPayload(dayData, {
-      calendarId: selectedCalendarId,
-      calendarOwner: getCalendarOwner(),
-    });
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) throw new Error('Failed to submit reservation');
-  }, [apiToken, selectedCalendarId, getCalendarOwner]);
 
   // ══════════════════════════════════════════════
   //  DUPLICATE SUBMIT  (loops existing endpoints)

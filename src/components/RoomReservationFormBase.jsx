@@ -2234,8 +2234,6 @@ export default function RoomReservationFormBase({
                 </div>
               )}
             </section>
-
-}
           </div>
         </div>
       )}
