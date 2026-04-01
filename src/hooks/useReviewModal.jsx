@@ -1911,6 +1911,125 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     createRecurrenceRef,
     handleRecurrenceWarningCreateAndSave,
     handleRecurrenceWarningSaveWithout,
-    handleRecurrenceWarningCancel
+    handleRecurrenceWarningCancel,
+
+    // ── Pre-mapped props for ReviewModal ──
+    // Callers can spread this instead of mapping 80+ individual props:
+    //   <ReviewModal {...reviewModal.getReviewModalProps()} title={...} ...localOverrides />
+    // Props NOT included: title, modalMode, mode, isPending, isRequesterOnly, itemStatus,
+    // requesterName, showActionButtons, showTabs, saveButtonLabel, children,
+    // attachmentCount, historyCount, modalClassName, overlayClassName,
+    // and all caller-local state (edit request mode, cancellation workflow, owner-edit actions).
+    getReviewModalProps: () => ({
+      // Modal control
+      isOpen,
+      onClose: closeModal,
+
+      // Event state
+      hasChanges,
+      isFormValid,
+      isHold,
+      eventVersion,
+
+      // Scheduling state
+      isSchedulingCheckComplete: (() => {
+        if (!currentItem) return true;
+        if (!currentItem._gateRooms) return true;
+        if (!currentItem._gateDates) return true;
+        return prefetchedAvailability !== null;
+      })(),
+      hasSchedulingConflicts: schedulingConflictInfo?.hasHardConflicts || false,
+      hasSoftConflicts: schedulingConflictInfo?.hasSoftConflicts || false,
+      hasPendingReservationConflicts: schedulingConflictInfo?.hasPendingReservationConflicts || false,
+
+      // Core actions
+      onApprove: handleApprove,
+      onReject: handleReject,
+      onSave: handleSave,
+      onDelete: handleDelete,
+      onRestore: handleRestore,
+
+      // Core action state
+      isSaving,
+      isDeleting,
+      isApproving,
+      isRejecting,
+      isRestoring,
+
+      // Confirmation states
+      isApproveConfirming: pendingApproveConfirmation,
+      onCancelApprove: cancelApproveConfirmation,
+      isRejectConfirming: pendingRejectConfirmation,
+      onCancelReject: cancelRejectConfirmation,
+      isSaveConfirming: pendingSaveConfirmation,
+      onCancelSave: cancelSaveConfirmation,
+      isDeleteConfirming: pendingDeleteConfirmation,
+      onCancelDelete: cancelDeleteConfirmation,
+
+      // Rejection reason
+      rejectionReason,
+      onRejectionReasonChange: setRejectionReason,
+      rejectInputRef,
+
+      // Delete reason
+      deleteReason,
+      onDeleteReasonChange: setDeleteReason,
+      deleteInputRef,
+
+      // Draft workflow
+      isDraft,
+      isDraftOccurrenceEdit,
+      onSaveDraft: handleSaveDraft,
+      onSubmitDraft: handleSubmitDraft,
+      savingDraft,
+      isDraftConfirming: pendingDraftConfirmation,
+      onCancelDraft: cancelDraftConfirmation,
+      canSaveDraft,
+      showDraftDialog,
+      onDraftDialogSave: handleDraftDialogSave,
+      onDraftDialogDiscard: handleDraftDialogDiscard,
+      onDraftDialogCancel: handleDraftDialogCancel,
+
+      // Edit request submission
+      onSubmitEditRequest: handleSubmitEditRequest,
+      isSubmittingEditRequest,
+      isEditRequestConfirming: pendingEditRequestConfirmation,
+      onCancelEditRequestConfirm: cancelEditRequestConfirmation,
+
+      // Edit request approval/rejection
+      onApproveEditRequest: handleApproveEditRequest,
+      isApprovingEditRequest,
+      isEditRequestApproveConfirming: pendingEditRequestApproveConfirmation,
+      onCancelEditRequestApprove: cancelEditRequestApproveConfirmation,
+      onRejectEditRequest: handleRejectEditRequest,
+      isRejectingEditRequest,
+      isEditRequestRejectConfirming: pendingEditRequestRejectConfirmation,
+      onCancelEditRequestReject: cancelEditRequestRejectConfirmation,
+      editRequestRejectionReason,
+      onEditRequestRejectionReasonChange: setEditRequestRejectionReason,
+
+      // Cancellation request approval/rejection
+      onApproveCancellationRequest: handleApproveCancellationRequest,
+      isApprovingCancellationRequest: isApprovingCancellation,
+      isCancellationApproveConfirming: pendingCancellationApproveConfirmation,
+      onCancelCancellationApprove: cancelCancellationApproveConfirmation,
+      onRejectCancellationRequest: handleRejectCancellationRequest,
+      isRejectingCancellationRequest: isRejectingCancellation,
+      isCancellationRejectConfirming: pendingCancellationRejectConfirmation,
+      onCancelCancellationReject: cancelCancellationRejectConfirmation,
+      cancellationRejectionReason,
+      onCancellationRejectionReasonChange: setCancellationRejectionReason,
+
+      // Recurrence warnings
+      showRecurrenceWarning,
+      onRecurrenceWarningCreateAndSave: handleRecurrenceWarningCreateAndSave,
+      onRecurrenceWarningSaveWithout: handleRecurrenceWarningSaveWithout,
+      onRecurrenceWarningCancel: handleRecurrenceWarningCancel,
+      createRecurrenceRef,
+      onHasUncommittedRecurrence: setHasUncommittedRecurrence,
+
+      // Reservation data (for recurrence tab auto-detection)
+      reservation: currentItem,
+    })
   };
 }

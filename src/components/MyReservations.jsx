@@ -994,26 +994,14 @@ export default function MyReservations() {
 
       {/* ReviewModal — unified event form (replaces old details-modal) */}
       <ReviewModal
-        isOpen={reviewModal.isOpen}
+        {...reviewModal.getReviewModalProps()}
+        // Context-dependent props
         title={getModalTitle()}
         modalMode={getModalMode()}
-        onClose={reviewModal.closeModal}
-        // Admin/approver actions from hook
-        onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}
-        onReject={!isRequesterOnly ? reviewModal.handleReject : null}
-        onSave={!isRequesterOnly && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
-        onDelete={(!isRequesterOnly || reviewModal.currentItem?.status === 'pending') ? reviewModal.handleDelete : null}
-        // Mode and status
         mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
         isPending={reviewModal.currentItem?.status === 'pending'}
-        isFormValid={reviewModal.isFormValid}
-        isSaving={reviewModal.isSaving}
-        isDeleting={reviewModal.isDeleting}
-        isApproving={reviewModal.isApproving}
-        showActionButtons={true}
         isRequesterOnly={isRequesterOnly}
         itemStatus={reviewModal.currentItem?.status || null}
-        eventVersion={reviewModal.eventVersion}
         requesterName={
           reviewModal.currentItem?.roomReservationData?.requestedBy?.name
           || reviewModal.currentItem?.calendarData?.requesterName
@@ -1021,67 +1009,43 @@ export default function MyReservations() {
           || ''
         }
         hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
-        // Admin confirmation states from hook
-        isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
-        onCancelDelete={reviewModal.cancelDeleteConfirmation}
-        isApproveConfirming={reviewModal.pendingApproveConfirmation}
-        onCancelApprove={reviewModal.cancelApproveConfirmation}
-        isRejectConfirming={reviewModal.pendingRejectConfirmation}
-        onCancelReject={reviewModal.cancelRejectConfirmation}
-        isRejecting={reviewModal.isRejecting}
-        rejectionReason={reviewModal.rejectionReason}
-        onRejectionReasonChange={reviewModal.setRejectionReason}
-        rejectInputRef={reviewModal.rejectInputRef}
-        isSaveConfirming={reviewModal.pendingSaveConfirmation}
-        onCancelSave={reviewModal.cancelSaveConfirmation}
-        // Delete reason (for owner-pending delete)
-        deleteReason={reviewModal.deleteReason}
-        onDeleteReasonChange={reviewModal.setDeleteReason}
-        deleteInputRef={reviewModal.deleteInputRef}
-        // Requester action buttons
+        // Conditional action overrides (role/status-gated)
+        onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}
+        onReject={!isRequesterOnly ? reviewModal.handleReject : null}
+        onSave={!isRequesterOnly && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
+        onDelete={(!isRequesterOnly || reviewModal.currentItem?.status === 'pending') ? reviewModal.handleDelete : null}
+        onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
+        onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
+        // Requester action buttons (local handlers)
         onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
         isResubmitting={isResubmitting}
         onRestore={reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}
         isRestoring={isRestoring}
-        // Owner pending edit (requester editing their own pending event)
+        // Owner edit actions
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
         savingPendingEdit={reviewModal.isSavingOwnerEdit}
-        // Rejected edit props (editing rejected events + resubmitting)
         onSaveRejectedEdit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? reviewModal.handleOwnerEdit : null}
         savingRejectedEdit={reviewModal.isSavingOwnerEdit}
-        // Existing edit request props (viewing pending edit requests)
+        // Edit request local state
         existingEditRequest={existingEditRequest}
         isViewingEditRequest={isViewingEditRequest}
         loadingEditRequest={loadingEditRequest}
         onViewEditRequest={handleViewEditRequest}
         onViewOriginalEvent={handleViewOriginalEvent}
-        // Edit request approval/rejection props (for approvers/admins)
         onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
         onRejectEditRequest={canApproveReservations ? reviewModal.handleRejectEditRequest : null}
-        isApprovingEditRequest={reviewModal.isApprovingEditRequest}
-        isRejectingEditRequest={reviewModal.isRejectingEditRequest}
-        editRequestRejectionReason={reviewModal.editRequestRejectionReason}
-        onEditRequestRejectionReasonChange={reviewModal.setEditRequestRejectionReason}
-        isEditRequestApproveConfirming={reviewModal.pendingEditRequestApproveConfirmation}
-        isEditRequestRejectConfirming={reviewModal.pendingEditRequestRejectConfirmation}
-        onCancelEditRequestApprove={reviewModal.cancelEditRequestApproveConfirmation}
-        onCancelEditRequestReject={reviewModal.cancelEditRequestRejectConfirmation}
-        // Edit request props (requester requesting edits on published events)
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}
         isEditRequestMode={isEditRequestMode}
         onSubmitEditRequest={handleSubmitEditRequest}
         onCancelEditRequest={handleCancelEditRequest}
-        isSubmittingEditRequest={reviewModal.isSubmittingEditRequest}
-        isEditRequestConfirming={reviewModal.pendingEditRequestConfirmation}
-        onCancelEditRequestConfirm={reviewModal.cancelEditRequestConfirmation}
         detectedChanges={isEditRequestMode ? computeDetectedChanges() : []}
-        // Cancel pending edit request props (requester canceling their own edit request)
+        // Cancel pending edit request (local state)
         onCancelPendingEditRequest={handleCancelPendingEditRequest}
         isCancelingEditRequest={isCancelingEditRequest}
         isCancelEditRequestConfirming={isCancelEditRequestConfirming}
         onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
-        // Cancellation request props
+        // Cancellation request local state
         canRequestCancellation={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
         onRequestCancellation={handleRequestCancellation}
         isCancellationRequestMode={isCancellationRequestMode}
@@ -1095,31 +1059,7 @@ export default function MyReservations() {
         isWithdrawingCancellationRequest={isWithdrawingCancellationRequest}
         isWithdrawCancellationConfirming={isWithdrawCancellationConfirming}
         onCancelWithdrawCancellation={cancelWithdrawCancellationConfirmation}
-        // Draft props from hook
-        isDraft={reviewModal.isDraft}
-        onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
-        savingDraft={reviewModal.savingDraft}
-        isDraftConfirming={reviewModal.pendingDraftConfirmation}
-        onCancelDraft={reviewModal.cancelDraftConfirmation}
-        canSaveDraft={reviewModal.canSaveDraft}
-        showDraftDialog={reviewModal.showDraftDialog}
-        onDraftDialogSave={reviewModal.handleDraftDialogSave}
-        onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
-        onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
-        onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
-        showRecurrenceWarning={reviewModal.showRecurrenceWarning}
-        onRecurrenceWarningCreateAndSave={reviewModal.handleRecurrenceWarningCreateAndSave}
-        onRecurrenceWarningSaveWithout={reviewModal.handleRecurrenceWarningSaveWithout}
-        onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
-        createRecurrenceRef={reviewModal.createRecurrenceRef}
-        onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
-        isSchedulingCheckComplete={reviewModal.isSchedulingCheckComplete}
-        // Scheduling conflicts
-        hasSchedulingConflicts={reviewModal.hasSchedulingConflicts}
-        hasSoftConflicts={reviewModal.hasSoftConflicts}
-        hasPendingReservationConflicts={reviewModal.hasPendingReservationConflicts}
-        isHold={reviewModal.isHold}
-        // Inline diff data (flat-transformed for comparison with formData)
+        // Inline diff data
         originalData={flatOriginalEventData}
       >
         {reviewModal.currentItem && (
