@@ -1,6 +1,0 @@
-# Ignore all CSV files
-*.csv
-
-# But keep this folder in git
-!.gitignore
-!README.md

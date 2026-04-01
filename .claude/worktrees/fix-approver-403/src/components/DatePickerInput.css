@@ -1,9 +1,0 @@
-.date-picker-wrapper {
-  position: relative;
-}
-
-/* Hide the native browser calendar icon — we provide our own */
-.date-picker-wrapper .date-picker-native-input::-webkit-calendar-picker-indicator {
-  display: none !important;
-  -webkit-appearance: none;
-}
