@@ -14570,8 +14570,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         // Send alert to reviewers (approvers + admins)
         const reviewerEmails = await emailService.getReviewerEmails(db);
         if (reviewerEmails.length > 0) {
-          const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
-          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails);
         }
 
         // Record in communication history
@@ -15603,8 +15602,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
-        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails);
       }
     } catch (emailError) {
       logger.error('Email notification failed (reservation still created):', { error: emailError.message });
@@ -15864,8 +15862,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       };
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
-        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails);
       }
     } catch (emailError) {
       logger.error('Email notification failed (resubmission still completed):', { error: emailError.message });
@@ -16182,8 +16179,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         };
         const reviewerEmails = await emailService.getReviewerEmails(db);
         if (reviewerEmails.length > 0) {
-          const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
-          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails);
         }
       } catch (emailError) {
         logger.error('Email notification failed (edit still saved):', { error: emailError.message });
@@ -19221,8 +19217,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       // Send alert to reviewers (approvers + admins)
       const reviewerEmails = await emailService.getReviewerEmails(db);
       if (reviewerEmails.length > 0) {
-        const adminPanelUrl = `${webAppURL}/?eventId=${reservationForEmail._id}`;
-        const reviewerResult = await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+        const reviewerResult = await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails);
         logger.info('Reviewer alert email sent', {
           eventId: eventDoc.eventId,
           correlationId: reviewerResult.correlationId,
@@ -20348,10 +20343,8 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
 
     // Send alert to admins (non-blocking)
     try {
-      const adminPanelUrl = `${webAppURL}/?eventId=${editRequestForEmail._id}`;
       const emailResult = await emailService.sendAdminEditRequestAlert(
-        editRequestForEmail,
-        adminPanelUrl
+        editRequestForEmail
       );
       logger.info('Admin edit request alert email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {

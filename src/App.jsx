@@ -314,9 +314,9 @@ function App() {
                   <Route path="/booking" element={<UnifiedEventForm mode="create" apiToken={apiToken} />} />
                   <Route path="/booking/public/:token" element={<UnifiedEventForm mode="create" isPublic={true} />} />
 
-                  <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
+                  <Route path="/my-reservations" element={<MyReservations />} />
                   <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
-                  <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
+                  <Route path="/admin/reservation-requests" element={<ReservationRequests graphToken={graphToken} />} />
                   <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                   <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />

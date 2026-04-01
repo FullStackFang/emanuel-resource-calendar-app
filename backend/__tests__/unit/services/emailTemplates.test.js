@@ -1,7 +1,7 @@
 /**
- * Email Template Tests (EU-1 to EU-4, TZ-1 to TZ-5)
+ * Email Template Tests (EU-1 to EU-2, TZ-1 to TZ-5)
  *
- * EU-*: Verifies admin panel URLs with deep-link eventId query parameters.
+ * EU-*: Verifies admin alert emails render without review links.
  * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
@@ -13,7 +13,7 @@ const {
   formatTime,
 } = require('../../../services/emailTemplates');
 
-describe('Email Template URL Tests', () => {
+describe('Email Template Content Tests', () => {
   const mockReservation = {
     _id: '507f1f77bcf86cd799439011',
     eventTitle: 'Board Meeting',
@@ -36,33 +36,22 @@ describe('Email Template URL Tests', () => {
     proposedChanges: [],
   };
 
-  it('EU-1: new request alert renders Review Request button with eventId in URL', async () => {
-    const adminPanelUrl = 'https://example.com/?eventId=507f1f77bcf86cd799439011';
-    const { html } = await generateAdminNewRequestAlert(mockReservation, adminPanelUrl);
+  it('EU-1: new request alert renders event details without review link', async () => {
+    const { html } = await generateAdminNewRequestAlert(mockReservation);
 
-    expect(html).toContain('Review Request');
-    expect(html).toContain('href="https://example.com/?eventId=507f1f77bcf86cd799439011"');
-  });
-
-  it('EU-2: edit request alert renders Review Edit Request button with eventId in URL', async () => {
-    const adminPanelUrl = 'https://example.com/?eventId=507f1f77bcf86cd799439022';
-    const { html } = await generateAdminEditRequestAlert(mockEditRequest, adminPanelUrl);
-
-    expect(html).toContain('Review Edit Request');
-    expect(html).toContain('href="https://example.com/?eventId=507f1f77bcf86cd799439022"');
-  });
-
-  it('EU-3: new request alert omits button when adminPanelUrl is empty', async () => {
-    const { html } = await generateAdminNewRequestAlert(mockReservation, '');
-
+    expect(html).toContain('Board Meeting');
+    expect(html).toContain('Jane Doe');
     expect(html).not.toContain('Review Request');
-    expect(html).not.toContain('href=');
+    expect(html).not.toContain('adminPanelUrl');
   });
 
-  it('EU-4: edit request alert omits button when adminPanelUrl is empty', async () => {
-    const { html } = await generateAdminEditRequestAlert(mockEditRequest, '');
+  it('EU-2: edit request alert renders event details without review link', async () => {
+    const { html } = await generateAdminEditRequestAlert(mockEditRequest);
 
+    expect(html).toContain('Updated Board Meeting');
+    expect(html).toContain('Jane Doe');
     expect(html).not.toContain('Review Edit Request');
+    expect(html).not.toContain('adminPanelUrl');
   });
 });
 

@@ -5,13 +5,16 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import DatePickerInput from './DatePickerInput';
 import { useRooms } from '../context/LocationContext';
+import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventToFlatStructure, transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
 import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
+import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
@@ -23,7 +26,9 @@ import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
 import './ReservationRequests.css';
 
-export default function ReservationRequests({ apiToken, graphToken }) {
+export default function ReservationRequests({ graphToken }) {
+  const { apiToken } = useAuth();
+  const authFetch = useAuthenticatedFetch();
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
   const { showError } = useNotification();
@@ -113,11 +118,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   const loadCalendarSettings = async () => {
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-settings`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-settings`);
 
       if (response.ok) {
         const data = await response.json();
@@ -139,13 +140,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       }
 
       // Load all reservations at once (small dataset, <100 items typically)
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000`,
-        {
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
+      const response = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000`
       );
 
       if (!response.ok) {
@@ -173,7 +169,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         setLoading(false);
       }
     }
-  }, [apiToken]);
+  }, [authFetch]);
 
   // Poll for new reservations every 60s (silent — no loading spinner)
   const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
@@ -193,31 +189,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   }, [loadReservations]);
 
   // Stage 1: Apply search + date filters against all reservations
-  const searchFiltered = useMemo(() => {
-    let results = allReservations;
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      results = results.filter(r =>
-        (r.eventTitle || '').toLowerCase().includes(term) ||
-        (r.requesterName || '').toLowerCase().includes(term) ||
-        (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
-        (r.department || '').toLowerCase().includes(term) ||
-        (r.roomReservationData?.requestedBy?.department || '').toLowerCase().includes(term) ||
-        (r.locationDisplayNames || '').toLowerCase().includes(term) ||
-        (r.eventDescription || '').toLowerCase().includes(term)
-      );
-    }
-
-    if (dateFrom) {
-      results = results.filter(r => r.startDate >= dateFrom);
-    }
-    if (dateTo) {
-      results = results.filter(r => r.startDate <= dateTo);
-    }
-
-    return results;
-  }, [allReservations, searchTerm, dateFrom, dateTo]);
+  const searchFiltered = useMemo(
+    () => filterBySearchAndDate(allReservations, { searchTerm, dateFrom, dateTo }),
+    [allReservations, searchTerm, dateFrom, dateTo]
+  );
 
   // Stage 2: Apply tab status filter + status dropdown filter
   const filteredReservations = useMemo(() => {
@@ -266,23 +241,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   }), [searchFiltered]);
 
   // Sort filtered results
-  const sortedReservations = useMemo(() => {
-    const sorted = [...filteredReservations];
-    sorted.sort((a, b) => {
-      switch (sortBy) {
-        case 'date_asc':
-          return (a.startDate || '').localeCompare(b.startDate || '');
-        case 'submitted_desc':
-          return (b.submittedAt || '').localeCompare(a.submittedAt || '');
-        case 'submitted_asc':
-          return (a.submittedAt || '').localeCompare(b.submittedAt || '');
-        case 'date_desc':
-        default:
-          return (b.startDate || '').localeCompare(a.startDate || '');
-      }
-    });
-    return sorted;
-  }, [filteredReservations, sortBy]);
+  const sortedReservations = useMemo(
+    () => sortReservations(filteredReservations, sortBy),
+    [filteredReservations, sortBy]
+  );
 
   const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
 
@@ -291,11 +253,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     try {
       setEditRequestsLoading(true);
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/edit-requests?status=all`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/edit-requests?status=all`);
 
       if (!response.ok) {
         throw new Error('Failed to load edit requests');
@@ -392,14 +350,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     try {
       setApprovingEditRequest(true);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/publish-edit`,
         {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             notes,
             _version: selectedEditRequest?._version ?? null,
@@ -444,14 +399,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     try {
       setRejectingEditRequest(true);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/reject-edit`,
         {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reason: editRequestRejectionReason.trim(),
             _version: selectedEditRequest?._version ?? null,

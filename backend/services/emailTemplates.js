@@ -144,18 +144,10 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#adminPanelUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Request
-  </a>
-</p>
-{{/adminPanelUrl}}
-
 <p style="color: #718096; font-size: 14px;">
   Please review this request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'attendeeCount', 'submittedAt', 'adminPanelUrl']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'attendeeCount', 'submittedAt']
   },
 
   [TEMPLATE_IDS.APPROVAL]: {
@@ -490,18 +482,10 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#adminPanelUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Edit Request
-  </a>
-</p>
-{{/adminPanelUrl}}
-
 <p style="color: #718096; font-size: 14px;">
   Please review this edit request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'adminPanelUrl']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt']
   },
 
   [TEMPLATE_IDS.EDIT_REQUEST_APPROVED]: {
@@ -717,18 +701,10 @@ const DEFAULT_TEMPLATES = {
   <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
 </div>
 
-{{#adminPanelUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Cancellation Request
-  </a>
-</p>
-{{/adminPanelUrl}}
-
 <p style="color: #718096; font-size: 14px;">
   Please review this cancellation request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'cancellationReason', 'adminPanelUrl']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'cancellationReason']
   },
 
   [TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED]: {
@@ -1400,10 +1376,8 @@ async function generateSubmissionConfirmation(reservation) {
 /**
  * Generate admin new request alert email
  */
-async function generateAdminNewRequestAlert(reservation, adminPanelUrl = '') {
-  const variables = extractVariables(reservation, {
-    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
-  });
+async function generateAdminNewRequestAlert(reservation) {
+  const variables = extractVariables(reservation);
   return generateFromTemplate(TEMPLATE_IDS.ADMIN_NEW_REQUEST, variables);
 }
 
@@ -1498,10 +1472,8 @@ async function generateEditRequestSubmittedConfirmation(editRequest) {
 /**
  * Generate admin edit request alert email
  */
-async function generateAdminEditRequestAlert(editRequest, adminPanelUrl = '') {
-  const variables = extractVariables(editRequest, {
-    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
-  });
+async function generateAdminEditRequestAlert(editRequest) {
+  const variables = extractVariables(editRequest);
   return generateFromTemplate(TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT, variables);
 }
 
@@ -1550,10 +1522,9 @@ async function generateCancellationRequestSubmittedConfirmation(eventData, cance
 /**
  * Generate admin cancellation request alert email
  */
-async function generateAdminCancellationRequestAlert(eventData, cancellationReason = '', adminPanelUrl = '') {
+async function generateAdminCancellationRequestAlert(eventData, cancellationReason = '') {
   const variables = extractVariables(eventData, {
-    cancellationReason: cancellationReason ? escapeHtml(cancellationReason) : '',
-    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
+    cancellationReason: cancellationReason ? escapeHtml(cancellationReason) : ''
   });
   return generateFromTemplate(TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT, variables);
 }
@@ -1633,7 +1604,7 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
     submittedAt: formatDateTime(new Date()),
     adminNotes: 'Please arrive 15 minutes early for setup.',
     rejectionReason: 'The requested space is not available on this date.',
-    adminPanelUrl: 'https://example.com/admin/reservations'
+    cancellationReason: 'The requested space is no longer available.'
   };
 
   const template = await getTemplate(templateId);

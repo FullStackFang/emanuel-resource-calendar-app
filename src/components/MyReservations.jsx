@@ -5,13 +5,16 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import DatePickerInput from './DatePickerInput';
 import { useRooms } from '../context/LocationContext';
+import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
 import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
+import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
@@ -20,7 +23,9 @@ import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
 import './MyReservations.css';
 
-export default function MyReservations({ apiToken }) {
+export default function MyReservations() {
+  const { apiToken } = useAuth();
+  const authFetch = useAuthenticatedFetch();
   const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
   const { showSuccess, showWarning, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
@@ -223,9 +228,7 @@ export default function MyReservations({ apiToken }) {
         setError('');
       }
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`);
 
       if (!response.ok) {
         if (!silent) throw new Error('Failed to load reservations');
@@ -243,7 +246,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [apiToken]);
+  }, [authFetch]);
 
   // Load all user's reservations once on mount
   useEffect(() => {
@@ -280,31 +283,10 @@ export default function MyReservations({ apiToken }) {
 
 
   // Stage 1: Apply search + date filters against all reservations
-  const searchFiltered = useMemo(() => {
-    let results = allReservations;
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      results = results.filter(r =>
-        (r.eventTitle || '').toLowerCase().includes(term) ||
-        (r.requesterName || '').toLowerCase().includes(term) ||
-        (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
-        (r.department || '').toLowerCase().includes(term) ||
-        (r.roomReservationData?.requestedBy?.department || '').toLowerCase().includes(term) ||
-        (r.locationDisplayNames || '').toLowerCase().includes(term) ||
-        (r.eventDescription || '').toLowerCase().includes(term)
-      );
-    }
-
-    if (dateFrom) {
-      results = results.filter(r => r.startDate >= dateFrom);
-    }
-    if (dateTo) {
-      results = results.filter(r => r.startDate <= dateTo);
-    }
-
-    return results;
-  }, [allReservations, searchTerm, dateFrom, dateTo]);
+  const searchFiltered = useMemo(
+    () => filterBySearchAndDate(allReservations, { searchTerm, dateFrom, dateTo }),
+    [allReservations, searchTerm, dateFrom, dateTo]
+  );
 
   // Stage 2: Apply status dropdown filter
   const filteredReservations = useMemo(() => {
@@ -331,23 +313,10 @@ export default function MyReservations({ apiToken }) {
   }, [searchFiltered, statusFilter]);
 
   // Stage 3: Sort filtered results
-  const sortedReservations = useMemo(() => {
-    const sorted = [...filteredReservations];
-    sorted.sort((a, b) => {
-      switch (sortBy) {
-        case 'date_asc':
-          return (a.startDate || '').localeCompare(b.startDate || '');
-        case 'submitted_desc':
-          return (b.submittedAt || '').localeCompare(a.submittedAt || '');
-        case 'submitted_asc':
-          return (a.submittedAt || '').localeCompare(b.submittedAt || '');
-        case 'date_desc':
-        default:
-          return (b.startDate || '').localeCompare(a.startDate || '');
-      }
-    });
-    return sorted;
-  }, [filteredReservations, sortBy]);
+  const sortedReservations = useMemo(
+    () => sortReservations(filteredReservations, sortBy),
+    [filteredReservations, sortBy]
+  );
 
   const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
 
@@ -402,12 +371,9 @@ export default function MyReservations({ apiToken }) {
 
     setIsResubmitting(true);
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/resubmit`, {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/resubmit`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _version: item._version || null })
       });
 
@@ -423,7 +389,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setIsResubmitting(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showError]);
+  }, [reviewModal, authFetch, loadMyReservations, showError]);
 
   // Restore (owner, deleted events) — used by ReviewModal's onRestore button
   const handleRestore = useCallback(async () => {
@@ -432,12 +398,9 @@ export default function MyReservations({ apiToken }) {
 
     setIsRestoring(true);
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/restore`, {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/restore`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _version: item._version || null })
       });
 
@@ -463,7 +426,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setIsRestoring(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showError]);
+  }, [reviewModal, authFetch, loadMyReservations, showError]);
 
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
@@ -577,14 +540,11 @@ export default function MyReservations({ apiToken }) {
       setIsCancelingEditRequest(true);
       const eventId = currentItem._id || currentItem.eventId;
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
         {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          }
+          headers: { 'Content-Type': 'application/json' }
         }
       );
 
@@ -610,7 +570,7 @@ export default function MyReservations({ apiToken }) {
       setIsCancelingEditRequest(false);
       setIsCancelEditRequestConfirming(false);
     }
-  }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showError]);
+  }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, authFetch, loadMyReservations, showError]);
 
   const cancelCancelEditRequestConfirmation = useCallback(() => {
     setIsCancelEditRequestConfirming(false);
@@ -635,14 +595,11 @@ export default function MyReservations({ apiToken }) {
     setIsSubmittingCancellationRequest(true);
     try {
       const eventId = currentItem._id || currentItem.eventId;
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-cancellation`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reason: cancellationReason.trim(),
             _version: currentItem._version,
@@ -666,7 +623,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setIsSubmittingCancellationRequest(false);
     }
-  }, [reviewModal, cancellationReason, apiToken, loadMyReservations, showSuccess, showError]);
+  }, [reviewModal, cancellationReason, authFetch, loadMyReservations, showSuccess, showError]);
 
   const handleWithdrawCancellationRequest = useCallback(async () => {
     if (!isWithdrawCancellationConfirming) {
@@ -680,14 +637,11 @@ export default function MyReservations({ apiToken }) {
     setIsWithdrawingCancellationRequest(true);
     try {
       const eventId = currentItem._id || currentItem.eventId;
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/cancellation-requests/${eventId}/cancel`,
         {
           method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       );
 
@@ -707,7 +661,7 @@ export default function MyReservations({ apiToken }) {
       setIsWithdrawingCancellationRequest(false);
       setIsWithdrawCancellationConfirming(false);
     }
-  }, [isWithdrawCancellationConfirming, reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+  }, [isWithdrawCancellationConfirming, reviewModal, authFetch, loadMyReservations, showSuccess, showError]);
 
   const cancelWithdrawCancellationConfirmation = useCallback(() => {
     setIsWithdrawCancellationConfirming(false);

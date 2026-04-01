@@ -427,10 +427,9 @@ async function sendSubmissionConfirmation(reservation) {
  * Send new request alert to all reviewers (approvers + admins) as a single email
  * @param {Object} reservation - Reservation data
  * @param {string[]} reviewerEmails - Array of reviewer email addresses
- * @param {string} adminPanelUrl - Optional URL to admin review panel
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendNewRequestAlert(reservation, reviewerEmails, adminPanelUrl = '') {
+async function sendNewRequestAlert(reservation, reviewerEmails) {
   if (!reviewerEmails || reviewerEmails.length === 0) {
     logger.warn('No reviewer emails for new request alert', {
       reservationId: reservation._id
@@ -438,7 +437,7 @@ async function sendNewRequestAlert(reservation, reviewerEmails, adminPanelUrl = 
     return { success: false, error: 'No reviewer recipients' };
   }
 
-  const { subject, html } = await emailTemplates.generateAdminNewRequestAlert(reservation, adminPanelUrl);
+  const { subject, html } = await emailTemplates.generateAdminNewRequestAlert(reservation);
 
   // Send single email to all reviewers (not multiple emails)
   return sendEmail(reviewerEmails, subject, html, {
@@ -650,10 +649,9 @@ async function sendEditRequestSubmittedConfirmation(editRequest) {
 /**
  * Send edit request alert to admins
  * @param {Object} editRequest - Edit request data
- * @param {string} adminPanelUrl - Optional URL to admin panel
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendAdminEditRequestAlert(editRequest, adminPanelUrl = '') {
+async function sendAdminEditRequestAlert(editRequest) {
   const reviewerEmails = await getReviewerEmails(dbConnection, 'emailOnEditRequests');
 
   if (reviewerEmails.length === 0) {
@@ -663,7 +661,7 @@ async function sendAdminEditRequestAlert(editRequest, adminPanelUrl = '') {
     return { success: false, error: 'No reviewer emails configured' };
   }
 
-  const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest, adminPanelUrl);
+  const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest);
 
   return sendEmail(reviewerEmails, subject, html, {
     editRequestId: editRequest._id?.toString()
@@ -756,9 +754,8 @@ async function sendCancellationRequestSubmittedConfirmation(eventData, cancellat
  * Send cancellation request alert to admins
  * @param {Object} eventData - Event data
  * @param {string} cancellationReason - Reason for cancellation
- * @param {string} adminPanelUrl - Optional URL to admin panel
  */
-async function sendAdminCancellationRequestAlert(eventData, cancellationReason, adminPanelUrl = '') {
+async function sendAdminCancellationRequestAlert(eventData, cancellationReason) {
   const reviewerEmails = await getReviewerEmails(dbConnection, 'emailOnCancellationRequests');
 
   if (reviewerEmails.length === 0) {
@@ -766,7 +763,7 @@ async function sendAdminCancellationRequestAlert(eventData, cancellationReason, 
     return { success: false, error: 'No reviewer emails configured' };
   }
 
-  const { subject, html } = await emailTemplates.generateAdminCancellationRequestAlert(eventData, cancellationReason, adminPanelUrl);
+  const { subject, html } = await emailTemplates.generateAdminCancellationRequestAlert(eventData, cancellationReason);
 
   return sendEmail(reviewerEmails, subject, html, {
     eventId: eventData._id?.toString()
