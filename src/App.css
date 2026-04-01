@@ -305,6 +305,14 @@ main {
   opacity: 0.9;
 }
 
+/* Hide welcome sign-in button on desktop/tablet — header login button is visible */
+@media (min-width: 481px) {
+  .welcome-signin-btn,
+  .welcome-desc-secondary {
+    display: none;
+  }
+}
+
 .welcome-footer-text {
   font-family: var(--font-display);
   font-size: var(--text-2xs);
