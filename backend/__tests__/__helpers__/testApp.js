@@ -3868,7 +3868,7 @@ function createTestApp(options = {}) {
   });
 
   /**
-   * PUT /api/admin/events/:id - Update an event (admin only)
+   * PUT /api/admin/events/:id - Update an event (approver+)
    * Simplified test version focusing on Graph sync gate logic
    */
   app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
@@ -3876,12 +3876,12 @@ function createTestApp(options = {}) {
       const userId = req.user.userId;
       const userEmail = req.user.email;
 
-      // Check admin permissions
+      // Check approver/admin permissions
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
-      if (!isAdmin(userDoc, userEmail)) {
-        return res.status(403).json({ error: 'Admin access required' });
+      if (!hasRole(userDoc, userEmail, 'approver')) {
+        return res.status(403).json({ error: 'Approver access required' });
       }
 
       const id = req.params.id;

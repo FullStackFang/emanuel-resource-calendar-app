@@ -19337,12 +19337,17 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: new ObjectId(id) }))
     ]);
 
-    const isAdminUser = isAdmin(user, userEmail);
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    const hasApproverAccess = canApproveReservations(user, userEmail);
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Only admins can force-override scheduling conflicts
+    if (forcePublish && !isAdmin(user, userEmail)) {
+      return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
     }
 
     // Verify status is pending or room-reservation-request (for backward compatibility)
@@ -19846,12 +19851,12 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check approver/admin permissions
     const user = await getCachedUser(userId);
-    const isAdminUser = isAdmin(user, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const id = req.params.id;
@@ -22058,7 +22063,7 @@ app.put('/api/events/:id/department-fields', verifyToken, async (req, res) => {
 // ============================================================================
 
 /**
- * Update an event (Admin only)
+ * Update an event (Approver+)
  * PUT /api/admin/events/:id
  * Updates both Graph API event and internal enrichments
  */
@@ -22067,16 +22072,21 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check approver/admin permissions
     const user = await getCachedUser(userId);
-    const isAdminUser = isAdmin(user, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const id = req.params.id;
     const updates = req.body;
+
+    // Only admins can force-override scheduling conflicts
+    if (updates.forceUpdate && !isAdmin(user, userEmail)) {
+      return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
+    }
     const graphToken = updates.graphToken;
     const editScope = updates.editScope; // 'thisEvent' | 'allEvents' | null
     const occurrenceDate = updates.occurrenceDate; // For single occurrence edits
