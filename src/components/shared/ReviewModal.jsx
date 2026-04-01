@@ -1021,7 +1021,7 @@ export default function ReviewModal({
 
               {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
               {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && mode === 'edit' && onDelete && itemStatus !== 'deleted' && !isViewingEditRequest && (
+              {!isRequesterOnly && mode === 'edit' && onDelete && itemStatus !== 'deleted' && !isViewingEditRequest && existingCancellationRequest?.status !== 'pending' && (
                 <div className="confirm-button-group">
                   <button
                     type="button"

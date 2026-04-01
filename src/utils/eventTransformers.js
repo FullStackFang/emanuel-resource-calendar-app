@@ -282,6 +282,11 @@ export function transformEventToFlatStructure(event) {
     isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || getEventField(event, 'isOnBehalfOf', false),
     reviewNotes: event.roomReservationData?.reviewNotes || getEventField(event, 'reviewNotes', ''),
 
+    // Event organizer (may differ from requester — for security/operations contact)
+    organizerName: event.roomReservationData?.organizer?.name || getEventField(event, 'organizerName', ''),
+    organizerPhone: event.roomReservationData?.organizer?.phone || getEventField(event, 'organizerPhone', ''),
+    organizerEmail: event.roomReservationData?.organizer?.email || getEventField(event, 'organizerEmail', ''),
+
     // Categories and services
     categories,
     mecCategories: categories, // Backwards compatibility alias

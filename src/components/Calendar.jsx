@@ -6101,8 +6101,6 @@ import ConflictDialog from './shared/ConflictDialog';
           onSave={canApproveReservations && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
           onDelete={canDeleteEvents && reviewModal.currentItem?.status !== 'deleted' ? reviewModal.handleDelete : null}
           onRestore={canDeleteEvents && reviewModal.currentItem?.status === 'deleted' ? reviewModal.handleRestore : null}
-          onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
-          onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
           // Requester action buttons
           onResubmit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleResubmitFromCalendar : null}
           isResubmitting={isResubmitting}

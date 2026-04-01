@@ -274,6 +274,14 @@
   margin-bottom: 0;
 }
 
+.organizer-row {
+  display: grid;
+  grid-template-columns: 0.8fr 0.85fr 1.35fr;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
 /* ==========================================================================
    RECURRENCE SUMMARY DISPLAY
    ========================================================================== */
@@ -2500,6 +2508,11 @@ select.input-changed:focus {
   }
 
   .time-field-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  .organizer-row {
     grid-template-columns: 1fr;
     gap: var(--space-3);
   }

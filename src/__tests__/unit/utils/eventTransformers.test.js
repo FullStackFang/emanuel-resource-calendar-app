@@ -874,3 +874,46 @@ describe('sortEventsByStartTime', () => {
     expect(sortEventsByStartTime(undefined)).toBeUndefined();
   });
 });
+
+// =============================================================
+// Event Organizer Contact Fields
+// =============================================================
+describe('transformEventToFlatStructure - organizer fields', () => {
+  it('extracts organizer from roomReservationData.organizer', () => {
+    const event = {
+      _id: 'evt-1',
+      roomReservationData: {
+        organizer: {
+          name: 'Rabbi Sarah',
+          phone: '212-555-0101',
+          email: 'rabbi.sarah@emanuelnyc.org',
+        },
+      },
+    };
+    const result = transformEventToFlatStructure(event);
+    expect(result.organizerName).toBe('Rabbi Sarah');
+    expect(result.organizerPhone).toBe('212-555-0101');
+    expect(result.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
+  });
+
+  it('defaults organizer fields to empty strings when missing', () => {
+    const event = {
+      _id: 'evt-2',
+      roomReservationData: {
+        requestedBy: { name: 'Test', email: 'test@test.com' },
+      },
+    };
+    const result = transformEventToFlatStructure(event);
+    expect(result.organizerName).toBe('');
+    expect(result.organizerPhone).toBe('');
+    expect(result.organizerEmail).toBe('');
+  });
+
+  it('defaults organizer fields for event with no roomReservationData', () => {
+    const event = { _id: 'evt-3' };
+    const result = transformEventToFlatStructure(event);
+    expect(result.organizerName).toBe('');
+    expect(result.organizerPhone).toBe('');
+    expect(result.organizerEmail).toBe('');
+  });
+});

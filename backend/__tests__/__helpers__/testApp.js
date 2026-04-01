@@ -720,6 +720,11 @@ function createTestApp(options = {}) {
           department: department || '',
           phone: phone || '',
           attendees: attendees || 0,
+          organizer: {
+            name: req.body.organizerName || '',
+            phone: req.body.organizerPhone || '',
+            email: req.body.organizerEmail || ''
+          },
         },
 
         // Status history
@@ -924,6 +929,15 @@ function createTestApp(options = {}) {
         if (req.body[field] !== undefined) {
           updateFields[`roomReservationData.${field}`] = req.body[field];
         }
+      }
+
+      // Update organizer fields
+      if (req.body.organizerName !== undefined || req.body.organizerPhone !== undefined || req.body.organizerEmail !== undefined) {
+        updateFields['roomReservationData.organizer'] = {
+          name: req.body.organizerName || '',
+          phone: req.body.organizerPhone || '',
+          email: req.body.organizerEmail || ''
+        };
       }
 
       // Set eventType based on recurrence
@@ -2850,6 +2864,14 @@ function createTestApp(options = {}) {
       if (req.body.phone !== undefined) {
         updateFields['roomReservationData.phone'] = req.body.phone;
       }
+      // Organizer fields
+      if (req.body.organizerName !== undefined || req.body.organizerPhone !== undefined || req.body.organizerEmail !== undefined) {
+        updateFields['roomReservationData.organizer'] = {
+          name: req.body.organizerName || '',
+          phone: req.body.organizerPhone || '',
+          email: req.body.organizerEmail || ''
+        };
+      }
 
       updateFields.lastModified = now;
       updateFields.lastModifiedBy = userEmail;
@@ -4768,6 +4790,11 @@ function createTestApp(options = {}) {
             department: department || userDoc?.department || '',
             phone: phone || '',
             userId,
+          },
+          organizer: {
+            name: req.body.organizerName || '',
+            phone: req.body.organizerPhone || '',
+            email: req.body.organizerEmail || ''
           },
         },
         graphData: null,

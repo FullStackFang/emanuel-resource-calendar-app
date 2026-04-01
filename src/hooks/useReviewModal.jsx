@@ -1979,8 +1979,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Draft workflow
       isDraft,
       isDraftOccurrenceEdit,
-      onSaveDraft: handleSaveDraft,
-      onSubmitDraft: handleSubmitDraft,
+      onSaveDraft: isDraft ? handleSaveDraft : null,
+      onSubmitDraft: isDraft ? handleSubmitDraft : null,
       savingDraft,
       isDraftConfirming: pendingDraftConfirmation,
       onCancelDraft: cancelDraftConfirmation,

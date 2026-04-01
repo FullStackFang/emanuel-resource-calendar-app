@@ -13735,7 +13735,11 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       offsiteLon,
       // Concurrent scheduling settings (admin-only)
       isAllowedConcurrent = false,
-      allowedConcurrentCategories = []
+      allowedConcurrentCategories = [],
+      // Event organizer (may differ from requester)
+      organizerName,
+      organizerPhone,
+      organizerEmail
     } = req.body;
 
     // Validation for draft - eventTitle and dates required
@@ -13794,6 +13798,11 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
+        organizer: {
+          name: organizerName || '',
+          phone: organizerPhone || '',
+          email: organizerEmail || ''
+        },
         submittedAt: new Date()
       },
 
@@ -13978,7 +13987,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       editScope,
       occurrenceDate,
       clearOccurrenceOverrides,
-      occurrenceOverrides
+      occurrenceOverrides,
+      // Event organizer (may differ from requester)
+      organizerName,
+      organizerPhone,
+      organizerEmail
     } = req.body;
 
     // --- thisEvent scope: write per-occurrence override and return early ---
@@ -14155,6 +14168,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
         email: contactEmail || '',
         isOnBehalfOf: true
       } : null,
+      'roomReservationData.organizer': {
+        name: organizerName || '',
+        phone: organizerPhone || '',
+        email: organizerEmail || ''
+      },
       'roomReservationData.department': department || '',
       'roomReservationData.phone': phone || '',
       // Set eventType when recurrence is present
@@ -15291,7 +15309,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       categories,
       // Raw event times for [Hold] detection
       eventStartTime,
-      eventEndTime
+      eventEndTime,
+      // Event organizer (may differ from requester)
+      organizerName,
+      organizerPhone,
+      organizerEmail
     } = req.body;
 
     // Validation
@@ -15482,6 +15504,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
+        organizer: {
+          name: organizerName || '',
+          phone: organizerPhone || '',
+          email: organizerEmail || ''
+        },
         submittedAt: new Date(),
         currentRevision: 1,
         reviewingBy: null,
@@ -15980,7 +16007,11 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       offsiteName,
       offsiteAddress,
       offsiteLat,
-      offsiteLon
+      offsiteLon,
+      // Event organizer (may differ from requester)
+      organizerName,
+      organizerPhone,
+      organizerEmail
     } = req.body;
 
     // Validation
@@ -16098,6 +16129,11 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
+        'roomReservationData.organizer': {
+          name: organizerName || '',
+          phone: organizerPhone || '',
+          email: organizerEmail || ''
+        },
         'roomReservationData.department': department || '',
         'roomReservationData.phone': phone || '',
         // Metadata
@@ -18893,7 +18929,11 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       occurrenceOverrides,
       // Raw event times for [Hold] detection (empty when user didn't specify event times)
       eventStartTime,
-      eventEndTime
+      eventEndTime,
+      // Event organizer (may differ from requester)
+      organizerName,
+      organizerPhone,
+      organizerEmail
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -19051,6 +19091,11 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           email: contactEmail,
           isOnBehalfOf: true
         } : null,
+        organizer: {
+          name: organizerName || '',
+          phone: organizerPhone || '',
+          email: organizerEmail || ''
+        },
         // Workflow metadata
         submittedAt: new Date(),
         changeKey: generateChangeKey({

@@ -140,6 +140,9 @@ export default function RoomReservationFormBase({
     contactEmail: '',
     contactName: '',
     isOnBehalfOf: false,
+    organizerName: '',
+    organizerPhone: '',
+    organizerEmail: '',
     reviewNotes: '',
     isAllDayEvent: false,
     // Offsite location fields
@@ -296,6 +299,27 @@ export default function RoomReservationFormBase({
       }));
     }
   }, [initialData?._isPreProcessed, initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
+
+  // Pre-populate organizer fields from requester on NEW events only.
+  // Existing events (with _isPreProcessed from transformer) carry their own saved organizer values.
+  // Track whether organizer has been initialized to avoid re-defaulting on every render.
+  const organizerInitialized = useRef(false);
+  useEffect(() => {
+    if (organizerInitialized.current) return;
+    // Only pre-populate when requester info is available AND organizer is still empty
+    // (i.e., not loaded from an existing event via transformer)
+    if (formData.requesterName && !formData.organizerName && !initialData?._isPreProcessed) {
+      organizerInitialized.current = true;
+      setFormData(prev => ({
+        ...prev,
+        organizerName: prev.organizerName || prev.requesterName,
+        organizerEmail: prev.organizerEmail || prev.requesterEmail,
+      }));
+    } else if (formData.organizerName || initialData?._isPreProcessed) {
+      // Already has organizer data (loaded from existing event) — skip pre-population
+      organizerInitialized.current = true;
+    }
+  }, [formData.requesterName, formData.organizerName, initialData?._isPreProcessed]);
 
   // Virtual meeting state
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
@@ -1520,6 +1544,46 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
+            {/* Event Organizer — optional, for security/operations contact */}
+            <div className="organizer-row">
+              <div className="form-group">
+                <label htmlFor="organizerName">Organizer</label>
+                <input
+                  type="text"
+                  id="organizerName"
+                  name="organizerName"
+                  value={formData.organizerName}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="John Doe"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="organizerPhone">Phone</label>
+                <input
+                  type="tel"
+                  id="organizerPhone"
+                  name="organizerPhone"
+                  value={formData.organizerPhone}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="212-744-1400"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="organizerEmail">Email</label>
+                <input
+                  type="email"
+                  id="organizerEmail"
+                  name="organizerEmail"
+                  value={formData.organizerEmail}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="example@email.com"
+                />
+              </div>
+            </div>
+
             {/* Ad Hoc Calendar Picker - Show when toggled on */}
             {showAdHocPicker && (
               <div className="multi-date-picker-wrapper" style={{ marginBottom: '16px' }}>
@@ -2139,6 +2203,8 @@ export default function RoomReservationFormBase({
                 </div>
               )}
             </section>
+
+}
           </div>
         </div>
       )}
