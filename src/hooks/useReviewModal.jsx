@@ -1785,7 +1785,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   const handleDuplicateOpen = useCallback(() => {
     if (!editableData) return;
-    if (currentItem?.status === 'deleted' || currentItem?.eventType === 'seriesMaster') return;
+    if (currentItem?.status === 'deleted' || currentItem?.status === 'draft' || currentItem?.eventType === 'seriesMaster') return;
     setShowDuplicateDialog(true);
   }, [editableData, currentItem]);
 
@@ -2132,9 +2132,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Reservation data (for recurrence tab auto-detection)
       reservation: currentItem,
 
-      // Duplicate (available for non-deleted, non-recurring events)
+      // Duplicate (available for pending/published non-recurring events)
       onDuplicate: (
         currentItem?.status !== 'deleted'
+        && currentItem?.status !== 'draft'
         && currentItem?.eventType !== 'seriesMaster'
       ) ? handleDuplicateOpen : null,
       showDuplicateDialog,
