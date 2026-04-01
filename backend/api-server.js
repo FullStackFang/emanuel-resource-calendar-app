@@ -31,6 +31,8 @@ const sseService = require('./services/sseService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 
 dotenv.config();
 
@@ -297,24 +299,25 @@ const attachmentUpload = multer({
 // Do NOT add a manual app.options('*') handler — it would override cors() and
 // reflect any Origin with credentials, creating a CORS bypass vulnerability.
 
-// Log all incoming requests for debugging
+// Log all incoming requests for debugging (guarded to avoid string construction in production)
 app.use((req, res, next) => {
-  logger.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  
-  // Special detailed logging for delta sync requests
-  if (req.url.includes('/events/sync-delta')) {
-    logger.debug('Incoming delta sync request details:', {
-      method: req.method,
-      url: req.url,
-      headers: {
-        'authorization': req.headers.authorization ? 'Bearer [PRESENT]' : 'MISSING',
-        'x-graph-token': req.headers['x-graph-token'] ? '[PRESENT]' : 'MISSING',
-        'content-type': req.headers['content-type']
-      },
-      bodyPreview: req.method === 'POST' ? 'Will be logged in handler' : 'N/A'
-    });
+  if (logger.isDebugEnabled()) {
+    logger.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+
+    // Special detailed logging for delta sync requests
+    if (req.url.includes('/events/sync-delta')) {
+      logger.debug('Incoming delta sync request details:', {
+        method: req.method,
+        url: req.url,
+        headers: {
+          'authorization': req.headers.authorization ? 'Bearer [PRESENT]' : 'MISSING',
+          'x-graph-token': req.headers['x-graph-token'] ? '[PRESENT]' : 'MISSING',
+          'content-type': req.headers['content-type']
+        },
+        bodyPreview: req.method === 'POST' ? 'Will be logged in handler' : 'N/A'
+      });
+    }
   }
-  
   next();
 });
 
@@ -403,7 +406,10 @@ const USER_CACHE_TTL = 5 * 60 * 1000;
 async function getCachedUser(userId) {
   const now = Date.now();
   const cached = _userCache.get(userId);
-  if (cached && now < cached.expiry) return cached.user;
+  if (cached) {
+    if (now < cached.expiry) return cached.user;
+    _userCache.delete(userId); // evict expired entry
+  }
   const user = await usersCollection.findOne({ userId });
   _userCache.set(userId, { user, expiry: now + USER_CACHE_TTL });
   return user;
@@ -413,6 +419,23 @@ function invalidateUserCache(userId) {
   if (userId) _userCache.delete(userId);
   else _userCache.clear();
 }
+
+// ── Calendar config file cache (calendar-config.json) ──
+// Avoids fs.readFileSync on every request. Invalidated on admin write.
+let _calendarConfigCache = null;
+const _calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+function getCalendarConfig() {
+  if (!_calendarConfigCache) {
+    try {
+      _calendarConfigCache = JSON.parse(fs.readFileSync(_calendarConfigPath, 'utf8'));
+    } catch (err) {
+      logger.warn('Could not read calendar-config.json:', err.message);
+      return {};
+    }
+  }
+  return _calendarConfigCache;
+}
+function invalidateCalendarConfigCache() { _calendarConfigCache = null; }
 
 // ── Calendar settings cache: 5-min TTL ──
 let _calendarSettingsCache = null;
@@ -1762,7 +1785,6 @@ function extractTextFromHtml(htmlContent) {
  * @returns {string} - 16-character hash representing this version
  */
 function generateChangeKey(reservation) {
-  const crypto = require('crypto');
 
   // Include only fields that matter for version tracking
   const versionData = {
@@ -5273,10 +5295,7 @@ function getCalendarOwnerFromConfig(calendarId) {
       return null;
     }
 
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const calendarConfig = getCalendarConfig();
     const trimmedCalendarId = calendarId.trim();
 
     // Find the email that maps to this calendarId
@@ -5706,16 +5725,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // STEP 2: Fetch from Graph API and merge with cache
     // Check if Graph sync is disabled in config
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    let disableGraphSync = false;
-    try {
-      const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
-      disableGraphSync = calendarConfig.disableGraphSync === true;
-    } catch (configError) {
-      logger.warn('Could not read calendar config for disableGraphSync setting:', configError.message);
-    }
+    const disableGraphSync = getCalendarConfig().disableGraphSync === true;
 
     const newGraphEvents = []; // Events from Graph not in cache
 
@@ -8418,10 +8428,7 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     }
 
     // Load calendar-config.json to get available calendars
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const calendarConfig = getCalendarConfig();
 
     // Remove the _instructions and allowedDisplayCalendars fields from calendar mappings
     const { _instructions, allowedDisplayCalendars, ...calendars } = calendarConfig;
@@ -8479,10 +8486,7 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     }
 
     // Validate that the calendar exists in calendar-config.json
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const calendarConfig = getCalendarConfig();
 
     if (!calendarConfig[defaultCalendar]) {
       return res.status(400).json({
@@ -8529,10 +8533,7 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
 app.get('/api/calendar-display-config', verifyToken, async (req, res) => {
   try {
     // Load calendar-config.json
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const calendarConfig = getCalendarConfig();
 
     // Get allowed display calendars (default to empty array if not configured)
     const allowedDisplayCalendars = calendarConfig.allowedDisplayCalendars || [];
@@ -8586,10 +8587,7 @@ app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) =>
     }
 
     // Load current config
-    const fs = require('fs');
-    const path = require('path');
-    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
-    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const calendarConfig = getCalendarConfig();
 
     // Validate that all specified calendars exist in config
     const { _instructions, allowedDisplayCalendars: _, ...existingCalendars } = calendarConfig;
@@ -8602,9 +8600,10 @@ app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) =>
       });
     }
 
-    // Update config file
+    // Update config file and invalidate cache
     calendarConfig.allowedDisplayCalendars = allowedDisplayCalendars;
-    fs.writeFileSync(calendarConfigPath, JSON.stringify(calendarConfig, null, 2));
+    fs.writeFileSync(_calendarConfigPath, JSON.stringify(calendarConfig, null, 2));
+    invalidateCalendarConfigCache();
 
     logger.info('Allowed display calendars updated:', {
       allowedDisplayCalendars,
@@ -16228,7 +16227,7 @@ app.post('/api/room-reservations/generate-token', sensitiveLimiter, verifyToken,
       return res.status(403).json({ error: 'Insufficient permissions to generate tokens' });
     }
     
-    const token = require('crypto').randomUUID();
+    const token = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + (expiresInHours * 60 * 60 * 1000));
     
     const tokenDoc = {

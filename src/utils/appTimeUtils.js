@@ -80,6 +80,22 @@ export function formatHoursMinutes(hours, minutes) {
 }
 
 /**
+ * Format an "HH:MM" time string to "H:MM AM/PM".
+ * Timezone-safe (pure string parsing, no Date objects).
+ * @param {string} timeStr - e.g., "14:30" or "09:00"
+ * @returns {string} - e.g., "2:30 PM" or "9:00 AM", or '' if invalid
+ */
+export function formatTimeString(timeStr) {
+  if (!timeStr) return '';
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return timeStr;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  return formatHoursMinutes(h, m);
+}
+
+/**
  * Normalize a datetime string to always include seconds.
  * "2026-03-25T16:00" → "2026-03-25T16:00:00"
  * "2026-03-25T16:00:00" → "2026-03-25T16:00:00" (unchanged)

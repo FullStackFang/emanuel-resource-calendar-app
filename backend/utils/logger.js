@@ -12,6 +12,9 @@ const DEBUG_ENABLED = process.env.DEBUG === 'true' || isDevelopment;
 
 // Logger object with environment-aware methods
 const logger = {
+  /** Check if debug/log-level output is enabled (use to guard expensive string construction) */
+  isDebugEnabled: () => DEBUG_ENABLED,
+
   /**
    * General purpose logging - disabled in production
    */

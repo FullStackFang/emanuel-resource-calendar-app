@@ -9,8 +9,9 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { transformEventToFlatStructure, transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
 import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
+import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
@@ -49,8 +50,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [defaultCalendar, setDefaultCalendar] = useState('');
   const [selectedTargetCalendar, setSelectedTargetCalendar] = useState('');
 
-  // Feature flag: Toggle between old and new review form
-  const [useUnifiedForm, setUseUnifiedForm] = useState(true);
 
   // Card-level delete state (separate from modal delete)
   const [deletingId, setDeletingId] = useState(null);
@@ -346,7 +345,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Handle tab changes - no API call, filtering is client-side
   const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
-    setPage(1);
+    setPage(1); // Reset pagination on tab change (previously done via useEffect)
   }, []);
 
   // Handle page changes - no API call, pagination is client-side
@@ -354,7 +353,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setPage(newPage);
   }, []);
 
-  // Reset to page 1 when search/date/status filters change
+  // Reset page when any filter/sort changes
   useEffect(() => {
     setPage(1);
   }, [searchTerm, dateFrom, dateTo, statusFilter, sortBy]);
@@ -367,25 +366,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setSortBy('date_desc');
   }, []);
 
-  // Status badge helper for card display
-  const getStatusBadgeInfo = useCallback((reservation) => {
-    if (reservation.status === 'pending' || reservation.status === 'room-reservation-request') {
-      return { label: 'Pending', className: 'status-pending' };
-    }
-    if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
-      return { label: 'Edit Requested', className: 'status-published-edit' };
-    }
-    if (reservation.status === 'published' && reservation.pendingCancellationRequest?.status === 'pending') {
-      return { label: 'Cancellation Requested', className: 'status-published-edit' };
-    }
-    if (reservation.status === 'published') {
-      return { label: 'Published', className: 'status-published' };
-    }
-    if (reservation.status === 'rejected') {
-      return { label: 'Rejected', className: 'status-rejected' };
-    }
-    return { label: reservation.status, className: 'status-pending' };
-  }, []);
 
   // =========================================================================
   // EDIT REQUEST HANDLERS
@@ -511,14 +491,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // =========================================================================
   // IN-MODAL EDIT REQUEST VIEWING/MANAGEMENT (Calendar.jsx gold standard)
   // =========================================================================
-
-  // Helper to get event field with calendarData fallback
-  const getEventField = (event, field, defaultValue = undefined) => {
-    if (!event) return defaultValue;
-    if (event.calendarData?.[field] !== undefined) return event.calendarData[field];
-    if (event[field] !== undefined) return event[field];
-    return defaultValue;
-  };
 
   // Extract and transform pendingEditRequest from an event
   const fetchExistingEditRequest = useCallback((event) => {
@@ -1125,10 +1097,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         reservation={reviewModal.currentItem}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
-        // Form toggle
-        showFormToggle={true}
-        useUnifiedForm={useUnifiedForm}
-        onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}
       >
         {reviewModal.currentItem && (
           <RoomReservationReview

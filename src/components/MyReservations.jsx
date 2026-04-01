@@ -9,8 +9,9 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventsToFlatStructure } from '../utils/eventTransformers';
-import { computeApproverChanges } from '../utils/editRequestUtils';
+import { transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
+import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
+import { getStatusBadgeInfo } from '../utils/statusUtils';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
@@ -99,13 +100,6 @@ export default function MyReservations({ apiToken }) {
   const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
   const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
 
-  // Helper to get event field with calendarData fallback
-  const getEventField = (event, field, defaultValue = undefined) => {
-    if (!event) return defaultValue;
-    if (event.calendarData?.[field] !== undefined) return event.calendarData[field];
-    if (event[field] !== undefined) return event[field];
-    return defaultValue;
-  };
 
   // Extract and transform pendingEditRequest from an event
   const fetchExistingEditRequest = useCallback((event) => {
@@ -189,25 +183,7 @@ export default function MyReservations({ apiToken }) {
 
       // Decompose startDateTime/endDateTime into separate date/time fields
       // so the form comparison can detect individual field changes
-      const decomposed = { ...proposedChanges };
-      if (proposedChanges.startDateTime) {
-        try {
-          const dt = new Date(proposedChanges.startDateTime);
-          if (!isNaN(dt.getTime())) {
-            decomposed.startDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-            decomposed.startTime = dt.toTimeString().slice(0, 5);
-          }
-        } catch (e) { /* ignore parse errors */ }
-      }
-      if (proposedChanges.endDateTime) {
-        try {
-          const dt = new Date(proposedChanges.endDateTime);
-          if (!isNaN(dt.getTime())) {
-            decomposed.endDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-            decomposed.endTime = dt.toTimeString().slice(0, 5);
-          }
-        } catch (e) { /* ignore parse errors */ }
-      }
+      const decomposed = decomposeProposedChanges(proposedChanges);
 
       reviewModal.updateData({
         ...existingEditRequest,
@@ -240,30 +216,32 @@ export default function MyReservations({ apiToken }) {
 
   const isRequesterOnly = !canEditEvents && !canApproveReservations;
 
-  const loadMyReservations = useCallback(async () => {
+  const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
-      setError('');
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
 
-      // Load all user's reservations including deleted (API automatically filters by user)
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
+        headers: { 'Authorization': `Bearer ${apiToken}` }
       });
 
-      if (!response.ok) throw new Error('Failed to load reservations');
+      if (!response.ok) {
+        if (!silent) throw new Error('Failed to load reservations');
+        return;
+      }
 
       const data = await response.json();
-      // Transform events to flatten calendarData fields to top-level for easier access
-      const transformedReservations = transformEventsToFlatStructure(data.events || []);
-      setAllReservations(transformedReservations);
+      setAllReservations(transformEventsToFlatStructure(data.events || []));
       setLastFetchedAt(Date.now());
     } catch (err) {
-      logger.error('Error loading user reservations:', err);
-      setError('Failed to load your reservation requests');
+      if (!silent) {
+        logger.error('Error loading user reservations:', err);
+        setError('Failed to load your reservation requests');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [apiToken]);
 
@@ -277,21 +255,11 @@ export default function MyReservations({ apiToken }) {
   // Listen for refresh events from other views (draft submission, approval actions, etc.)
   useDataRefreshBus('my-reservations', loadMyReservations, !!apiToken);
 
-  // Poll for updates every 60s (silent — no loading spinner, skip while modal is open)
-  const silentRefresh = useCallback(async () => {
+  // Poll for updates every 5 min (silent — no loading spinner, skip while modal is open)
+  const silentRefresh = useCallback(() => {
     if (reviewModal.isOpen) return;
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      setAllReservations(transformEventsToFlatStructure(data.events || []));
-      setLastFetchedAt(Date.now());
-    } catch {
-      // Silently fail on poll errors
-    }
-  }, [apiToken, reviewModal.isOpen]);
+    return loadMyReservations({ silent: true });
+  }, [loadMyReservations, reviewModal.isOpen]);
   usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Manual refresh handler for FreshnessIndicator
@@ -310,9 +278,6 @@ export default function MyReservations({ apiToken }) {
     return reviewModal.handleApproveEditRequest(approverChanges);
   }, [reviewModal, originalEventData]);
 
-  const handleRejectEditRequest = useCallback(() => {
-    return reviewModal.handleRejectEditRequest();
-  }, []);
 
   // Stage 1: Apply search + date filters against all reservations
   const searchFiltered = useMemo(() => {
@@ -392,9 +357,10 @@ export default function MyReservations({ apiToken }) {
     setDateTo('');
     setStatusFilter('');
     setSortBy('date_desc');
+    setPage(1);
   }, []);
 
-  // Reset page when filters change
+  // Reset page when any filter/sort changes (avoids stale pagination on filter change)
   useEffect(() => {
     setPage(1);
   }, [searchTerm, dateFrom, dateTo, statusFilter, sortBy]);
@@ -405,28 +371,6 @@ export default function MyReservations({ apiToken }) {
   const startIndex = (page - 1) * itemsPerPage;
   const paginatedReservations = sortedReservations.slice(startIndex, startIndex + itemsPerPage);
 
-  // Status badge helper for card display
-  const getStatusBadgeInfo = useCallback((reservation) => {
-    if (reservation.status === 'draft') {
-      return { label: 'Draft', className: 'status-draft' };
-    }
-    if (reservation.status === 'pending') {
-      return { label: 'Pending', className: 'status-pending' };
-    }
-    if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
-      return { label: 'Edit Requested', className: 'status-published-edit' };
-    }
-    if (reservation.status === 'published') {
-      return { label: 'Published', className: 'status-published' };
-    }
-    if (reservation.status === 'rejected') {
-      return { label: 'Rejected', className: 'status-rejected' };
-    }
-    if (reservation.status === 'deleted') {
-      return { label: 'Deleted', className: 'status-deleted' };
-    }
-    return { label: reservation.status, className: 'status-pending' };
-  }, []);
 
   // Calculate days until draft auto-deletes
   const getDaysUntilDelete = (draftCreatedAt) => {
@@ -1165,7 +1109,7 @@ export default function MyReservations({ apiToken }) {
         onViewOriginalEvent={handleViewOriginalEvent}
         // Edit request approval/rejection props (for approvers/admins)
         onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
-        onRejectEditRequest={canApproveReservations ? handleRejectEditRequest : null}
+        onRejectEditRequest={canApproveReservations ? reviewModal.handleRejectEditRequest : null}
         isApprovingEditRequest={reviewModal.isApprovingEditRequest}
         isRejectingEditRequest={reviewModal.isRejectingEditRequest}
         editRequestRejectionReason={reviewModal.editRequestRejectionReason}

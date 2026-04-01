@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
+import { formatTimeFromDateTimeString } from '../utils/appTimeUtils';
 import './RecurringConflictSummary.css';
 
 /**
@@ -238,12 +239,5 @@ function formatOccurrenceDate(dateStr) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function formatTime(dtStr) {
-  if (!dtStr || !dtStr.includes('T')) return '';
-  const timePart = dtStr.split('T')[1].replace(/Z$/, '');
-  const [h, m] = timePart.split(':');
-  const hour = parseInt(h, 10);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-  return `${displayHour}:${m} ${ampm}`;
-}
+// formatTime is now imported as formatTimeFromDateTimeString from appTimeUtils
+const formatTime = formatTimeFromDateTimeString;

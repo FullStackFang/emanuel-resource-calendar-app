@@ -18,7 +18,7 @@
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
-  import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
+  import { transformEventToFlatStructure, sortEventsByStartTime, getEventField } from '../utils/eventTransformers';
   import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
@@ -71,36 +71,6 @@ import ConflictDialog from './shared/ConflictDialog';
   /*****************************************************************************
    * CONSTANTS AND CONFIGURATION
    *****************************************************************************/
-  const categories = [
-  ];
-
-  /**
-   * Helper: Get field value from event with calendarData priority
-   * After migration, fields are stored in calendarData. This helper reads from
-   * calendarData first, falling back to top-level for backward compatibility.
-   *
-   * @param {Object} event - The event object
-   * @param {string} field - The field name to retrieve
-   * @param {*} defaultValue - Default value if field not found
-   * @returns {*} The field value from appropriate source or default
-   */
-  function getEventField(event, field, defaultValue = undefined) {
-    if (!event) return defaultValue;
-    // For recurring occurrences with overrides, top-level fields ARE the override
-    // and must take priority over calendarData (which has master values)
-    if (event.isRecurringOccurrence && event.hasOccurrenceOverride) {
-      if (event[field] !== undefined) return event[field];
-    }
-    // Check calendarData first (authoritative after migration)
-    if (event.calendarData?.[field] !== undefined) {
-      return event.calendarData[field];
-    }
-    // Fallback to top-level for backward compatibility
-    if (event[field] !== undefined) {
-      return event[field];
-    }
-    return defaultValue;
-  }
 
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
@@ -216,47 +186,44 @@ import ConflictDialog from './shared/ConflictDialog';
     const locationsInitializedRef = useRef(false);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
 
-    // Safe wrapper for setAllEvents to prevent accidentally clearing events
+    // Safe wrapper for setAllEvents to prevent accidentally clearing events.
+    // Uses functional updater for the warn check so this callback has NO state dependencies
+    // and maintains a stable identity (avoids re-creation cascade through loadEventsUnified).
     const setAllEvents = useCallback((newEvents) => {
-      // Validate the new events
       if (!Array.isArray(newEvents)) {
         logger.error('setAllEvents: Invalid input - not an array', { type: typeof newEvents });
         return;
       }
-      
-      // Setting events
 
-      // High-level summary logging for event state updates (throttled to once per 2 seconds)
-      const now = Date.now();
-      const timeSinceLastSummary = now - lastSummaryTimeRef.current;
-
-      if (newEvents.length > 0 && timeSinceLastSummary > 2000) {
-        lastSummaryTimeRef.current = now;
-
-        // Group events by category
-        const categoryCounts = {};
-        const locationCounts = {};
-        newEvents.forEach(event => {
-          // Extract categories - occurrence overrides take priority over master's calendarData
-          const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
-            ? event.categories
-            : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
-          const primaryCategory = categories[0] || 'Uncategorized';
-          const location = event.location?.displayName || 'Unspecified';
-          categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
-          locationCounts[location] = (locationCounts[location] || 0) + 1;
-        });
-
-        logger.debug(`Events loaded: ${newEvents.length} (${Object.keys(categoryCounts).length} categories, ${Object.keys(locationCounts).length} locations)`);
+      // Throttled summary logging (only when debug is enabled, avoids O(N) work in production)
+      if (logger.isDebugEnabled?.()) {
+        const now = Date.now();
+        const timeSinceLastSummary = now - lastSummaryTimeRef.current;
+        if (newEvents.length > 0 && timeSinceLastSummary > 2000) {
+          lastSummaryTimeRef.current = now;
+          const categoryCounts = {};
+          const locationCounts = {};
+          newEvents.forEach(event => {
+            const cats = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+              ? event.categories
+              : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
+            const primaryCategory = (cats && cats[0]) || 'Uncategorized';
+            const location = event.location?.displayName || 'Unspecified';
+            categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
+            locationCounts[location] = (locationCounts[location] || 0) + 1;
+          });
+          logger.debug(`Events loaded: ${newEvents.length} (${Object.keys(categoryCounts).length} categories, ${Object.keys(locationCounts).length} locations)`);
+        }
       }
 
-      // Warn if clearing events
-      if (newEvents.length === 0 && allEvents.length > 0) {
-        logger.warn('setAllEvents: Clearing all events (was ' + allEvents.length + ' events)');
-      }
-
-      setAllEventsState(newEvents);
-    }, [allEvents]);
+      // Use functional updater so we can warn without depending on allEvents state
+      setAllEventsState(prev => {
+        if (newEvents.length === 0 && prev.length > 0) {
+          logger.warn('setAllEvents: Clearing all events (was ' + prev.length + ' events)');
+        }
+        return newEvents;
+      });
+    }, []); // stable — no state dependencies
 
     // Update ref whenever allEvents changes to prevent stale closures in callbacks
     useEffect(() => {
@@ -277,9 +244,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
     const [currentDate, setCurrentDate] = useState(new Date());
 
-    // Separate filters for month view
-    const [, setSelectedCategoryFilter] = useState('');
-    const [, setSelectedLocationFilter] = useState('');
     
     // Registration times toggle state
     const [showRegistrationTimes, setShowRegistrationTimes] = useState(showRegistrationTimesProp || false);
@@ -308,7 +272,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Timezone context initialized
 
-    const [, setUserProfile] = useState(null);
     const [userPermissions, setUserPermissions] = useState({
       startOfWeek: 'Monday',
       defaultView: 'week',
@@ -1577,7 +1540,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setLoading(false);
       }
-    }, [isDemoMode, demoData, graphToken, apiToken, selectedCalendarId, schemaExtensions, dateRange]);
+    }, [isDemoMode, demoData, apiToken, selectedCalendarId, schemaExtensions, dateRange]);
 
 
     /**
@@ -1942,7 +1905,7 @@ import ConflictDialog from './shared/ConflictDialog';
         if (!silent) setLoading(false);
         setLastFetchedAt(Date.now());
       }
-    }, [graphToken, apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
+    }, [apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
 
     /**
      * Load events from MongoDB (source of truth)
@@ -2152,9 +2115,7 @@ import ConflictDialog from './shared/ConflictDialog';
         if (response.ok) {
           const data = await response.json();
           logger.debug("Full user profile data from API:", data);
-          setUserProfile(data);
-
-          // Also set currentUser for requester info (eliminates duplicate API call from loadCurrentUser)
+          // Set currentUser for requester info (eliminates duplicate API call from loadCurrentUser)
           setCurrentUser({
             name: data.name || data.displayName,
             email: data.email,
@@ -2314,7 +2275,7 @@ import ConflictDialog from './shared/ConflictDialog';
         // Clear timeout on error
         clearTimeout(timeoutId);
       }
-    }, [graphToken, apiToken, loadUserProfile, loadSchemaExtensions]);
+    }, [apiToken, loadUserProfile, loadSchemaExtensions]);
 
     //---------------------------------------------------------------------------
     // CACHE MANAGEMENT FUNCTIONS
@@ -3651,19 +3612,6 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     };
 
-    /**
-     * Handle the month filter change
-     */
-    const handleCategoryFilterChange = useCallback((value) => {
-      setSelectedCategoryFilter(value);
-    }, []);
-
-    /**
-     * Handle location filter change in month view
-     */
-    const handleLocationFilterChange = useCallback((value) => {
-      setSelectedLocationFilter(value);
-    }, []);
 
     /**
      * Add this new handler for the month filter dropdown
@@ -5612,7 +5560,7 @@ import ConflictDialog from './shared/ConflictDialog';
           });
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
+    }, [dateRangeString, selectedCalendarId, initializing, availableCalendars.length]);
 
     // Set user time zone from user permissions
     useEffect(() => {

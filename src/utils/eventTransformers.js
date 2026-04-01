@@ -32,7 +32,7 @@ import { extractTextFromHtml } from './textUtils';
  * @param {*} defaultValue - Default value if field not found
  * @returns {*} The field value from appropriate source or default
  */
-function getField(event, field, defaultValue = undefined) {
+export function getEventField(event, field, defaultValue = undefined) {
   // For recurring occurrences with overrides, top-level fields ARE the override
   // and must take priority over calendarData (which has master values)
   if (event.isRecurringOccurrence && event.hasOccurrenceOverride) {
@@ -113,10 +113,10 @@ export function transformEventToFlatStructure(event) {
   const isCalendarEvent = event.subject && !event.graphData;
 
   // Extract datetime strings from Graph format
-  // Use getField for calendarData support with top-level fallback
+  // Use getEventField for calendarData support with top-level fallback
   // Prefer calendarData (authoritative after admin save) over graphData (may be stale if Graph sync lagged)
-  const startDateTime = isCalendarEvent ? event.start?.dateTime : (getField(event, 'startDateTime') || event.graphData?.start?.dateTime);
-  const endDateTime = isCalendarEvent ? event.end?.dateTime : (getField(event, 'endDateTime') || event.graphData?.end?.dateTime);
+  const startDateTime = isCalendarEvent ? event.start?.dateTime : (getEventField(event, 'startDateTime') || event.graphData?.start?.dateTime);
+  const endDateTime = isCalendarEvent ? event.end?.dateTime : (getEventField(event, 'endDateTime') || event.graphData?.end?.dateTime);
 
   // Parse datetime strings into separate date/time fields for form consumption
   // If already flat, preserve the existing values
@@ -124,10 +124,10 @@ export function transformEventToFlatStructure(event) {
 
   if (isAlreadyFlat) {
     // Preserve existing flat format values (with calendarData fallback)
-    startDate = getField(event, 'startDate', '');
-    startTime = getField(event, 'startTime', '');
-    endDate = getField(event, 'endDate', '');
-    endTime = getField(event, 'endTime', '');
+    startDate = getEventField(event, 'startDate', '');
+    startTime = getEventField(event, 'startTime', '');
+    endDate = getEventField(event, 'endDate', '');
+    endTime = getEventField(event, 'endTime', '');
   } else if (startDateTime && endDateTime) {
     // Extract date/time directly from the string (timezone-safe).
     // Stored datetimes are local-time strings (e.g., "2026-03-15T14:30:00")
@@ -168,7 +168,7 @@ export function transformEventToFlatStructure(event) {
   // Prioritize calendarData/top-level eventDescription (authoritative) over graphData.bodyPreview (may be stale)
   const rawDescription = isCalendarEvent
     ? (event.bodyPreview || event.body?.content || '')
-    : (getField(event, 'eventDescription') || event.graphData?.body?.content || event.graphData?.bodyPreview || '');
+    : (getEventField(event, 'eventDescription') || event.graphData?.body?.content || event.graphData?.bodyPreview || '');
   const eventDescription = rawDescription.includes('<') ? extractTextFromHtml(rawDescription) : rawDescription;
 
   // Detect if this is an offsite event (has Graph location but no internal rooms)
@@ -177,7 +177,7 @@ export function transformEventToFlatStructure(event) {
   const graphLocation = isCalendarEvent ? event.location : event.graphData?.location;
   const hasGraphLocation = graphLocation?.displayName &&
                            graphLocation.displayName !== 'Unspecified';
-  const internalLocations = getField(event, 'locations', []);
+  const internalLocations = getEventField(event, 'locations', []);
   const hasInternalRooms = (internalLocations && internalLocations.length > 0) ||
                           (event.roomReservationData?.requestedRooms && event.roomReservationData.requestedRooms.length > 0) ||
                           (event.requestedRooms && event.requestedRooms.length > 0);
@@ -186,21 +186,21 @@ export function transformEventToFlatStructure(event) {
   // Extract timing data from calendarData (authoritative) or top-level fields
   // Do NOT fall back to startTime — empty values indicate the user hasn't set these yet,
   // which is important for form validation (isFormValid must reflect actual data, not auto-defaults)
-  const setupTime = getField(event, 'setupTime') || '';
-  const doorOpenTime = getField(event, 'doorOpenTime') || '';
-  const rawTeardownTime = getField(event, 'teardownTime') || '';
-  const rawDoorCloseTime = getField(event, 'doorCloseTime') || '';
-  const reservationStartTime = getField(event, 'reservationStartTime') || '';
-  const reservationEndTime = getField(event, 'reservationEndTime') || '';
+  const setupTime = getEventField(event, 'setupTime') || '';
+  const doorOpenTime = getEventField(event, 'doorOpenTime') || '';
+  const rawTeardownTime = getEventField(event, 'teardownTime') || '';
+  const rawDoorCloseTime = getEventField(event, 'doorCloseTime') || '';
+  const reservationStartTime = getEventField(event, 'reservationStartTime') || '';
+  const reservationEndTime = getEventField(event, 'reservationEndTime') || '';
 
   // Use raw values without auto-population - null means user hasn't set it
   const doorCloseTime = rawDoorCloseTime;
   const teardownTime = rawTeardownTime;
 
   // Extract categories from calendarData (authoritative) or top-level fields
-  const categories = getField(event, 'categories') ||
+  const categories = getEventField(event, 'categories') ||
                     event.graphData?.categories ||
-                    getField(event, 'mecCategories') ||
+                    getEventField(event, 'mecCategories') ||
                     [];
 
   return {
@@ -225,10 +225,10 @@ export function transformEventToFlatStructure(event) {
     eventTitle: (event.isRecurringOccurrence && event.eventTitle !== undefined)
       ? event.eventTitle
       : (isAlreadyFlat
-        ? (getField(event, 'eventTitle') ?? '')
+        ? (getEventField(event, 'eventTitle') ?? '')
         : (isCalendarEvent
           ? (event.subject || '')
-          : (getField(event, 'eventTitle') || event.graphData?.subject || (event._id ? 'Untitled Event' : '')))),
+          : (getEventField(event, 'eventTitle') || event.graphData?.subject || (event._id ? 'Untitled Event' : '')))),
     eventDescription,
     startDateTime,
     endDateTime,
@@ -244,16 +244,16 @@ export function transformEventToFlatStructure(event) {
       if (event.isRecurringOccurrence && event.locations !== undefined) {
         return event.locations;
       }
-      const locs = getField(event, 'locations', []);
+      const locs = getEventField(event, 'locations', []);
       return locs.length > 0 ? locs : (event.roomReservationData?.requestedRooms || event.requestedRooms || []);
     })(),
-    requesterName: event.roomReservationData?.requestedBy?.name || getField(event, 'requesterName', ''),
-    requesterEmail: event.roomReservationData?.requestedBy?.email || getField(event, 'requesterEmail', ''),
-    department: event.roomReservationData?.requestedBy?.department || getField(event, 'department', ''),
-    phone: event.roomReservationData?.requestedBy?.phone || getField(event, 'phone', ''),
-    attendeeCount: event.roomReservationData?.attendeeCount || getField(event, 'attendeeCount', 0),
-    priority: event.roomReservationData?.priority || getField(event, 'priority', 'medium'),
-    specialRequirements: event.roomReservationData?.specialRequirements || getField(event, 'specialRequirements', ''),
+    requesterName: event.roomReservationData?.requestedBy?.name || getEventField(event, 'requesterName', ''),
+    requesterEmail: event.roomReservationData?.requestedBy?.email || getEventField(event, 'requesterEmail', ''),
+    department: event.roomReservationData?.requestedBy?.department || getEventField(event, 'department', ''),
+    phone: event.roomReservationData?.requestedBy?.phone || getEventField(event, 'phone', ''),
+    attendeeCount: event.roomReservationData?.attendeeCount || getEventField(event, 'attendeeCount', 0),
+    priority: event.roomReservationData?.priority || getEventField(event, 'priority', 'medium'),
+    specialRequirements: event.roomReservationData?.specialRequirements || getEventField(event, 'specialRequirements', ''),
     status: event.status === 'room-reservation-request' ? 'pending' : event.status,
     submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
     actionDate: event.roomReservationData?.reviewedAt || null,
@@ -265,29 +265,29 @@ export function transformEventToFlatStructure(event) {
     teardownTime,
     doorOpenTime,
     doorCloseTime,
-    setupTimeMinutes: getField(event, 'setupTimeMinutes', 0),
-    teardownTimeMinutes: getField(event, 'teardownTimeMinutes', 0),
+    setupTimeMinutes: getEventField(event, 'setupTimeMinutes', 0),
+    teardownTimeMinutes: getEventField(event, 'teardownTimeMinutes', 0),
     reservationStartTime,
     reservationEndTime,
-    reservationStartMinutes: getField(event, 'reservationStartMinutes', 0),
-    reservationEndMinutes: getField(event, 'reservationEndMinutes', 0),
+    reservationStartMinutes: getEventField(event, 'reservationStartMinutes', 0),
+    reservationEndMinutes: getEventField(event, 'reservationEndMinutes', 0),
     isHold: !startTime && !endTime && !!(reservationStartTime || reservationEndTime),
 
     // Internal notes from calendarData (authoritative) or roomReservationData
-    setupNotes: getField(event, 'setupNotes') || event.roomReservationData?.internalNotes?.setupNotes || '',
-    doorNotes: getField(event, 'doorNotes') || event.roomReservationData?.internalNotes?.doorNotes || '',
-    eventNotes: getField(event, 'eventNotes') || event.roomReservationData?.internalNotes?.eventNotes || '',
+    setupNotes: getEventField(event, 'setupNotes') || event.roomReservationData?.internalNotes?.setupNotes || '',
+    doorNotes: getEventField(event, 'doorNotes') || event.roomReservationData?.internalNotes?.doorNotes || '',
+    eventNotes: getEventField(event, 'eventNotes') || event.roomReservationData?.internalNotes?.eventNotes || '',
 
     // Contact person data
-    contactName: event.roomReservationData?.contactPerson?.name || getField(event, 'contactName', ''),
-    contactEmail: event.roomReservationData?.contactPerson?.email || getField(event, 'contactEmail', ''),
-    isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || getField(event, 'isOnBehalfOf', false),
-    reviewNotes: event.roomReservationData?.reviewNotes || getField(event, 'reviewNotes', ''),
+    contactName: event.roomReservationData?.contactPerson?.name || getEventField(event, 'contactName', ''),
+    contactEmail: event.roomReservationData?.contactPerson?.email || getEventField(event, 'contactEmail', ''),
+    isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || getEventField(event, 'isOnBehalfOf', false),
+    reviewNotes: event.roomReservationData?.reviewNotes || getEventField(event, 'reviewNotes', ''),
 
     // Categories and services
     categories,
     mecCategories: categories, // Backwards compatibility alias
-    services: getField(event, 'services') || {},
+    services: getEventField(event, 'services') || {},
 
     // Concurrent event settings (admin-only)
     isAllowedConcurrent: event.isAllowedConcurrent ?? false,
@@ -298,30 +298,30 @@ export function transformEventToFlatStructure(event) {
     seriesIndex: event.seriesIndex || null,
     seriesLength: event.seriesLength || null,
     // Recurring event metadata (authoritative top-level, with graphData fallback)
-    eventType: getField(event, 'eventType') || event.graphData?.type || null,
-    seriesMasterId: getField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
-    recurrence: getField(event, 'recurrence') || event.graphData?.recurrence || null,
+    eventType: getEventField(event, 'eventType') || event.graphData?.type || null,
+    seriesMasterId: getEventField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
+    recurrence: getEventField(event, 'recurrence') || event.graphData?.recurrence || null,
 
     // All-day event flag
-    isAllDayEvent: getField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,
+    isAllDayEvent: getEventField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,
 
     // Offsite location data
-    isOffsite: isOffsiteEvent || getField(event, 'isOffsite', false),
-    offsiteName: isOffsiteEvent ? graphLocation?.displayName : getField(event, 'offsiteName', ''),
-    offsiteAddress: isOffsiteEvent ? formatGraphAddress(graphLocation?.address) : getField(event, 'offsiteAddress', ''),
-    offsiteLat: isOffsiteEvent ? (graphLocation?.coordinates?.latitude || null) : getField(event, 'offsiteLat', null),
-    offsiteLon: isOffsiteEvent ? (graphLocation?.coordinates?.longitude || null) : getField(event, 'offsiteLon', null),
+    isOffsite: isOffsiteEvent || getEventField(event, 'isOffsite', false),
+    offsiteName: isOffsiteEvent ? graphLocation?.displayName : getEventField(event, 'offsiteName', ''),
+    offsiteAddress: isOffsiteEvent ? formatGraphAddress(graphLocation?.address) : getEventField(event, 'offsiteAddress', ''),
+    offsiteLat: isOffsiteEvent ? (graphLocation?.coordinates?.latitude || null) : getEventField(event, 'offsiteLat', null),
+    offsiteLon: isOffsiteEvent ? (graphLocation?.coordinates?.longitude || null) : getEventField(event, 'offsiteLon', null),
 
     // Virtual meeting data (for online events)
-    virtualMeetingUrl: getField(event, 'virtualMeetingUrl') || event.graphData?.onlineMeetingUrl || null,
-    virtualPlatform: getField(event, 'virtualPlatform', null),
+    virtualMeetingUrl: getEventField(event, 'virtualMeetingUrl') || event.graphData?.onlineMeetingUrl || null,
+    virtualPlatform: getEventField(event, 'virtualPlatform', null),
 
     // Calendar-specific enrichments
-    assignedTo: getField(event, 'assignedTo', ''),
+    assignedTo: getEventField(event, 'assignedTo', ''),
     location: isCalendarEvent ? event.location?.displayName : (event.graphData?.location?.displayName || ''),
     locationDisplayNames: (event.isRecurringOccurrence && event.locationDisplayNames !== undefined)
       ? event.locationDisplayNames
-      : getField(event, 'locationDisplayNames', ''),
+      : getEventField(event, 'locationDisplayNames', ''),
 
     // Preserve full graphData for fallback access
     graphData: event.graphData || null,

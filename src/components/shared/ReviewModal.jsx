@@ -41,10 +41,6 @@ export default function ReviewModal({
   // Mode: 'review' (for pending reservations) or 'edit' (for editing any event)
   mode = 'review',
   // Feature flags
-  useUnifiedForm = false,
-  onToggleForm = null,
-  // Additional actions
-  showFormToggle = false,
   showActionButtons = true,
   // Tab configuration
   showTabs = true,
@@ -326,10 +322,7 @@ export default function ReviewModal({
 
   if (!isOpen) return null;
 
-  // Only apply inline styles for the default review-modal, not for custom modals
-  const inlineStyles = modalClassName === 'review-modal'
-    ? { display: 'flex', flexDirection: 'column' }
-    : { display: 'flex', flexDirection: 'column' };
+  const inlineStyles = { display: 'flex', flexDirection: 'column' };
 
   const modalContent = (
     <div className={overlayClassName} onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
@@ -339,7 +332,6 @@ export default function ReviewModal({
         <LoadingSpinner size={48} text="Loading..." />
       ) : (
       <div className={modalClassName} style={inlineStyles}>
-        <>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
           <div className="action-bar-left">
@@ -408,16 +400,6 @@ export default function ReviewModal({
                 <span className="meta-item edit-request-mode-badge">
                   Edit Request Mode
                 </span>
-              )}
-              {showFormToggle && onToggleForm && (
-                <button
-                  type="button"
-                  className="form-toggle-btn"
-                  onClick={onToggleForm}
-                  disabled={anyConfirming}
-                >
-                  {useUnifiedForm ? 'New Form' : 'Legacy Form'}
-                </button>
               )}
             </div>
           </div>
@@ -1202,7 +1184,6 @@ export default function ReviewModal({
           onDiscard={onDiscardDialogDiscard}
           onKeepEditing={onDiscardDialogCancel}
         />
-        </>
       </div>
       )}{/* end content gate */}
     </div>

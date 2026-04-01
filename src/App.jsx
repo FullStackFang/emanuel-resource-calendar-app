@@ -252,7 +252,7 @@ function App() {
 
   // Add/remove body class based on authentication state
   useEffect(() => {
-    if (!apiToken || !graphToken) {
+    if (!apiToken) {
       document.body.classList.add('signed-out');
     } else {
       document.body.classList.remove('signed-out');
@@ -262,17 +262,17 @@ function App() {
     return () => {
       document.body.classList.remove('signed-out');
     };
-  }, [apiToken, graphToken]);
+  }, [apiToken]);
 
 
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
         <RoleSimulationProvider>
-        <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
+        <div className={`app-container ${!apiToken ? 'signed-out' : ''}`}>
         <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />
         <main>
-          {apiToken && graphToken ? (
+          {apiToken ? (
             // Wrap authenticated routes with providers (both desktop and mobile)
             <SSEProvider userEmail={instance.getActiveAccount()?.username}>
             <TimezoneProvider

@@ -120,7 +120,8 @@
       "Bash(NODE_PATH=/home/fullstackfang/.npm/_npx/b5c678b49b10706e/node_modules node -e \"\nconst sharp = require\\('sharp'\\);\n\n// Flatten transparency to white, resize to square 512x512 for quality\nsharp\\('/mnt/c/Users/Stephen.Fang/Pictures/emanuel_logo_transparent.png'\\)\n  .flatten\\({ background: { r: 255, g: 255, b: 255 } }\\)\n  .resize\\(512, 512, { fit: 'contain', background: { r: 255, g: 255, b: 255 } }\\)\n  .png\\(\\)\n  .toFile\\('public/emanuel_logo.png'\\)\n  .then\\(info => console.log\\('Logo saved:', JSON.stringify\\(info\\)\\)\\)\n  .catch\\(err => console.error\\('Error:', err\\)\\);\n\")",
       "Bash(mkdir -p openspec/changes/archive)",
       "Bash(cp -r openspec/changes/mobile-calendar-agenda openspec/changes/archive/2026-03-31-mobile-calendar-agenda)",
-      "Bash(rm -rf openspec/changes/mobile-calendar-agenda)"
+      "Bash(rm -rf openspec/changes/mobile-calendar-agenda)",
+      "Bash(node -e \"require\\(''''./api-server.js''''\\)\")"
     ],
     "deny": []
   },

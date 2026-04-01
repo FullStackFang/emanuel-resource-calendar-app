@@ -13,6 +13,7 @@ import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
+import { formatTimeString } from '../utils/appTimeUtils';
 import './EventManagement.css';
 
 const TABS = [
@@ -50,17 +51,8 @@ function formatDateTime(dateStr) {
   }
 }
 
-function formatTime(timeStr) {
-  if (!timeStr) return '';
-  try {
-    const [h, m] = timeStr.split(':');
-    const d = new Date();
-    d.setHours(parseInt(h), parseInt(m));
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return timeStr;
-  }
-}
+// formatTime is now imported as formatTimeString from appTimeUtils
+const formatTime = formatTimeString;
 
 export default function EventManagement() {
   const { isAdmin } = usePermissions();
@@ -111,9 +103,15 @@ export default function EventManagement() {
   }, [authFetch]);
 
   // Fetch events (uses authFetch for automatic 401 retry with token refresh)
-  const fetchEvents = useCallback(async () => {
-    setLoading(true);
+  const fetchEvents = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
+      if (silent) {
+        // Also refresh counts during silent poll
+        const countRes = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
+        if (countRes.ok) setCounts(await countRes.json());
+      }
+
       const params = new URLSearchParams({
         page: String(page),
         limit: String(PAGE_SIZE),
@@ -132,9 +130,9 @@ export default function EventManagement() {
         setLastFetchedAt(Date.now());
       }
     } catch (err) {
-      showError(err, { context: 'EventManagement.fetchEvents' });
+      if (!silent) showError(err, { context: 'EventManagement.fetchEvents' });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [authFetch, page, activeTab, startDate, endDate, showError]);
 
@@ -149,35 +147,8 @@ export default function EventManagement() {
     fetchEvents();
   }, [fetchEvents, apiToken]);
 
-  // Poll for updates every 90s (silent — no loading spinner)
-  const silentRefresh = useCallback(async () => {
-    try {
-      // Refresh counts silently
-      const countRes = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
-      if (countRes.ok) setCounts(await countRes.json());
-
-      // Refresh events silently (no setLoading)
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(PAGE_SIZE),
-        status: activeTab === 'all' ? 'all' : TABS.find(t => t.key === activeTab)?.statusParam || 'all',
-      });
-      if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current);
-      if (startDate) params.set('startDate', startDate);
-      if (endDate) params.set('endDate', endDate);
-
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data.events || []);
-        const total = data.pagination?.totalCount || data.total || 0;
-        setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
-        setLastFetchedAt(Date.now());
-      }
-    } catch {
-      // Silently fail on poll errors
-    }
-  }, [authFetch, page, activeTab, startDate, endDate]);
+  // Poll for updates every 5 min (silent — no loading spinner)
+  const silentRefresh = useCallback(() => fetchEvents({ silent: true }), [fetchEvents]);
   usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Listen for refresh events from other views
