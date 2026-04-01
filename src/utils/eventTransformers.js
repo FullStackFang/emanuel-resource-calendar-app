@@ -392,7 +392,7 @@ export function transformEventToDuplicatePrefill(event) {
 
   return {
     // Carry over event details
-    eventTitle: (get('eventTitle', '') || '') + ' (Duplicate)',
+    eventTitle: get('eventTitle', '') || '',
     eventDescription: get('eventDescription', ''),
     startTime: get('startTime', ''),
     endTime: get('endTime', ''),

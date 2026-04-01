@@ -92,6 +92,7 @@ export function buildInternalFields(data) {
     offsiteLat: data.offsiteLat || null,
     offsiteLon: data.offsiteLon || null,
     services: data.services || {},
+    attendeeCount: parseInt(data.attendeeCount) || null,
     recurrence: data.recurrence || null,
     occurrenceOverrides: data.occurrenceOverrides || null,
     eventStartTime: data.startTime || '',

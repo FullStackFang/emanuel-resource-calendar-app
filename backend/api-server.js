@@ -7237,6 +7237,8 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         offsiteLon: internalFields?.isOffsite ? (internalFields.offsiteLon || null) : null,
         // Services (internal use only)
         services: internalFields?.services || {},
+        // Attendee count
+        attendeeCount: internalFields?.attendeeCount || null,
         // Recurring event fields
         recurrence: internalFields?.recurrence || null,
         occurrenceOverrides: internalFields?.occurrenceOverrides || null
@@ -7295,6 +7297,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         // Services (internal use only)
         if (internalFields.services !== undefined) {
           updateOperations['calendarData.services'] = internalFields.services;
+        }
+        // Attendee count
+        if (internalFields.attendeeCount !== undefined) {
+          updateOperations['calendarData.attendeeCount'] = internalFields.attendeeCount;
         }
       }
 
