@@ -251,7 +251,7 @@ export function transformEventToFlatStructure(event) {
     requesterEmail: event.roomReservationData?.requestedBy?.email || getEventField(event, 'requesterEmail', ''),
     department: event.roomReservationData?.requestedBy?.department || getEventField(event, 'department', ''),
     phone: event.roomReservationData?.requestedBy?.phone || getEventField(event, 'phone', ''),
-    attendeeCount: event.roomReservationData?.attendeeCount || getEventField(event, 'attendeeCount', 0),
+    attendeeCount: event.roomReservationData?.attendeeCount || getEventField(event, 'attendeeCount', ''),
     priority: event.roomReservationData?.priority || getEventField(event, 'priority', 'medium'),
     specialRequirements: event.roomReservationData?.specialRequirements || getEventField(event, 'specialRequirements', ''),
     status: event.status === 'room-reservation-request' ? 'pending' : event.status,
