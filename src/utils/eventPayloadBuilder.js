@@ -18,12 +18,32 @@ import APP_CONFIG from '../config/config';
  * @returns {Object} graphFields object
  */
 export function buildGraphFields(data, { timezone = 'Eastern Standard Time' } = {}) {
-  const effectiveStartTime = data.startTime || data.reservationStartTime;
-  const effectiveEndTime = data.endTime || data.reservationEndTime;
-  const startDateTime = data.startDate && effectiveStartTime
-    ? `${data.startDate}T${effectiveStartTime}:00` : '';
-  const endDateTime = data.endDate && effectiveEndTime
-    ? `${data.endDate}T${effectiveEndTime}:00` : '';
+  const isAllDay = data.isAllDayEvent || false;
+
+  let startDateTime, endDateTime;
+
+  if (isAllDay && data.startDate) {
+    // All-day events: Graph API expects date-only strings.
+    // End date is exclusive (day after the last day of the event).
+    startDateTime = data.startDate;
+    if (data.endDate) {
+      const end = new Date(data.endDate + 'T00:00:00');
+      end.setDate(end.getDate() + 1);
+      endDateTime = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    } else {
+      // Single-day all-day: end = start + 1 day
+      const end = new Date(data.startDate + 'T00:00:00');
+      end.setDate(end.getDate() + 1);
+      endDateTime = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    }
+  } else {
+    const effectiveStartTime = data.startTime || data.reservationStartTime;
+    const effectiveEndTime = data.endTime || data.reservationEndTime;
+    startDateTime = data.startDate && effectiveStartTime
+      ? `${data.startDate}T${effectiveStartTime}:00` : '';
+    endDateTime = data.endDate && effectiveEndTime
+      ? `${data.endDate}T${effectiveEndTime}:00` : '';
+  }
 
   const isHold = !data.startTime && !data.endTime &&
     (data.reservationStartTime || data.reservationEndTime);
@@ -37,7 +57,7 @@ export function buildGraphFields(data, { timezone = 'Eastern Standard Time' } = 
     end: { dateTime: endDateTime, timeZone: timezone },
     body: { contentType: 'text', content: data.eventDescription || '' },
     categories: data.categories || [],
-    isAllDay: data.isAllDayEvent || false,
+    isAllDay,
   };
 }
 

@@ -1802,7 +1802,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     if (!selectedDates?.length || !editableData) return;
     setSubmittingDuplicate(true);
 
-    const prefill = transformEventToDuplicatePrefill(editableData);
+    // Use the form's live data (properly flattened via transformEventToFlatStructure)
+    // instead of raw editableData which may be a nested MongoDB document.
+    const sourceData = getFormData?.({ skipValidation: true }) || editableData;
+    const prefill = transformEventToDuplicatePrefill(sourceData);
     const calendarOwner = currentItem?.calendarOwner || null;
     const calendarId = currentItem?.calendarId || selectedCalendarId || null;
 
@@ -1826,13 +1829,26 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       try {
         if (canCreateEvents) {
           const graphFields = buildGraphFields(formData);
+          // Guard: Graph API rejects empty start/end datetimes
+          if (!graphFields.start?.dateTime || !graphFields.end?.dateTime) {
+            logger.error(`[useReviewModal] Duplicate skipped for ${dateStr}: empty start/end dateTime`, {
+              startTime: formData.startTime, endTime: formData.endTime,
+              reservationStartTime: formData.reservationStartTime,
+              reservationEndTime: formData.reservationEndTime,
+            });
+            failCount++;
+            continue;
+          }
           const internalFields = buildInternalFields(formData);
           const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
             body: JSON.stringify({ graphFields, internalFields, calendarId, calendarOwner }),
           });
-          if (!response.ok) throw new Error('Failed to create event');
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to create event (${response.status})`);
+          }
         } else {
           const payload = buildRequesterPayload(formData, { calendarId, calendarOwner });
           const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
@@ -1840,7 +1856,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
             body: JSON.stringify(payload),
           });
-          if (!response.ok) throw new Error('Failed to submit reservation');
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to submit reservation (${response.status})`);
+          }
         }
         successCount++;
       } catch (err) {
@@ -1860,7 +1879,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     if (failCount > 0 && successCount === 0 && onError) {
       onError('Failed to create reservations');
     }
-  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, onSuccess, onError]);
+  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, onSuccess, onError, getFormData]);
 
   return {
     // State

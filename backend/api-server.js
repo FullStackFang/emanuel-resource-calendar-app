@@ -6040,12 +6040,11 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
     // All calendar fields are now in calendarData (top-level fields removed)
     const transformedLoadEvents = unifiedEvents.map(event => {
-      // Determine the correct timezone for this event:
-      // 1. Use graphData timezone if available (from Graph API sync)
-      // 2. For room reservations, use America/New_York (user enters local time)
-      // 3. Default to America/New_York for the organization
-      const eventTimezone = event.graphData?.start?.timeZone ||
-                           (event.source === 'Room Reservation System' ? 'America/New_York' : 'America/New_York');
+      // All stored datetimes are local time in America/New_York (no Z suffix).
+      // graphData?.start?.timeZone is Outlook format ("Eastern Standard Time")
+      // which the frontend getSafeTimezone() doesn't recognize as IANA.
+      // Always use IANA format for frontend compatibility.
+      const eventTimezone = 'America/New_York';
 
       return {
         ...event,  // Spread all MongoDB fields directly

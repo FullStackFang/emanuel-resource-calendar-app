@@ -371,9 +371,15 @@ export function transformEventsToFlatStructure(events) {
 export function transformEventToDuplicatePrefill(event) {
   if (!event) return {};
 
+  // Helper: read from top-level (flat events) or calendarData (raw MongoDB docs)
+  const get = (field, fallback) => {
+    const val = event[field] !== undefined ? event[field] : event.calendarData?.[field];
+    return val !== undefined && val !== null ? val : fallback;
+  };
+
   // Calculate duration for multi-day events
-  const startDate = event.startDate || '';
-  const endDate = event.endDate || '';
+  const startDate = get('startDate', '');
+  const endDate = get('endDate', '');
   let durationDays = 0;
   if (startDate && endDate) {
     const start = new Date(startDate + 'T00:00:00');
@@ -381,33 +387,36 @@ export function transformEventToDuplicatePrefill(event) {
     durationDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
   }
 
+  // Rooms: flat events use requestedRooms/locations; raw MongoDB uses calendarData.locations
+  const rooms = event.requestedRooms || event.locations || event.calendarData?.locations || [];
+
   return {
     // Carry over event details
-    eventTitle: (event.eventTitle || '') + ' (Duplicate)',
-    eventDescription: event.eventDescription || '',
-    startTime: event.startTime || '',
-    endTime: event.endTime || '',
-    reservationStartTime: event.reservationStartTime || '',
-    reservationEndTime: event.reservationEndTime || '',
-    requestedRooms: event.requestedRooms || event.locations || [],
-    attendeeCount: event.attendeeCount || '',
-    categories: [...(event.categories || [])],
-    services: event.services ? { ...event.services } : {},
-    specialRequirements: event.specialRequirements || '',
-    setupTime: event.setupTime || '',
-    teardownTime: event.teardownTime || '',
-    setupTimeMinutes: event.setupTimeMinutes || 0,
-    teardownTimeMinutes: event.teardownTimeMinutes || 0,
-    doorOpenTime: event.doorOpenTime || '',
-    doorCloseTime: event.doorCloseTime || '',
-    isAllDayEvent: event.isAllDayEvent || false,
-    isOffsite: event.isOffsite || false,
-    offsiteName: event.offsiteName || '',
-    offsiteAddress: event.offsiteAddress || '',
-    isOnBehalfOf: event.isOnBehalfOf || false,
-    organizerName: event.organizerName || '',
-    organizerPhone: event.organizerPhone || '',
-    organizerEmail: event.organizerEmail || '',
+    eventTitle: (get('eventTitle', '') || '') + ' (Duplicate)',
+    eventDescription: get('eventDescription', ''),
+    startTime: get('startTime', ''),
+    endTime: get('endTime', ''),
+    reservationStartTime: get('reservationStartTime', ''),
+    reservationEndTime: get('reservationEndTime', ''),
+    requestedRooms: rooms,
+    attendeeCount: get('attendeeCount', ''),
+    categories: [...(get('categories', []))],
+    services: (() => { const s = get('services', {}); return s ? { ...s } : {}; })(),
+    specialRequirements: get('specialRequirements', ''),
+    setupTime: get('setupTime', ''),
+    teardownTime: get('teardownTime', ''),
+    setupTimeMinutes: get('setupTimeMinutes', 0),
+    teardownTimeMinutes: get('teardownTimeMinutes', 0),
+    doorOpenTime: get('doorOpenTime', ''),
+    doorCloseTime: get('doorCloseTime', ''),
+    isAllDayEvent: get('isAllDayEvent', false),
+    isOffsite: get('isOffsite', false),
+    offsiteName: get('offsiteName', ''),
+    offsiteAddress: get('offsiteAddress', ''),
+    isOnBehalfOf: get('isOnBehalfOf', false),
+    organizerName: get('organizerName', ''),
+    organizerPhone: get('organizerPhone', ''),
+    organizerEmail: get('organizerEmail', ''),
     // Dates cleared — user must pick new dates via multi-date picker
     startDate: '',
     endDate: '',
