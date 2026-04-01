@@ -285,7 +285,6 @@ function SchemaExtensionAdmin({ accessToken, apiToken }) {
       deleteSchemaExtension(id);
     } else {
       setConfirmDeleteId(id);
-      setTimeout(() => setConfirmDeleteId(null), 3000);
     }
   };
 

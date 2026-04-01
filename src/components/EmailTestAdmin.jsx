@@ -265,7 +265,6 @@ export default function EmailTestAdmin({ apiToken }) {
     // Two-click confirmation (replaces window.confirm for iframe compatibility)
     if (!confirmResetTemplate) {
       setConfirmResetTemplate(true);
-      setTimeout(() => setConfirmResetTemplate(false), 3000);
       return;
     }
     setConfirmResetTemplate(false);

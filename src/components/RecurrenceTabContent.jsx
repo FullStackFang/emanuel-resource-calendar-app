@@ -122,7 +122,6 @@ export default function RecurrenceTabContent({
   const [conflictLoading, setConflictLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const confirmTimerRef = useRef(null);
   const editorTouchedRef = useRef(false);
   const hasUncommittedEditsRef = useRef(false);
   const abortControllerRef = useRef(null);
@@ -479,17 +478,11 @@ export default function RecurrenceTabContent({
   const handleRemoveRecurrence = useCallback(() => {
     if (!confirmRemove) {
       setConfirmRemove(true);
-      confirmTimerRef.current = setTimeout(() => setConfirmRemove(false), 3000);
       return;
     }
-    clearTimeout(confirmTimerRef.current);
     setConfirmRemove(false);
     onRecurrencePatternChange(null);
   }, [confirmRemove, onRecurrencePatternChange]);
-
-  useEffect(() => {
-    return () => { if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current); };
-  }, []);
 
   // ── Toggle conflict row expand ────────────────────────────────
   const toggleRow = useCallback((dateStr) => {

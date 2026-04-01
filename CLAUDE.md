@@ -366,7 +366,7 @@ Keep the summary line under 72 chars. Body bullets should cover what changed and
 
 1. **First click** - Button text changes to "Confirm?" with visual emphasis (colored background, pulse animation)
 2. **Second click** - Performs the action, button shows "[Action]ing..." (e.g., "Deleting...", "Restoring...")
-3. **Auto-reset** - If not confirmed within 3 seconds, button resets to original text
+3. **Persistent** - Confirmation state persists until user confirms, clicks another action, or navigates away (no auto-reset timeout)
 4. **Disabled state** - Button disabled during the operation
 5. **Success feedback** - Use `showSuccess()` toast notification on completion
 6. **Error handling** - Use `showError()` toast notification on failure
@@ -376,7 +376,7 @@ Keep the summary line under 72 chars. Body bullets should cover what changed and
 - Constructive (restore, publish): `var(--color-success-500)` (green)
 - Neutral (reject, update): `var(--color-warning-500)` or `var(--color-info-500)`
 
-**State pattern:** `actionId` (loading), `confirmActionId` (confirm state). First click sets confirm, second click calls handler. 3-second auto-reset timeout. Use `showSuccess()`/`showError()` for feedback. See existing components (e.g., `EventManagement.jsx`, `MyReservations.jsx`) for full implementations.
+**State pattern:** `actionId` (loading), `confirmActionId` (confirm state). First click sets confirm, second click calls handler. No auto-reset — confirmation persists until user acts. Use `showSuccess()`/`showError()` for feedback. See existing components (e.g., `EventManagement.jsx`, `MyReservations.jsx`) for full implementations.
 
 ```css
 /* Confirm state CSS (adjust color per action type) */

@@ -74,18 +74,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     dispatchRefresh('review-modal', 'navigation-counts');
   }, [onSuccess]);
 
-  // Auto-reset timeout ref for in-button confirmations (3-second auto-reset per UX standard)
-  const confirmResetTimerRef = useRef(null);
-  const startConfirmResetTimer = useCallback((resetFn) => {
-    if (confirmResetTimerRef.current) clearTimeout(confirmResetTimerRef.current);
-    confirmResetTimerRef.current = setTimeout(() => resetFn(false), 3000);
-  }, []);
-  const clearConfirmResetTimer = useCallback(() => {
-    if (confirmResetTimerRef.current) {
-      clearTimeout(confirmResetTimerRef.current);
-      confirmResetTimerRef.current = null;
-    }
-  }, []);
 
   // Refs for inline reason inputs — more reliable than autoFocus on re-renders
   const rejectInputRef = useRef(null);
@@ -378,16 +366,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleSave = useCallback(async () => {
     if (!hasChanges || !currentItem) return;
 
-    // First click - show confirmation (auto-resets after 3 seconds)
+    // First click - show confirmation
     if (!pendingSaveConfirmation) {
       setPendingSaveConfirmation(true);
       setPendingApproveConfirmation(false); // Clear other confirmations
       setPendingRejectConfirmation(false);
       setPendingDeleteConfirmation(false);
-      startConfirmResetTimer(setPendingSaveConfirmation);
       return;
     }
-    clearConfirmResetTimer();
 
     // Second click - execute save
     // Pre-mutation freshness check
@@ -553,15 +539,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleApprove = useCallback(async (approvalData = {}) => {
     if (!currentItem) return;
 
-    // Two-step confirmation: First click shows confirmation (auto-resets after 3 seconds)
+    // Two-step confirmation: First click shows confirmation
     if (!pendingApproveConfirmation) {
       setPendingApproveConfirmation(true);
       setPendingRejectConfirmation(false); // Clear reject confirmation if any
       setPendingDeleteConfirmation(false); // Clear delete confirmation if any
-      startConfirmResetTimer(setPendingApproveConfirmation);
       return { success: false, cancelled: true, needsConfirmation: true };
     }
-    clearConfirmResetTimer();
 
     // Second click: User confirmed, proceed with approval
     // Pre-mutation freshness check

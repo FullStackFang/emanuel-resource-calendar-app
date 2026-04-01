@@ -776,7 +776,6 @@ import ConflictDialog from './shared/ConflictDialog';
         // Two-click confirmation: first click shows confirm, second click executes
         if (!confirmModeSwitch) {
           setConfirmModeSwitch(true);
-          setTimeout(() => setConfirmModeSwitch(false), 3000);
           return;
         }
         setConfirmModeSwitch(false);
