@@ -70,6 +70,11 @@ const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
 - Make scripts idempotent (safe to run multiple times)
 - **IMPORTANT: Use batch processing** to avoid Cosmos DB rate limiting (Error 16500)
 
+**Output Rules:**
+- **Always include a progress bar** using `\r` carriage return (see batch pattern below)
+- **No per-document logging** during normal execution — only the progress bar. Per-doc detail is only for `--dry-run` mode.
+- Keep normal-mode output to: config summary, counts before/after, progress bar, and final summary
+
 **Batch Processing Pattern (Required for Cosmos DB):**
 ```javascript
 const BATCH_SIZE = 100;
