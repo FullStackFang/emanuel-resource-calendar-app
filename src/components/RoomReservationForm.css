@@ -353,10 +353,6 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3) var(--space-4);
   margin-top: var(--space-4);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-4) var(--space-3);
 }
 
 .time-fields-stack .form-group {
@@ -377,12 +373,6 @@
 }
 
 
-/* Required time fields (startTime, endTime) get a subtle left accent */
-.time-fields-stack .form-group.required-field {
-  border-left: 3px solid var(--color-primary-400);
-  padding-left: var(--space-3);
-  border-radius: var(--radius-sm);
-}
 
 .time-fields-stack .help-text {
   font-size: var(--text-xs);
@@ -390,6 +380,300 @@
   margin-bottom: 0;
   color: var(--text-tertiary);
   letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
+   ACTION BAR - 3 Button Row (Categories, Services, Virtual)
+   ========================================================================== */
+
+.action-bar-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  position: relative;
+}
+
+/* ==========================================================================
+   VIRTUAL MEETING POPOVER
+   ========================================================================== */
+
+.virtual-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: var(--z-dropdown);
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-lg);
+  animation: popover-in 0.15s ease-out;
+}
+
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.virtual-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.virtual-popover-label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.virtual-popover-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--color-neutral-200);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.virtual-popover-close:hover {
+  background: var(--color-neutral-300);
+}
+
+.virtual-popover .virtual-url-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-primary);
+  border: 1.5px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  transition: var(--transition-all);
+}
+
+.virtual-popover .virtual-url-input-wrapper:focus-within {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.virtual-popover .virtual-url-input-wrapper:has(.virtual-url-invalid) {
+  border-color: var(--color-error-500);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.virtual-popover .virtual-url-input-wrapper:has(.virtual-url-valid) {
+  border-color: var(--color-success-500);
+}
+
+.virtual-popover .virtual-url-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: var(--text-xs);
+  background: transparent;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.virtual-popover .virtual-url-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.virtual-popover .virtual-url-error {
+  font-size: 11px;
+  color: var(--color-error-500);
+  margin-top: var(--space-1);
+}
+
+/* ==========================================================================
+   DATE + ATTENDEES ROW (3-column compact)
+   ========================================================================== */
+
+.date-attendees-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.65fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.date-attendees-row .form-group label {
+  font-size: 12px;
+}
+
+.date-attendees-row .form-group input {
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   TIME BLOCK: GROUP HEADERS
+   ========================================================================== */
+
+.time-group-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: var(--space-1);
+}
+
+.time-group-header:not(:first-child) {
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.time-group-header .group-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.time-group-header .group-indicator.required {
+  background: var(--color-primary-500);
+}
+
+.time-group-header .group-indicator.optional {
+  background: var(--color-neutral-400);
+}
+
+/* ==========================================================================
+   TIME BLOCK: ALL DAY TOGGLE (inside group header)
+   ========================================================================== */
+
+.time-group-header .time-block-allday-toggle {
+  margin-left: auto;
+}
+
+.time-block-allday-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  border: none;
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.time-block-allday-toggle:hover:not(:disabled) {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.time-block-allday-toggle.active {
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
+}
+
+.time-block-allday-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   TIME BLOCK: OPERATIONS ACCORDION
+   ========================================================================== */
+
+.operations-divider {
+  grid-column: 1 / -1;
+  border-top: 1px dashed var(--color-neutral-300);
+  margin: var(--space-2) 0 0 0;
+}
+
+.operations-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  transition: color 0.15s;
+  width: 100%;
+  text-align: left;
+}
+
+.operations-toggle:hover {
+  color: var(--text-primary);
+}
+
+.operations-toggle .ops-chevron {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.operations-toggle.expanded .ops-chevron {
+  transform: rotate(90deg);
+}
+
+.operations-toggle .ops-label {
+  flex: 1;
+}
+
+.operations-toggle .ops-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-100);
+  color: var(--text-tertiary);
+}
+
+.operations-toggle .ops-badge.has-values {
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+}
+
+.operations-content {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.3s ease, opacity 0.2s ease, padding 0.3s ease;
+  padding: 0;
+}
+
+.operations-content.expanded {
+  max-height: 250px;
+  opacity: 1;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-1);
+}
+
+.operations-content .form-group label {
+  font-size: 12px;
+  margin-bottom: var(--space-1);
+}
+
+.operations-content .form-group input[type="time"] {
+  height: 34px;
+  font-size: 13px;
 }
 
 /* ==========================================================================

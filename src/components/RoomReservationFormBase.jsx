@@ -324,6 +324,21 @@ export default function RoomReservationFormBase({
   // Virtual meeting state
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
   const [virtualUrlError, setVirtualUrlError] = useState('');
+  const [showVirtualPopover, setShowVirtualPopover] = useState(false);
+  const virtualPopoverRef = useRef(null);
+
+
+  // Close virtual popover on click outside
+  useEffect(() => {
+    if (!showVirtualPopover) return;
+    const handleClickOutside = (e) => {
+      if (virtualPopoverRef.current && !virtualPopoverRef.current.contains(e.target)) {
+        setShowVirtualPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showVirtualPopover]);
 
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
@@ -1129,6 +1144,7 @@ export default function RoomReservationFormBase({
     return virtualMeetingUrl && isValidUrl(virtualMeetingUrl) ? detectPlatform(virtualMeetingUrl) : null;
   }, [virtualMeetingUrl]);
 
+
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
     // Set loading state
@@ -1328,8 +1344,8 @@ export default function RoomReservationFormBase({
             </div>
 
 
-            {/* Categories & Services Buttons Row - Side by Side */}
-            <div className="time-field-row">
+            {/* Action Bar - Categories, Services, Virtual Meeting */}
+            <div className="action-bar-row" ref={virtualPopoverRef}>
               <div className={`form-group required-field ${selectedCategories.length > 0 ? 'field-valid' : ''}`}>
                 <button
                   type="button"
@@ -1338,7 +1354,7 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  🏷️ Edit Categories *
+                  🏷️ Categories *
                 </button>
               </div>
               <div className="form-group">
@@ -1349,9 +1365,59 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  {Object.keys(selectedServices).length > 0 ? '🛎️ Edit Services' : '🛎️ Add Services'}
+                  {Object.keys(selectedServices).length > 0 ? '🛎️ Services' : '🛎️ Services'}
                 </button>
               </div>
+              <div className="form-group">
+                <button
+                  type="button"
+                  className={`all-day-toggle ${virtualMeetingUrl && !virtualUrlError ? 'active' : ''}`}
+                  onClick={() => setShowVirtualPopover(prev => !prev)}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {detectedPlatform ? `🎥 ${detectedPlatform.name}` : '🎥 Virtual'}
+                </button>
+              </div>
+
+              {/* Virtual Meeting URL Popover */}
+              {showVirtualPopover && (
+                <div className="virtual-popover">
+                  <div className="virtual-popover-header">
+                    <span className="virtual-popover-label">Virtual Meeting URL</span>
+                    <button
+                      type="button"
+                      className="virtual-popover-close"
+                      onClick={() => setShowVirtualPopover(false)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="virtual-url-input-wrapper">
+                    <input
+                      type="url"
+                      className={`virtual-url-input ${virtualUrlError ? 'virtual-url-invalid' : virtualMeetingUrl ? 'virtual-url-valid' : ''}`}
+                      value={virtualMeetingUrl}
+                      onChange={handleVirtualUrlChange}
+                      placeholder="https://zoom.us/j/123456789"
+                      disabled={fieldsDisabled}
+                      autoFocus
+                    />
+                    {detectedPlatform && !virtualUrlError && (
+                      <span className="virtual-platform-badge">
+                        {detectedPlatform.icon} {detectedPlatform.name}
+                      </span>
+                    )}
+                    {virtualMeetingUrl && !fieldsDisabled && (
+                      <button type="button" className="virtual-url-clear" onClick={handleClearVirtualUrl}
+                        aria-label="Clear virtual meeting URL">×</button>
+                    )}
+                  </div>
+                  {virtualUrlError && (
+                    <div className="virtual-url-error">{virtualUrlError}</div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Categories & Services Summaries - Stacked */}
@@ -1485,11 +1551,53 @@ export default function RoomReservationFormBase({
 
             {/* Recurrence is managed entirely via the Recurrence tab */}
 
-            {/* Expected Attendees + Set All Day Row */}
-            <div className="time-field-row">
+            {/* Date + Attendees Row (3-column compact) */}
+            <div className="date-attendees-row">
+              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
+                <label htmlFor="startDate">
+                  {recurrencePattern ? 'Start Date' : 'Event Date'}
+                </label>
+                {hasFieldChanged('startDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
+                <DatePickerInput
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  required
+                  className={hasFieldChanged('startDate') ? 'input-changed' : ''}
+                />
+              </div>
+
+              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
+                <label htmlFor="endDate">
+                  {recurrencePattern ? 'End Date' : 'End Date'}
+                </label>
+                {hasFieldChanged('endDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
+                <DatePickerInput
+                  id="endDate"
+                  name="endDate"
+                  value={formData.endDate}
+                  onChange={handleInputChange}
+                  min={formData.startDate}
+                  disabled={fieldsDisabled}
+                  required
+                  className={hasFieldChanged('endDate') ? 'input-changed' : ''}
+                />
+              </div>
+
               <div className={`form-group required-field ${isFieldValid('attendeeCount') ? 'field-valid' : ''} ${hasFieldChanged('attendeeCount') ? 'field-changed' : ''}`}>
-                <label htmlFor="attendeeCount">Expected Attendees</label>
-                {/* Inline diff for edit request mode */}
+                <label htmlFor="attendeeCount">Attendees</label>
                 {hasFieldChanged('attendeeCount') && (
                   <div className="inline-diff">
                     <span className="diff-old">{getOriginalValue('attendeeCount') || '(empty)'}</span>
@@ -1503,83 +1611,10 @@ export default function RoomReservationFormBase({
                   value={formData.attendeeCount}
                   onChange={handleInputChange}
                   min="1"
-                  placeholder="Enter count"
+                  placeholder="#"
                   disabled={fieldsDisabled}
                   style={{ width: '100%', maxWidth: 'none' }}
                   className={hasFieldChanged('attendeeCount') ? 'input-changed' : ''}
-                />
-              </div>
-              <div className="form-group">
-                <label>&nbsp;</label>
-                <button
-                  type="button"
-                  className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
-                  onClick={() => {
-                    const turningOn = !formData.isAllDayEvent;
-                    setFormData(prev => ({
-                      ...prev,
-                      isAllDayEvent: turningOn,
-                      ...(turningOn
-                        ? {
-                            reservationStartTime: '00:00',
-                            reservationEndTime: '23:59',
-                            startTime: '',
-                            endTime: '',
-                          }
-                        : {
-                            reservationStartTime: '',
-                            reservationEndTime: '',
-                            startTime: '',
-                            endTime: '',
-                          }
-                      ),
-                    }));
-                    setHasChanges(true);
-                  }}
-                  disabled={fieldsDisabled}
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
-                </button>
-              </div>
-            </div>
-
-            {/* Event Organizer — optional, for security/operations contact */}
-            <div className="organizer-row">
-              <div className="form-group">
-                <label htmlFor="organizerName">Organizer</label>
-                <input
-                  type="text"
-                  id="organizerName"
-                  name="organizerName"
-                  value={formData.organizerName}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                  placeholder="John Doe"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="organizerPhone">Phone</label>
-                <input
-                  type="tel"
-                  id="organizerPhone"
-                  name="organizerPhone"
-                  value={formData.organizerPhone}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                  placeholder="212-744-1400"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="organizerEmail">Email</label>
-                <input
-                  type="email"
-                  id="organizerEmail"
-                  name="organizerEmail"
-                  value={formData.organizerEmail}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                  placeholder="example@email.com"
                 />
               </div>
             </div>
@@ -1644,91 +1679,45 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Recurrence summary is now integrated into the recurrence card above */}
-
-            {/* Recurring Conflict Summary is now integrated into the recurrence-active-card above */}
-
-            {/* Date Fields - Always visible */}
-            <div className="time-field-row">
-              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
-                <label htmlFor="startDate">
-                  {recurrencePattern ? 'Occurrence Start Date' : 'Event Date'}
-                  {recurrencePattern && <span className="occurrence-date-sublabel">Date of each occurrence</span>}
-                </label>
-                {hasFieldChanged('startDate') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <DatePickerInput
-                  id="startDate"
-                  name="startDate"
-                  value={formData.startDate}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                  required
-                  className={hasFieldChanged('startDate') ? 'input-changed' : ''}
-                />
-              </div>
-
-              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
-                <label htmlFor="endDate">
-                  {recurrencePattern ? 'Occurrence End Date' : 'End Date'}
-                  {recurrencePattern && <span className="occurrence-date-sublabel">End date of each occurrence</span>}
-                </label>
-                {hasFieldChanged('endDate') && (
-                  <div className="inline-diff">
-                    <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>
-                    <span className="diff-arrow">→</span>
-                  </div>
-                )}
-                <DatePickerInput
-                  id="endDate"
-                  name="endDate"
-                  value={formData.endDate}
-                  onChange={handleInputChange}
-                  min={formData.startDate}
-                  disabled={fieldsDisabled}
-                  required
-                  className={hasFieldChanged('endDate') ? 'input-changed' : ''}
-                />
-              </div>
-            </div>
-
-            {/* Virtual Meeting URL - Inline Input */}
-            <div className="virtual-url-row">
-              <label className="virtual-url-label">
-                <span className="virtual-url-icon">🎥</span> Virtual Meeting URL
-              </label>
-              <div className="virtual-url-input-wrapper">
-                <input
-                  type="url"
-                  className={`virtual-url-input ${virtualUrlError ? 'virtual-url-invalid' : virtualMeetingUrl ? 'virtual-url-valid' : ''}`}
-                  value={virtualMeetingUrl}
-                  onChange={handleVirtualUrlChange}
-                  placeholder="https://zoom.us/j/123456789"
-                  disabled={fieldsDisabled}
-                />
-                {detectedPlatform && !virtualUrlError && (
-                  <span className="virtual-platform-badge">
-                    {detectedPlatform.icon} {detectedPlatform.name}
-                  </span>
-                )}
-                {virtualMeetingUrl && !fieldsDisabled && (
-                  <button type="button" className="virtual-url-clear" onClick={handleClearVirtualUrl}
-                    aria-label="Clear virtual meeting URL">×</button>
-                )}
-              </div>
-              {virtualUrlError && (
-                <div className="virtual-url-error">{virtualUrlError}</div>
-              )}
-            </div>
-
-            {/* Time Fields — Reservation times paired, Event times paired */}
+            {/* Time Fields — All times in unified block with group headers + operations accordion */}
             <div className="time-fields-stack">
+              {/* Reservation group header with All Day toggle */}
+              <div className="time-group-header">
+                <span className="group-indicator required" />
+                <span>Reservation</span>
+                <button
+                  type="button"
+                  className={`time-block-allday-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
+                  onClick={() => {
+                    const turningOn = !formData.isAllDayEvent;
+                    setFormData(prev => ({
+                      ...prev,
+                      isAllDayEvent: turningOn,
+                      ...(turningOn
+                        ? {
+                            reservationStartTime: '00:00',
+                            reservationEndTime: '23:59',
+                            startTime: '',
+                            endTime: '',
+                          }
+                        : {
+                            reservationStartTime: '',
+                            reservationEndTime: '',
+                            startTime: '',
+                            endTime: '',
+                          }
+                      ),
+                    }));
+                    setHasChanges(true);
+                  }}
+                  disabled={fieldsDisabled}
+                >
+                  {formData.isAllDayEvent ? '✓ ' : ''}All Day
+                </button>
+              </div>
+
               <div className={`form-group required-field ${isFieldValid('reservationStartTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationStartTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="reservationStartTime">Res. Start Time</label>
+                <label htmlFor="reservationStartTime">Start Time</label>
                 {hasFieldChanged('reservationStartTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationStartTime'))}</span>
@@ -1744,11 +1733,10 @@ export default function RoomReservationFormBase({
                   required
                   className={hasFieldChanged('reservationStartTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the room reservation begins</div>
               </div>
 
               <div className={`form-group required-field ${isFieldValid('reservationEndTime') ? 'field-valid' : ''} ${hasFieldChanged('reservationEndTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="reservationEndTime">Res. End Time</label>
+                <label htmlFor="reservationEndTime">End Time</label>
                 {hasFieldChanged('reservationEndTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('reservationEndTime'))}</span>
@@ -1764,11 +1752,16 @@ export default function RoomReservationFormBase({
                   required
                   className={hasFieldChanged('reservationEndTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the room reservation ends</div>
+              </div>
+
+              {/* Event & Operations group header */}
+              <div className="time-group-header">
+                <span className="group-indicator optional" />
+                <span>Event & Operations</span>
               </div>
 
               <div className={`form-group ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="startTime">Event Start Time</label>
+                <label htmlFor="startTime">Start Time</label>
                 {hasFieldChanged('startTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('startTime'))}</span>
@@ -1784,11 +1777,10 @@ export default function RoomReservationFormBase({
                   clearable
                   className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the event begins (optional)</div>
               </div>
 
               <div className={`form-group ${hasFieldChanged('endTime') ? 'field-changed' : ''}`}>
-                <label htmlFor="endTime">Event End Time</label>
+                <label htmlFor="endTime">End Time</label>
                 {hasFieldChanged('endTime') && (
                   <div className="inline-diff">
                     <span className="diff-old">{formatTimeForDisplay(getOriginalValue('endTime'))}</span>
@@ -1804,7 +1796,63 @@ export default function RoomReservationFormBase({
                   clearable
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">When the event ends (optional)</div>
+              </div>
+
+              <div className="operations-content expanded">
+                <div className={`form-group ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="setupTime">Setup</label>
+                  <TimePickerInput
+                    id="setupTime"
+                    name="setupTime"
+                    value={formData.setupTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                  />
+                </div>
+                <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="teardownTime">Teardown</label>
+                  <TimePickerInput
+                    id="teardownTime"
+                    name="teardownTime"
+                    value={formData.teardownTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                  />
+                </div>
+                <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="doorOpenTime">Doors Open</label>
+                  {hasFieldChanged('doorOpenTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorOpenTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
+                  <TimePickerInput
+                    id="doorOpenTime"
+                    name="doorOpenTime"
+                    value={formData.doorOpenTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
+                  />
+                </div>
+                <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
+                  <label htmlFor="doorCloseTime">Doors Close</label>
+                  {hasFieldChanged('doorCloseTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorCloseTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
+                  <TimePickerInput
+                    id="doorCloseTime"
+                    name="doorCloseTime"
+                    value={formData.doorCloseTime}
+                    onChange={handleInputChange}
+                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
+                  />
+                </div>
               </div>
             </div>
 
@@ -2029,70 +2077,6 @@ export default function RoomReservationFormBase({
                 These notes are for internal staff coordination and will not be visible to the requester.
               </div>
 
-              <div className="time-field-row">
-                <div className="form-group">
-                  <label htmlFor="setupTime">Setup Time</label>
-                  <TimePickerInput
-                    id="setupTime"
-                    name="setupTime"
-                    value={formData.setupTime}
-                    onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
-                  />
-                  <div className="help-text">When staff setup work begins (no validation)</div>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="teardownTime">Teardown Time</label>
-                  <TimePickerInput
-                    id="teardownTime"
-                    name="teardownTime"
-                    value={formData.teardownTime}
-                    onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
-                  />
-                  <div className="help-text">When staff teardown work ends (no validation)</div>
-                </div>
-              </div>
-
-              <div className="time-field-row">
-                <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
-                  <label htmlFor="doorOpenTime">Door Open Time</label>
-                  {hasFieldChanged('doorOpenTime') && (
-                    <div className="inline-diff">
-                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorOpenTime'))}</span>
-                      <span className="diff-arrow">→</span>
-                    </div>
-                  )}
-                  <TimePickerInput
-                    id="doorOpenTime"
-                    name="doorOpenTime"
-                    value={formData.doorOpenTime}
-                    onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
-                    className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
-                  />
-                  <div className="help-text">When attendees can start entering (no validation)</div>
-                </div>
-                <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
-                  <label htmlFor="doorCloseTime">Door Close Time</label>
-                  {hasFieldChanged('doorCloseTime') && (
-                    <div className="inline-diff">
-                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorCloseTime'))}</span>
-                      <span className="diff-arrow">→</span>
-                    </div>
-                  )}
-                  <TimePickerInput
-                    id="doorCloseTime"
-                    name="doorCloseTime"
-                    value={formData.doorCloseTime}
-                    onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
-                    className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
-                  />
-                  <div className="help-text">When doors will be locked at end of event (no validation)</div>
-                </div>
-              </div>
-
               <div className="form-group">
                 <label htmlFor="setupNotes">Setup Notes (Maintenance)</label>
                 <textarea
@@ -2202,6 +2186,49 @@ export default function RoomReservationFormBase({
                   </div>
                 </div>
               )}
+            </section>
+
+            {/* Event Organizer — optional, for security/operations contact */}
+            <section className="form-section">
+              <h2>Event Organizer</h2>
+              <div className="organizer-row">
+                <div className="form-group">
+                  <label htmlFor="organizerName">Name</label>
+                  <input
+                    type="text"
+                    id="organizerName"
+                    name="organizerName"
+                    value={formData.organizerName}
+                    onChange={handleInputChange}
+                    disabled={fieldsDisabled}
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="organizerPhone">Phone</label>
+                  <input
+                    type="tel"
+                    id="organizerPhone"
+                    name="organizerPhone"
+                    value={formData.organizerPhone}
+                    onChange={handleInputChange}
+                    disabled={fieldsDisabled}
+                    placeholder="212-744-1400"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="organizerEmail">Email</label>
+                  <input
+                    type="email"
+                    id="organizerEmail"
+                    name="organizerEmail"
+                    value={formData.organizerEmail}
+                    onChange={handleInputChange}
+                    disabled={fieldsDisabled}
+                    placeholder="example@email.com"
+                  />
+                </div>
+              </div>
             </section>
           </div>
         </div>

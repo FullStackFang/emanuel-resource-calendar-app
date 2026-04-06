@@ -449,11 +449,11 @@
 .review-modal .event-type-tab {
   padding: var(--space-1) var(--space-4) !important;
   border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   font-size: var(--text-xs) !important;
   font-weight: var(--font-medium);
-  border: 1px solid transparent;
+  border: 1px solid var(--color-neutral-300);
   cursor: pointer;
   flex-shrink: 0;
   flex-grow: 0;
