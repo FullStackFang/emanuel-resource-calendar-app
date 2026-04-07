@@ -9,7 +9,8 @@ import {
   groupOverlappingEvents,
   calculateOverlapPercentages,
   areEventsConflicting,
-  groupEventsForNestedDisplay
+  groupEventsForNestedDisplay,
+  getLocationConflictInfo
 } from '../../../utils/eventOverlapUtils';
 
 describe('doEventsOverlap', () => {
@@ -357,5 +358,222 @@ describe('groupEventsForNestedDisplay', () => {
     // Parent group has no children (events don't overlap)
     // And there's a standalone event
     expect(result).toHaveLength(2);
+  });
+});
+
+describe('getLocationConflictInfo', () => {
+  // Helper to create a test event with location ObjectIds
+  const makeEvent = (id, start, end, locationIds = [], overrides = {}) => ({
+    eventId: id,
+    start: { dateTime: start },
+    end: { dateTime: end },
+    calendarData: {
+      locations: locationIds,
+      startTime: '10:00',
+      endTime: '12:00',
+      ...overrides.calendarData,
+    },
+    location: { displayName: overrides.displayName || '' },
+    ...overrides,
+  });
+
+  const LOC_SANCTUARY = 'loc-sanctuary-001';
+  const LOC_CHAPEL = 'loc-chapel-002';
+  const LOC_ANNEX = 'loc-annex-003';
+
+  // --- Core conflict: same location + time overlap ---
+
+  it('LC-1: flags conflict when two events share a location and overlap in time', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [LOC_SANCTUARY]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(1);
+  });
+
+  it('LC-2: no conflict when events share a location but do not overlap in time', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T11:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T12:00:00', '2024-03-15T13:00:00', [LOC_SANCTUARY]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  it('LC-3: no conflict when events overlap in time but have different locations', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [LOC_CHAPEL]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  // --- Multi-room events ---
+
+  it('LC-4: flags conflict when multi-room events share at least one location', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY, LOC_ANNEX]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [LOC_SANCTUARY, LOC_CHAPEL]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(1);
+  });
+
+  it('LC-5: no conflict when multi-room events share no locations', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [LOC_CHAPEL, LOC_ANNEX]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  // --- Events without locations ---
+
+  it('LC-6: no conflict when neither event has locations', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', []);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', []);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  it('LC-7: no conflict when only one event has a location', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', []);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  // --- Timeless drafts ---
+
+  it('LC-8: timeless drafts never participate in conflict detection', () => {
+    const draft = makeEvent('d', '2024-03-15T00:00:00', '2024-03-15T23:59:00', [LOC_SANCTUARY], {
+      status: 'draft',
+      calendarData: { locations: [LOC_SANCTUARY], startTime: null, endTime: null },
+    });
+    const eventB = makeEvent('b', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+
+    // Draft as the target event — should show 0
+    const draftResult = getLocationConflictInfo(draft, [draft, eventB]);
+    expect(draftResult.overlapCount).toBe(0);
+
+    // Draft as a candidate — should not count
+    const eventResult = getLocationConflictInfo(eventB, [draft, eventB]);
+    expect(eventResult.overlapCount).toBe(0);
+  });
+
+  // --- Self-exclusion ---
+
+  it('LC-9: event does not conflict with itself', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+
+    const result = getLocationConflictInfo(eventA, [eventA]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  // --- Multiple conflicts ---
+
+  it('LC-10: counts multiple conflicting events correctly', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T14:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+    const eventC = makeEvent('c', '2024-03-15T13:00:00', '2024-03-15T15:00:00', [LOC_SANCTUARY]);
+    const eventD = makeEvent('d', '2024-03-15T11:00:00', '2024-03-15T12:00:00', [LOC_CHAPEL]); // different location
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB, eventC, eventD]);
+
+    expect(result.overlapCount).toBe(2); // B and C, not D
+  });
+
+  // --- isAllowedConcurrent / hasParentEvent ---
+
+  it('LC-11: reports hasParentEvent and isParentEvent flags', () => {
+    const parent = makeEvent('p', '2024-03-15T09:00:00', '2024-03-15T17:00:00', [LOC_SANCTUARY], {
+      isAllowedConcurrent: true,
+    });
+    const child = makeEvent('c', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+
+    const parentResult = getLocationConflictInfo(parent, [parent, child]);
+    expect(parentResult.isParentEvent).toBe(true);
+    expect(parentResult.overlapCount).toBe(1);
+
+    const childResult = getLocationConflictInfo(child, [parent, child]);
+    expect(childResult.hasParentEvent).toBe(true);
+    expect(childResult.overlapCount).toBe(1);
+  });
+
+  // --- Cross-category: the key scenario ---
+
+  it('LC-12: detects conflict across different categories (same room, same time)', () => {
+    // Event A is in "Services" category, Event B is in "Music" category
+    // Both use Sanctuary — this IS a conflict regardless of category grouping
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY], {
+      categories: ['Services'],
+    });
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [LOC_SANCTUARY], {
+      categories: ['Music'],
+    });
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(1);
+  });
+
+  // --- Fallback to displayName when no ObjectIds ---
+
+  it('LC-13: falls back to location.displayName when calendarData.locations is empty', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [], {
+      displayName: 'Sanctuary',
+    });
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [], {
+      displayName: 'Sanctuary',
+    });
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(1);
+  });
+
+  it('LC-14: displayName fallback does not match different locations', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [], {
+      displayName: 'Sanctuary',
+    });
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [], {
+      displayName: 'Chapel',
+    });
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  it('LC-15: displayName fallback ignores empty and Unspecified', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T12:00:00', [], {
+      displayName: '',
+    });
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T13:00:00', [], {
+      displayName: 'Unspecified',
+    });
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
+  });
+
+  // --- Adjacent events (boundary) ---
+
+  it('LC-16: adjacent events (end === start) are not conflicts', () => {
+    const eventA = makeEvent('a', '2024-03-15T10:00:00', '2024-03-15T11:00:00', [LOC_SANCTUARY]);
+    const eventB = makeEvent('b', '2024-03-15T11:00:00', '2024-03-15T12:00:00', [LOC_SANCTUARY]);
+
+    const result = getLocationConflictInfo(eventA, [eventA, eventB]);
+
+    expect(result.overlapCount).toBe(0);
   });
 });

@@ -1,7 +1,7 @@
 // Fixed DayView.jsx with proper virtual location detection
 import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
-import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
+import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
@@ -131,6 +131,12 @@ const DayView = memo(({
     return sorted;
   }, [groupBy, selectedCategories, locationGroups, favorites, hideEmptyGroups, filteredEvents, currentDay, getEventPosition]);
 
+  // Precompute all-day events once (avoids redundant filtering per group row)
+  const allDayEvents = useMemo(() =>
+    filteredEvents.filter(e => getEventPosition(e, currentDay)),
+    [filteredEvents, getEventPosition, currentDay]
+  );
+
   return (
     <>
       {/* Grid Header (Day) */}
@@ -248,62 +254,10 @@ const DayView = memo(({
                   // Sort events by start time
                   const sortedEvents = sortEventsByStartTime(groupEvents);
 
-                  // Calculate overlap counts for each event
-                  const getOverlapInfo = (event, allEvents) => {
-                    // Timeless drafts should not participate in overlap detection
-                    const isTimelessDraft = event.status === 'draft' &&
-                      !event.calendarData?.startTime && !event.calendarData?.endTime;
-                    if (isTimelessDraft) {
-                      return { overlapCount: 0, hasParentEvent: false, isParentEvent: false };
-                    }
-
-                    const eventStart = new Date(event.start?.dateTime || event.startDateTime);
-                    const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
-
-                    const overlapping = allEvents.filter(other => {
-                      if (other.eventId === event.eventId || other.id === event.id) return false;
-                      // Skip timeless drafts as overlap candidates
-                      const otherIsTimelessDraft = other.status === 'draft' &&
-                        !other.calendarData?.startTime && !other.calendarData?.endTime;
-                      if (otherIsTimelessDraft) return false;
-                      const otherStart = new Date(other.start?.dateTime || other.startDateTime);
-                      const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-                      const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
-
-                      if (!timeOverlaps) return false;
-
-                      // When grouped by categories, only same physical location = conflict
-                      if (groupBy === 'categories') {
-                        const eventLocation = event.location?.displayName || '';
-                        const otherLocation = other.location?.displayName || '';
-
-                        // Only consider it a conflict if both have the same specific physical location
-                        const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
-                        const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
-
-                        // No conflict unless both have the same specific location
-                        if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
-                          return false;
-                        }
-                      }
-
-                      return true;
-                    });
-
-                    const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
-                    const isParentEvent = event.isAllowedConcurrent ?? false;
-
-                    return {
-                      overlapCount: overlapping.length,
-                      hasParentEvent,
-                      isParentEvent
-                    };
-                  };
-
                   return (
                     <div className="event-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {sortedEvents.map((event) => {
-                        const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
+                        const { overlapCount, hasParentEvent, isParentEvent } = getLocationConflictInfo(event, allDayEvents);
                         // Determine which times to use (registration vs actual event times)
                         let startDateTime, endDateTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {

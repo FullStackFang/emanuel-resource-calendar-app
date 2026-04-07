@@ -431,3 +431,84 @@ export const groupEventsForNestedDisplay = (events) => {
 
   return result;
 };
+
+/**
+ * Location-based conflict detection for calendar views.
+ *
+ * Two events conflict if and only if:
+ *   1. They overlap in time, AND
+ *   2. They share at least one physical location (by ObjectId or displayName fallback)
+ *
+ * This function is grouping-mode agnostic — it always checks location overlap,
+ * so it works identically whether the calendar is grouped by category or location.
+ *
+ * @param {Object} event - The event to check conflicts for
+ * @param {Array} allDayEvents - ALL events on the same day (across all groups)
+ * @returns {{ overlapCount: number, overlappingEvents: Array, hasParentEvent: boolean, isParentEvent: boolean }}
+ */
+export const getLocationConflictInfo = (event, allDayEvents) => {
+  const isTimelessDraft = event.status === 'draft' &&
+    !event.calendarData?.startTime && !event.calendarData?.endTime;
+  if (isTimelessDraft) {
+    return { overlapCount: 0, overlappingEvents: [], hasParentEvent: false, isParentEvent: false };
+  }
+
+  const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+  const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+
+  // Precompute location ID strings once per event to avoid O(N^2) allocations
+  const locationIdCache = new Map();
+  for (const e of allDayEvents) {
+    const key = e.eventId || e.id;
+    if (key && !locationIdCache.has(key)) {
+      locationIdCache.set(key, (e.calendarData?.locations || []).map(id => id.toString()));
+    }
+  }
+
+  const eventLocationIds = locationIdCache.get(event.eventId || event.id) || [];
+  const eventDisplayName = event.location?.displayName || '';
+  const eventHasLocationIds = eventLocationIds.length > 0;
+  const eventHasDisplayName = eventDisplayName && eventDisplayName !== 'Unspecified';
+
+  const overlapping = allDayEvents.filter(other => {
+    // Skip self (null-safe: avoid undefined === undefined matching everything)
+    if ((event.eventId && other.eventId === event.eventId) ||
+        (event.id && other.id === event.id)) return false;
+
+    const otherIsTimelessDraft = other.status === 'draft' &&
+      !other.calendarData?.startTime && !other.calendarData?.endTime;
+    if (otherIsTimelessDraft) return false;
+
+    const otherStart = new Date(other.start?.dateTime || other.startDateTime);
+    const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
+    if (!doEventsOverlap(eventStart, eventEnd, otherStart, otherEnd)) return false;
+
+    // Check location overlap
+    const otherLocationIds = locationIdCache.get(other.eventId || other.id) || [];
+    const otherHasLocationIds = otherLocationIds.length > 0;
+
+    if (eventHasLocationIds && otherHasLocationIds) {
+      return eventLocationIds.some(id => otherLocationIds.includes(id));
+    }
+
+    // Fallback: displayName comparison (for Graph-only events without ObjectIds)
+    const otherDisplayName = other.location?.displayName || '';
+    const otherHasDisplayName = otherDisplayName && otherDisplayName !== 'Unspecified';
+
+    if (eventHasDisplayName && otherHasDisplayName) {
+      return eventDisplayName === otherDisplayName;
+    }
+
+    return false;
+  });
+
+  const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
+  const isParentEvent = event.isAllowedConcurrent ?? false;
+
+  return {
+    overlapCount: overlapping.length,
+    overlappingEvents: overlapping,
+    hasParentEvent,
+    isParentEvent
+  };
+};

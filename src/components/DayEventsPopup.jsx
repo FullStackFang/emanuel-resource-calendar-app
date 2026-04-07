@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon } from './shared/CalendarIcons';
 import './DayEventsPopup.css';
 
@@ -51,34 +52,6 @@ function getVirtualPlatform(locationString) {
   if (lower.includes('meet.google')) return 'Google Meet';
   if (lower.includes('webex')) return 'Webex';
   return 'Virtual';
-}
-
-function getOverlapInfo(event, allEvents, groupBy) {
-  const eventStart = new Date(event.start?.dateTime || event.startDateTime);
-  const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
-
-  const overlapping = allEvents.filter(other => {
-    if (other.eventId === event.eventId || other.id === event.id) return false;
-    const otherStart = new Date(other.start?.dateTime || other.startDateTime);
-    const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-    const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
-    if (!timeOverlaps) return false;
-
-    // Only flag as overlap if both events share the same physical location
-    const eventLocation = event.location?.displayName || '';
-    const otherLocation = other.location?.displayName || '';
-    const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
-    const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
-    if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
-      return false;
-    }
-    return true;
-  });
-
-  const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
-  const isParentEvent = event.isAllowedConcurrent ?? false;
-
-  return { overlapCount: overlapping.length, overlappingEvents: overlapping, hasParentEvent, isParentEvent };
 }
 
 const DayEventsPopup = ({
@@ -166,7 +139,7 @@ const DayEventsPopup = ({
             <div className="dep-empty">No events scheduled</div>
           ) : (
             sortedEvents.map((event) => {
-              const { overlapCount, overlappingEvents, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents, groupBy);
+              const { overlapCount, overlappingEvents, hasParentEvent, isParentEvent } = getLocationConflictInfo(event, sortedEvents);
               const eventKey = event.eventId || event.id;
               const isOverlapExpanded = !!expandedOverlaps[eventKey];
               const isPending = event.status === 'pending';

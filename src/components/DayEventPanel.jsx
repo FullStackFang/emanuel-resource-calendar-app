@@ -3,6 +3,7 @@ import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon, CalendarIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 import './DayEventPanel.css';
@@ -108,43 +109,8 @@ const DayEventPanel = memo(({
             {(() => {
               const sortedEvents = sortEventsByStartTime(dayEvents);
 
-              // Calculate overlap counts for each event
-              const getOverlapInfo = (event, allEvents) => {
-                const eventStart = new Date(event.start?.dateTime || event.startDateTime);
-                const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
-
-                const overlapping = allEvents.filter(other => {
-                  if (other.eventId === event.eventId || other.id === event.id) return false;
-                  const otherStart = new Date(other.start?.dateTime || other.startDateTime);
-                  const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-                  const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
-
-                  if (!timeOverlaps) return false;
-
-                  // Only flag as overlap if both events share the same physical location
-                  const eventLocation = event.location?.displayName || '';
-                  const otherLocation = other.location?.displayName || '';
-                  const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
-                  const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
-                  if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
-                    return false;
-                  }
-
-                  return true;
-                });
-
-                const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
-                const isParentEvent = event.isAllowedConcurrent ?? false;
-
-                return {
-                  overlapCount: overlapping.length,
-                  hasParentEvent,
-                  isParentEvent
-                };
-              };
-
               return sortedEvents.map((event) => {
-                const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
+                const { overlapCount, hasParentEvent, isParentEvent } = getLocationConflictInfo(event, sortedEvents);
                 const isPending = event.status === 'pending';
                 const hasPendingEditRequest = !!event.showPendingEditBadge;
                 // Get primary category for color
