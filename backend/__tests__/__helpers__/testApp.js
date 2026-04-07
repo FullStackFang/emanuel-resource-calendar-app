@@ -4621,9 +4621,18 @@ function createTestApp(options = {}) {
         } else {
           query.status = { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] };
         }
+      } else if (view === 'search') {
+        // Public calendar search — published, non-deleted only
+        query.status = 'published';
+        query.isDeleted = { $ne: true };
+
+        const { calendarOwner: qCalOwner } = req.query;
+        if (qCalOwner) {
+          query.calendarOwner = qCalOwner.toLowerCase();
+        }
       }
 
-      // Date range filter for admin-browse (mirrors production — local-time string comparison)
+      // Date range filter (mirrors production — local-time string comparison)
       const { startDate: qStartDate, endDate: qEndDate } = req.query;
       if (qStartDate) {
         query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
@@ -4661,6 +4670,25 @@ function createTestApp(options = {}) {
           } else {
             query.$and = [locationFilter];
           }
+        }
+      }
+
+      // Text search filter (mirrors production search filter)
+      const { search } = req.query;
+      if (search) {
+        const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchConditions = [
+          { 'calendarData.eventTitle': { $regex: escapedSearch, $options: 'i' } },
+          { 'calendarData.eventDescription': { $regex: escapedSearch, $options: 'i' } },
+          { 'calendarData.locationDisplayNames': { $regex: escapedSearch, $options: 'i' } },
+          { 'graphData.subject': { $regex: escapedSearch, $options: 'i' } },
+        ];
+        if (query.$or) {
+          query.$and = query.$and || [];
+          query.$and.push({ $or: query.$or }, { $or: searchConditions });
+          delete query.$or;
+        } else {
+          query.$or = searchConditions;
         }
       }
 

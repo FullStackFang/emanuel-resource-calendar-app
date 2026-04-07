@@ -79,7 +79,7 @@ const EventSearchExport = ({
       logger.log('Export: Fetching all events from unified backend with params:', params.toString());
 
       const response = await fetch(
-        `${apiBaseUrl}/events/list?view=admin-browse&${params.toString()}`,
+        `${apiBaseUrl}/events/list?view=search&${params.toString()}`,
         {
           headers: {
             Authorization: `Bearer ${apiToken}`,

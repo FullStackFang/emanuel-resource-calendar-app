@@ -6471,8 +6471,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       locationCount = ''
     } = req.query;
 
-    if (!view || !['my-events', 'approval-queue', 'admin-browse'].includes(view)) {
-      return res.status(400).json({ error: 'Missing or invalid view parameter. Must be: my-events, approval-queue, or admin-browse' });
+    if (!view || !['my-events', 'approval-queue', 'admin-browse', 'search'].includes(view)) {
+      return res.status(400).json({ error: 'Missing or invalid view parameter. Must be: my-events, approval-queue, admin-browse, or search' });
     }
 
     if (!unifiedEventsCollection) {
@@ -6570,6 +6570,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       // Status filter
       if (status === 'published') {
         query.isDeleted = { $ne: true };
+        query.status = 'published';
       } else if (status === 'deleted') {
         query.isDeleted = true;
       } else if (status === 'enriched') {
@@ -6582,9 +6583,6 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       } else if (status === 'pending') {
         query.isDeleted = { $ne: true };
         query.status = 'pending';
-      } else if (status === 'published') {
-        query.isDeleted = { $ne: true };
-        query.status = 'published';
       } else if (status === 'rejected') {
         query.isDeleted = { $ne: true };
         query.status = 'rejected';
@@ -6592,9 +6590,36 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         query.isDeleted = { $ne: true };
         query.status = 'draft';
       }
+    } else if (view === 'search') {
+      // Public calendar search — any authenticated user.
+      // Always scoped to published, non-deleted events only.
+      // The status param is intentionally ignored; callers send status=active
+      // but the constraint is always published + non-deleted.
+      query.status = 'published';
+      query.isDeleted = { $ne: true };
+
+      // Calendar filter
+      if (qCalendarOwner) {
+        query.calendarOwner = qCalendarOwner.toLowerCase();
+      } else if (qCalendarId) {
+        const ownerEmail = getCalendarOwnerFromConfig(qCalendarId);
+        if (ownerEmail) {
+          query.calendarOwner = ownerEmail.toLowerCase();
+        }
+      }
+
+      // Date range filter — local-time string comparison
+      if (startDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
+      }
+      if (endDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
+      }
     }
 
-    // ── Search filter (admin-browse and approval-queue) ──
+    // ── Search filter (admin-browse, approval-queue, and search) ──
     if (search) {
       const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchConditions = [
