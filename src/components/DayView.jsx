@@ -4,7 +4,7 @@ import React, { memo, useMemo } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime } from '../utils/timezoneUtils';
-import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { sortEventsByStartTime, getEventCategories } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
@@ -107,8 +107,7 @@ const DayView = memo(({
       if (hideEmptyGroups) {
         sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
           if (!getEventPosition(event, currentDay)) return false;
-          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-          return (categories[0] || 'Uncategorized') === cat;
+          return (getEventCategories(event)[0] || 'Uncategorized') === cat;
         }));
       }
     } else {
@@ -233,23 +232,22 @@ const DayView = memo(({
                 )}
                 {/* Events for this group on this day */}
                 {(() => {
-                  // Filter events for this group and day
-                  const groupEvents = filteredEvents
+                  // Filter events for this group, then attach position info for this day
+                  let sourceEvents;
+                  if (groupBy === 'categories') {
+                    sourceEvents = filteredEvents.filter(event =>
+                      (getEventCategories(event)[0] || 'Uncategorized') === group
+                    );
+                  } else {
+                    // For locations, use pre-computed locationGroups (matches hide-empty filter)
+                    sourceEvents = locationGroups[group]?.events || [];
+                  }
+                  const groupEvents = sourceEvents
                     .map(event => {
                       const posInfo = getEventPosition(event, currentDay);
                       return posInfo ? { ...event, _multiDayInfo: posInfo } : null;
                     })
-                    .filter(Boolean)
-                    .filter(event => {
-                      if (groupBy === 'categories') {
-                        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-                        const category = categories[0] || 'Uncategorized';
-                        return category === group;
-                      } else {
-                        const displayLocation = getEventDisplayLocation(event);
-                        return displayLocation === group;
-                      }
-                    });
+                    .filter(Boolean);
 
                   // Sort events by start time
                   const sortedEvents = sortEventsByStartTime(groupEvents);
@@ -327,8 +325,7 @@ const DayView = memo(({
                         }
 
                         // Get primary category for color
-                        const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-                        const primaryCategory = eventCategories[0] || 'Uncategorized';
+                        const primaryCategory = getEventCategories(event)[0] || 'Uncategorized';
                         const eventColor = groupBy === 'categories'
                           ? getCategoryColor(primaryCategory)
                           : getLocationColor(getEventDisplayLocation(event));

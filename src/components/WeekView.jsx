@@ -3,7 +3,7 @@ import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { logger } from '../utils/logger';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime } from '../utils/timezoneUtils';
-import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { sortEventsByStartTime, getEventCategories } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
@@ -82,8 +82,30 @@ const WeekView = memo(({
     return eventLocations[0];
   };
   
+  // Precompute all-day events once per day (avoids redundant filtering per group row)
+  // Must be computed before activeGroups — visibleEventIds is derived from this map
+  const allDayEventsMap = useMemo(() => {
+    const map = new Map();
+    for (const day of getDaysInRange()) {
+      map.set(day, filteredEvents.filter(e => getEventPosition(e, day)));
+    }
+    return map;
+  }, [getDaysInRange, filteredEvents, getEventPosition]);
+
+  // Set of eventIds that render on at least one visible day (for hide-empty gating)
+  const visibleEventIds = useMemo(() => {
+    if (!hideEmptyGroups) return null;
+    const ids = new Set();
+    for (const events of allDayEventsMap.values()) {
+      for (const event of events) {
+        ids.add(event.eventId);
+      }
+    }
+    return ids;
+  }, [allDayEventsMap, hideEmptyGroups]);
+
   // Show ALL selected groups (not just those with events) so users can add events to empty groups
-  // When hideEmptyGroups is on, filter out groups with no events
+  // When hideEmptyGroups is on, filter out groups with no events visible on any day
   const activeGroups = useMemo(() => {
     let sorted;
     if (groupBy === 'categories') {
@@ -97,10 +119,8 @@ const WeekView = memo(({
       });
       if (hideEmptyGroups) {
         sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
-          const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
-            ? event.categories
-            : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
-          return (categories[0] || 'Uncategorized') === cat;
+          if (!visibleEventIds.has(event.eventId)) return false;
+          return (getEventCategories(event)[0] || 'Uncategorized') === cat;
         }));
       }
     } else {
@@ -115,20 +135,11 @@ const WeekView = memo(({
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
-        sorted = sorted.filter(group => favorites?.includes(group) || locationGroups[group]?.events?.length > 0);
+        sorted = sorted.filter(group => favorites?.includes(group) || locationGroups[group]?.events?.some(e => visibleEventIds.has(e.eventId)));
       }
     }
     return sorted;
-  }, [groupBy, selectedCategories, locationGroups, favorites, hideEmptyGroups, filteredEvents]);
-
-  // Precompute all-day events once per day (avoids redundant filtering per group row)
-  const allDayEventsMap = useMemo(() => {
-    const map = new Map();
-    for (const day of getDaysInRange()) {
-      map.set(day, filteredEvents.filter(e => getEventPosition(e, day)));
-    }
-    return map;
-  }, [getDaysInRange, filteredEvents, getEventPosition]);
+  }, [groupBy, selectedCategories, locationGroups, favorites, hideEmptyGroups, filteredEvents, visibleEventIds]);
 
   return (
     <>
@@ -236,14 +247,9 @@ const WeekView = memo(({
                   let groupEvents;
                   if (groupBy === 'categories') {
                     // For categories, filter from filteredEvents
-                    groupEvents = filteredEvents.filter(event => {
-                      // Occurrence overrides take priority over master's calendarData
-                      const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
-                        ? event.categories
-                        : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
-                      const category = categories[0] || 'Uncategorized';
-                      return category === group;
-                    });
+                    groupEvents = filteredEvents.filter(event =>
+                      (getEventCategories(event)[0] || 'Uncategorized') === group
+                    );
                   } else {
                     // For locations, use pre-computed locationGroups
                     const groupData = locationGroups[group];
@@ -336,10 +342,7 @@ const WeekView = memo(({
                         }
                         
                         // Get primary category for color
-                        const eventCategories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
-                          ? event.categories
-                          : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
-                        const primaryCategory = eventCategories[0] || 'Uncategorized';
+                        const primaryCategory = getEventCategories(event)[0] || 'Uncategorized';
                         const eventColor = groupBy === 'categories'
                           ? getCategoryColor(primaryCategory)
                           : getLocationColor(getEventDisplayLocation(event));

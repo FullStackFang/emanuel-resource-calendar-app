@@ -51,6 +51,23 @@ export function getEventField(event, field, defaultValue = undefined) {
 }
 
 /**
+ * Get the categories array for an event, respecting recurring occurrence overrides.
+ * Falls through: occurrence override → calendarData → top-level → graphData → singular → default.
+ *
+ * @param {Object} event - The event object
+ * @returns {string[]} Categories array (never empty — defaults to ['Uncategorized'])
+ */
+export function getEventCategories(event) {
+  if (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined) {
+    return event.categories;
+  }
+  return event.calendarData?.categories
+    || event.categories
+    || event.graphData?.categories
+    || (event.category ? [event.category] : ['Uncategorized']);
+}
+
+/**
  * Helper: Format address from Graph API location data
  * @param {Object} address - Graph API address object
  * @returns {string} Formatted address string
