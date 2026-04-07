@@ -4856,6 +4856,9 @@ import ConflictDialog from './shared/ConflictDialog';
             isOffsite: pendingReq.proposedChanges?.isOffsite ?? getEventField(event, 'isOffsite', false),
             offsiteName: pendingReq.proposedChanges?.offsiteName || getEventField(event, 'offsiteName', ''),
             offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || getEventField(event, 'offsiteAddress', ''),
+            organizerName: pendingReq.proposedChanges?.organizerName || event.organizerName || '',
+            organizerPhone: pendingReq.proposedChanges?.organizerPhone || event.organizerPhone || '',
+            organizerEmail: pendingReq.proposedChanges?.organizerEmail || event.organizerEmail || '',
             createdAt: pendingReq.requestedBy?.requestedAt
           };
         }

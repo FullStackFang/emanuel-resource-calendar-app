@@ -9,7 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
-const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
+const { detectEventChanges, formatChangesForEmail, ORGANIZER_FIELD_MAP } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
@@ -3412,8 +3412,12 @@ function createTestApp(options = {}) {
 
       // Apply finalChanges to both top-level and calendarData (matching production behavior)
       for (const [field, value] of Object.entries(finalChanges)) {
-        mongoUpdate[field] = value;
-        mongoUpdate[`calendarData.${field}`] = value;
+        if (ORGANIZER_FIELD_MAP[field]) {
+          mongoUpdate[`roomReservationData.organizer.${ORGANIZER_FIELD_MAP[field]}`] = value;
+        } else {
+          mongoUpdate[field] = value;
+          mongoUpdate[`calendarData.${field}`] = value;
+        }
       }
 
       // Update pendingEditRequest status (not $unset — matches production)

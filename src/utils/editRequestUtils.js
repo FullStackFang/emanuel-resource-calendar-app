@@ -45,6 +45,9 @@ const COMPARABLE_FIELDS = [
   'priority',
   'virtualMeetingUrl',
   'virtualPlatform',
+  'organizerName',
+  'organizerPhone',
+  'organizerEmail',
 ];
 
 const ARRAY_FIELDS = ['locations', 'requestedRooms', 'categories'];

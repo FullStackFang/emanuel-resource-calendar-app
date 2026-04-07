@@ -10,6 +10,7 @@ import './shared/ReviewModal.css';
 export default function EditRequestComparison({
   editRequest,
   eventCalendarData,
+  eventRoomReservationData,
   onClose,
   onApprove,
   onReject,
@@ -65,14 +66,15 @@ export default function EditRequestComparison({
   // Proposed changes from the edit request (only fields that changed)
   const proposed = editRequest?.proposedChanges || {};
 
-  // Helper: simple field comparison entry
-  const simpleField = (label, field, formatter) => {
+  // Helper: simple field comparison entry (optional originalOverride for fields outside calendarData)
+  const simpleField = (label, field, formatter, originalOverride) => {
     const fmt = formatter || ((v) => v?.toString() || 'N/A');
+    const original = originalOverride !== undefined ? originalOverride : cd[field];
     return {
       label,
-      original: fmt(cd[field]),
-      proposed: fmt(proposed[field] !== undefined ? proposed[field] : cd[field]),
-      changed: proposed[field] !== undefined && proposed[field] !== cd[field]
+      original: fmt(original),
+      proposed: fmt(proposed[field] !== undefined ? proposed[field] : original),
+      changed: proposed[field] !== undefined && proposed[field] !== (original ?? '')
     };
   };
 
@@ -122,6 +124,10 @@ export default function EditRequestComparison({
     simpleField('Offsite', 'isOffsite', (v) => v ? 'Yes' : 'No'),
     simpleField('Offsite Name', 'offsiteName'),
     simpleField('Offsite Address', 'offsiteAddress'),
+    // Organizer fields — originals come from roomReservationData.organizer, not calendarData
+    simpleField('Organizer Name', 'organizerName', null, eventRoomReservationData?.organizer?.name),
+    simpleField('Organizer Phone', 'organizerPhone', null, eventRoomReservationData?.organizer?.phone),
+    simpleField('Organizer Email', 'organizerEmail', null, eventRoomReservationData?.organizer?.email),
   ];
 
   // Filter to only show changed fields in the "Changes" section

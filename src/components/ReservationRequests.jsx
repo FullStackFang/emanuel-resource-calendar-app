@@ -953,6 +953,7 @@ export default function ReservationRequests({ graphToken }) {
         <EditRequestComparison
           editRequest={selectedEditRequest}
           eventCalendarData={selectedEditRequest._fullData?.calendarData}
+          eventRoomReservationData={selectedEditRequest._fullData?.roomReservationData}
           onClose={closeEditRequestModal}
           onApprove={handleApproveEditRequest}
           onReject={handleRejectEditRequest}

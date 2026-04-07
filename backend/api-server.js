@@ -21,7 +21,7 @@ const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/er
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
-const { detectEventChanges, formatChangesForEmail } = require('./utils/changeDetection');
+const { detectEventChanges, formatChangesForEmail, valuesAreDifferent, ORGANIZER_FIELD_MAP } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
@@ -20240,6 +20240,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       offsiteLon,
       categories,
       services,
+      organizerName,
+      organizerPhone,
+      organizerEmail,
       _version
     } = req.body;
 
@@ -20466,6 +20469,18 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       proposedChanges.isOnBehalfOf = isOnBehalfOf;
       proposedChanges.contactName = contactName;
       proposedChanges.contactEmail = contactEmail;
+    }
+
+    // Handle organizer changes (stored in roomReservationData.organizer, not calendarData)
+    const originalOrganizer = originalEvent.roomReservationData?.organizer || {};
+    for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
+      const newVal = req.body[flatKey];
+      if (newVal === undefined) continue;
+      const oldVal = originalOrganizer[nestedKey] || '';
+      if (valuesAreDifferent(oldVal, newVal)) {
+        proposedChanges[flatKey] = newVal;
+        changesArray.push({ field: flatKey, oldValue: oldVal, newValue: newVal });
+      }
     }
 
     // Get requester name (from original event or user email)
@@ -21054,6 +21069,10 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
       if (field === 'locationDisplayNames') {
         updateFields['calendarData.locationDisplayNames'] = value;
+      }
+      // Organizer fields live in roomReservationData.organizer, not calendarData
+      if (ORGANIZER_FIELD_MAP[field]) {
+        updateFields[`roomReservationData.organizer.${ORGANIZER_FIELD_MAP[field]}`] = value;
       }
     }
 
