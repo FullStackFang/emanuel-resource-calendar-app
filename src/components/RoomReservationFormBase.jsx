@@ -307,7 +307,7 @@ export default function RoomReservationFormBase({
         allowedConcurrentCategories: initialData.allowedConcurrentCategories || prev.allowedConcurrentCategories
       }));
     }
-  }, [initialData?._isPreProcessed, initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
+  }, [initialData]);
 
   // Pre-populate organizer fields from requester on NEW events only.
   // Existing events (with _isPreProcessed from transformer) carry their own saved organizer values.
