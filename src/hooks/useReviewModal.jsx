@@ -27,7 +27,7 @@ import APP_CONFIG from '../config/config';
  * @param {Function} onError - Callback after error
  */
 export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
-  const { canCreateEvents } = usePermissions();
+  const { canCreateEvents, canSubmitReservation } = usePermissions();
   const [isOpen, setIsOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -2132,9 +2132,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Reservation data (for recurrence tab auto-detection)
       reservation: currentItem,
 
-      // Duplicate (available for pending/published non-recurring events)
+      // Duplicate (available for pending/published non-recurring events, requires create or submit permission)
       onDuplicate: (
-        currentItem?.status !== 'deleted'
+        (canCreateEvents || canSubmitReservation)
+        && currentItem?.status !== 'deleted'
         && currentItem?.status !== 'draft'
         && currentItem?.eventType !== 'seriesMaster'
       ) ? handleDuplicateOpen : null,

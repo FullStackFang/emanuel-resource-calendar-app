@@ -6114,7 +6114,7 @@ import ConflictDialog from './shared/ConflictDialog';
           existingEditRequest={existingEditRequest}
           isViewingEditRequest={isViewingEditRequest}
           loadingEditRequest={loadingEditRequest}
-          onViewEditRequest={handleViewEditRequest}
+          onViewEditRequest={(canSubmitReservation || canApproveReservations) ? handleViewEditRequest : null}
           onViewOriginalEvent={handleViewOriginalEvent}
           isEditRequestMode={isEditRequestMode}
           onSubmitEditRequest={handleSubmitEditRequest}

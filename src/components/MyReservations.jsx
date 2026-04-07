@@ -1030,7 +1030,7 @@ export default function MyReservations() {
         existingEditRequest={existingEditRequest}
         isViewingEditRequest={isViewingEditRequest}
         loadingEditRequest={loadingEditRequest}
-        onViewEditRequest={handleViewEditRequest}
+        onViewEditRequest={(canSubmitReservation || canApproveReservations) ? handleViewEditRequest : null}
         onViewOriginalEvent={handleViewOriginalEvent}
         onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
         onRejectEditRequest={canApproveReservations ? reviewModal.handleRejectEditRequest : null}
