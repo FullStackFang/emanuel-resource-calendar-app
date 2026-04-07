@@ -958,37 +958,41 @@ import ConflictDialog from './shared/ConflictDialog';
               />
             </div>
             <div className="action-bar-right">
-              <div className="group-by-toggle">
-                <button
-                  className={`group-by-btn ${groupBy === 'categories' ? 'active' : ''}`}
-                  onClick={() => {
-                    setGroupBy('categories');
-                    updateUserProfilePreferences({ defaultGroupBy: 'categories' });
-                  }}
-                >
-                  Group by Category
-                </button>
-                <button
-                  className={`group-by-btn ${groupBy === 'locations' ? 'active' : ''}`}
-                  onClick={() => {
-                    setGroupBy('locations');
-                    updateUserProfilePreferences({ defaultGroupBy: 'locations' });
-                  }}
-                >
-                  Group by Location
-                </button>
-              </div>
-              <button
-                className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
-                title="Hides groups without events (pinned groups always stay visible)"
-                onClick={() => {
-                  const next = !hideEmptyGroups;
-                  setHideEmptyGroups(next);
-                  updateUserProfilePreferences({ hideEmptyGroups: next });
-                }}
-              >
-                Hide Empty
-              </button>
+              {viewType !== 'month' && (
+                <>
+                  <div className="group-by-toggle">
+                    <button
+                      className={`group-by-btn ${groupBy === 'categories' ? 'active' : ''}`}
+                      onClick={() => {
+                        setGroupBy('categories');
+                        updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+                      }}
+                    >
+                      Group by Category
+                    </button>
+                    <button
+                      className={`group-by-btn ${groupBy === 'locations' ? 'active' : ''}`}
+                      onClick={() => {
+                        setGroupBy('locations');
+                        updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                      }}
+                    >
+                      Group by Location
+                    </button>
+                  </div>
+                  <button
+                    className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
+                    title="Hides groups without events (pinned groups always stay visible)"
+                    onClick={() => {
+                      const next = !hideEmptyGroups;
+                      setHideEmptyGroups(next);
+                      updateUserProfilePreferences({ hideEmptyGroups: next });
+                    }}
+                  >
+                    Hide Empty
+                  </button>
+                </>
+              )}
               {renderFilterControls()}
             </div>
           </div>
