@@ -3827,8 +3827,8 @@ import ConflictDialog from './shared/ConflictDialog';
       eventCreation.open({
         startDate: dateStr,
         endDate: dateStr,
-        startTime,
-        endTime,
+        reservationStartTime: startTime,
+        reservationEndTime: endTime,
         locations: locationId ? [locationId] : [],
       });
     }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, eventCreation]);
