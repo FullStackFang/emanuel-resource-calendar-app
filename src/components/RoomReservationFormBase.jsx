@@ -1571,6 +1571,46 @@ export default function RoomReservationFormBase({
 
             {/* Recurrence is managed entirely via the Recurrence tab */}
 
+            {/* Event Organizer — optional, for security/operations contact */}
+            <div className="organizer-row">
+              <div className="form-group">
+                <label htmlFor="organizerName">Organizer Name</label>
+                <input
+                  type="text"
+                  id="organizerName"
+                  name="organizerName"
+                  value={formData.organizerName}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="John Doe"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="organizerPhone">Organizer Phone</label>
+                <input
+                  type="tel"
+                  id="organizerPhone"
+                  name="organizerPhone"
+                  value={formData.organizerPhone}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="212-744-1400"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="organizerEmail">Organizer Email</label>
+                <input
+                  type="email"
+                  id="organizerEmail"
+                  name="organizerEmail"
+                  value={formData.organizerEmail}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  placeholder="example@email.com"
+                />
+              </div>
+            </div>
+
             {/* Date + Attendees Row (3-column compact) */}
             <div className="date-attendees-row">
               <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
@@ -2199,48 +2239,6 @@ export default function RoomReservationFormBase({
               )}
             </section>
 
-            {/* Event Organizer — optional, for security/operations contact */}
-            <section className="form-section">
-              <h2>Event Organizer</h2>
-              <div className="organizer-row">
-                <div className="form-group">
-                  <label htmlFor="organizerName">Name</label>
-                  <input
-                    type="text"
-                    id="organizerName"
-                    name="organizerName"
-                    value={formData.organizerName}
-                    onChange={handleInputChange}
-                    disabled={fieldsDisabled}
-                    placeholder="John Doe"
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="organizerPhone">Phone</label>
-                  <input
-                    type="tel"
-                    id="organizerPhone"
-                    name="organizerPhone"
-                    value={formData.organizerPhone}
-                    onChange={handleInputChange}
-                    disabled={fieldsDisabled}
-                    placeholder="212-744-1400"
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="organizerEmail">Email</label>
-                  <input
-                    type="email"
-                    id="organizerEmail"
-                    name="organizerEmail"
-                    value={formData.organizerEmail}
-                    onChange={handleInputChange}
-                    disabled={fieldsDisabled}
-                    placeholder="example@email.com"
-                  />
-                </div>
-              </div>
-            </section>
           </div>
         </div>
       )}
