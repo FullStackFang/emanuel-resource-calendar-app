@@ -16,9 +16,18 @@ import { RecurringIcon } from './shared/CalendarIcons';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
-import { clampEventTimesToReservation } from '../utils/timeClampUtils';
+import {
+  clampEventTimesToReservation,
+  expandReservationToContainOperationalTimes,
+  clampOperationalTimesToReservation,
+  validateTimeOrdering,
+} from '../utils/timeClampUtils';
 import { usePermissions } from '../hooks/usePermissions';
 import './RoomReservationForm.css';
+
+// Time field groups for bidirectional enforcement logic
+const OPERATIONAL_TIME_FIELDS = ['setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'startTime', 'endTime'];
+const RESERVATION_TIME_FIELDS = ['reservationStartTime', 'reservationEndTime'];
 
 /**
  * Virtual Event Detection Utilities
@@ -825,79 +834,52 @@ export default function RoomReservationFormBase({
     assistantRoomsRef.current = assistantRooms;
   }, [assistantRooms]);
 
-  // Validate time fields are in chronological order
-  // Validated chronology: reservationStartTime -> start -> end -> reservationEndTime
-  // setupTime, teardownTime, doorOpenTime, doorCloseTime are NOT validated (staff-only internal fields)
+  // Validate full time ordering chain:
+  // Res Start <= Setup <= Door Open <= Event Start <= Event End <= Door Close <= Teardown <= Res End
+  // Each pair only checked when both values are present (operational times are optional).
   const validateTimes = useCallback(() => {
     const errors = [];
-    const { reservationStartTime, startTime, endTime, reservationEndTime, startDate, endDate, isAllDayEvent } = formData;
-
-    const createDateTime = (date, timeStr) => {
-      if (!date || !timeStr) return null;
-      return new Date(`${date}T${timeStr}`);
-    };
-
-    const timeToMinutes = (timeStr) => {
-      if (!timeStr) return null;
-      const [hours, minutes] = timeStr.split(':').map(Number);
-      return hours * 60 + minutes;
-    };
-
-    // Helper to adjust midnight (00:00) to end-of-day (1440) when comparing end times
-    const adjustForMidnight = (minutes, referenceMinutes) => {
-      if (minutes === 0 && referenceMinutes !== null && referenceMinutes > 0) {
-        return 1440; // 24 hours in minutes
-      }
-      return minutes;
-    };
-
-    const reservationStart = timeToMinutes(reservationStartTime);
-    const eventStartMinutes = timeToMinutes(startTime);
-    const eventEndMinutes = timeToMinutes(endTime);
-    const reservationEndRaw = timeToMinutes(reservationEndTime);
-
-    // Adjust reservationEnd for midnight edge case
-    const reservationEnd = adjustForMidnight(reservationEndRaw, eventEndMinutes);
-
-    const eventStartDateTime = createDateTime(startDate, startTime);
-    const eventEndDateTime = createDateTime(endDate, endTime);
+    const {
+      reservationStartTime, reservationEndTime, startTime, endTime,
+      setupTime, teardownTime, doorOpenTime, doorCloseTime,
+      startDate, endDate, isAllDayEvent,
+    } = formData;
 
     // Reservation times are auto-filled for all-day events, only require them for timed events
     if (!isAllDayEvent) {
-      if (!reservationStartTime) {
-        errors.push('Reservation Start Time is required');
-      }
-      if (!reservationEndTime) {
-        errors.push('Reservation End Time is required');
-      }
+      if (!reservationStartTime) errors.push('Reservation Start Time is required');
+      if (!reservationEndTime) errors.push('Reservation End Time is required');
     }
 
-    // Event start/end ordering (only when both are present)
-    if (eventStartDateTime && eventEndDateTime && eventStartDateTime >= eventEndDateTime) {
-      errors.push('Event End Time must be after Event Start Time');
-    }
-
-    // Only validate event-vs-reservation ordering when event times are present
-    if (reservationStart !== null && eventStartMinutes !== null && reservationStart > eventStartMinutes) {
-      errors.push('Event Start Time must be after Reservation Start Time');
-    }
-
-    if (eventEndMinutes !== null && reservationEnd !== null && eventEndMinutes > reservationEnd) {
-      errors.push('Reservation End Time must be after Event End Time');
-    }
+    // Full ordering chain validation (skips multi-day, skips missing pairs)
+    const orderErrors = validateTimeOrdering({
+      reservationStartTime, setupTime, doorOpenTime, startTime,
+      endTime, doorCloseTime, teardownTime, reservationEndTime,
+      startDate, endDate,
+    });
+    errors.push(...orderErrors);
 
     setTimeErrors(errors);
     return errors.length === 0;
   }, [formData]);
 
-  // Validate times whenever time fields change
+  // Validate times whenever any time field changes
   useEffect(() => {
-    if (formData.reservationStartTime || formData.reservationEndTime || formData.startTime || formData.endTime) {
+    const hasAnyTime = formData.reservationStartTime || formData.reservationEndTime ||
+      formData.startTime || formData.endTime || formData.setupTime ||
+      formData.teardownTime || formData.doorOpenTime || formData.doorCloseTime;
+    if (hasAnyTime) {
       validateTimes();
     } else {
       setTimeErrors([]);
     }
-  }, [formData.reservationStartTime, formData.startTime, formData.endTime, formData.reservationEndTime, validateTimes]);
+  }, [
+    formData.reservationStartTime, formData.reservationEndTime,
+    formData.startTime, formData.endTime,
+    formData.setupTime, formData.teardownTime,
+    formData.doorOpenTime, formData.doorCloseTime,
+    validateTimes,
+  ]);
 
   // Required field validation
   const isFieldValid = useCallback((fieldName) => {
@@ -1000,6 +982,26 @@ export default function RoomReservationFormBase({
       }
     }
 
+    // Enforce reservation as outer bounds of all operational times
+    if (OPERATIONAL_TIME_FIELDS.includes(name)) {
+      // Operational time changed -> expand reservation to contain it
+      const expansion = expandReservationToContainOperationalTimes(updatedData);
+      if (expansion) {
+        if (expansion.reservationStartTime) updatedData.reservationStartTime = expansion.reservationStartTime;
+        if (expansion.reservationEndTime) updatedData.reservationEndTime = expansion.reservationEndTime;
+      }
+    } else if (RESERVATION_TIME_FIELDS.includes(name)) {
+      // Reservation narrowed -> clamp operational times, then handle event time window
+      const clampOps = clampOperationalTimesToReservation(updatedData);
+      if (clampOps) Object.assign(updatedData, clampOps);
+
+      const clampResult = clampEventTimesToReservation(updatedData);
+      if (clampResult) {
+        updatedData.startTime = clampResult.startTime;
+        updatedData.endTime = clampResult.endTime;
+      }
+    }
+
     setFormData(updatedData);
     setHasChanges(true);
 
@@ -1044,12 +1046,30 @@ export default function RoomReservationFormBase({
     if ('reservationStartTime' in updatedTimes) updatedData.reservationStartTime = updatedTimes.reservationStartTime;
     if ('reservationEndTime' in updatedTimes) updatedData.reservationEndTime = updatedTimes.reservationEndTime;
 
-    // Auto-clamp event times when reservation window shrinks past them
-    const clampResult = clampEventTimesToReservation(updatedData);
-    if (clampResult) {
-      updatedData.startTime = clampResult.startTime;
-      updatedData.endTime = clampResult.endTime;
+    // Enforce reservation as outer bounds (bidirectional)
+    const isReservationChange = RESERVATION_TIME_FIELDS.some(f => f in updatedTimes);
+    const isOperationalChange = OPERATIONAL_TIME_FIELDS.some(f => f in updatedTimes);
+
+    if (isOperationalChange && !isReservationChange) {
+      // Pure operational change (SA drag of inner marker) -> expand reservation to contain it
+      const expansion = expandReservationToContainOperationalTimes(updatedData);
+      if (expansion) {
+        if (expansion.reservationStartTime) updatedData.reservationStartTime = expansion.reservationStartTime;
+        if (expansion.reservationEndTime) updatedData.reservationEndTime = expansion.reservationEndTime;
+      }
+    } else if (isReservationChange && !isOperationalChange) {
+      // Pure reservation change (SA edge resize) -> clamp inner times to stay within
+      const clampOps = clampOperationalTimesToReservation(updatedData);
+      if (clampOps) Object.assign(updatedData, clampOps);
+
+      const clampResult = clampEventTimesToReservation(updatedData);
+      if (clampResult) {
+        updatedData.startTime = clampResult.startTime;
+        updatedData.endTime = clampResult.endTime;
+      }
     }
+    // Whole-block drag (both flags true): SA shifts all times by the same delta,
+    // so they remain internally consistent — no expansion or clamping needed.
 
     setFormData(updatedData);
     setHasChanges(true);
@@ -1866,7 +1886,7 @@ export default function RoomReservationFormBase({
                   ))}
                 </ul>
                 <p className="validation-help">
-                  Times should follow this order: Reservation Start → Event Start → Event End → Reservation End
+                  Times should follow this order: Reservation Start → Setup → Door Open → Event Start → Event End → Door Close → Teardown → Reservation End
                 </p>
               </div>
             )}
@@ -2016,17 +2036,8 @@ export default function RoomReservationFormBase({
                     selectedDate={formData.startDate}
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
-                    setupTime={
-                      [formData.reservationStartTime, formData.setupTime, formData.doorOpenTime]
-                        .filter(t => t && t.includes(':'))
-                        .sort()[0] || formData.reservationStartTime
-                    }
-                    teardownTime={
-                      [formData.reservationEndTime, formData.teardownTime, formData.doorCloseTime]
-                        .filter(t => t && t.includes(':'))
-                        .sort()
-                        .pop() || formData.reservationEndTime
-                    }
+                    setupTime={formData.reservationStartTime}
+                    teardownTime={formData.reservationEndTime}
                     rawSetupTime={formData.setupTime}
                     rawTeardownTime={formData.teardownTime}
                     rawDoorOpenTime={formData.doorOpenTime}

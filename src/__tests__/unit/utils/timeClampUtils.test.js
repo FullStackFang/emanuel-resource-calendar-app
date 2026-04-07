@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { clampEventTimesToReservation, timeToMinutes, minutesToTimeStr } from '../../../utils/timeClampUtils';
+import {
+  clampEventTimesToReservation,
+  expandReservationToContainOperationalTimes,
+  clampOperationalTimesToReservation,
+  validateTimeOrdering,
+  timeToMinutes,
+  minutesToTimeStr,
+} from '../../../utils/timeClampUtils';
 
 describe('timeToMinutes', () => {
   it('converts HH:MM to total minutes', () => {
@@ -155,5 +162,278 @@ describe('clampEventTimesToReservation', () => {
       endTime: '',
     });
     expect(result).toBeNull();
+  });
+});
+
+// ─── expandReservationToContainOperationalTimes ───────────────────────
+
+describe('expandReservationToContainOperationalTimes', () => {
+  const base = {
+    reservationStartTime: '11:00', reservationEndTime: '14:00',
+    setupTime: '', doorOpenTime: '', startTime: '',
+    endTime: '', doorCloseTime: '', teardownTime: '',
+  };
+
+  it('expands reservation start when setup is earlier', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, setupTime: '10:30',
+    });
+    expect(result).toEqual({ reservationStartTime: '10:30' });
+  });
+
+  it('expands reservation end when teardown is later', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, teardownTime: '15:00',
+    });
+    expect(result).toEqual({ reservationEndTime: '15:00' });
+  });
+
+  it('expands reservation start when doorOpen is earlier', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, doorOpenTime: '10:00',
+    });
+    expect(result).toEqual({ reservationStartTime: '10:00' });
+  });
+
+  it('expands reservation end when doorClose is later', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, doorCloseTime: '14:30',
+    });
+    expect(result).toEqual({ reservationEndTime: '14:30' });
+  });
+
+  it('expands both bounds when startTime and endTime extend beyond', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, startTime: '10:00', endTime: '16:00',
+    });
+    expect(result).toEqual({ reservationStartTime: '10:00', reservationEndTime: '16:00' });
+  });
+
+  it('returns null when all times are within bounds', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, setupTime: '11:30', teardownTime: '13:30', startTime: '12:00', endTime: '13:00',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when no operational times are set', () => {
+    const result = expandReservationToContainOperationalTimes(base);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when reservation times are missing', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, reservationStartTime: '', reservationEndTime: '', setupTime: '10:00',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('expands to the earliest of multiple pre-event times', () => {
+    const result = expandReservationToContainOperationalTimes({
+      ...base, setupTime: '10:30', doorOpenTime: '10:00', startTime: '10:45',
+    });
+    expect(result).toEqual({ reservationStartTime: '10:00' });
+  });
+
+  it('handles midnight reservation end (00:00 = end-of-day)', () => {
+    const result = expandReservationToContainOperationalTimes({
+      reservationStartTime: '22:00', reservationEndTime: '00:00',
+      setupTime: '', doorOpenTime: '', startTime: '22:30',
+      endTime: '23:30', doorCloseTime: '', teardownTime: '',
+    });
+    // 23:30 < 1440 (midnight), no expansion needed
+    expect(result).toBeNull();
+  });
+});
+
+// ─── clampOperationalTimesToReservation ────────────────────────────────
+
+describe('clampOperationalTimesToReservation', () => {
+  const base = {
+    reservationStartTime: '11:00', reservationEndTime: '14:00',
+    setupTime: '', doorOpenTime: '', startTime: '',
+    endTime: '', doorCloseTime: '', teardownTime: '',
+  };
+
+  it('clamps setup time to reservation start when outside', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, setupTime: '10:30',
+    });
+    expect(result).toEqual({ setupTime: '11:00' });
+  });
+
+  it('clamps teardown to reservation end when outside', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, teardownTime: '15:00',
+    });
+    expect(result).toEqual({ teardownTime: '14:00' });
+  });
+
+  it('clamps multiple fields at once', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, setupTime: '10:00', doorOpenTime: '10:30', teardownTime: '15:00',
+    });
+    expect(result).toEqual({ setupTime: '11:00', doorOpenTime: '11:00', teardownTime: '14:00' });
+  });
+
+  it('returns null when all times are within bounds', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, setupTime: '11:30', teardownTime: '13:30',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when no operational times are set', () => {
+    const result = clampOperationalTimesToReservation(base);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when reservation times are missing', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, reservationStartTime: '', reservationEndTime: '', setupTime: '10:00',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('does not clamp startTime/endTime (delegated to clampEventTimesToReservation)', () => {
+    const result = clampOperationalTimesToReservation({
+      ...base, startTime: '10:00', endTime: '15:00',
+    });
+    // startTime/endTime are handled by clampEventTimesToReservation which has zero-width clearance
+    expect(result).toBeNull();
+  });
+
+  it('handles midnight reservation end', () => {
+    const result = clampOperationalTimesToReservation({
+      reservationStartTime: '22:00', reservationEndTime: '00:00',
+      setupTime: '', doorOpenTime: '', startTime: '',
+      endTime: '', doorCloseTime: '', teardownTime: '00:30',
+    });
+    // 00:30 (30 mins) > 1440 (midnight)? No, 30 < 1440, so no clamp
+    // Actually teardown is 00:30 = 30 minutes. resEnd = 00:00 adjusted to 1440.
+    // 30 < 1440: not outside. No clamp.
+    expect(result).toBeNull();
+  });
+});
+
+// ─── validateTimeOrdering ─────────────────────────────────────────────
+
+describe('validateTimeOrdering', () => {
+  const validFull = {
+    reservationStartTime: '10:00', setupTime: '10:30', doorOpenTime: '11:00',
+    startTime: '11:30', endTime: '13:00', doorCloseTime: '13:30',
+    teardownTime: '14:00', reservationEndTime: '14:30',
+    startDate: '2026-04-10', endDate: '2026-04-10',
+  };
+
+  it('returns empty array for fully valid ordering', () => {
+    expect(validateTimeOrdering(validFull)).toEqual([]);
+  });
+
+  it('returns empty array when all times are equal (boundary case)', () => {
+    const allSame = {
+      reservationStartTime: '12:00', setupTime: '12:00', doorOpenTime: '12:00',
+      startTime: '12:00', endTime: '12:00', doorCloseTime: '12:00',
+      teardownTime: '12:00', reservationEndTime: '12:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    expect(validateTimeOrdering(allSame)).toEqual([]);
+  });
+
+  it('detects setup before reservation start', () => {
+    const errors = validateTimeOrdering({ ...validFull, setupTime: '09:00' });
+    expect(errors).toContainEqual(expect.stringContaining('Reservation Start'));
+    expect(errors).toContainEqual(expect.stringContaining('Setup'));
+  });
+
+  it('detects door open before setup', () => {
+    const errors = validateTimeOrdering({ ...validFull, doorOpenTime: '10:00' });
+    // doorOpen (10:00) < setupTime (10:30): should be flagged
+    expect(errors).toContainEqual(expect.stringContaining('Setup Time'));
+    expect(errors).toContainEqual(expect.stringContaining('Door Open'));
+  });
+
+  it('detects event start before door open', () => {
+    const errors = validateTimeOrdering({ ...validFull, startTime: '10:45' });
+    expect(errors).toContainEqual(expect.stringContaining('Door Open'));
+    expect(errors).toContainEqual(expect.stringContaining('Event Start'));
+  });
+
+  it('detects event end before event start', () => {
+    const errors = validateTimeOrdering({ ...validFull, endTime: '11:00' });
+    expect(errors).toContainEqual(expect.stringContaining('Event Start'));
+    expect(errors).toContainEqual(expect.stringContaining('Event End'));
+  });
+
+  it('detects teardown after reservation end', () => {
+    const errors = validateTimeOrdering({ ...validFull, teardownTime: '15:00' });
+    expect(errors).toContainEqual(expect.stringContaining('Teardown'));
+    expect(errors).toContainEqual(expect.stringContaining('Reservation End'));
+  });
+
+  it('skips validation for multi-day events', () => {
+    const multiDay = {
+      ...validFull, startDate: '2026-04-10', endDate: '2026-04-11',
+      startTime: '23:00', endTime: '01:00', // would be invalid same-day
+    };
+    expect(validateTimeOrdering(multiDay)).toEqual([]);
+  });
+
+  it('only checks pairs where both values present', () => {
+    const partial = {
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '12:00', endTime: '13:00', doorCloseTime: '',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    expect(validateTimeOrdering(partial)).toEqual([]);
+  });
+
+  it('bridges gaps when intermediate fields are absent', () => {
+    const partial = {
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '09:00', endTime: '13:00', doorCloseTime: '',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    // With nearest-neighbor approach, resStart(10:00) → startTime(09:00) is checked directly
+    const errors = validateTimeOrdering(partial);
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain('Reservation Start');
+    expect(errors[0]).toContain('Event Start');
+  });
+
+  it('detects teardown before setup when door times are absent', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '14:00', doorOpenTime: '',
+      startTime: '', endTime: '', doorCloseTime: '',
+      teardownTime: '11:00', reservationEndTime: '15:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    // setupTime(14:00) → teardownTime(11:00) bridged directly
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain('Setup Time');
+    expect(errors[0]).toContain('Teardown Time');
+  });
+
+  it('handles midnight reservation end correctly', () => {
+    const midnight = {
+      reservationStartTime: '22:00', setupTime: '22:30', doorOpenTime: '',
+      startTime: '23:00', endTime: '23:30', doorCloseTime: '',
+      teardownTime: '23:45', reservationEndTime: '00:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    expect(validateTimeOrdering(midnight)).toEqual([]);
+  });
+
+  it('returns multiple errors when chain has multiple violations', () => {
+    const messy = {
+      reservationStartTime: '14:00', setupTime: '13:00', doorOpenTime: '12:00',
+      startTime: '11:00', endTime: '15:00', doorCloseTime: '14:30',
+      teardownTime: '14:00', reservationEndTime: '16:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    const errors = validateTimeOrdering(messy);
+    expect(errors.length).toBeGreaterThan(1);
   });
 });

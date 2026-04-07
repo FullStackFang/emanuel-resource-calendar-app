@@ -2169,6 +2169,64 @@ const AVAILABILITY_PROJECTION = {
 };
 
 /**
+ * Validate reservation time ordering chain.
+ * Enforces: Res Start <= Setup <= Door Open <= Event Start <= Event End <= Door Close <= Teardown <= Res End
+ * Each pair only checked when both values are present (operational times are optional).
+ * Multi-day events (different start/end dates) skip ordering — minute comparison is meaningless.
+ * @param {Object} calendarData - Object with time fields (reservationStartTime, setupTime, etc.)
+ * @returns {string[]} Array of error messages (empty = valid)
+ */
+function validateReservationTimeOrdering(calendarData) {
+  const timeToMinutes = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    const result = h * 60 + m;
+    return isNaN(result) ? null : result;
+  };
+
+  const startDate = calendarData.startDate || calendarData.startDateTime?.split('T')[0];
+  const endDate = calendarData.endDate || calendarData.endDateTime?.split('T')[0];
+  if (startDate && endDate && startDate !== endDate) return [];
+
+  // Ordered fields by expected chronological position
+  const orderedFields = [
+    { field: 'reservationStartTime', name: 'Reservation Start' },
+    { field: 'setupTime', name: 'Setup Time' },
+    { field: 'doorOpenTime', name: 'Door Open' },
+    { field: 'startTime', name: 'Event Start' },
+    { field: 'endTime', name: 'Event End' },
+    { field: 'doorCloseTime', name: 'Door Close' },
+    { field: 'teardownTime', name: 'Teardown Time' },
+    { field: 'reservationEndTime', name: 'Reservation End', isResEnd: true },
+  ];
+
+  const resStartMins = timeToMinutes(calendarData.reservationStartTime);
+
+  // Keep only fields with valid HH:MM values
+  const presentFields = orderedFields
+    .map(f => ({ ...f, minutes: timeToMinutes(calendarData[f.field]) }))
+    .filter(f => f.minutes !== null);
+
+  const errors = [];
+
+  // Check each nearest-neighbor pair among present fields (bridges gaps correctly)
+  for (let i = 0; i < presentFields.length - 1; i++) {
+    const a = presentFields[i].minutes;
+    let b = presentFields[i + 1].minutes;
+
+    if (presentFields[i + 1].isResEnd && b === 0 && resStartMins > 0) {
+      b = 1440;
+    }
+
+    if (a > b) {
+      errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -2179,6 +2237,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
   try {
     // Calculate the full time window including setup and teardown
     // Fall back to calendarData paths since room reservations store fields there
+    // TODO: After migrating all legacy events to guarantee reservationStartMinutes/reservationEndMinutes
+    // are always set as the outer bounds, the setupTimeMinutes/teardownTimeMinutes fallbacks can be removed.
     const setupMinutes = reservation.reservationStartMinutes ?? reservation.calendarData?.reservationStartMinutes ?? reservation.setupTimeMinutes ?? reservation.calendarData?.setupTimeMinutes ?? 0;
     const teardownMinutes = reservation.reservationEndMinutes ?? reservation.calendarData?.reservationEndMinutes ?? reservation.teardownTimeMinutes ?? reservation.calendarData?.teardownTimeMinutes ?? 0;
 
@@ -7254,6 +7314,37 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     } else {
       // Update existing event
       const updateOperations = {};
+
+      // Validate time ordering when time fields are being updated
+      if (internalFields) {
+        const existingCd = currentEvent.calendarData || {};
+        const mergedTimes = {
+          reservationStartTime: internalFields.reservationStartTime ?? existingCd.reservationStartTime,
+          reservationEndTime: internalFields.reservationEndTime ?? existingCd.reservationEndTime,
+          setupTime: internalFields.setupTime ?? existingCd.setupTime,
+          teardownTime: internalFields.teardownTime ?? existingCd.teardownTime,
+          doorOpenTime: internalFields.doorOpenTime ?? existingCd.doorOpenTime,
+          doorCloseTime: internalFields.doorCloseTime ?? existingCd.doorCloseTime,
+          startTime: existingCd.startTime,
+          endTime: existingCd.endTime,
+          startDate: existingCd.startDateTime?.split('T')[0],
+          endDate: existingCd.endDateTime?.split('T')[0],
+        };
+        // If graphFields includes time changes, use those
+        if (graphFields?.start?.dateTime) {
+          mergedTimes.startTime = graphFields.start.dateTime.split('T')[1]?.substring(0, 5);
+          mergedTimes.startDate = graphFields.start.dateTime.split('T')[0];
+        }
+        if (graphFields?.end?.dateTime) {
+          mergedTimes.endTime = graphFields.end.dateTime.split('T')[1]?.substring(0, 5);
+          mergedTimes.endDate = graphFields.end.dateTime.split('T')[0];
+        }
+
+        const auditTimeErrors = validateReservationTimeOrdering(mergedTimes);
+        if (auditTimeErrors.length > 0) {
+          return res.status(400).json({ error: 'Invalid time ordering', validationErrors: auditTimeErrors });
+        }
+      }
 
       if (internalFields) {
         // Write enrichment fields directly to calendarData (no longer using internalData)
@@ -14106,6 +14197,13 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       });
     }
 
+    // Check time ordering (warnings only for drafts — don't block saving)
+    const draftTimeWarnings = validateReservationTimeOrdering({
+      reservationStartTime, setupTime, doorOpenTime, startTime,
+      endTime, doorCloseTime, teardownTime, reservationEndTime,
+      startDate, endDate,
+    });
+
     // Update draft — all calendar fields go inside calendarData (source of truth)
     // Event times fall back to reservation times, then to defaults
     const computedStartDateTime = startDateTime
@@ -14217,7 +14315,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       eventTitle
     });
 
-    res.json(updatedDraft);
+    const response = { ...updatedDraft };
+    if (draftTimeWarnings.length > 0) {
+      response.timeOrderingWarnings = draftTimeWarnings;
+    }
+    res.json(response);
   } catch (error) {
     logger.error('Error updating draft reservation:', error);
     res.status(500).json({ error: 'Failed to update draft reservation' });
@@ -14304,6 +14406,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     if (!cd.attendeeCount || cd.attendeeCount < 1) {
       validationErrors.push('Expected attendee count is required');
     }
+
+    // Validate time ordering chain
+    const timeOrderErrors = validateReservationTimeOrdering(cd);
+    validationErrors.push(...timeOrderErrors);
 
     if (validationErrors.length > 0) {
       return res.status(400).json({
@@ -15352,6 +15458,18 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       });
     }
 
+    // Validate time ordering chain
+    const publicTimeErrors = validateReservationTimeOrdering({
+      reservationStartTime, setupTime, doorOpenTime,
+      startTime: eventStartTime, endTime: eventEndTime,
+      doorCloseTime, teardownTime, reservationEndTime,
+      startDate: startDateTime?.split('T')[0],
+      endDate: endDateTime?.split('T')[0],
+    });
+    if (publicTimeErrors.length > 0) {
+      return res.status(400).json({ error: 'Invalid time ordering', validationErrors: publicTimeErrors });
+    }
+
     // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
     const baseStart = new Date(startDateTime);
     const baseEnd = new Date(endDateTime);
@@ -16031,6 +16149,16 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
     }
     if (!attendeeCount || parseInt(attendeeCount) < 1) {
       return res.status(400).json({ error: 'Expected attendee count is required and must be at least 1' });
+    }
+
+    // Validate time ordering chain
+    const editTimeErrors = validateReservationTimeOrdering({
+      reservationStartTime, setupTime, doorOpenTime, startTime,
+      endTime, doorCloseTime, teardownTime, reservationEndTime,
+      startDate, endDate,
+    });
+    if (editTimeErrors.length > 0) {
+      return res.status(400).json({ error: 'Invalid time ordering', validationErrors: editTimeErrors });
     }
 
     const now = new Date();
@@ -18974,6 +19102,18 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       return res.status(400).json({
         error: 'Expected attendee count is required and must be at least 1'
       });
+    }
+
+    // Validate time ordering chain
+    const requestTimeErrors = validateReservationTimeOrdering({
+      reservationStartTime, setupTime, doorOpenTime,
+      startTime: eventStartTime, endTime: eventEndTime,
+      doorCloseTime, teardownTime, reservationEndTime,
+      startDate: startDateTime?.split('T')[0],
+      endDate: endDateTime?.split('T')[0],
+    });
+    if (requestTimeErrors.length > 0) {
+      return res.status(400).json({ error: 'Invalid time ordering', validationErrors: requestTimeErrors });
     }
 
     // Get room names and location IDs for event data (skip if offsite)

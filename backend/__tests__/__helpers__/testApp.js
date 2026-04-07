@@ -39,6 +39,49 @@ function clearSentEmailNotifications() {
 }
 
 /**
+ * Validate reservation time ordering chain (mirrors api-server.js).
+ * Res Start <= Setup <= Door Open <= Event Start <= Event End <= Door Close <= Teardown <= Res End
+ */
+function validateReservationTimeOrdering(calendarData) {
+  const timeToMinutes = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    const result = h * 60 + m;
+    return isNaN(result) ? null : result;
+  };
+
+  const startDate = calendarData.startDate || calendarData.startDateTime?.split('T')[0];
+  const endDate = calendarData.endDate || calendarData.endDateTime?.split('T')[0];
+  if (startDate && endDate && startDate !== endDate) return [];
+
+  const orderedFields = [
+    { field: 'reservationStartTime', name: 'Reservation Start' },
+    { field: 'setupTime', name: 'Setup Time' },
+    { field: 'doorOpenTime', name: 'Door Open' },
+    { field: 'startTime', name: 'Event Start' },
+    { field: 'endTime', name: 'Event End' },
+    { field: 'doorCloseTime', name: 'Door Close' },
+    { field: 'teardownTime', name: 'Teardown Time' },
+    { field: 'reservationEndTime', name: 'Reservation End', isResEnd: true },
+  ];
+
+  const resStartMins = timeToMinutes(calendarData.reservationStartTime);
+  const presentFields = orderedFields
+    .map(f => ({ ...f, minutes: timeToMinutes(calendarData[f.field]) }))
+    .filter(f => f.minutes !== null);
+
+  const errors = [];
+  for (let i = 0; i < presentFields.length - 1; i++) {
+    const a = presentFields[i].minutes;
+    let b = presentFields[i + 1].minutes;
+    if (presentFields[i + 1].isResEnd && b === 0 && resStartMins > 0) b = 1440;
+    if (a > b) errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
+  }
+
+  return errors;
+}
+
+/**
  * Get reviewer emails (approvers + admins) from test database,
  * respecting per-user notification opt-out preferences.
  * Mirrors emailService.getReviewerEmails().
@@ -977,10 +1020,25 @@ function createTestApp(options = {}) {
         changes: updateFields,
       });
 
-      res.json({
-        success: true,
-        draft: updatedDraft,
+      // Check time ordering (warnings only for drafts)
+      const draftTimeWarnings = validateReservationTimeOrdering({
+        reservationStartTime: req.body.reservationStartTime,
+        setupTime: req.body.setupTime,
+        doorOpenTime: req.body.doorOpenTime,
+        startTime: req.body.startTime,
+        endTime: req.body.endTime,
+        doorCloseTime: req.body.doorCloseTime,
+        teardownTime: req.body.teardownTime,
+        reservationEndTime: req.body.reservationEndTime,
+        startDate: req.body.startDate,
+        endDate: req.body.endDate,
       });
+
+      const response = { success: true, draft: updatedDraft };
+      if (draftTimeWarnings.length > 0) {
+        response.timeOrderingWarnings = draftTimeWarnings;
+      }
+      res.json(response);
     } catch (error) {
       console.error('Error updating draft:', error);
       res.status(500).json({ error: error.message });
@@ -1037,6 +1095,10 @@ function createTestApp(options = {}) {
       if (!cd.locations || cd.locations.length === 0) validationErrors.push('At least one room must be selected');
       if (!cd.categories || cd.categories.length === 0) validationErrors.push('At least one category must be selected');
       if (!cd.attendeeCount || cd.attendeeCount < 1) validationErrors.push('Expected attendee count is required');
+
+      // Validate time ordering chain
+      const timeOrderErrors = validateReservationTimeOrdering(cd);
+      validationErrors.push(...timeOrderErrors);
 
       if (validationErrors.length > 0) {
         return res.status(400).json({
@@ -2769,6 +2831,18 @@ function createTestApp(options = {}) {
       }
       if (!attendeeCount || parseInt(attendeeCount) < 1) {
         return res.status(400).json({ error: 'Expected attendee count is required and must be at least 1' });
+      }
+
+      // Validate time ordering chain
+      const { setupTime, teardownTime, doorOpenTime, doorCloseTime,
+              reservationStartTime, reservationEndTime } = req.body;
+      const editTimeErrors = validateReservationTimeOrdering({
+        reservationStartTime, setupTime, doorOpenTime, startTime,
+        endTime, doorCloseTime, teardownTime, reservationEndTime,
+        startDate, endDate,
+      });
+      if (editTimeErrors.length > 0) {
+        return res.status(400).json({ error: 'Invalid time ordering', validationErrors: editTimeErrors });
       }
 
       // Version conflict check
