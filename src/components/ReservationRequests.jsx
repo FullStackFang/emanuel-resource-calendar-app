@@ -31,7 +31,7 @@ export default function ReservationRequests({ graphToken }) {
   const authFetch = useAuthenticatedFetch();
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
-  const { showError } = useNotification();
+  const { showSuccess, showWarning, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -97,6 +97,19 @@ export default function ReservationRequests({ graphToken }) {
       if (result?.recurringConflicts?.conflictingOccurrences > 0) {
         const rc = result.recurringConflicts;
         showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+      } else if (result?.duplicated) {
+        if (result.failCount > 0) {
+          showWarning(`${result.count} of ${result.count + result.failCount} duplicate(s) created — some failed`);
+        } else if (result.count === 1 && result.dates?.[0]) {
+          const label = new Date(result.dates[0] + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          showSuccess(result.autoPublished
+            ? `Event duplicated to ${label}`
+            : `Duplicate request for ${label} submitted for approval`);
+        } else {
+          showSuccess(result.autoPublished
+            ? `Event duplicated to ${result.count} dates`
+            : `${result.count} duplicate requests submitted for approval`);
+        }
       }
     },
     onError: (error) => { showError(error, { context: 'ReservationRequests' }); }

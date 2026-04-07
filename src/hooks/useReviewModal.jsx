@@ -1872,14 +1872,20 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setShowDuplicateDialog(false);
 
     if (successCount > 0) {
-      if (onSuccess) onSuccess({ duplicated: true, count: successCount, failCount });
+      notifySuccess({
+        duplicated: true,
+        count: successCount,
+        failCount,
+        autoPublished: canCreateEvents,
+        dates: selectedDates,
+      });
       dispatchRefresh('duplicate');
-      dispatchRefresh('duplicate', 'navigation-counts');
+      await closeModal(true);
     }
     if (failCount > 0 && successCount === 0 && onError) {
       onError('Failed to create reservations');
     }
-  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, onSuccess, onError, getFormData]);
+  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, notifySuccess, onError, getFormData, closeModal]);
 
   return {
     // State

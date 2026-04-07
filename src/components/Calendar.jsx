@@ -423,6 +423,19 @@ import ConflictDialog from './shared/ConflictDialog';
           showSuccess('Edit request approved and published');
         } else if (result?.editRequestRejected) {
           showSuccess('Edit request rejected');
+        } else if (result?.duplicated) {
+          if (result.failCount > 0) {
+            showWarning(`${result.count} of ${result.count + result.failCount} duplicate(s) created — some failed`);
+          } else if (result.count === 1 && result.dates?.[0]) {
+            const label = new Date(result.dates[0] + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            showSuccess(result.autoPublished
+              ? `Event duplicated to ${label}`
+              : `Duplicate request for ${label} submitted for approval`);
+          } else {
+            showSuccess(result.autoPublished
+              ? `Event duplicated to ${result.count} dates`
+              : `${result.count} duplicate requests submitted for approval`);
+          }
         } else if (result?.event?.status === 'published') {
           showSuccess('Event published');
           if (result?.recurringConflicts?.conflictingOccurrences > 0) {
