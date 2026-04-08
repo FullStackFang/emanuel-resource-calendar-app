@@ -6530,11 +6530,12 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     } else if (view === 'approval-queue') {
       // Approval queue shows events with roomReservationData (reservation workflow)
-      // OR events with a pending cancellation request (even without roomReservationData)
+      // OR events with a pending cancellation/edit request (even without roomReservationData)
       query.isDeleted = { $ne: true };
       query.$or = [
         { roomReservationData: { $exists: true, $ne: null } },
-        { 'pendingCancellationRequest.status': 'pending' }
+        { 'pendingCancellationRequest.status': 'pending' },
+        { 'pendingEditRequest.status': 'pending' }
       ];
       if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
@@ -6825,13 +6826,14 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
 
     } else if (view === 'approval-queue') {
       // Single aggregation instead of 4 parallel countDocuments (avoids Cosmos DB rate limits)
-      // Include events with roomReservationData OR pending cancellation requests
+      // Include events with roomReservationData OR pending cancellation/edit requests
       const pipeline = [
         { $match: {
           isDeleted: { $ne: true },
           $or: [
             { roomReservationData: { $exists: true, $ne: null } },
-            { 'pendingCancellationRequest.status': 'pending' }
+            { 'pendingCancellationRequest.status': 'pending' },
+            { 'pendingEditRequest.status': 'pending' }
           ]
         }},
         { $group: {

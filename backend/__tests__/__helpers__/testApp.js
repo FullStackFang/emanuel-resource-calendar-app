@@ -4632,9 +4632,13 @@ function createTestApp(options = {}) {
           }
         }
       } else if (view === 'approval-queue') {
-        // Approval queue only shows statuses relevant to approver workflow
+        // Approval queue shows events with roomReservationData OR pending cancellation/edit requests
         query.isDeleted = { $ne: true };
-        query.roomReservationData = { $exists: true, $ne: null };
+        query.$or = [
+          { roomReservationData: { $exists: true, $ne: null } },
+          { 'pendingCancellationRequest.status': 'pending' },
+          { 'pendingEditRequest.status': 'pending' }
+        ];
         if (status === 'pending') {
           query.status = { $in: ['pending', 'room-reservation-request'] };
         } else if (status === 'published' || status === 'rejected') {
@@ -4778,19 +4782,24 @@ function createTestApp(options = {}) {
       } else if (view === 'approval-queue') {
         const baseQuery = {
           isDeleted: { $ne: true },
-          roomReservationData: { $exists: true, $ne: null },
+          $or: [
+            { roomReservationData: { $exists: true, $ne: null } },
+            { 'pendingCancellationRequest.status': 'pending' },
+            { 'pendingEditRequest.status': 'pending' }
+          ],
         };
 
-        const [pending, publishedTotal, published_edit, rejected] = await Promise.all([
+        const [pending, publishedTotal, published_edit, published_cancellation, rejected] = await Promise.all([
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
         ]);
 
         const all = pending + publishedTotal + rejected;
-        const published = publishedTotal - published_edit;
-        res.json({ all, pending, published, published_edit, rejected });
+        const published = publishedTotal - published_edit - published_cancellation;
+        res.json({ all, pending, published, published_edit, published_cancellation, rejected });
       }
     } catch (error) {
       console.error('Error in GET /api/events/list/counts:', error);

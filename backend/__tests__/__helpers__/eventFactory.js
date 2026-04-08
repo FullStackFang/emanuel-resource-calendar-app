@@ -79,8 +79,8 @@ function createBaseEvent(options = {}) {
     seriesMasterId: options.seriesMasterId || null,
     recurrence: options.recurrence || null,
 
-    // Room reservation data (for reservation workflow)
-    roomReservationData: options.roomReservationData || {
+    // Room reservation data (for reservation workflow) — use !== undefined to allow explicit null
+    roomReservationData: options.roomReservationData !== undefined ? options.roomReservationData : {
       requestedBy: {
         userId: options.userId || 'test-user',
         name: options.requesterName || 'Test Requester',
