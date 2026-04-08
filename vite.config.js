@@ -62,6 +62,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
+        // Use production Workbox bundles (no logger.js debug output)
+        mode: 'production',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         navigateFallback: '/index.html',
         // Don't cache API calls, auth redirects, or SSE connections

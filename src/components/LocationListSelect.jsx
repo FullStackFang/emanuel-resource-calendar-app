@@ -1,10 +1,10 @@
 // src/components/LocationListSelect.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import './LocationListSelect.css';
 
 const ITEMS_PER_PAGE = 8;
 
-export default function LocationListSelect({
+function LocationListSelect({
   rooms,
   availability,
   selectedRooms,
@@ -25,88 +25,86 @@ export default function LocationListSelect({
   const [currentPage, setCurrentPage] = useState(0);
 
   // Helper function to normalize IDs for comparison (handles ObjectId vs string mismatch)
-  const normalizeId = (id) => id?.toString() || id;
+  const normalizeId = useCallback((id) => id?.toString() || id, []);
 
   // Check if a room is selected using normalized comparison
-  const isRoomSelected = (roomId) => {
+  const isRoomSelected = useCallback((roomId) => {
     const normalizedRoomId = normalizeId(roomId);
     return selectedRooms.some(selectedId => normalizeId(selectedId) === normalizedRoomId);
-  };
+  }, [selectedRooms, normalizeId]);
 
-  // Helper function to check if two time ranges overlap
-  const checkTimeOverlap = (start1, end1, start2, end2) => {
-    return start1 < end2 && end1 > start2;
-  };
-
-  // Dynamically calculate if a room has conflicts based on current event time
-  const checkRoomConflicts = (room) => {
-    // If no event time is set, can't determine conflicts
+  // Pre-compute conflict results for all rooms (avoids per-room recalculation during render)
+  const roomConflictMap = useMemo(() => {
+    const map = new Map();
     if (!eventStartTime || !eventEndTime || !eventDate) {
-      return { hasConflicts: false, conflictCount: 0 };
+      return map;
     }
-
-    const roomAvailability = availability.find(a => normalizeId(a.room._id) === normalizeId(room._id));
-    if (!roomAvailability) {
-      return { hasConflicts: false, conflictCount: 0 };
-    }
-
-    // Parse user's event times
     const userStart = new Date(`${eventDate}T${eventStartTime}`);
     const userEnd = new Date(`${eventDate}T${eventEndTime}`);
 
-    let conflictCount = 0;
+    rooms.forEach(room => {
+      const roomAvailability = availability.find(a => normalizeId(a.room._id) === normalizeId(room._id));
+      if (!roomAvailability) {
+        map.set(normalizeId(room._id), { hasConflicts: false, conflictCount: 0 });
+        return;
+      }
 
-    // Check reservation conflicts
-    if (roomAvailability.conflicts?.reservations) {
-      roomAvailability.conflicts.reservations.forEach(res => {
-        const resStart = new Date(res.effectiveStart);
-        const resEnd = new Date(res.effectiveEnd);
-        if (checkTimeOverlap(userStart, userEnd, resStart, resEnd)) {
-          conflictCount++;
-        }
-      });
-    }
+      let conflictCount = 0;
+      if (roomAvailability.conflicts?.reservations) {
+        roomAvailability.conflicts.reservations.forEach(res => {
+          const resStart = new Date(res.effectiveStart);
+          const resEnd = new Date(res.effectiveEnd);
+          if (userStart < resEnd && userEnd > resStart) conflictCount++;
+        });
+      }
+      if (roomAvailability.conflicts?.events) {
+        roomAvailability.conflicts.events.forEach(evt => {
+          const evtStart = new Date(evt.start);
+          const evtEnd = new Date(evt.end);
+          if (userStart < evtEnd && userEnd > evtStart) conflictCount++;
+        });
+      }
+      map.set(normalizeId(room._id), { hasConflicts: conflictCount > 0, conflictCount });
+    });
+    return map;
+  }, [rooms, availability, eventStartTime, eventEndTime, eventDate, normalizeId]);
 
-    // Check calendar event conflicts
-    if (roomAvailability.conflicts?.events) {
-      roomAvailability.conflicts.events.forEach(evt => {
-        const evtStart = new Date(evt.start);
-        const evtEnd = new Date(evt.end);
-        if (checkTimeOverlap(userStart, userEnd, evtStart, evtEnd)) {
-          conflictCount++;
-        }
-      });
-    }
+  const checkRoomConflicts = useCallback((room) => {
+    return roomConflictMap.get(normalizeId(room._id)) || { hasConflicts: false, conflictCount: 0 };
+  }, [roomConflictMap, normalizeId]);
 
-    return { hasConflicts: conflictCount > 0, conflictCount };
-  };
+  // Memoize all derived room lists to avoid O(n) work on every render
+  const { paginatedRooms, combinedRooms, totalPages } = useMemo(() => {
+    // Get full room objects for selected IDs
+    const selectedRoomsData = rooms.filter(room =>
+      selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
+    );
 
-  // Get full room objects for selected IDs
-  const selectedRoomsData = rooms.filter(room =>
-    selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
-  );
+    // Filter rooms based on search term
+    const lowerSearch = searchTerm.toLowerCase();
+    const filteredRooms = lowerSearch
+      ? rooms.filter(room =>
+          room.name.toLowerCase().includes(lowerSearch) ||
+          room.building?.toLowerCase().includes(lowerSearch) ||
+          room.features?.some(feature => feature.toLowerCase().includes(lowerSearch))
+        )
+      : rooms;
 
-  // Filter rooms based on search term
-  const filteredRooms = rooms.filter(room =>
-    room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.building?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.features?.some(feature => feature.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+    // Get unselected rooms from filtered results
+    const unselectedRooms = filteredRooms.filter(room =>
+      !selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
+    );
 
-  // Get unselected rooms from filtered results
-  const unselectedRooms = filteredRooms.filter(room =>
-    !selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
-  );
+    // Combine: selected first (always shown), then unselected
+    const combined = [...selectedRoomsData, ...unselectedRooms];
 
-  // Combine: selected first (always shown), then unselected
-  // Selected rooms are NOT filtered by search - they always appear at top
-  const combinedRooms = [...selectedRoomsData, ...unselectedRooms];
+    // Calculate pagination
+    const pages = Math.ceil(combined.length / ITEMS_PER_PAGE);
+    const startIndex = currentPage * ITEMS_PER_PAGE;
+    const paginated = combined.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
-  // Calculate pagination for combined list
-  const totalPages = Math.ceil(combinedRooms.length / ITEMS_PER_PAGE);
-  const startIndex = currentPage * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const paginatedRooms = combinedRooms.slice(startIndex, endIndex);
+    return { paginatedRooms: paginated, combinedRooms: combined, totalPages: pages };
+  }, [rooms, selectedRooms, searchTerm, currentPage, normalizeId]);
 
   // Reset to first page when search changes or when current page is out of bounds
   useEffect(() => {
@@ -122,7 +120,7 @@ export default function LocationListSelect({
     setCurrentPage(0);
   }, [searchTerm]);
 
-  const toggleRoom = (room) => {
+  const toggleRoom = useCallback((room) => {
     const roomId = normalizeId(room._id);
     const isCurrentlySelected = selectedRooms.some(id => normalizeId(id) === roomId);
 
@@ -130,13 +128,13 @@ export default function LocationListSelect({
       ? selectedRooms.filter(id => normalizeId(id) !== roomId)
       : [...selectedRooms, room._id];
     onRoomSelectionChange(newSelected);
-  };
+  }, [selectedRooms, normalizeId, onRoomSelectionChange]);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     onRoomSelectionChange([]);
-  };
+  }, [onRoomSelectionChange]);
 
-  const getRoomStatus = (room) => {
+  const getRoomStatus = useCallback((room) => {
     const { hasConflicts } = checkRoomConflicts(room);
     const { meetsCapacity } = checkRoomCapacity(room);
 
@@ -147,9 +145,9 @@ export default function LocationListSelect({
     } else {
       return { status: 'available', color: '#16a34a', icon: '✓', text: 'Available' };
     }
-  };
+  }, [checkRoomConflicts, checkRoomCapacity]);
 
-  const getFeatureIcons = (features) => {
+  const getFeatureIcons = useCallback((features) => {
     const iconMap = {
       'Kitchen': '🍽️',
       'AV Equipment': '📺',
@@ -166,7 +164,7 @@ export default function LocationListSelect({
     };
 
     return features?.slice(0, 4).map(feature => iconMap[feature] || '•').join(' ') || '';
-  };
+  }, []);
 
   return (
     <div className="location-list-select">
@@ -273,3 +271,5 @@ export default function LocationListSelect({
     </div>
   );
 }
+
+export default React.memo(LocationListSelect);

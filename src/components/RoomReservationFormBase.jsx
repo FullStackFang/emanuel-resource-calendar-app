@@ -1008,20 +1008,27 @@ export default function RoomReservationFormBase({
     notifyDataChange(updatedData);
   };
 
-  const handleRoomSelectionChange = (newSelectedRooms) => {
-    const updatedData = {
-      ...formData,
-      requestedRooms: newSelectedRooms,
-      locationDisplayNames: newSelectedRooms.map(id => getLocationName(id)).join(', '),
-    };
-    setFormData(updatedData);
+  const handleRoomSelectionChange = useCallback((newSelectedRooms) => {
+    setFormData(prev => {
+      const updatedData = {
+        ...prev,
+        requestedRooms: newSelectedRooms,
+        locationDisplayNames: newSelectedRooms.map(id => getLocationName(id)).join(', '),
+      };
+      // Use setTimeout to batch the parent notification outside this render cycle
+      setTimeout(() => notifyDataChange(updatedData), 0);
+      return updatedData;
+    });
     setHasChanges(true);
+  }, [notifyDataChange, getLocationName]);
 
-    // Notify parent component of change so save button gets enabled
-    notifyDataChange(updatedData);
-  };
+  const handleOffsiteToggle = useCallback(() => {
+    // Clear selected rooms when opening offsite modal
+    setFormData(prev => ({ ...prev, requestedRooms: [] }));
+    setShowOffsiteModal(true);
+  }, []);
 
-  const handleRemoveAssistantRoom = (room) => {
+  const handleRemoveAssistantRoom = useCallback((room) => {
     // Update formData.requestedRooms - assistantRooms is derived from this via useMemo
     setFormData(prev => {
       const updatedRooms = prev.requestedRooms.filter(id => id !== room._id);
@@ -1032,13 +1039,14 @@ export default function RoomReservationFormBase({
       };
     });
     setHasChanges(true);
-  };
+  }, [getLocationName]);
 
-  const handleEventTimeChange = (updatedTimes) => {
+  const handleEventTimeChange = useCallback((updatedTimes) => {
+    setFormData(prev => {
     // Only update fields that were explicitly included in the update.
     // Optional times (setupTime, teardownTime, doorOpenTime, doorCloseTime) are only
     // included when they have values and were changed; otherwise they're preserved from formData.
-    const updatedData = { ...formData };
+    const updatedData = { ...prev };
     if ('startTime' in updatedTimes) updatedData.startTime = updatedTimes.startTime;
     if ('endTime' in updatedTimes) updatedData.endTime = updatedTimes.endTime;
     if ('setupTime' in updatedTimes) updatedData.setupTime = updatedTimes.setupTime;
@@ -1071,16 +1079,17 @@ export default function RoomReservationFormBase({
     // Whole-block drag (both flags true): SA shifts all times by the same delta,
     // so they remain internally consistent — no expansion or clamping needed.
 
-    setFormData(updatedData);
+    // Notify parent of data change (deferred to avoid cascading during render)
+    setTimeout(() => notifyDataChange(updatedData), 0);
+    return updatedData;
+    });
     setHasChanges(true);
+  }, [notifyDataChange]);
 
-    // Notify parent of data change (consistent with handleInputChange)
-    notifyDataChange(updatedData);
-  };
-
-  const handleClearEventTime = () => {
+  const handleClearEventTime = useCallback(() => {
+    setFormData(prev => {
     const updatedData = {
-      ...formData,
+      ...prev,
       startTime: '',
       endTime: '',
       setupTime: '',
@@ -1090,19 +1099,20 @@ export default function RoomReservationFormBase({
       reservationStartMinutes: 0,
       reservationEndMinutes: 0,
     };
-    setFormData(updatedData);
+    setTimeout(() => notifyDataChange(updatedData), 0);
+    return updatedData;
+    });
     setHasChanges(true);
-    notifyDataChange(updatedData);
-  };
+  }, [notifyDataChange]);
 
-  const handleTimeSlotClick = (hour) => {
+  const handleTimeSlotClick = useCallback((hour) => {
     // Create a 1-hour reservation block at the clicked hour
     const startTime = `${String(hour).padStart(2, '0')}:00`;
     const endHour = Math.min(hour + 1, 23);
     const endMinute = hour >= 23 ? '59' : '00';
     const endTime = `${String(endHour).padStart(2, '0')}:${endMinute}`;
     handleEventTimeChange({ reservationStartTime: startTime, reservationEndTime: endTime });
-  };
+  }, [handleEventTimeChange]);
 
   // Toggle ad hoc calendar picker visibility
   const handleToggleAdHocPicker = () => {
@@ -1176,7 +1186,7 @@ export default function RoomReservationFormBase({
     }
   };
 
-  const checkRoomCapacity = (room) => {
+  const checkRoomCapacity = useCallback((room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
       return {
         meetsCapacity: false,
@@ -1184,7 +1194,7 @@ export default function RoomReservationFormBase({
       };
     }
     return { meetsCapacity: true, issue: null };
-  };
+  }, [formData.attendeeCount]);
 
   // Determine if fields should be disabled
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
@@ -2033,11 +2043,7 @@ export default function RoomReservationFormBase({
                     eventDate={formData.startDate}
                     isOffsite={formData.isOffsite}
                     offsiteName={formData.offsiteName}
-                    onOffsiteToggle={() => {
-                      // Clear selected rooms when opening offsite modal
-                      setFormData(prev => ({ ...prev, requestedRooms: [] }));
-                      setShowOffsiteModal(true);
-                    }}
+                    onOffsiteToggle={handleOffsiteToggle}
                     disabled={fieldsDisabled}
                   />
                 )}

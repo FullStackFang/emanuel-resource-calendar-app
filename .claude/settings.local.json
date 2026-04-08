@@ -113,7 +113,10 @@
       "Bash(for file:*)",
       "Bash(do if:*)",
       "Bash(then echo:*)",
-      "Skill(wizard)"
+      "Skill(wizard)",
+      "Bash(az webapp:*)",
+      "Read(//mnt/c/Users/Stephen.Fang/**)",
+      "Bash(unzip -o webapp-logs.zip -d webapp-logs)"
     ],
     "deny": []
   },

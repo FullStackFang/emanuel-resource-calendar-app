@@ -170,6 +170,35 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, [apiToken, eventVersion, onError]);
 
   /**
+   * Fetch the latest _version from the server and update local state.
+   * Used by edit/cancellation request handlers where the version may have drifted
+   * since the modal was opened (e.g., delta sync or admin save on the same event).
+   * Returns the fresh version number, or falls back to the current eventVersion.
+   */
+  const fetchFreshVersion = useCallback(async (itemId) => {
+    if (!itemId || !apiToken) return eventVersion;
+    try {
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      });
+      if (!res.ok) return eventVersion;
+      const data = await res.json();
+      if (data._version != null) {
+        if (data._version !== eventVersion) {
+          logger.debug('[useReviewModal] Version drift detected, refreshing:', {
+            stale: eventVersion, fresh: data._version
+          });
+          setEventVersion(data._version);
+        }
+        return data._version;
+      }
+      return eventVersion;
+    } catch {
+      return eventVersion; // Network error — use existing version, OCC catches real conflicts
+    }
+  }, [apiToken, eventVersion]);
+
+  /**
    * Open modal with a reservation or event
    * @param {Object} item - The reservation or event to open
    * @param {Object} options - Optional settings
@@ -1229,6 +1258,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
+      const freshVersion = await fetchFreshVersion(eventId);
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
         {
@@ -1239,7 +1271,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           },
           body: JSON.stringify({
             notes: '',
-            _version: eventVersion ?? null,
+            _version: freshVersion ?? null,
             ...(approverChanges && { approverChanges })
           })
         }
@@ -1281,7 +1313,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingEditRequest(false);
       setPendingEditRequestApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+  }, [currentItem, apiToken, fetchFreshVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setPendingEditRequestApproveConfirmation(false);
@@ -1312,6 +1344,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
+      const freshVersion = await fetchFreshVersion(eventId);
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
         {
@@ -1322,7 +1357,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           },
           body: JSON.stringify({
             reason: editRequestRejectionReason.trim(),
-            _version: eventVersion ?? null,
+            _version: freshVersion ?? null,
           })
         }
       );
@@ -1359,7 +1394,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingEditRequest(false);
       setPendingEditRequestRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+  }, [currentItem, apiToken, fetchFreshVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
 
   const cancelEditRequestRejectConfirmation = useCallback(() => {
     setPendingEditRequestRejectConfirmation(false);
@@ -1384,6 +1419,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
+      const freshVersion = await fetchFreshVersion(eventId);
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-cancellation`,
         {
@@ -1394,7 +1432,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           },
           body: JSON.stringify({
             notes: '',
-            _version: eventVersion ?? null,
+            _version: freshVersion ?? null,
           })
         }
       );
@@ -1430,7 +1468,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingCancellation(false);
       setPendingCancellationApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, pendingCancellationApproveConfirmation]);
+  }, [currentItem, apiToken, fetchFreshVersion, notifySuccess, onError, closeModal, pendingCancellationApproveConfirmation]);
 
   const cancelCancellationApproveConfirmation = useCallback(() => {
     setPendingCancellationApproveConfirmation(false);
@@ -1456,6 +1494,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
+      const freshVersion = await fetchFreshVersion(eventId);
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-cancellation`,
         {
@@ -1466,7 +1507,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           },
           body: JSON.stringify({
             reason: cancellationRejectionReason.trim(),
-            _version: eventVersion ?? null,
+            _version: freshVersion ?? null,
           })
         }
       );
@@ -1503,7 +1544,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingCancellation(false);
       setPendingCancellationRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, eventVersion, cancellationRejectionReason, notifySuccess, onError, closeModal, pendingCancellationRejectConfirmation]);
+  }, [currentItem, apiToken, fetchFreshVersion, cancellationRejectionReason, notifySuccess, onError, closeModal, pendingCancellationRejectConfirmation]);
 
   const cancelCancellationRejectConfirmation = useCallback(() => {
     setPendingCancellationRejectConfirmation(false);

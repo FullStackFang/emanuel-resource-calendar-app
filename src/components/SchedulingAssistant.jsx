@@ -9,7 +9,7 @@ import {
 } from '../utils/appTimeUtils';
 import './SchedulingAssistant.css';
 
-export default function SchedulingAssistant({
+function SchedulingAssistant({
   selectedRooms,
   selectedDate,
   eventStartTime,
@@ -2244,3 +2244,5 @@ export default function SchedulingAssistant({
     </div>
   );
 }
+
+export default React.memo(SchedulingAssistant);

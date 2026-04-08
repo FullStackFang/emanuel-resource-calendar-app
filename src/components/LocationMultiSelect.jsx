@@ -1,8 +1,8 @@
 // src/components/LocationMultiSelect.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './LocationMultiSelect.css';
 
-export default function LocationMultiSelect({
+function LocationMultiSelect({
   rooms,
   availability,
   selectedRooms,
@@ -18,60 +18,56 @@ export default function LocationMultiSelect({
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
 
-  // Helper function to check if two time ranges overlap
-  const checkTimeOverlap = (start1, end1, start2, end2) => {
-    return start1 < end2 && end1 > start2;
-  };
-
-  // Dynamically calculate if a room has conflicts based on current event time
-  const checkRoomConflicts = (room) => {
-    // If no event time is set, can't determine conflicts
+  // Pre-compute conflict results for all rooms (avoids per-room recalculation during render)
+  const roomConflictMap = useMemo(() => {
+    const map = new Map();
     if (!eventStartTime || !eventEndTime || !eventDate) {
-      return { hasConflicts: false, conflictCount: 0 };
+      return map;
     }
-
-    const roomAvailability = availability.find(a => a.room._id === room._id);
-    if (!roomAvailability) {
-      return { hasConflicts: false, conflictCount: 0 };
-    }
-
-    // Parse user's event times
     const userStart = new Date(`${eventDate}T${eventStartTime}`);
     const userEnd = new Date(`${eventDate}T${eventEndTime}`);
 
-    let conflictCount = 0;
+    rooms.forEach(room => {
+      const roomAvailability = availability.find(a => a.room._id === room._id);
+      if (!roomAvailability) {
+        map.set(room._id, { hasConflicts: false, conflictCount: 0 });
+        return;
+      }
 
-    // Check reservation conflicts
-    if (roomAvailability.conflicts?.reservations) {
-      roomAvailability.conflicts.reservations.forEach(res => {
-        const resStart = new Date(res.effectiveStart);
-        const resEnd = new Date(res.effectiveEnd);
-        if (checkTimeOverlap(userStart, userEnd, resStart, resEnd)) {
-          conflictCount++;
-        }
-      });
-    }
+      let conflictCount = 0;
+      if (roomAvailability.conflicts?.reservations) {
+        roomAvailability.conflicts.reservations.forEach(res => {
+          const resStart = new Date(res.effectiveStart);
+          const resEnd = new Date(res.effectiveEnd);
+          if (userStart < resEnd && userEnd > resStart) conflictCount++;
+        });
+      }
+      if (roomAvailability.conflicts?.events) {
+        roomAvailability.conflicts.events.forEach(evt => {
+          const evtStart = new Date(evt.start);
+          const evtEnd = new Date(evt.end);
+          if (userStart < evtEnd && userEnd > evtStart) conflictCount++;
+        });
+      }
+      map.set(room._id, { hasConflicts: conflictCount > 0, conflictCount });
+    });
+    return map;
+  }, [rooms, availability, eventStartTime, eventEndTime, eventDate]);
 
-    // Check calendar event conflicts
-    if (roomAvailability.conflicts?.events) {
-      roomAvailability.conflicts.events.forEach(evt => {
-        const evtStart = new Date(evt.start);
-        const evtEnd = new Date(evt.end);
-        if (checkTimeOverlap(userStart, userEnd, evtStart, evtEnd)) {
-          conflictCount++;
-        }
-      });
-    }
+  const checkRoomConflicts = useCallback((room) => {
+    return roomConflictMap.get(room._id) || { hasConflicts: false, conflictCount: 0 };
+  }, [roomConflictMap]);
 
-    return { hasConflicts: conflictCount > 0, conflictCount };
-  };
-
-  // Filter rooms based on search term
-  const filteredRooms = rooms.filter(room => 
-    room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.building?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.features?.some(feature => feature.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // Filter rooms based on search term (memoized)
+  const filteredRooms = useMemo(() => {
+    const lowerSearch = searchTerm.toLowerCase();
+    if (!lowerSearch) return rooms;
+    return rooms.filter(room =>
+      room.name.toLowerCase().includes(lowerSearch) ||
+      room.building?.toLowerCase().includes(lowerSearch) ||
+      room.features?.some(feature => feature.toLowerCase().includes(lowerSearch))
+    );
+  }, [rooms, searchTerm]);
 
   // Click outside handler
   useEffect(() => {
@@ -97,16 +93,14 @@ export default function LocationMultiSelect({
     }
   }, [isOpen]);
 
-  const toggleRoom = (room) => {
-    // Toggle room selection - allow selection even with conflicts
-    // Users can see conflicts in the scheduling assistant and work around them
+  const toggleRoom = useCallback((room) => {
     const newSelected = selectedRooms.includes(room._id)
       ? selectedRooms.filter(id => id !== room._id)
       : [...selectedRooms, room._id];
     onRoomSelectionChange(newSelected);
-  };
+  }, [selectedRooms, onRoomSelectionChange]);
 
-  const selectAllAvailable = () => {
+  const selectAllAvailable = useCallback(() => {
     const availableRooms = rooms.filter(room => {
       const { hasConflicts } = checkRoomConflicts(room);
       const { meetsCapacity } = checkRoomCapacity(room);
@@ -114,13 +108,13 @@ export default function LocationMultiSelect({
     });
 
     onRoomSelectionChange(availableRooms.map(room => room._id));
-  };
+  }, [rooms, checkRoomConflicts, checkRoomCapacity, onRoomSelectionChange]);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     onRoomSelectionChange([]);
-  };
+  }, [onRoomSelectionChange]);
 
-  const getRoomStatus = (room) => {
+  const getRoomStatus = useCallback((room) => {
     const { hasConflicts } = checkRoomConflicts(room);
     const { meetsCapacity } = checkRoomCapacity(room);
 
@@ -131,9 +125,9 @@ export default function LocationMultiSelect({
     } else {
       return { status: 'available', color: '#16a34a', icon: '✓', text: 'Available' };
     }
-  };
+  }, [checkRoomConflicts, checkRoomCapacity]);
 
-  const getFeatureIcons = (features) => {
+  const getFeatureIcons = useCallback((features) => {
     const iconMap = {
       'Kitchen': '🍽️',
       'AV Equipment': '📺',
@@ -148,9 +142,9 @@ export default function LocationMultiSelect({
       'Tables': '📋',
       'Chairs': '💺'
     };
-    
+
     return features?.slice(0, 4).map(feature => iconMap[feature] || '•').join(' ') || '';
-  };
+  }, []);
 
   return (
     <div ref={dropdownRef} className="location-multiselect">
@@ -294,3 +288,5 @@ export default function LocationMultiSelect({
     </div>
   );
 }
+
+export default React.memo(LocationMultiSelect);
