@@ -20330,6 +20330,22 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       });
     }
 
+    // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
+    if (originalEvent.eventType === 'seriesMaster' && (startDateTime || endDateTime)) {
+      const cd = originalEvent.calendarData || {};
+      const originalStartDate = cd.startDateTime ? cd.startDateTime.replace(/Z$/, '').split('T')[0] : null;
+      const originalEndDate = cd.endDateTime ? cd.endDateTime.replace(/Z$/, '').split('T')[0] : null;
+      const proposedStartDate = startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : null;
+      const proposedEndDate = endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : null;
+
+      if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
+          (proposedEndDate && proposedEndDate !== originalEndDate)) {
+        return res.status(400).json({
+          error: 'Date changes are not allowed in edit requests for recurring series. Only time changes are permitted. Contact an administrator to modify the recurrence pattern.'
+        });
+      }
+    }
+
     // Mutual exclusion: no pending cancellation request
     if (originalEvent.pendingCancellationRequest && originalEvent.pendingCancellationRequest.status === 'pending') {
       return res.status(400).json({

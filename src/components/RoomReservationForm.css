@@ -2613,6 +2613,15 @@ select.input-changed:focus {
   color: var(--color-warning-700);
 }
 
+.edit-request-mode-banner.recurring-date-lock {
+  background: linear-gradient(135deg, var(--color-warning-100) 0%, var(--color-warning-50) 100%);
+  border-color: var(--color-warning-400);
+}
+
+.edit-request-mode-banner.recurring-date-lock .edit-request-mode-banner-text {
+  color: var(--color-warning-700);
+}
+
 /* Rejection Reason Banner (shown in rejected event details) */
 .rejection-reason-banner {
   display: flex;

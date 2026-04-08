@@ -605,14 +605,14 @@ export default function RoomReservationReview({
                 <div className="tab-content-pad">
                   <RecurrenceTabContent
                     recurrencePattern={recurrencePattern}
-                    onRecurrencePatternChange={handleRecurrencePatternChange}
+                    onRecurrencePatternChange={isEditRequestMode ? undefined : handleRecurrencePatternChange}
                     occurrenceOverrides={occurrenceOverrides}
-                    onOccurrenceOverridesChange={handleOccurrenceOverridesChange}
+                    onOccurrenceOverridesChange={isEditRequestMode ? undefined : handleOccurrenceOverridesChange}
                     reservation={reservation}
                     formData={liveFormData || (formDataRef.current ? formDataRef.current() : null)}
                     apiToken={apiToken}
                     editScope={editScope}
-                    readOnly={effectiveReadOnly}
+                    readOnly={effectiveReadOnly || isEditRequestMode}
                     onHasUncommittedRecurrence={onHasUncommittedRecurrence}
                     createRecurrenceRef={createRecurrenceRef}
                     commitPendingOverridesRef={commitPendingOverridesRef}

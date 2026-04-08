@@ -3155,6 +3155,22 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'An edit request already exists for this event' });
       }
 
+      // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
+      if (event.eventType === 'seriesMaster' && (proposedChanges.startDateTime || proposedChanges.endDateTime)) {
+        const cd = event.calendarData || {};
+        const originalStartDate = cd.startDateTime ? cd.startDateTime.replace(/Z$/, '').split('T')[0] : null;
+        const originalEndDate = cd.endDateTime ? cd.endDateTime.replace(/Z$/, '').split('T')[0] : null;
+        const proposedStartDate = proposedChanges.startDateTime ? proposedChanges.startDateTime.replace(/Z$/, '').split('T')[0] : null;
+        const proposedEndDate = proposedChanges.endDateTime ? proposedChanges.endDateTime.replace(/Z$/, '').split('T')[0] : null;
+
+        if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
+            (proposedEndDate && proposedEndDate !== originalEndDate)) {
+          return res.status(400).json({
+            error: 'Date changes are not allowed in edit requests for recurring series. Only time changes are permitted. Contact an administrator to modify the recurrence pattern.'
+          });
+        }
+      }
+
       // Mutual exclusion: no pending cancellation request
       if (event.pendingCancellationRequest && event.pendingCancellationRequest.status === 'pending') {
         return res.status(400).json({ error: 'Cannot submit an edit request while a cancellation request is pending' });
