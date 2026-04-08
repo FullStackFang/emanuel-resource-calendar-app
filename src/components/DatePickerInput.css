@@ -7,3 +7,10 @@
   display: none !important;
   -webkit-appearance: none;
 }
+
+.date-picker-wrapper .date-picker-native-input:disabled {
+  background-color: var(--bg-secondary);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}

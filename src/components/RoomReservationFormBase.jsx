@@ -1193,8 +1193,8 @@ export default function RoomReservationFormBase({
   const isApproverViewingEditRequest = isViewingEditRequest && (isAdmin || canEditEvents);
   const fieldsDisabled = (isViewingEditRequest && !isAdmin && !canEditEvents) || (readOnly && !isEditRequestMode && !isApproverViewingEditRequest) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft' && reservationStatus !== 'rejected');
 
-  // Recurring series masters: lock date pickers in edit request mode (dates are tied to recurrence pattern)
-  const isSeriesMasterEditRequest = isEditRequestMode && !!recurrencePattern;
+  // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
+  const isRecurringDateLocked = !!recurrencePattern;
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
   // even on published events. Only respect isViewingEditRequest for non-admin/non-approver users.
@@ -1291,11 +1291,11 @@ export default function RoomReservationFormBase({
             )}
 
             {/* Recurring Series Date Lock Banner */}
-            {isSeriesMasterEditRequest && (
+            {isRecurringDateLocked && (
               <div className="edit-request-mode-banner recurring-date-lock">
                 <span className="edit-request-mode-banner-icon">🔒</span>
                 <span className="edit-request-mode-banner-text">
-                  Date changes for recurring series must be made by an administrator via the Recurrence tab. You may still change event times.
+                  Dates for recurring events are managed via the Recurrence tab. You may still change event times.
                 </span>
               </div>
             )}
@@ -1641,7 +1641,7 @@ export default function RoomReservationFormBase({
                   name="startDate"
                   value={formData.startDate}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled || isSeriesMasterEditRequest}
+                  disabled={fieldsDisabled || isRecurringDateLocked}
                   required
                   className={hasFieldChanged('startDate') ? 'input-changed' : ''}
                 />
@@ -1663,7 +1663,7 @@ export default function RoomReservationFormBase({
                   value={formData.endDate}
                   onChange={handleInputChange}
                   min={formData.startDate}
-                  disabled={fieldsDisabled || isSeriesMasterEditRequest}
+                  disabled={fieldsDisabled || isRecurringDateLocked}
                   required
                   className={hasFieldChanged('endDate') ? 'input-changed' : ''}
                 />

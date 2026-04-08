@@ -11,6 +11,7 @@ const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail, ORGANIZER_FIELD_MAP } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
+const { extractDatePart } = require('../../utils/dateUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
@@ -3158,10 +3159,10 @@ function createTestApp(options = {}) {
       // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
       if (event.eventType === 'seriesMaster' && (proposedChanges.startDateTime || proposedChanges.endDateTime)) {
         const cd = event.calendarData || {};
-        const originalStartDate = cd.startDateTime ? cd.startDateTime.replace(/Z$/, '').split('T')[0] : null;
-        const originalEndDate = cd.endDateTime ? cd.endDateTime.replace(/Z$/, '').split('T')[0] : null;
-        const proposedStartDate = proposedChanges.startDateTime ? proposedChanges.startDateTime.replace(/Z$/, '').split('T')[0] : null;
-        const proposedEndDate = proposedChanges.endDateTime ? proposedChanges.endDateTime.replace(/Z$/, '').split('T')[0] : null;
+        const originalStartDate = extractDatePart(cd.startDateTime);
+        const originalEndDate = extractDatePart(cd.endDateTime);
+        const proposedStartDate = extractDatePart(proposedChanges.startDateTime);
+        const proposedEndDate = extractDatePart(proposedChanges.endDateTime);
 
         if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
             (proposedEndDate && proposedEndDate !== originalEndDate)) {

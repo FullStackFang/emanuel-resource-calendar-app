@@ -13,7 +13,7 @@ const request = require('supertest');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
-const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
+const { createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createRecurringSeriesMaster,
   createPublishedEvent,
@@ -21,6 +21,7 @@ const {
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
+const { extractDatePart } = require('../../../utils/dateUtils');
 
 describe('Edit Request Recurring Date Lock (ERDL-1 to ERDL-5)', () => {
   let mongoClient;
@@ -111,9 +112,9 @@ describe('Edit Request Recurring Date Lock (ERDL-1 to ERDL-5)', () => {
     const seriesMaster = createPublishedSeriesMaster();
     const [saved] = await insertEvents(db, [seriesMaster]);
 
-    // Keep same date, change only the time portion
-    const originalStartDate = saved.calendarData.startDate;
-    const originalEndDate = saved.calendarData.endDate;
+    // Extract date from startDateTime (authoritative), not startDate (can differ due to UTC)
+    const originalStartDate = extractDatePart(saved.calendarData.startDateTime);
+    const originalEndDate = extractDatePart(saved.calendarData.endDateTime);
 
     const res = await request(app)
       .post(`/api/events/${saved._id}/request-edit`)
@@ -126,7 +127,6 @@ describe('Edit Request Recurring Date Lock (ERDL-1 to ERDL-5)', () => {
         _version: saved._version,
       })
       .expect(200);
-
     expect(res.body.success).toBe(true);
     expect(res.body.event.pendingEditRequest.proposedChanges.startDateTime).toContain('T14:00');
   });

@@ -23,6 +23,7 @@ const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent, ORGANIZER_FIELD_MAP } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
+const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -20333,10 +20334,10 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
     if (originalEvent.eventType === 'seriesMaster' && (startDateTime || endDateTime)) {
       const cd = originalEvent.calendarData || {};
-      const originalStartDate = cd.startDateTime ? cd.startDateTime.replace(/Z$/, '').split('T')[0] : null;
-      const originalEndDate = cd.endDateTime ? cd.endDateTime.replace(/Z$/, '').split('T')[0] : null;
-      const proposedStartDate = startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : null;
-      const proposedEndDate = endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : null;
+      const originalStartDate = extractDatePart(cd.startDateTime);
+      const originalEndDate = extractDatePart(cd.endDateTime);
+      const proposedStartDate = extractDatePart(startDateTime);
+      const proposedEndDate = extractDatePart(endDateTime);
 
       if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
           (proposedEndDate && proposedEndDate !== originalEndDate)) {
