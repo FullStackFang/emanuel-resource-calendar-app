@@ -370,6 +370,21 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Replace editableData wholesale and force child form remount.
+   * Used for data swaps that need the form to re-initialize (e.g., viewing edit requests,
+   * restoring original data). Unlike updateData, this does NOT set hasChanges — callers
+   * handle that separately if needed.
+   *
+   * The reinitKey bump causes RoomReservationReview (keyed on reinitKey) to unmount/remount,
+   * which re-runs the useMemo(transformEventToFlatStructure) on the new data.
+   */
+  const replaceEditableData = useCallback((newData) => {
+    logger.log('[useReviewModal.replaceEditableData] Replacing data and forcing remount');
+    setEditableData(newData);
+    setReinitKey(prev => prev + 1);
+  }, []);
+
+  /**
    * Save changes to the reservation/event
    * Two-step confirmation: first click shows confirmation, second click executes
    */
@@ -1950,6 +1965,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     closeModal,
     updateData,
     restoreData, // Update data without marking as changed (for view-only toggles)
+    replaceEditableData, // Wholesale data replacement with forced remount (for view-edit-request/restore flows)
     updateCurrentItem, // Swap current item (e.g., occurrence -> master) with forced remount
     setIsFormValid,
     setIsHold,

@@ -206,7 +206,7 @@ export default function MyReservations() {
       // so the form comparison can detect individual field changes
       const decomposed = decomposeProposedChanges(proposedChanges);
 
-      reviewModal.updateData({
+      reviewModal.replaceEditableData({
         ...existingEditRequest,
         calendarData: {
           ...(currentData?.calendarData || {}),
@@ -220,7 +220,7 @@ export default function MyReservations() {
   // Toggle back to the original published event (view-only toggle, not a user edit)
   const handleViewOriginalEvent = useCallback(() => {
     if (originalEventData) {
-      reviewModal.restoreData(originalEventData);
+      reviewModal.replaceEditableData(originalEventData);
       setIsViewingEditRequest(false);
     }
   }, [originalEventData, reviewModal]);
@@ -1028,7 +1028,7 @@ export default function MyReservations() {
         // Conditional action overrides (role/status-gated)
         onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}
         onReject={!isRequesterOnly ? reviewModal.handleReject : null}
-        onSave={!isRequesterOnly && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
+        onSave={!isRequesterOnly && !reviewModal.isDraft ? reviewModal.handleSave : null}
         onDelete={(!isRequesterOnly || reviewModal.currentItem?.status === 'pending') ? reviewModal.handleDelete : null}
         onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
         onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}

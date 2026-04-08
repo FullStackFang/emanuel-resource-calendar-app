@@ -544,7 +544,7 @@ export default function ReservationRequests({ graphToken }) {
       // so calendarData has the separate fields the form needs for display and diff.
       const proposedChanges = existingEditRequest.proposedChanges || {};
       const decomposed = decomposeProposedChanges(proposedChanges);
-      reviewModal.updateData({
+      reviewModal.replaceEditableData({
         ...existingEditRequest,
         calendarData: {
           ...(currentData?.calendarData || {}),
@@ -558,7 +558,7 @@ export default function ReservationRequests({ graphToken }) {
   // Toggle back to the original published event
   const handleViewOriginalEvent = useCallback(() => {
     if (originalEventData) {
-      reviewModal.updateData(originalEventData);
+      reviewModal.replaceEditableData(originalEventData);
       setIsViewingEditRequest(false);
     }
   }, [originalEventData, reviewModal]);
@@ -993,7 +993,7 @@ export default function ReservationRequests({ graphToken }) {
           || ''
         }
         // Conditional action overrides (override spread defaults)
-        onSave={reviewModal.currentItem?.status === 'pending' ? null : reviewModal.handleSave}
+        onSave={reviewModal.handleSave}
         onDelete={reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleDelete : null}
         // Edit request local state
         existingEditRequest={existingEditRequest}

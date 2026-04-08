@@ -143,10 +143,14 @@ export default function RoomReservationReview({
 
   // Compute initialData synchronously from reservation prop using shared transformer (no flicker!)
   // The transformer handles: date/time parsing, HTML stripping, offsite detection, auto-defaults
+  // IMPORTANT: Depend on reservationId (not reservation reference) to prevent a feedback loop:
+  // form edit → updateData → new editableData ref → new reservation prop → useMemo recomputes
+  // → transformer reads stale calendarData → form resets. By depending on identity only,
+  // initialData recomputes only when a DIFFERENT event is loaded, not on every form keystroke.
   const initialData = useMemo(() => {
     if (!reservation) return {};
     return transformEventToFlatStructure(reservation);
-  }, [reservation]);
+  }, [reservationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update version when reservation changes
   useEffect(() => {

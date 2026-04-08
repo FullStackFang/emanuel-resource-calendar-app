@@ -4811,9 +4811,9 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleCancelEditRequest = useCallback(() => {
       setIsEditRequestMode(false);
       setOriginalEventData(null);
-      // Revert to original data
+      // Revert to original data (wholesale replacement needs remount to re-initialize form)
       if (originalEventData && reviewModal.editableData) {
-        reviewModal.updateData(originalEventData);
+        reviewModal.replaceEditableData(originalEventData);
       }
     }, [originalEventData, reviewModal]);
 
@@ -4942,7 +4942,7 @@ import ConflictDialog from './shared/ConflictDialog';
         const proposedChanges = existingEditRequest.proposedChanges || {};
         const decomposed = decomposeProposedChanges(proposedChanges);
 
-        reviewModal.updateData({
+        reviewModal.replaceEditableData({
           ...existingEditRequest,
           calendarData: {
             ...(currentData?.calendarData || {}),
@@ -4958,7 +4958,7 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const handleViewOriginalEvent = useCallback(() => {
       if (originalEventData) {
-        reviewModal.updateData(originalEventData);
+        reviewModal.replaceEditableData(originalEventData);
         setIsViewingEditRequest(false);
       }
     }, [originalEventData, reviewModal]);
@@ -6117,7 +6117,7 @@ import ConflictDialog from './shared/ConflictDialog';
           // Conditional action overrides (permission/status-gated)
           onApprove={canApproveReservations ? reviewModal.handleApprove : null}
           onReject={canApproveReservations ? reviewModal.handleReject : null}
-          onSave={canApproveReservations && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
+          onSave={canApproveReservations && !reviewModal.isDraft ? reviewModal.handleSave : null}
           onDelete={canDeleteEvents && reviewModal.currentItem?.status !== 'deleted' ? reviewModal.handleDelete : null}
           onRestore={canDeleteEvents && reviewModal.currentItem?.status === 'deleted' ? reviewModal.handleRestore : null}
           // Requester action buttons
