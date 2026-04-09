@@ -300,6 +300,8 @@ export function buildEditRequestPayload(data, { eventVersion } = {}) {
     specialRequirements: data.specialRequirements || '',
     setupTimeMinutes: data.setupTimeMinutes || data.reservationStartMinutes || 0,
     teardownTimeMinutes: data.teardownTimeMinutes || data.reservationEndMinutes || 0,
+    reservationStartMinutes: data.reservationStartMinutes || 0,
+    reservationEndMinutes: data.reservationEndMinutes || 0,
     setupTime: data.setupTime || null,
     teardownTime: data.teardownTime || null,
     reservationStartTime: data.reservationStartTime || null,

@@ -113,6 +113,8 @@ export default function EditRequestComparison({
       proposed: formatArray(proposed.categories || cd.categories),
       changed: proposed.categories !== undefined && arraysDiffer(proposed.categories, cd.categories)
     },
+    simpleField('Reservation Start Time', 'reservationStartTime', formatTime),
+    simpleField('Reservation End Time', 'reservationEndTime', formatTime),
     simpleField('Setup Time', 'setupTime', formatTime),
     simpleField('Teardown Time', 'teardownTime', formatTime),
     simpleField('Door Open Time', 'doorOpenTime', formatTime),

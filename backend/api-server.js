@@ -20406,10 +20406,13 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       'startDateTime', 'endDateTime',
       'attendeeCount',
       'setupTimeMinutes', 'teardownTimeMinutes',
+      'reservationStartMinutes', 'reservationEndMinutes',
       'setupTime', 'teardownTime',
+      'reservationStartTime', 'reservationEndTime',
       'doorOpenTime', 'doorCloseTime',
       'setupNotes', 'doorNotes', 'eventNotes',
       'specialRequirements',
+      'virtualMeetingUrl',
       'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon'
     ];
 
