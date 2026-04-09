@@ -6,7 +6,7 @@ import {
   buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload,
   buildRequesterPayload, buildGraphFields, buildInternalFields,
 } from '../utils/eventPayloadBuilder';
-import { transformEventToDuplicatePrefill } from '../utils/eventTransformers';
+import { transformEventToDuplicatePrefill, transformEventToFlatStructure } from '../utils/eventTransformers';
 import { usePermissions } from './usePermissions';
 import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
@@ -893,7 +893,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType,
             eventTitle: currentItem.eventTitle || 'Event',
             details: data.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -978,7 +978,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: data.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1050,7 +1050,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: data.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1138,7 +1138,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: errorData.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1289,7 +1289,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: errorData.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1369,7 +1369,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: errorData.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1444,7 +1444,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: errorData.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -1519,7 +1519,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
             details: errorData.details || {},
-            staleData: currentItem
+            staleData: transformEventToFlatStructure(currentItem)
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
