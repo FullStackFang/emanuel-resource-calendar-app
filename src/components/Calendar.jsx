@@ -1829,10 +1829,15 @@ import ConflictDialog from './shared/ConflictDialog';
                     eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,
                     // Per-occurrence isHold flag for null-time overrides
                     isHold: occurrence.isHoldOverride || false,
-                    // Apply location/timing/category overrides from occurrenceOverrides
+                    // Apply ALL per-occurrence override fields from occurrenceOverrides.
+                    // expandRecurringSeries spreads overrides via ...override, but Calendar rebuilds
+                    // the occurrence starting from ...event (master). Without re-applying override
+                    // fields here, master values win and overrides appear lost in the ReviewModal.
                     ...(occurrence.hasOccurrenceOverride ? {
+                      // Location overrides
                       ...(occurrence.locations !== undefined && { locations: occurrence.locations }),
                       ...(occurrence.locationDisplayNames !== undefined && { locationDisplayNames: occurrence.locationDisplayNames }),
+                      // Time overrides
                       ...(occurrence.startTime !== undefined && { startTime: occurrence.startTime }),
                       ...(occurrence.endTime !== undefined && { endTime: occurrence.endTime }),
                       ...(occurrence.setupTime !== undefined && { setupTime: occurrence.setupTime }),
@@ -1841,8 +1846,21 @@ import ConflictDialog from './shared/ConflictDialog';
                       ...(occurrence.reservationEndTime !== undefined && { reservationEndTime: occurrence.reservationEndTime }),
                       ...(occurrence.doorOpenTime !== undefined && { doorOpenTime: occurrence.doorOpenTime }),
                       ...(occurrence.doorCloseTime !== undefined && { doorCloseTime: occurrence.doorCloseTime }),
+                      // Category/service overrides
                       ...(occurrence.categories !== undefined && { categories: occurrence.categories }),
                       ...(occurrence.services !== undefined && { services: occurrence.services }),
+                      ...(occurrence.assignedTo !== undefined && { assignedTo: occurrence.assignedTo }),
+                      // Additional Information overrides
+                      ...(occurrence.setupNotes !== undefined && { setupNotes: occurrence.setupNotes }),
+                      ...(occurrence.doorNotes !== undefined && { doorNotes: occurrence.doorNotes }),
+                      ...(occurrence.eventNotes !== undefined && { eventNotes: occurrence.eventNotes }),
+                      ...(occurrence.specialRequirements !== undefined && { specialRequirements: occurrence.specialRequirements }),
+                      ...(occurrence.eventDescription !== undefined && { eventDescription: occurrence.eventDescription }),
+                      // Other overrides
+                      ...(occurrence.attendeeCount !== undefined && { attendeeCount: occurrence.attendeeCount }),
+                      ...(occurrence.isOffsite !== undefined && { isOffsite: occurrence.isOffsite }),
+                      ...(occurrence.offsiteName !== undefined && { offsiteName: occurrence.offsiteName }),
+                      ...(occurrence.offsiteAddress !== undefined && { offsiteAddress: occurrence.offsiteAddress }),
                     } : {}),
                   });
                 });
