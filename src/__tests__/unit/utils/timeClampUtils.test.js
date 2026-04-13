@@ -319,9 +319,10 @@ describe('clampOperationalTimesToReservation', () => {
 // ─── validateTimeOrdering ─────────────────────────────────────────────
 
 describe('validateTimeOrdering', () => {
+  // Door Close between Event Start and Event End; Event End strictly before Res End
   const validFull = {
     reservationStartTime: '10:00', setupTime: '10:30', doorOpenTime: '11:00',
-    startTime: '11:30', endTime: '13:00', doorCloseTime: '13:30',
+    startTime: '11:30', doorCloseTime: '12:30', endTime: '13:00',
     teardownTime: '14:00', reservationEndTime: '14:30',
     startDate: '2026-04-10', endDate: '2026-04-10',
   };
@@ -330,14 +331,25 @@ describe('validateTimeOrdering', () => {
     expect(validateTimeOrdering(validFull)).toEqual([]);
   });
 
-  it('returns empty array when all times are equal (boundary case)', () => {
+  it('allows all chain times equal except Event End < Res End', () => {
     const allSame = {
       reservationStartTime: '12:00', setupTime: '12:00', doorOpenTime: '12:00',
-      startTime: '12:00', endTime: '12:00', doorCloseTime: '12:00',
-      teardownTime: '12:00', reservationEndTime: '12:00',
+      startTime: '12:00', doorCloseTime: '12:00', endTime: '12:00',
+      teardownTime: '12:00', reservationEndTime: '12:01',
       startDate: '2026-04-10', endDate: '2026-04-10',
     };
     expect(validateTimeOrdering(allSame)).toEqual([]);
+  });
+
+  it('rejects when event end equals reservation end (strict)', () => {
+    const endEqualsRes = {
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '11:00', doorCloseTime: '', endTime: '14:00',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    };
+    const errors = validateTimeOrdering(endEqualsRes);
+    expect(errors).toContainEqual(expect.stringContaining('Event End must be before Reservation End'));
   });
 
   it('detects setup before reservation start', () => {
@@ -360,8 +372,11 @@ describe('validateTimeOrdering', () => {
   });
 
   it('detects event end before event start', () => {
+    // endTime=11:00 < startTime=11:30, doorClose=12:30 > endTime=11:00
     const errors = validateTimeOrdering({ ...validFull, endTime: '11:00' });
-    expect(errors).toContainEqual(expect.stringContaining('Event Start'));
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    // Chain catches: Door Close (12:30) > Event End (11:00)
+    expect(errors).toContainEqual(expect.stringContaining('Door Close'));
     expect(errors).toContainEqual(expect.stringContaining('Event End'));
   });
 
@@ -435,5 +450,60 @@ describe('validateTimeOrdering', () => {
     };
     const errors = validateTimeOrdering(messy);
     expect(errors.length).toBeGreaterThan(1);
+  });
+
+  // Door Close sits between Event Start and Event End in the chain
+  it('allows door close between event start and event end', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '10:30', doorOpenTime: '11:00',
+      startTime: '11:30', doorCloseTime: '12:00', endTime: '14:00',
+      teardownTime: '14:30', reservationEndTime: '15:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('allows door close equal to event start', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '11:00', doorCloseTime: '11:00', endTime: '13:00',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('allows door close equal to event end', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '11:00', doorCloseTime: '13:00', endTime: '13:00',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects door close after event end', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '11:00', doorCloseTime: '13:30', endTime: '13:00',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]).toContain('Door Close');
+    expect(errors[0]).toContain('Event End');
+  });
+
+  it('rejects door close before event start', () => {
+    const errors = validateTimeOrdering({
+      reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
+      startTime: '11:00', doorCloseTime: '10:30', endTime: '13:00',
+      teardownTime: '', reservationEndTime: '14:00',
+      startDate: '2026-04-10', endDate: '2026-04-10',
+    });
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors[0]).toContain('Event Start');
+    expect(errors[0]).toContain('Door Close');
   });
 });

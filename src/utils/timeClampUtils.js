@@ -2,7 +2,9 @@
  * Time ordering and clamping utilities for reservation time fields.
  *
  * Enforces the invariant:
- *   Res Start <= Setup <= Door Open <= Event Start <= Event End <= Door Close <= Teardown <= Res End
+ *   Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ *   Res Start is the absolute lower bound; Res End is the absolute upper bound.
+ *   Event End must be strictly before Res End (reservation extends beyond event).
  *
  * Three directions of enforcement:
  * 1. expandReservationToContainOperationalTimes — operational time extends beyond res bounds -> expand res
@@ -179,11 +181,14 @@ export function clampOperationalTimesToReservation({
 }
 
 /**
- * Validate the full 8-field time ordering chain.
+ * Validate reservation time ordering.
  *
- * Checks nearest-neighbor pairs among all PRESENT fields, correctly bridging gaps
+ * Chain: Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Door Close sits between Event Start and Event End (doors can close during the event).
+ * Event End must be strictly before Res End (reservation extends beyond event end).
+ *
+ * Checks nearest-neighbor pairs among PRESENT fields, correctly bridging gaps
  * when optional fields (setup, door open, door close, teardown) are absent.
- * For example, if door open/close are empty, validates setup → event start directly.
  *
  * Multi-day events (startDate !== endDate) skip ordering — minute comparison is
  * meaningless across days.
@@ -198,14 +203,14 @@ export function validateTimeOrdering({
   // Multi-day events: times are on different days, skip ordering
   if (startDate && endDate && startDate !== endDate) return [];
 
-  // Ordered fields by expected chronological position
+  // Door Close sits between Event Start and Event End in the chain
   const orderedFields = [
     { value: reservationStartTime, name: 'Reservation Start' },
     { value: setupTime, name: 'Setup Time' },
     { value: doorOpenTime, name: 'Door Open' },
     { value: startTime, name: 'Event Start' },
-    { value: endTime, name: 'Event End' },
     { value: doorCloseTime, name: 'Door Close' },
+    { value: endTime, name: 'Event End' },
     { value: teardownTime, name: 'Teardown Time' },
     { value: reservationEndTime, name: 'Reservation End', isResEnd: true },
   ];
@@ -231,6 +236,16 @@ export function validateTimeOrdering({
 
     if (a > b) {
       errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
+    }
+  }
+
+  // Strict check: Event End must be strictly before Reservation End
+  const eventEndMins = timeToMinutes(endTime);
+  const resEndMins = timeToMinutes(reservationEndTime);
+  if (eventEndMins !== null && resEndMins !== null) {
+    const adjResEnd = adjustMidnight(resEndMins, resStartMins);
+    if (eventEndMins >= adjResEnd) {
+      errors.push('Event End must be before Reservation End');
     }
   }
 

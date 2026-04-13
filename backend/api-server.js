@@ -2171,7 +2171,9 @@ const AVAILABILITY_PROJECTION = {
 
 /**
  * Validate reservation time ordering chain.
- * Enforces: Res Start <= Setup <= Door Open <= Event Start <= Event End <= Door Close <= Teardown <= Res End
+ * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Door Close sits between Event Start and Event End (doors can close during the event).
+ * Event End must be strictly before Res End (reservation extends beyond event end).
  * Each pair only checked when both values are present (operational times are optional).
  * Multi-day events (different start/end dates) skip ordering — minute comparison is meaningless.
  * @param {Object} calendarData - Object with time fields (reservationStartTime, setupTime, etc.)
@@ -2189,14 +2191,14 @@ function validateReservationTimeOrdering(calendarData) {
   const endDate = calendarData.endDate || calendarData.endDateTime?.split('T')[0];
   if (startDate && endDate && startDate !== endDate) return [];
 
-  // Ordered fields by expected chronological position
+  // Door Close sits between Event Start and Event End in the chain
   const orderedFields = [
     { field: 'reservationStartTime', name: 'Reservation Start' },
     { field: 'setupTime', name: 'Setup Time' },
     { field: 'doorOpenTime', name: 'Door Open' },
     { field: 'startTime', name: 'Event Start' },
-    { field: 'endTime', name: 'Event End' },
     { field: 'doorCloseTime', name: 'Door Close' },
+    { field: 'endTime', name: 'Event End' },
     { field: 'teardownTime', name: 'Teardown Time' },
     { field: 'reservationEndTime', name: 'Reservation End', isResEnd: true },
   ];
@@ -2221,6 +2223,16 @@ function validateReservationTimeOrdering(calendarData) {
 
     if (a > b) {
       errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
+    }
+  }
+
+  // Strict check: Event End must be strictly before Reservation End
+  const eventEndMins = timeToMinutes(calendarData.endTime);
+  const resEndMins = timeToMinutes(calendarData.reservationEndTime);
+  if (eventEndMins !== null && resEndMins !== null) {
+    const adjResEnd = (resEndMins === 0 && resStartMins > 0) ? 1440 : resEndMins;
+    if (eventEndMins >= adjResEnd) {
+      errors.push('Event End must be before Reservation End');
     }
   }
 
@@ -7255,7 +7267,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         // Recurring event fields
         recurrence: internalFields?.recurrence || null,
         eventType: internalFields?.recurrence?.pattern ? 'seriesMaster' : 'singleInstance',
-        occurrenceOverrides: internalFields?.occurrenceOverrides || null,
+        occurrenceOverrides: internalFields?.occurrenceOverrides || [],
 
         // Optimistic concurrency control
         _version: 1
@@ -7329,7 +7341,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         attendeeCount: internalFields?.attendeeCount || null,
         // Recurring event fields
         recurrence: internalFields?.recurrence || null,
-        occurrenceOverrides: internalFields?.occurrenceOverrides || null
+        occurrenceOverrides: internalFields?.occurrenceOverrides || []
       };
 
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
@@ -14196,18 +14208,33 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (doorNotes !== undefined) overrideFields.doorNotes = doorNotes;
       if (specialRequirements !== undefined) overrideFields.specialRequirements = specialRequirements;
 
-      // Remove existing override for this date (if any), then add new one
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(draftId) },
-        { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
-      );
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(draftId) },
-        {
-          $push: { occurrenceOverrides: overrideFields },
-          $set: { lastDraftSaved: new Date(), lastModified: new Date() }
-        }
-      );
+      // Remove existing override for this date (if any), then add new one.
+      // Guard: $pull throws if occurrenceOverrides is null (some creation paths set null instead of []).
+      if (Array.isArray(draft.occurrenceOverrides)) {
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(draftId) },
+          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+        );
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(draftId) },
+          {
+            $push: { occurrenceOverrides: overrideFields },
+            $set: { lastDraftSaved: new Date(), lastModified: new Date() }
+          }
+        );
+      } else {
+        // Initialize as array with the new override (handles null/undefined)
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(draftId) },
+          {
+            $set: {
+              occurrenceOverrides: [overrideFields],
+              lastDraftSaved: new Date(),
+              lastModified: new Date(),
+            }
+          }
+        );
+      }
 
       const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
       return res.json(updatedDraft);
@@ -19348,13 +19375,13 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         isOnBehalfOf: isOnBehalfOf || false,
         // Recurring event fields
         recurrence: recurrence || null,
-        occurrenceOverrides: occurrenceOverrides || null
+        occurrenceOverrides: occurrenceOverrides || []
       },
 
       // Top-level recurring event fields
       recurrence: recurrence || null,
       eventType: recurrence?.pattern ? 'seriesMaster' : 'singleInstance',
-      occurrenceOverrides: occurrenceOverrides || null,
+      occurrenceOverrides: occurrenceOverrides || [],
 
       createdAt: new Date(),
       createdBy: userId,
@@ -22479,22 +22506,38 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
       }
 
-      // Remove existing override for this date, then add new one
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
-      );
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        {
-          $push: { occurrenceOverrides: overrideFields },
-          $set: {
-            'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
-            lastModifiedDateTime: new Date(),
-            lastModifiedBy: userEmail
+      // Remove existing override for this date, then add new one.
+      // Guard: $pull throws if occurrenceOverrides is null (some creation paths set null instead of []).
+      if (Array.isArray(event.occurrenceOverrides)) {
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+        );
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $push: { occurrenceOverrides: overrideFields },
+            $set: {
+              'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
+              lastModifiedDateTime: new Date(),
+              lastModifiedBy: userEmail
+            }
           }
-        }
-      );
+        );
+      } else {
+        // Initialize as array with the new override (handles null/undefined)
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              occurrenceOverrides: [overrideFields],
+              'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
+              lastModifiedDateTime: new Date(),
+              lastModifiedBy: userEmail
+            }
+          }
+        );
+      }
 
       // Mirror occurrenceOverrides into calendarData
       const updatedDoc = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
