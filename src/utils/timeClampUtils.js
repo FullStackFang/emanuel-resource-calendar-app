@@ -2,9 +2,9 @@
  * Time ordering and clamping utilities for reservation time fields.
  *
  * Enforces the invariant:
- *   Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ *   Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown <= Res End
  *   Res Start is the absolute lower bound; Res End is the absolute upper bound.
- *   Event End must be strictly before Res End (reservation extends beyond event).
+ *   Event End must be at or before Res End (reservation extends beyond event).
  *
  * Three directions of enforcement:
  * 1. expandReservationToContainOperationalTimes — operational time extends beyond res bounds -> expand res
@@ -183,9 +183,9 @@ export function clampOperationalTimesToReservation({
 /**
  * Validate reservation time ordering.
  *
- * Chain: Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Chain: Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown <= Res End
  * Door Close sits between Event Start and Event End (doors can close during the event).
- * Event End must be strictly before Res End (reservation extends beyond event end).
+ * Event End must be at or before Res End (reservation extends beyond event end).
  *
  * Checks nearest-neighbor pairs among PRESENT fields, correctly bridging gaps
  * when optional fields (setup, door open, door close, teardown) are absent.
@@ -236,16 +236,6 @@ export function validateTimeOrdering({
 
     if (a > b) {
       errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
-    }
-  }
-
-  // Strict check: Event End must be strictly before Reservation End
-  const eventEndMins = timeToMinutes(endTime);
-  const resEndMins = timeToMinutes(reservationEndTime);
-  if (eventEndMins !== null && resEndMins !== null) {
-    const adjResEnd = adjustMidnight(resEndMins, resStartMins);
-    if (eventEndMins >= adjResEnd) {
-      errors.push('Event End must be before Reservation End');
     }
   }
 

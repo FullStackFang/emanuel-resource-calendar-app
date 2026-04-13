@@ -1949,7 +1949,7 @@ export default function RoomReservationFormBase({
                   ))}
                 </ul>
                 <p className="validation-help">
-                  Times should follow this order: Reservation Start → Setup → Door Open → Event Start → Event End → Door Close → Teardown → Reservation End
+                  Times should follow this order: Reservation Start → Setup → Door Open → Event Start → Door Close → Event End → Teardown → Reservation End
                 </p>
               </div>
             )}

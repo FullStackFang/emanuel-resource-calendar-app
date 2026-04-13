@@ -319,7 +319,7 @@ describe('clampOperationalTimesToReservation', () => {
 // ─── validateTimeOrdering ─────────────────────────────────────────────
 
 describe('validateTimeOrdering', () => {
-  // Door Close between Event Start and Event End; Event End strictly before Res End
+  // Door Close between Event Start and Event End; Event End at or before Res End
   const validFull = {
     reservationStartTime: '10:00', setupTime: '10:30', doorOpenTime: '11:00',
     startTime: '11:30', doorCloseTime: '12:30', endTime: '13:00',
@@ -331,25 +331,24 @@ describe('validateTimeOrdering', () => {
     expect(validateTimeOrdering(validFull)).toEqual([]);
   });
 
-  it('allows all chain times equal except Event End < Res End', () => {
+  it('allows all chain times equal including Event End == Res End', () => {
     const allSame = {
       reservationStartTime: '12:00', setupTime: '12:00', doorOpenTime: '12:00',
       startTime: '12:00', doorCloseTime: '12:00', endTime: '12:00',
-      teardownTime: '12:00', reservationEndTime: '12:01',
+      teardownTime: '12:00', reservationEndTime: '12:00',
       startDate: '2026-04-10', endDate: '2026-04-10',
     };
     expect(validateTimeOrdering(allSame)).toEqual([]);
   });
 
-  it('rejects when event end equals reservation end (strict)', () => {
+  it('accepts when event end equals reservation end', () => {
     const endEqualsRes = {
       reservationStartTime: '10:00', setupTime: '', doorOpenTime: '',
       startTime: '11:00', doorCloseTime: '', endTime: '14:00',
       teardownTime: '', reservationEndTime: '14:00',
       startDate: '2026-04-10', endDate: '2026-04-10',
     };
-    const errors = validateTimeOrdering(endEqualsRes);
-    expect(errors).toContainEqual(expect.stringContaining('Event End must be before Reservation End'));
+    expect(validateTimeOrdering(endEqualsRes)).toEqual([]);
   });
 
   it('detects setup before reservation start', () => {

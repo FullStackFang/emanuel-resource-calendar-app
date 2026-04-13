@@ -2171,9 +2171,9 @@ const AVAILABILITY_PROJECTION = {
 
 /**
  * Validate reservation time ordering chain.
- * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown <= Res End
  * Door Close sits between Event Start and Event End (doors can close during the event).
- * Event End must be strictly before Res End (reservation extends beyond event end).
+ * Event End must be at or before Res End (reservation extends beyond event end).
  * Each pair only checked when both values are present (operational times are optional).
  * Multi-day events (different start/end dates) skip ordering — minute comparison is meaningless.
  * @param {Object} calendarData - Object with time fields (reservationStartTime, setupTime, etc.)
@@ -2223,16 +2223,6 @@ function validateReservationTimeOrdering(calendarData) {
 
     if (a > b) {
       errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
-    }
-  }
-
-  // Strict check: Event End must be strictly before Reservation End
-  const eventEndMins = timeToMinutes(calendarData.endTime);
-  const resEndMins = timeToMinutes(calendarData.reservationEndTime);
-  if (eventEndMins !== null && resEndMins !== null) {
-    const adjResEnd = (resEndMins === 0 && resStartMins > 0) ? 1440 : resEndMins;
-    if (eventEndMins >= adjResEnd) {
-      errors.push('Event End must be before Reservation End');
     }
   }
 

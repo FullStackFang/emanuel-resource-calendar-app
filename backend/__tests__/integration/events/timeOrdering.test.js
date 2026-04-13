@@ -2,10 +2,10 @@
  * Time Ordering Validation Tests (TO-1 to TO-10)
  *
  * Verifies that the backend enforces the time ordering chain:
- * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown <= Res End
  *
  * Door Close sits between Event Start and Event End (doors can close during the event).
- * Event End must be strictly before Res End.
+ * Event End must be at or before Res End.
  *
  * Tests cover draft submit, owner edit, and draft save (warning-only) endpoints.
  */
@@ -374,10 +374,10 @@ describe('Time Ordering Validation Tests (TO-1 to TO-8)', () => {
     });
   });
 
-  // ─── TO-10: Event end equal to reservation end is rejected (strict) ──
+  // ─── TO-10: Event end equal to reservation end is accepted ──
 
-  describe('TO-10: Event end must be strictly before reservation end', () => {
-    it('should reject when event end equals reservation end', async () => {
+  describe('TO-10: Event end can equal reservation end', () => {
+    it('should accept when event end equals reservation end', async () => {
       const pendingEvent = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -386,7 +386,7 @@ describe('Time Ordering Validation Tests (TO-1 to TO-8)', () => {
       });
       const [savedEvent] = await insertEvents(db, [pendingEvent]);
 
-      const res = await request(app)
+      await request(app)
         .put(`/api/room-reservations/${savedEvent._id}/edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
@@ -395,17 +395,12 @@ describe('Time Ordering Validation Tests (TO-1 to TO-8)', () => {
           startDate: savedEvent.calendarData.startDate,
           endDate: savedEvent.calendarData.endDate,
           startTime: '11:00',
-          endTime: '14:00',          // EQUALS reservation end — must be strictly before
+          endTime: '14:00',          // EQUALS reservation end — now allowed
           attendeeCount: 10,
           reservationStartTime: '10:00',
           reservationEndTime: '14:00',
         })
-        .expect(400);
-
-      expect(res.body.error).toBe('Invalid time ordering');
-      expect(res.body.validationErrors).toEqual(
-        expect.arrayContaining([expect.stringContaining('Event End must be before Reservation End')])
-      );
+        .expect(200);
     });
   });
 });

@@ -41,9 +41,9 @@ function clearSentEmailNotifications() {
 
 /**
  * Validate reservation time ordering chain (mirrors api-server.js).
- * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown < Res End
+ * Res Start <= Setup <= Door Open <= Event Start <= Door Close <= Event End <= Teardown <= Res End
  * Door Close sits between Event Start and Event End (doors can close during the event).
- * Event End must be strictly before Res End.
+ * Event End must be at or before Res End.
  */
 function validateReservationTimeOrdering(calendarData) {
   const timeToMinutes = (t) => {
@@ -79,16 +79,6 @@ function validateReservationTimeOrdering(calendarData) {
     let b = presentFields[i + 1].minutes;
     if (presentFields[i + 1].isResEnd && b === 0 && resStartMins > 0) b = 1440;
     if (a > b) errors.push(`${presentFields[i].name} must be at or before ${presentFields[i + 1].name}`);
-  }
-
-  // Strict check: Event End must be strictly before Reservation End
-  const eventEndMins = timeToMinutes(calendarData.endTime);
-  const resEndMins = timeToMinutes(calendarData.reservationEndTime);
-  if (eventEndMins !== null && resEndMins !== null) {
-    const adjResEnd = (resEndMins === 0 && resStartMins > 0) ? 1440 : resEndMins;
-    if (eventEndMins >= adjResEnd) {
-      errors.push('Event End must be before Reservation End');
-    }
   }
 
   return errors;
