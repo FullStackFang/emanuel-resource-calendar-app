@@ -189,4 +189,45 @@ describe('Edit Request Reservation Time Tests (ERT-1 to ERT-5)', () => {
       expect(dbEvent.calendarData.reservationEndMinutes).toBe(30);
     });
   });
+
+  describe('Publish-edit: [Hold] event time preservation', () => {
+    it('ERT-6: should preserve empty startTime/endTime when proposedChanges includes startTime', async () => {
+      // [Hold] event: startTime='' (no event time), but startDateTime has reservation time
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Hold Event',
+        reservationStartTime: '14:00',
+        reservationEndTime: '17:00',
+        requestedChanges: {
+          eventTitle: 'Updated Hold',
+          // startTime: '' explicitly in proposedChanges — activates the publish-edit guard
+          startTime: '',
+          endTime: '',
+        },
+      });
+      // Override calendarData to simulate a Hold event
+      eventWithEdit.calendarData.startTime = '';
+      eventWithEdit.calendarData.endTime = '';
+      eventWithEdit.calendarData.startDateTime = '2026-04-15T14:00:00';
+      eventWithEdit.calendarData.endDateTime = '2026-04-15T17:00:00';
+
+      const [saved] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      const dbEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      // Title should be updated
+      expect(dbEvent.calendarData.eventTitle).toBe('Updated Hold');
+      // Event times must remain empty — NOT overwritten by reservation times
+      expect(dbEvent.calendarData.startTime).toBe('');
+      expect(dbEvent.calendarData.endTime).toBe('');
+    });
+
+  });
 });

@@ -20431,6 +20431,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     const fieldsToCompare = [
       'eventTitle', 'eventDescription',
       'startDateTime', 'endDateTime',
+      'startTime', 'endTime',
       'attendeeCount',
       'setupTimeMinutes', 'teardownTimeMinutes',
       'reservationStartMinutes', 'reservationEndMinutes',

@@ -293,8 +293,18 @@ export function buildEditRequestPayload(data, { eventVersion } = {}) {
     _version: eventVersion ?? null,
     eventTitle: data.eventTitle || '',
     eventDescription: data.eventDescription || '',
-    startDateTime: normalizeDT(data.startDateTime) || null,
-    endDateTime: normalizeDT(data.endDateTime) || null,
+    // For Hold events (startTime is empty), DON'T send startDateTime at all — the
+    // reservation-time fallback baked into data.startDateTime by getProcessedFormData
+    // would create a spurious diff against calendarData.startDateTime, and publish-edit
+    // would then derive startTime from it, overwriting the intentionally-empty value.
+    // undefined is stripped by JSON.stringify, so the backend skips the comparison.
+    startDateTime: data.startTime ? (normalizeDT(data.startDateTime) || null) : undefined,
+    endDateTime: data.endTime ? (normalizeDT(data.endDateTime) || null) : undefined,
+    // Raw event times — preserves empty string for [Hold] events so the backend
+    // comparison detects no change vs calendarData.startTime=''. Uses ?? (not ||)
+    // because '' is a meaningful value that must not coerce to null.
+    startTime: data.startTime ?? null,
+    endTime: data.endTime ?? null,
     attendeeCount: parseInt(data.attendeeCount) || null,
     requestedRooms: data.requestedRooms || data.locations || [],
     specialRequirements: data.specialRequirements || '',
