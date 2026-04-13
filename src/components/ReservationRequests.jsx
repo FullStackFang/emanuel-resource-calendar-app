@@ -11,8 +11,8 @@ import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventToFlatStructure, transformEventsToFlatStructure, getEventField } from '../utils/eventTransformers';
-import { computeApproverChanges, decomposeProposedChanges } from '../utils/editRequestUtils';
+import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { computeApproverChanges, buildEditRequestViewData } from '../utils/editRequestUtils';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
@@ -457,63 +457,26 @@ export default function ReservationRequests({ graphToken }) {
   // IN-MODAL EDIT REQUEST VIEWING/MANAGEMENT (Calendar.jsx gold standard)
   // =========================================================================
 
-  // Extract and transform pendingEditRequest from an event
+  // Extract edit request metadata from an event (minimal — just UI display fields).
+  // The actual proposed-changes overlay is handled by buildEditRequestViewData in handleViewEditRequest.
   const fetchExistingEditRequest = useCallback((event) => {
     if (!event) return null;
-
-    setLoadingEditRequest(true);
-    try {
-      if (event.pendingEditRequest && event.pendingEditRequest.status === 'pending') {
-        const pendingReq = event.pendingEditRequest;
-        return {
-          _id: event._id,
-          eventId: event.eventId,
-          editRequestId: pendingReq.id,
-          status: pendingReq.status,
-          requestedBy: pendingReq.requestedBy,
-          changeReason: pendingReq.changeReason,
-          proposedChanges: pendingReq.proposedChanges,
-          reviewedBy: pendingReq.reviewedBy,
-          reviewedAt: pendingReq.reviewedAt,
-          reviewNotes: pendingReq.reviewNotes,
-          eventTitle: pendingReq.proposedChanges?.eventTitle || event.eventTitle,
-          eventDescription: pendingReq.proposedChanges?.eventDescription || event.eventDescription,
-          startDateTime: pendingReq.proposedChanges?.startDateTime || event.startDateTime,
-          endDateTime: pendingReq.proposedChanges?.endDateTime || event.endDateTime,
-          startDate: pendingReq.proposedChanges?.startDateTime?.split('T')[0] || event.startDate,
-          startTime: pendingReq.proposedChanges?.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
-          endDate: pendingReq.proposedChanges?.endDateTime?.split('T')[0] || event.endDate,
-          endTime: pendingReq.proposedChanges?.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
-          attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? getEventField(event, 'attendeeCount'),
-          locations: pendingReq.proposedChanges?.locations || getEventField(event, 'locations', []),
-          locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || getEventField(event, 'locationDisplayNames', ''),
-          requestedRooms: pendingReq.proposedChanges?.requestedRooms || getEventField(event, 'requestedRooms', []),
-          categories: pendingReq.proposedChanges?.categories || getEventField(event, 'categories', []),
-          services: pendingReq.proposedChanges?.services || getEventField(event, 'services', {}),
-          setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? getEventField(event, 'setupTimeMinutes'),
-          teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? getEventField(event, 'teardownTimeMinutes'),
-          reservationStartMinutes: pendingReq.proposedChanges?.reservationStartMinutes ?? getEventField(event, 'reservationStartMinutes'),
-          reservationEndMinutes: pendingReq.proposedChanges?.reservationEndMinutes ?? getEventField(event, 'reservationEndMinutes'),
-          setupTime: pendingReq.proposedChanges?.setupTime || getEventField(event, 'setupTime', ''),
-          teardownTime: pendingReq.proposedChanges?.teardownTime || getEventField(event, 'teardownTime', ''),
-          reservationStartTime: pendingReq.proposedChanges?.reservationStartTime || getEventField(event, 'reservationStartTime', ''),
-          reservationEndTime: pendingReq.proposedChanges?.reservationEndTime || getEventField(event, 'reservationEndTime', ''),
-          doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || getEventField(event, 'doorOpenTime', ''),
-          doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || getEventField(event, 'doorCloseTime', ''),
-          setupNotes: pendingReq.proposedChanges?.setupNotes ?? getEventField(event, 'setupNotes'),
-          doorNotes: pendingReq.proposedChanges?.doorNotes ?? getEventField(event, 'doorNotes'),
-          eventNotes: pendingReq.proposedChanges?.eventNotes ?? getEventField(event, 'eventNotes'),
-          specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? getEventField(event, 'specialRequirements'),
-          isOffsite: pendingReq.proposedChanges?.isOffsite ?? getEventField(event, 'isOffsite', false),
-          offsiteName: pendingReq.proposedChanges?.offsiteName || getEventField(event, 'offsiteName', ''),
-          offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || getEventField(event, 'offsiteAddress', ''),
-          createdAt: pendingReq.requestedBy?.requestedAt
-        };
-      }
-      return null;
-    } finally {
-      setLoadingEditRequest(false);
+    const pendingReq = event.pendingEditRequest;
+    if (pendingReq?.status === 'pending') {
+      return {
+        _id: event._id,
+        editRequestId: pendingReq.id,
+        status: pendingReq.status,
+        requestedBy: pendingReq.requestedBy,
+        changeReason: pendingReq.changeReason,
+        proposedChanges: pendingReq.proposedChanges,
+        reviewedBy: pendingReq.reviewedBy,
+        reviewedAt: pendingReq.reviewedAt,
+        reviewNotes: pendingReq.reviewNotes,
+        createdAt: pendingReq.requestedBy?.requestedAt,
+      };
     }
+    return null;
   }, []);
 
   // Scheduling conflict reset handled by reviewModal.openModal() synchronously
@@ -533,24 +496,16 @@ export default function ReservationRequests({ graphToken }) {
     }
   }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
 
-  // View the edit request data in the form
+  // View the edit request data in the form (overlays proposed changes onto original event)
   const handleViewEditRequest = useCallback(() => {
     if (existingEditRequest) {
       const currentData = reviewModal.editableData;
       if (currentData) {
         setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
       }
-      // Decompose startDateTime/endDateTime into startDate/startTime/endDate/endTime
-      // so calendarData has the separate fields the form needs for display and diff.
-      const proposedChanges = existingEditRequest.proposedChanges || {};
-      const decomposed = decomposeProposedChanges(proposedChanges);
-      reviewModal.replaceEditableData({
-        ...existingEditRequest,
-        calendarData: {
-          ...(currentData?.calendarData || {}),
-          ...decomposed
-        }
-      });
+      reviewModal.replaceEditableData(
+        buildEditRequestViewData(reviewModal.currentItem, currentData)
+      );
       setIsViewingEditRequest(true);
     }
   }, [existingEditRequest, reviewModal]);

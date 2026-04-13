@@ -119,6 +119,47 @@ export function decomposeProposedChanges(proposedChanges) {
 }
 
 /**
+ * Build the editableData object for viewing an edit request in the ReviewModal form.
+ *
+ * Replaces the 3x fetchExistingEditRequest manual field-by-field mappings in
+ * MyReservations, Calendar, and ReservationRequests. Those copies used || which
+ * silently dropped falsy proposed values (e.g., cleared fields reverted to originals).
+ *
+ * This function:
+ * - Preserves ALL original event metadata (roomReservationData, graphData, _version, status)
+ * - Overlays proposedChanges onto calendarData (so transformEventToFlatStructure picks them up)
+ * - Spreads decomposed flat fields at top level (so computeDetectedChanges reads them)
+ *
+ * @param {Object} event - The original event (from reviewModal.currentItem)
+ * @param {Object} currentData - Current editableData from reviewModal
+ * @returns {Object} Ready to pass to reviewModal.replaceEditableData()
+ */
+export function buildEditRequestViewData(event, currentData) {
+  if (!event?.pendingEditRequest) return currentData;
+
+  const proposed = event.pendingEditRequest.proposedChanges || {};
+  const decomposed = decomposeProposedChanges(proposed);
+
+  return {
+    // 1. Preserve ALL original event fields (roomReservationData, graphData, _version, status, etc.)
+    ...currentData,
+
+    // 2. Overlay flat proposed changes at top level for computeDetectedChanges / computeApproverChanges
+    ...decomposed,
+
+    // 3. Attach edit request metadata (does NOT clobber event status because decomposed
+    //    only contains calendar data fields — never 'status', '_version', etc.)
+    pendingEditRequest: event.pendingEditRequest,
+
+    // 4. Merge proposed changes into calendarData for transformEventToFlatStructure on remount
+    calendarData: {
+      ...(currentData?.calendarData || {}),
+      ...decomposed,
+    },
+  };
+}
+
+/**
  * Compose startDateTime from startDate + startTime.
  */
 function composeDateTimeField(data, dateField, timeField) {
