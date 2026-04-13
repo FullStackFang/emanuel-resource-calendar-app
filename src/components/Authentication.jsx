@@ -34,12 +34,9 @@ function Authentication({ onSignIn, onSignOut }) {
   const handleLogin = async () => {
     try {
       const loginResponse = await instance.loginPopup(loginRequest);
-      const account = loginResponse.account;
-      const tokenResponse = await instance.acquireTokenSilent({
-        ...loginRequest,
-        account
-      });
-      if (onSignIn) onSignIn(tokenResponse.accessToken);
+      // Pass the account directly — avoids race where getAllAccounts()
+      // hasn't been updated yet, which caused the "click twice" bug.
+      if (onSignIn) onSignIn(loginResponse.account);
     } catch (error) {
       // Popup failed (blocked by mobile browser or error) — fall back to redirect
       console.warn('Popup login failed, falling back to redirect:', error.message);

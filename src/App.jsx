@@ -236,10 +236,12 @@ function App() {
   // and re-acquires when tab becomes visible after being hidden
   useTokenRefresh({ isInitialized, setGraphToken });
 
-  const handleSignIn = async () => {
-    const accounts = instance.getAllAccounts();
-    if (accounts.length > 0) {
-      await acquireTokens(accounts[0]);
+  const handleSignIn = async (account) => {
+    // Account is passed directly from loginPopup response, avoiding
+    // the race condition where getAllAccounts() hasn't updated yet.
+    if (account) {
+      instance.setActiveAccount(account);
+      await acquireTokens(account);
       setSignedOut(false);
     }
   };
