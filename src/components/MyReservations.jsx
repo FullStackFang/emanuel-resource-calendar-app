@@ -41,6 +41,35 @@ export default function MyReservations() {
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
 
+  const isRequesterOnly = !canEditEvents && !canApproveReservations;
+
+  const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
+    try {
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
+
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`);
+
+      if (!response.ok) {
+        if (!silent) throw new Error('Failed to load reservations');
+        return;
+      }
+
+      const data = await response.json();
+      setAllReservations(transformEventsToFlatStructure(data.events || []));
+      setLastFetchedAt(Date.now());
+    } catch (err) {
+      if (!silent) {
+        logger.error('Error loading user reservations:', err);
+        setError('Failed to load your reservation requests');
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [authFetch]);
+
   // Refresh callback for the experience hook (handles data reload + badge dispatch)
   const handleRefresh = useCallback(() => {
     loadMyReservations();
@@ -100,35 +129,6 @@ export default function MyReservations() {
   // Cancellation withdrawal state (unique to MyReservations)
   const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
   const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
-
-  const isRequesterOnly = !canEditEvents && !canApproveReservations;
-
-  const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
-    try {
-      if (!silent) {
-        setLoading(true);
-        setError('');
-      }
-
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`);
-
-      if (!response.ok) {
-        if (!silent) throw new Error('Failed to load reservations');
-        return;
-      }
-
-      const data = await response.json();
-      setAllReservations(transformEventsToFlatStructure(data.events || []));
-      setLastFetchedAt(Date.now());
-    } catch (err) {
-      if (!silent) {
-        logger.error('Error loading user reservations:', err);
-        setError('Failed to load your reservation requests');
-      }
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [authFetch]);
 
   // Load all user's reservations once on mount
   useEffect(() => {
