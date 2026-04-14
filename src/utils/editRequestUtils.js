@@ -224,3 +224,60 @@ export function computeApproverChanges(currentFormData, originalEventData) {
 
   return Object.keys(changes).length > 0 ? changes : null;
 }
+
+/**
+ * Compute detected changes between original and current form data for edit request mode.
+ * Used for the zero-change guard in handleSubmitEditRequest and for inline diff display.
+ *
+ * Extracted from Calendar.jsx and MyReservations.jsx where identical implementations
+ * were duplicated. The isEditRequestMode guard is NOT included here — callers should
+ * only invoke this function when in edit request mode.
+ *
+ * @param {Object} originalData - The original event data (before edit request)
+ * @param {Object} currentData - Current form state
+ * @returns {Array<{field: string, label: string, oldValue: string, newValue: string}>}
+ */
+export function computeDetectedChanges(originalData, currentData) {
+  if (!originalData || !currentData) return [];
+
+  const changes = [];
+  const fieldConfig = [
+    { key: 'eventTitle', label: 'Event Title' },
+    { key: 'eventDescription', label: 'Description' },
+    { key: 'startDate', label: 'Start Date' },
+    { key: 'startTime', label: 'Start Time' },
+    { key: 'endDate', label: 'End Date' },
+    { key: 'endTime', label: 'End Time' },
+    { key: 'attendeeCount', label: 'Attendee Count' },
+    { key: 'specialRequirements', label: 'Special Requirements' },
+    { key: 'setupTime', label: 'Setup Time' },
+    { key: 'teardownTime', label: 'Teardown Time' },
+    { key: 'reservationStartTime', label: 'Reservation Start Time' },
+    { key: 'reservationEndTime', label: 'Reservation End Time' },
+    { key: 'doorOpenTime', label: 'Door Open Time' },
+    { key: 'doorCloseTime', label: 'Door Close Time' },
+  ];
+
+  for (const { key, label } of fieldConfig) {
+    const oldVal = originalData[key] || '';
+    const newVal = currentData[key] || '';
+    if (String(oldVal) !== String(newVal)) {
+      changes.push({ field: key, label, oldValue: String(oldVal), newValue: String(newVal) });
+    }
+  }
+
+  // Handle arrays (locations, categories)
+  const originalLocations = (originalData.requestedRooms || originalData.locations || []).join(', ');
+  const currentLocations = (currentData.requestedRooms || currentData.locations || []).join(', ');
+  if (originalLocations !== currentLocations) {
+    changes.push({ field: 'locations', label: 'Locations', oldValue: originalLocations || '(none)', newValue: currentLocations || '(none)' });
+  }
+
+  const originalCategories = (originalData.categories || originalData.mecCategories || []).join(', ');
+  const currentCategories = (currentData.categories || currentData.mecCategories || []).join(', ');
+  if (originalCategories !== currentCategories) {
+    changes.push({ field: 'categories', label: 'Categories', oldValue: originalCategories || '(none)', newValue: currentCategories || '(none)' });
+  }
+
+  return changes;
+}

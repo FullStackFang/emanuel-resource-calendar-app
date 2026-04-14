@@ -967,6 +967,7 @@ export default function ReservationRequests({ graphToken }) {
       >
         {reviewModal.currentItem && (
           <RoomReservationReview
+            key={reviewModal.reinitKey}
             reservation={reviewModal.editableData}
             prefetchedAvailability={reviewModal.prefetchedAvailability}
             apiToken={apiToken}

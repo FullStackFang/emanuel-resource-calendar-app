@@ -19,7 +19,7 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField } from '../utils/eventTransformers';
-  import { computeApproverChanges, buildEditRequestViewData } from '../utils/editRequestUtils';
+  import { computeApproverChanges, buildEditRequestViewData, computeDetectedChanges as computeDetectedChangesUtil } from '../utils/editRequestUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
@@ -528,13 +528,14 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [simulatedRole, isActualAdmin]);
 
     // Reload calendar data when simulation role changes (not on initial mount)
+    // Uses loadEventsRef (not loadEvents directly) to avoid TDZ — loadEvents is declared later.
     const prevSimulatedRoleRef = useRef(simulatedRole);
     useEffect(() => {
       if (prevSimulatedRoleRef.current !== simulatedRole && apiToken) {
-        loadEvents(true, null, { silent: true });
+        loadEventsRef.current?.(true, null, { silent: true });
       }
       prevSimulatedRoleRef.current = simulatedRole;
-    }, [simulatedRole, apiToken, loadEvents]);
+    }, [simulatedRole, apiToken]);
 
     // Per-event edit permission: considers ownership and department match
     const canEditThisEvent = useMemo(() => {
@@ -5061,72 +5062,10 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     }, [reviewModal, cancellationReason, apiToken, showSuccess, showError]);
 
-    /**
-     * Compute detected changes between original and current data
-     */
+    // Compute detected changes using shared utility (extracted from 3x-duplicated inline version)
     const computeDetectedChanges = useCallback(() => {
-      if (!originalEventData || !reviewModal.editableData || !isEditRequestMode) {
-        return [];
-      }
-
-      const changes = [];
-      const fieldConfig = [
-        { key: 'eventTitle', label: 'Event Title' },
-        { key: 'eventDescription', label: 'Description' },
-        { key: 'startDate', label: 'Start Date' },
-        { key: 'startTime', label: 'Start Time' },
-        { key: 'endDate', label: 'End Date' },
-        { key: 'endTime', label: 'End Time' },
-        { key: 'attendeeCount', label: 'Attendee Count' },
-        { key: 'specialRequirements', label: 'Special Requirements' },
-        { key: 'setupTime', label: 'Setup Time' },
-        { key: 'teardownTime', label: 'Teardown Time' },
-        { key: 'reservationStartTime', label: 'Reservation Start Time' },
-        { key: 'reservationEndTime', label: 'Reservation End Time' },
-        { key: 'doorOpenTime', label: 'Door Open Time' },
-        { key: 'doorCloseTime', label: 'Door Close Time' },
-      ];
-
-      const current = reviewModal.editableData;
-      const original = originalEventData;
-
-      for (const { key, label } of fieldConfig) {
-        const oldVal = original[key] || '';
-        const newVal = current[key] || '';
-        if (String(oldVal) !== String(newVal)) {
-          changes.push({
-            field: key,
-            label,
-            oldValue: String(oldVal),
-            newValue: String(newVal)
-          });
-        }
-      }
-
-      // Handle arrays (locations, categories)
-      const originalLocations = (original.requestedRooms || original.locations || []).join(', ');
-      const currentLocations = (current.requestedRooms || current.locations || []).join(', ');
-      if (originalLocations !== currentLocations) {
-        changes.push({
-          field: 'locations',
-          label: 'Locations',
-          oldValue: originalLocations || '(none)',
-          newValue: currentLocations || '(none)'
-        });
-      }
-
-      const originalCategories = (original.categories || original.mecCategories || []).join(', ');
-      const currentCategories = (current.categories || current.mecCategories || []).join(', ');
-      if (originalCategories !== currentCategories) {
-        changes.push({
-          field: 'categories',
-          label: 'Categories',
-          oldValue: originalCategories || '(none)',
-          newValue: currentCategories || '(none)'
-        });
-      }
-
-      return changes;
+      if (!isEditRequestMode) return [];
+      return computeDetectedChangesUtil(originalEventData, reviewModal.editableData);
     }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
 
     // Wrapper to pass computeDetectedChanges to the hook's handleSubmitEditRequest
