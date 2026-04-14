@@ -306,7 +306,11 @@ export default function ReservationRequests({ graphToken }) {
   const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
     setPage(1); // Reset pagination on tab change (previously done via useEffect)
-  }, []);
+    // Clear status filters that don't apply to the "Needs Attention" tab
+    if (newTab === 'needs_attention' && (statusFilter === 'published' || statusFilter === 'rejected')) {
+      setStatusFilter('');
+    }
+  }, [statusFilter]);
 
   // Handle page changes - no API call, pagination is client-side
   const handlePageChange = useCallback((newPage) => {
@@ -623,10 +627,10 @@ export default function ReservationRequests({ graphToken }) {
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
-              <option value="published">Published</option>
+              {activeTab !== 'needs_attention' && <option value="published">Published</option>}
               <option value="published_edit">Edit Requested</option>
               <option value="published_cancellation">Cancellation Requested</option>
-              <option value="rejected">Rejected</option>
+              {activeTab !== 'needs_attention' && <option value="rejected">Rejected</option>}
             </select>
           </div>
           <div className={`rr-sort-filter${sortBy !== 'date_desc' ? ' active' : ''}`}>
