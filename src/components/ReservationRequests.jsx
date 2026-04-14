@@ -8,19 +8,16 @@ import { useRooms } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
-import { useReviewModal } from '../hooks/useReviewModal';
+import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
 import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
-import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
-import { computeApproverChanges, buildEditRequestViewData } from '../utils/editRequestUtils';
+import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
-import RoomReservationReview from './RoomReservationReview';
-import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
-import ConflictDialog from './shared/ConflictDialog';
+import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
@@ -74,60 +71,8 @@ export default function ReservationRequests({ graphToken }) {
   const [rejectingEditRequest, setRejectingEditRequest] = useState(false);
   const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
 
-  // Edit request state (in-ReviewModal viewing/management — matches Calendar.jsx)
-  const [existingEditRequest, setExistingEditRequest] = useState(null);
-  const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
-  const [loadingEditRequest, setLoadingEditRequest] = useState(false);
-  const [originalEventData, setOriginalEventData] = useState(null);
-  // Transform originalEventData to flat structure for inline diff comparison
-  const flatOriginalEventData = useMemo(() =>
-    originalEventData ? transformEventToFlatStructure(originalEventData) : null,
-  [originalEventData]);
-
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
-
-  // useReviewModal hook — replaces ~17 manual state vars and ~10 handlers
-  const reviewModal = useReviewModal({
-    apiToken,
-    graphToken,
-    selectedCalendarId: selectedTargetCalendar || defaultCalendar,
-    onSuccess: (result) => {
-      loadReservations();
-      if (result?.recurringConflicts?.conflictingOccurrences > 0) {
-        const rc = result.recurringConflicts;
-        showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
-      } else if (result?.duplicated) {
-        if (result.failCount > 0) {
-          showWarning(`${result.count} of ${result.count + result.failCount} duplicate(s) created — some failed`);
-        } else if (result.count === 1 && result.dates?.[0]) {
-          const label = new Date(result.dates[0] + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-          showSuccess(result.autoPublished
-            ? `Event duplicated to ${label}`
-            : `Duplicate request for ${label} submitted for approval`);
-        } else {
-          showSuccess(result.autoPublished
-            ? `Event duplicated to ${result.count} dates`
-            : `${result.count} duplicate requests submitted for approval`);
-        }
-      }
-    },
-    onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
-  });
-
-  // Load calendar settings on mount
-  useEffect(() => {
-    if (apiToken) {
-      loadCalendarSettings();
-    }
-  }, [apiToken]);
-
-  // Load all reservations once on mount
-  useEffect(() => {
-    if (apiToken) {
-      loadReservations();
-    }
-  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCalendarSettings = async () => {
     try {
@@ -183,6 +128,50 @@ export default function ReservationRequests({ graphToken }) {
       }
     }
   }, [authFetch]);
+
+  // Refresh callback for the experience hook
+  const handleRefresh = useCallback(() => {
+    loadReservations();
+    dispatchRefresh('approval-queue', 'navigation-counts');
+  }, [loadReservations]);
+
+  // --- Unified review modal experience (replaces useReviewModal + satellite state) ---
+  const reviewModal = useEventReviewExperience({
+    apiToken,
+    graphToken,
+    selectedCalendarId: selectedTargetCalendar || defaultCalendar,
+    authFetch,
+    onRefresh: handleRefresh,
+    onSuccess: (result) => {
+      loadReservations();
+      if (result?.recurringConflicts?.conflictingOccurrences > 0) {
+        const rc = result.recurringConflicts;
+        showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+      } else if (result?.duplicated) {
+        if (result.failCount > 0) {
+          showWarning(`${result.count} of ${result.count + result.failCount} duplicate(s) created — some failed`);
+        } else if (result.count === 1 && result.dates?.[0]) {
+          const label = new Date(result.dates[0] + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          showSuccess(result.autoPublished
+            ? `Event duplicated to ${label}`
+            : `Duplicate request for ${label} submitted for approval`);
+        } else {
+          showSuccess(result.autoPublished
+            ? `Event duplicated to ${result.count} dates`
+            : `${result.count} duplicate requests submitted for approval`);
+        }
+      }
+    },
+    onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
+  });
+
+  // Load calendar settings + reservations on mount
+  useEffect(() => {
+    if (apiToken) {
+      loadCalendarSettings();
+      loadReservations();
+    }
+  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll for new reservations every 60s (silent — no loading spinner)
   const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
@@ -451,85 +440,6 @@ export default function ReservationRequests({ graphToken }) {
 
   // =========================================================================
   // END CARD-LEVEL EDIT REQUEST HANDLERS
-  // =========================================================================
-
-  // =========================================================================
-  // IN-MODAL EDIT REQUEST VIEWING/MANAGEMENT (Calendar.jsx gold standard)
-  // =========================================================================
-
-  // Extract edit request metadata from an event (minimal — just UI display fields).
-  // The actual proposed-changes overlay is handled by buildEditRequestViewData in handleViewEditRequest.
-  const fetchExistingEditRequest = useCallback((event) => {
-    if (!event) return null;
-    const pendingReq = event.pendingEditRequest;
-    if (pendingReq?.status === 'pending') {
-      return {
-        _id: event._id,
-        editRequestId: pendingReq.id,
-        status: pendingReq.status,
-        requestedBy: pendingReq.requestedBy,
-        changeReason: pendingReq.changeReason,
-        proposedChanges: pendingReq.proposedChanges,
-        reviewedBy: pendingReq.reviewedBy,
-        reviewedAt: pendingReq.reviewedAt,
-        reviewNotes: pendingReq.reviewNotes,
-        createdAt: pendingReq.requestedBy?.requestedAt,
-      };
-    }
-    return null;
-  }, []);
-
-  // Scheduling conflict reset handled by reviewModal.openModal() synchronously
-
-  // Check for existing edit requests when ReviewModal opens with a published event
-  useEffect(() => {
-    if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
-      const editRequest = fetchExistingEditRequest(reviewModal.currentItem);
-      setExistingEditRequest(editRequest);
-    } else if (!reviewModal.isOpen) {
-      setExistingEditRequest(null);
-      setIsViewingEditRequest(false);
-      setOriginalEventData(null);
-      setApprovingEditRequest(false);
-      setRejectingEditRequest(false);
-      setEditRequestRejectionReason('');
-    }
-  }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
-
-  // View the edit request data in the form (overlays proposed changes onto original event)
-  const handleViewEditRequest = useCallback(() => {
-    if (existingEditRequest) {
-      const currentData = reviewModal.editableData;
-      if (currentData) {
-        setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
-      }
-      reviewModal.replaceEditableData(
-        buildEditRequestViewData(reviewModal.currentItem, currentData)
-      );
-      setIsViewingEditRequest(true);
-    }
-  }, [existingEditRequest, reviewModal]);
-
-  // Toggle back to the original published event
-  const handleViewOriginalEvent = useCallback(() => {
-    if (originalEventData) {
-      reviewModal.replaceEditableData(originalEventData);
-      setIsViewingEditRequest(false);
-    }
-  }, [originalEventData, reviewModal]);
-
-  // Wrappers for hook's edit request approve/reject handlers (in-modal)
-  const handleApproveEditRequestInModal = useCallback(() => {
-    const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
-    return reviewModal.handleApproveEditRequest(approverChanges);
-  }, [reviewModal, originalEventData]);
-
-  const handleRejectEditRequestInModal = useCallback(() => {
-    return reviewModal.handleRejectEditRequest();
-  }, [reviewModal]);
-
-  // =========================================================================
-  // END IN-MODAL EDIT REQUEST HANDLERS
   // =========================================================================
 
   // Handle locked event click from SchedulingAssistant
@@ -932,94 +842,22 @@ export default function ReservationRequests({ graphToken }) {
         />
       )}
 
-      {/* Review Modal — powered by useReviewModal hook (Calendar.jsx gold standard) */}
-      <ReviewModal
-        {...reviewModal.getReviewModalProps()}
-        // Context-dependent props
+      {/* Unified ReviewModal experience (shared hook + component) */}
+      <EventReviewExperience
+        experience={reviewModal}
         title={reviewModal.editableData?.eventTitle || 'Reservation Request'}
-        modalMode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
-        mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
-        isPending={reviewModal.currentItem?.status === 'pending'}
-        itemStatus={reviewModal.currentItem?.status}
-        requesterName={
-          reviewModal.currentItem?.roomReservationData?.requestedBy?.name
-          || reviewModal.currentItem?.calendarData?.requesterName
-          || reviewModal.currentItem?.requesterName
-          || ''
-        }
-        // Conditional action overrides (override spread defaults)
-        onSave={reviewModal.handleSave}
-        onDelete={reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleDelete : null}
-        // Edit request local state
-        existingEditRequest={existingEditRequest}
-        isViewingEditRequest={isViewingEditRequest}
-        loadingEditRequest={loadingEditRequest}
-        onViewEditRequest={handleViewEditRequest}
-        onViewOriginalEvent={handleViewOriginalEvent}
-        onApproveEditRequest={canApproveReservations ? handleApproveEditRequestInModal : null}
-        onRejectEditRequest={canApproveReservations ? handleRejectEditRequestInModal : null}
-        // Cancellation request local state
-        existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
-        onApproveCancellationRequest={canApproveReservations ? reviewModal.handleApproveCancellationRequest : null}
-        onRejectCancellationRequest={canApproveReservations ? reviewModal.handleRejectCancellationRequest : null}
-        // Inline diff data
-        originalData={flatOriginalEventData}
-      >
-        {reviewModal.currentItem && (
-          <RoomReservationReview
-            key={reviewModal.reinitKey}
-            reservation={reviewModal.editableData}
-            prefetchedAvailability={reviewModal.prefetchedAvailability}
-            apiToken={apiToken}
-            graphToken={graphToken}
-            onDataChange={reviewModal.updateData}
-            onFormDataReady={reviewModal.setFormDataGetter}
-            onFormValidChange={reviewModal.setIsFormValid}
-            onLockedEventClick={handleLockedEventClick}
-            availableCalendars={availableCalendars}
-            defaultCalendar={defaultCalendar}
-            selectedTargetCalendar={selectedTargetCalendar}
-            onTargetCalendarChange={setSelectedTargetCalendar}
-            createCalendarEvent={createCalendarEvent}
-            onCreateCalendarEventChange={setCreateCalendarEvent}
-            onHoldChange={reviewModal.setIsHold}
-            onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-              reviewModal.setSchedulingConflictInfo(conflictInfo || null);
-            }}
-          />
-        )}
-      </ReviewModal>
-
-      {/* Conflict Dialog for 409 version conflicts */}
-      <ConflictDialog
-        isOpen={!!reviewModal.conflictInfo}
-        onClose={() => {
-          reviewModal.dismissConflict();
-          reviewModal.closeModal(true);
-          loadReservations();
-        }}
-        onRefresh={() => {
-          reviewModal.dismissConflict();
-          reviewModal.closeModal(true);
-          loadReservations();
-        }}
-        conflictType={reviewModal.conflictInfo?.conflictType}
-        eventTitle={reviewModal.conflictInfo?.eventTitle}
-        details={reviewModal.conflictInfo?.details}
-        staleData={reviewModal.conflictInfo?.staleData}
+        isRequesterOnly={false}
+        permissions={{ canApproveReservations, canEditEvents: true, canDeleteEvents: true }}
+        graphToken={graphToken}
+        onLockedEventClick={handleLockedEventClick}
+        availableCalendars={availableCalendars}
+        defaultCalendar={defaultCalendar}
+        selectedTargetCalendar={selectedTargetCalendar}
+        onTargetCalendarChange={setSelectedTargetCalendar}
+        createCalendarEvent={createCalendarEvent}
+        onCreateCalendarEventChange={setCreateCalendarEvent}
+        onConflictRefresh={loadReservations}
       />
-
-      {/* Soft Conflict Confirmation Dialog */}
-      {reviewModal.softConflictConfirmation && (
-        <ConflictDialog
-          isOpen={true}
-          onClose={reviewModal.dismissSoftConflictConfirmation}
-          onConfirm={reviewModal.softConflictConfirmation.retryFn}
-          conflictType="soft_conflict"
-          eventTitle={reviewModal.currentItem?.eventTitle || 'Event'}
-          details={{ message: reviewModal.softConflictConfirmation.message }}
-        />
-      )}
 
       {/* Navigation discard dialog (replaces window.confirm for iframe compatibility) */}
       <DiscardChangesDialog

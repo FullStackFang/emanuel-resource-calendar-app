@@ -19,7 +19,7 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField } from '../utils/eventTransformers';
-  import { computeApproverChanges, buildEditRequestViewData, computeDetectedChanges as computeDetectedChangesUtil } from '../utils/editRequestUtils';
+  // editRequestUtils: computeDetectedChanges is now in useEventReviewExperience
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
@@ -28,9 +28,10 @@
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
-  import { useReviewModal } from '../hooks/useReviewModal';
+  import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
   import { useEventCreation } from '../hooks/useEventCreation';
   import ReviewModal from './shared/ReviewModal';
+  import EventReviewExperience from './shared/EventReviewExperience';
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
@@ -341,27 +342,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
 
-    // Edit request mode state (for inline editing to create edit requests)
-    const [isEditRequestMode, setIsEditRequestMode] = useState(false);
-    const [originalEventData, setOriginalEventData] = useState(null);
-    // Transform originalEventData to flat structure for inline diff comparison
-    // (originalEventData is raw/nested, but formData in RoomReservationFormBase is flat)
-    const flatOriginalEventData = useMemo(() =>
-      originalEventData ? transformEventToFlatStructure(originalEventData) : null,
-    [originalEventData]);
-    // Existing edit request state (for viewing pending edit requests)
-    const [existingEditRequest, setExistingEditRequest] = useState(null);
-    const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
-    const [loadingEditRequest, setLoadingEditRequest] = useState(false);
-    // Edit request approval/rejection state (for admins)
-    // Cancel edit request state (for requesters)
-    const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
-    const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
-
-    // Cancellation request state
-    const [isCancellationRequestMode, setIsCancellationRequestMode] = useState(false);
-    const [cancellationReason, setCancellationReason] = useState('');
-    const [isSubmittingCancellationRequest, setIsSubmittingCancellationRequest] = useState(false);
+    // Edit request + cancellation request state is now in useEventReviewExperience (see reviewModal below)
 
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
@@ -388,17 +369,20 @@ import ConflictDialog from './shared/ConflictDialog';
       isLoading: false
     });
 
-    // Review modal hook for handling review functionality
-    const reviewModal = useReviewModal({
+    // Refresh callback for the experience hook
+    const handleReviewRefresh = useCallback(() => {
+      loadEventsRef.current?.(true);
+    }, []);
+
+    // Unified review modal experience (replaces useReviewModal + satellite state)
+    const reviewModal = useEventReviewExperience({
       apiToken,
       graphToken,
       selectedCalendarId, // Pass current calendar so published events go to correct calendar
+      onRefresh: handleReviewRefresh,
       onSuccess: (result) => {
         // Reload events after successful approval/rejection
-        loadEvents(true);
-        // Reset edit request mode
-        setIsEditRequestMode(false);
-        setOriginalEventData(null);
+        loadEventsRef.current?.(true);
 
         // Show success/warning toast based on action type
         if (result?.conflictDowngradedToPending) {
@@ -507,20 +491,6 @@ import ConflictDialog from './shared/ConflictDialog';
       onSuccess: () => loadEvents(true),
       refreshSource: 'calendar-creation',
     });
-
-    // Reset edit request mode and cancellation request mode when review modal closes
-    useEffect(() => {
-      if (!reviewModal.isOpen) {
-        if (isEditRequestMode) {
-          setIsEditRequestMode(false);
-          setOriginalEventData(null);
-        }
-        if (isCancellationRequestMode) {
-          setIsCancellationRequestMode(false);
-          setCancellationReason('');
-        }
-      }
-    }, [reviewModal.isOpen, isEditRequestMode, isCancellationRequestMode]);
 
     // Keep calendarDataService headers in sync with simulation state
     useEffect(() => {
@@ -4810,270 +4780,6 @@ import ConflictDialog from './shared/ConflictDialog';
     };
 
     /**
-     * Handle enabling edit request mode for published events
-     * This allows requesters to edit the form inline and submit changes for approval
-     */
-    const handleRequestEdit = useCallback(() => {
-      // Store the original data before enabling edit mode
-      const currentData = reviewModal.editableData;
-      if (currentData) {
-        setOriginalEventData(JSON.parse(JSON.stringify(currentData))); // Deep clone
-      }
-      setIsEditRequestMode(true);
-    }, [reviewModal.editableData]);
-
-    /**
-     * Handle canceling edit request mode
-     */
-    const handleCancelEditRequest = useCallback(() => {
-      setIsEditRequestMode(false);
-      setOriginalEventData(null);
-      // Revert to original data (wholesale replacement needs remount to re-initialize form)
-      if (originalEventData && reviewModal.editableData) {
-        reviewModal.replaceEditableData(originalEventData);
-      }
-    }, [originalEventData, reviewModal]);
-
-    /**
-     * Extract edit request metadata from an event (minimal — just UI display fields).
-     * The actual proposed-changes overlay is handled by buildEditRequestViewData in handleViewEditRequest.
-     * Falls back to API call if the event was loaded without embedded pendingEditRequest.
-     */
-    const fetchExistingEditRequest = useCallback(async (event) => {
-      if (!event) return null;
-
-      setLoadingEditRequest(true);
-      try {
-        // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
-        const pendingReq = event.pendingEditRequest;
-        if (pendingReq?.status === 'pending') {
-          return {
-            _id: event._id,
-            editRequestId: pendingReq.id,
-            status: pendingReq.status,
-            requestedBy: pendingReq.requestedBy,
-            changeReason: pendingReq.changeReason,
-            proposedChanges: pendingReq.proposedChanges,
-            reviewedBy: pendingReq.reviewedBy,
-            reviewedAt: pendingReq.reviewedAt,
-            reviewNotes: pendingReq.reviewNotes,
-            createdAt: pendingReq.requestedBy?.requestedAt,
-          };
-        }
-
-        // Fallback: API call for events that may have been loaded without full data
-        const eventId = event._id || event.eventId;
-        if (!eventId || !apiToken) return null;
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/events/${eventId}/edit-requests`,
-          {
-            headers: {
-              'Authorization': `Bearer ${apiToken}`
-            }
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
-          return pendingRequest || null;
-        }
-        return null;
-      } catch (err) {
-        logger.error('Error fetching edit requests:', err);
-        return null;
-      } finally {
-        setLoadingEditRequest(false);
-      }
-    }, [apiToken]);
-
-    /**
-     * Effect to check for existing edit requests when modal opens with published event
-     */
-    useEffect(() => {
-      const checkForEditRequest = async () => {
-        if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
-          // Pass the entire event object to check embedded pendingEditRequest first
-          const editRequest = await fetchExistingEditRequest(reviewModal.currentItem);
-          setExistingEditRequest(editRequest);
-        } else if (!reviewModal.isOpen) {
-          // Reset when modal closes
-          setExistingEditRequest(null);
-          setIsViewingEditRequest(false);
-        }
-      };
-
-      checkForEditRequest();
-    }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
-
-    /**
-     * Handle viewing an existing edit request (overlays proposed changes onto original event)
-     */
-    const handleViewEditRequest = useCallback(() => {
-      if (existingEditRequest) {
-        const currentData = reviewModal.editableData;
-        if (currentData) {
-          setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
-        }
-        reviewModal.replaceEditableData(
-          buildEditRequestViewData(reviewModal.currentItem, currentData)
-        );
-        setIsViewingEditRequest(true);
-      }
-    }, [existingEditRequest, reviewModal]);
-
-    /**
-     * Handle toggling back to the original published event
-     */
-    const handleViewOriginalEvent = useCallback(() => {
-      if (originalEventData) {
-        reviewModal.replaceEditableData(originalEventData);
-        setIsViewingEditRequest(false);
-      }
-    }, [originalEventData, reviewModal]);
-
-    // Wrappers for hook's edit request approve/reject handlers
-    const handleApproveEditRequest = useCallback(() => {
-      const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
-      return reviewModal.handleApproveEditRequest(approverChanges);
-    }, [reviewModal, originalEventData]);
-
-    const handleRejectEditRequest = useCallback(() => {
-      return reviewModal.handleRejectEditRequest();
-    }, [reviewModal]);
-
-    /**
-     * Handle canceling own pending edit request (Requester only)
-     */
-    const handleCancelPendingEditRequest = useCallback(async () => {
-      // First click shows confirmation
-      if (!isCancelEditRequestConfirming) {
-        setIsCancelEditRequestConfirming(true);
-        return;
-      }
-
-      // Second click confirms
-      const currentItem = reviewModal.currentItem;
-      if (!currentItem || !existingEditRequest) {
-        logger.error('No edit request to cancel');
-        return;
-      }
-
-      try {
-        setIsCancelingEditRequest(true);
-        const eventId = currentItem._id || currentItem.eventId;
-
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`
-            }
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to cancel edit request');
-        }
-
-        logger.info('Edit request canceled:', eventId);
-
-        // Reset state
-        setIsCancelEditRequestConfirming(false);
-        setIsViewingEditRequest(false);
-        setExistingEditRequest(null);
-        setOriginalEventData(null);
-
-        // Close the modal
-        reviewModal.closeModal();
-
-        // Refresh events
-        if (refreshEvents) {
-          refreshEvents();
-        }
-
-      } catch (error) {
-        logger.error('Error canceling edit request:', error);
-        showError(`Failed to cancel edit request: ${error.message}`);
-      } finally {
-        setIsCancelingEditRequest(false);
-        setIsCancelEditRequestConfirming(false);
-      }
-    }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, refreshEvents, showError]);
-
-    /**
-     * Cancel cancel edit request confirmation
-     */
-    const cancelCancelEditRequestConfirmation = useCallback(() => {
-      setIsCancelEditRequestConfirming(false);
-    }, []);
-
-    // --- Cancellation request handlers (Calendar) ---
-
-    const handleRequestCancellationFromCalendar = useCallback(() => {
-      setIsCancellationRequestMode(true);
-      setCancellationReason('');
-    }, []);
-
-    const handleCancelCancellationRequestFromCalendar = useCallback(() => {
-      setIsCancellationRequestMode(false);
-      setCancellationReason('');
-    }, []);
-
-    const handleSubmitCancellationRequestFromCalendar = useCallback(async () => {
-      const currentItem = reviewModal.currentItem;
-      if (!currentItem || !cancellationReason.trim()) return;
-
-      setIsSubmittingCancellationRequest(true);
-      try {
-        const eventId = currentItem._id || currentItem.eventId;
-        const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-cancellation`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              reason: cancellationReason.trim(),
-              _version: currentItem._version,
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to submit cancellation request');
-        }
-
-        showSuccess('Cancellation request submitted');
-        setIsCancellationRequestMode(false);
-        setCancellationReason('');
-        reviewModal.closeModal();
-      } catch (error) {
-        showError(error, { context: 'Calendar.submitCancellationRequest' });
-      } finally {
-        setIsSubmittingCancellationRequest(false);
-      }
-    }, [reviewModal, cancellationReason, apiToken, showSuccess, showError]);
-
-    // Compute detected changes using shared utility (extracted from 3x-duplicated inline version)
-    const computeDetectedChanges = useCallback(() => {
-      if (!isEditRequestMode) return [];
-      return computeDetectedChangesUtil(originalEventData, reviewModal.editableData);
-    }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
-
-    // Wrapper to pass computeDetectedChanges to the hook's handleSubmitEditRequest
-    const handleSubmitEditRequest = useCallback(() => {
-      return reviewModal.handleSubmitEditRequest(computeDetectedChanges);
-    }, [reviewModal, computeDetectedChanges]);
-
-    /**
      * Handle navigation to another event in the series (close and reopen modal)
      * @param {string} targetEventId - The eventId to navigate to
      */
@@ -5734,7 +5440,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           hasPhysicalLocation={hasPhysicalLocation}
                           isVirtualLocation={isVirtualLocation}
                           showRegistrationTimes={showRegistrationTimes}
-                          onRequestEdit={handleRequestEdit}
+                          onRequestEdit={reviewModal.handleRequestEdit}
                           canAddEvent={canAddEvent}
                           selectedDay={selectedMonthDay}
                           onDaySelect={setSelectedMonthDay}
@@ -6004,124 +5710,27 @@ import ConflictDialog from './shared/ConflictDialog';
           isLoading={recurringScopeDialog.isLoading}
         />
 
-        {/* Review Modal for Room Reservations and Event Review */}
-        <ReviewModal
-          {...reviewModal.getReviewModalProps()}
-          // Context-dependent props
+        {/* Unified ReviewModal experience (shared hook + component) */}
+        <EventReviewExperience
+          experience={reviewModal}
           title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.subject || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
-          modalMode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
-          mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
-          isPending={reviewModal.currentItem?.status === 'pending'}
           isNavigating={reviewModalIsNavigating}
           isRequesterOnly={!canEditEvents && !canApproveReservations}
-          itemStatus={reviewModal.currentItem?.status || 'published'}
-          requesterName={
-            reviewModal.currentItem?.roomReservationData?.requestedBy?.name
-            || reviewModal.currentItem?.calendarData?.requesterName
-            || reviewModal.currentItem?.requesterName
-            || ''
-          }
-          hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
-          // Conditional action overrides (permission/status-gated)
-          onApprove={canApproveReservations ? reviewModal.handleApprove : null}
-          onReject={canApproveReservations ? reviewModal.handleReject : null}
-          onSave={canApproveReservations && !reviewModal.isDraft ? reviewModal.handleSave : null}
-          onDelete={canDeleteEvents && reviewModal.currentItem?.status !== 'deleted' ? reviewModal.handleDelete : null}
-          onRestore={canDeleteEvents && reviewModal.currentItem?.status === 'deleted' ? reviewModal.handleRestore : null}
-          // Requester action buttons
+          permissions={{ canApproveReservations, canEditEvents: canApproveReservations, canDeleteEvents }}
+          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest && canRequestEditThisEvent}
+          canRequestCancellation={canSubmitReservation && !canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest && canRequestEditThisEvent && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending'}
+          readOnly={!canEditThisEvent && !reviewModal.isEditRequestMode && !reviewModal.isDraft}
+          graphToken={graphToken}
+          onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
+          onIsNavigatingChange={setReviewModalIsNavigating}
           onResubmit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleResubmitFromCalendar : null}
           isResubmitting={isResubmitting}
-          // Owner edit actions
           onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
           savingPendingEdit={reviewModal.isSavingOwnerEdit}
           onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? reviewModal.handleOwnerEdit : null}
           savingRejectedEdit={reviewModal.isSavingOwnerEdit}
-          // Edit request local state
-          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest && canRequestEditThisEvent}
-          onRequestEdit={handleRequestEdit}
-          existingEditRequest={existingEditRequest}
-          isViewingEditRequest={isViewingEditRequest}
-          loadingEditRequest={loadingEditRequest}
-          onViewEditRequest={(canSubmitReservation || canApproveReservations) ? handleViewEditRequest : null}
-          onViewOriginalEvent={handleViewOriginalEvent}
-          isEditRequestMode={isEditRequestMode}
-          onSubmitEditRequest={handleSubmitEditRequest}
-          onCancelEditRequest={handleCancelEditRequest}
-          originalData={flatOriginalEventData}
-          detectedChanges={computeDetectedChanges()}
-          onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
-          onRejectEditRequest={canApproveReservations ? handleRejectEditRequest : null}
-          // Edit request cancellation (requester local state)
-          onCancelPendingEditRequest={handleCancelPendingEditRequest}
-          isCancelingEditRequest={isCancelingEditRequest}
-          isCancelEditRequestConfirming={isCancelEditRequestConfirming}
-          onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
-          // Cancellation request local state
-          canRequestCancellation={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest && canRequestEditThisEvent && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending'}
-          onRequestCancellation={handleRequestCancellationFromCalendar}
-          isCancellationRequestMode={isCancellationRequestMode}
-          cancellationReason={cancellationReason}
-          onCancellationReasonChange={setCancellationReason}
-          onSubmitCancellationRequest={handleSubmitCancellationRequestFromCalendar}
-          onCancelCancellationRequest={handleCancelCancellationRequestFromCalendar}
-          isSubmittingCancellationRequest={isSubmittingCancellationRequest}
-          existingCancellationRequest={reviewModal.currentItem?.pendingCancellationRequest}
-          onApproveCancellationRequest={canApproveReservations ? reviewModal.handleApproveCancellationRequest : null}
-          onRejectCancellationRequest={canApproveReservations ? reviewModal.handleRejectCancellationRequest : null}
-        >
-          {reviewModal.currentItem && (
-            <RoomReservationReview
-              key={reviewModal.reinitKey}
-              reservation={reviewModal.editableData}
-              prefetchedAvailability={reviewModal.prefetchedAvailability}
-              prefetchedSeriesEvents={reviewModal.prefetchedSeriesEvents}
-              apiToken={apiToken}
-              graphToken={graphToken}
-              onDataChange={reviewModal.updateData}
-              onFormDataReady={reviewModal.setFormDataGetter}
-              onIsNavigatingChange={setReviewModalIsNavigating}
-              onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
-              onFormValidChange={reviewModal.setIsFormValid}
-              readOnly={!canEditThisEvent && !isEditRequestMode && !reviewModal.isDraft}
-              editScope={reviewModal.editScope}
-              onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
-                reviewModal.setSchedulingConflictInfo(conflictInfo || null);
-              }}
-              onHoldChange={reviewModal.setIsHold}
-            />
-          )}
-        </ReviewModal>
-
-        {/* Conflict Dialog for version conflicts in Review Modal */}
-        <ConflictDialog
-          isOpen={!!reviewModal.conflictInfo}
-          onClose={() => {
-            reviewModal.dismissConflict();
-            reviewModal.closeModal(true);
-            loadEvents(true);
-          }}
-          onRefresh={() => {
-            reviewModal.dismissConflict();
-            reviewModal.closeModal(true);
-            loadEvents(true);
-          }}
-          conflictType={reviewModal.conflictInfo?.conflictType}
-          eventTitle={reviewModal.conflictInfo?.eventTitle}
-          details={reviewModal.conflictInfo?.details}
-          staleData={reviewModal.conflictInfo?.staleData}
+          onConflictRefresh={() => loadEvents(true)}
         />
-
-        {/* Soft Conflict Confirmation Dialog */}
-        {reviewModal.softConflictConfirmation && (
-          <ConflictDialog
-            isOpen={true}
-            onClose={reviewModal.dismissSoftConflictConfirmation}
-            onConfirm={reviewModal.softConflictConfirmation.retryFn}
-            conflictType="soft_conflict"
-            eventTitle={reviewModal.currentItem?.eventTitle || 'Event'}
-            details={{ message: reviewModal.softConflictConfirmation.message }}
-          />
-        )}
 
         {/* Review Modal for Event Creation (via useEventCreation hook) */}
         <ReviewModal
