@@ -946,54 +946,6 @@ export default function RoomReservationFormBase({
       }
     }
 
-    // Auto-adjust endTime (and downstream times) when startTime moves to or past endTime
-    if (name === 'startTime' && value && formData.endTime) {
-      const [startH, startM] = value.split(':').map(Number);
-      const [endH, endM] = formData.endTime.split(':').map(Number);
-      const startMins = startH * 60 + startM;
-      const endMins = endH * 60 + endM;
-
-      if (startMins >= endMins) {
-        // Push endTime to startTime + 30 minutes
-        const newEndMins = startMins + 30;
-        if (newEndMins < 24 * 60) {
-          const newEndTime = `${String(Math.floor(newEndMins / 60)).padStart(2, '0')}:${String(newEndMins % 60).padStart(2, '0')}`;
-          updatedData.endTime = newEndTime;
-          // Cascade: push reservationEndTime if it's now at or before new endTime
-          if (formData.reservationEndTime) {
-            const [tdH, tdM] = formData.reservationEndTime.split(':').map(Number);
-            const tdMins = tdH * 60 + tdM;
-            if (tdMins <= newEndMins) {
-              const newTdMins = newEndMins + 30;
-              if (newTdMins < 24 * 60) {
-                updatedData.reservationEndTime = `${String(Math.floor(newTdMins / 60)).padStart(2, '0')}:${String(newTdMins % 60).padStart(2, '0')}`;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Enforce reservation as outer bounds of all operational times
-    if (OPERATIONAL_TIME_FIELDS.includes(name)) {
-      // Operational time changed -> expand reservation to contain it
-      const expansion = expandReservationToContainOperationalTimes(updatedData);
-      if (expansion) {
-        if (expansion.reservationStartTime) updatedData.reservationStartTime = expansion.reservationStartTime;
-        if (expansion.reservationEndTime) updatedData.reservationEndTime = expansion.reservationEndTime;
-      }
-    } else if (RESERVATION_TIME_FIELDS.includes(name)) {
-      // Reservation narrowed -> clamp operational times, then handle event time window
-      const clampOps = clampOperationalTimesToReservation(updatedData);
-      if (clampOps) Object.assign(updatedData, clampOps);
-
-      const clampResult = clampEventTimesToReservation(updatedData);
-      if (clampResult) {
-        updatedData.startTime = clampResult.startTime;
-        updatedData.endTime = clampResult.endTime;
-      }
-    }
-
     setFormData(updatedData);
     setHasChanges(true);
 
