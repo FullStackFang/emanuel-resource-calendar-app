@@ -1881,7 +1881,7 @@ export default function RoomReservationFormBase({
                     name="setupTime"
                     value={formData.setupTime}
                     onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                    disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('setupNotes'))}
                   />
                 </div>
                 <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>
@@ -1891,7 +1891,7 @@ export default function RoomReservationFormBase({
                     name="teardownTime"
                     value={formData.teardownTime}
                     onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                    disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('setupNotes'))}
                   />
                 </div>
                 <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
@@ -1907,7 +1907,7 @@ export default function RoomReservationFormBase({
                     name="doorOpenTime"
                     value={formData.doorOpenTime}
                     onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('doorNotes'))}
                     className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
                   />
                 </div>
@@ -1924,7 +1924,7 @@ export default function RoomReservationFormBase({
                     name="doorCloseTime"
                     value={formData.doorCloseTime}
                     onChange={handleInputChange}
-                    disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                    disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('doorNotes'))}
                     className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
                   />
                 </div>

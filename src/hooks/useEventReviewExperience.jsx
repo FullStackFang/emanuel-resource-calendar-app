@@ -1,0 +1,408 @@
+/**
+ * useEventReviewExperience — Unified modal experience for reviewing events.
+ *
+ * Wraps useReviewModal and absorbs all satellite state that was previously
+ * duplicated across Calendar.jsx, MyReservations.jsx, and ReservationRequests.jsx:
+ *   - Edit request viewing (existingEditRequest, isViewingEditRequest, etc.)
+ *   - Edit request mode (isEditRequestMode, computeDetectedChanges, etc.)
+ *   - Cancel pending edit request (isCancelingEditRequest, confirmation state)
+ *   - Cancellation request (isCancellationRequestMode, cancellationReason, etc.)
+ *
+ * Consumers only provide: API auth, callbacks (onSuccess/onError/onRefresh),
+ * and genuinely-unique props via EventReviewExperience component.
+ */
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useReviewModal } from './useReviewModal';
+import { useNotification } from '../context/NotificationContext';
+import { transformEventToFlatStructure } from '../utils/eventTransformers';
+import {
+  buildEditRequestViewData,
+  computeApproverChanges,
+  computeDetectedChanges as computeDetectedChangesUtil,
+} from '../utils/editRequestUtils';
+import { logger } from '../utils/logger';
+import APP_CONFIG from '../config/config';
+
+/**
+ * @param {Object} config
+ * @param {string} config.apiToken - API bearer token
+ * @param {string} [config.graphToken] - Graph API token (Calendar only)
+ * @param {string} [config.selectedCalendarId] - Target calendar ID for publishing
+ * @param {Function} config.onSuccess - Called after successful useReviewModal actions (save/approve/reject/etc.)
+ * @param {Function} [config.onError] - Called on useReviewModal errors
+ * @param {Function} [config.authFetch] - Authenticated fetch function (from useAuthenticatedFetch).
+ *   Calendar passes a thin wrapper instead: (url, opts) => fetch(url, { ...opts, headers: { Authorization } })
+ * @param {Function} [config.onRefresh] - Called after cancel-edit, submit-cancellation, withdraw.
+ *   CONTRACT: callers must handle both data reload AND badge dispatch (dispatchRefresh).
+ *   The hook does NOT call dispatchRefresh internally.
+ */
+export function useEventReviewExperience({
+  apiToken,
+  graphToken,
+  selectedCalendarId,
+  onSuccess,
+  onError,
+  authFetch,
+  onRefresh,
+}) {
+  const { showSuccess, showError } = useNotification();
+
+  // Build a fetch function: use authFetch if provided, otherwise raw fetch + apiToken
+  const doFetch = useCallback((url, opts = {}) => {
+    if (authFetch) return authFetch(url, opts);
+    return fetch(url, {
+      ...opts,
+      headers: {
+        ...opts.headers,
+        'Authorization': `Bearer ${apiToken}`,
+      },
+    });
+  }, [authFetch, apiToken]);
+
+  // Wrap onSuccess to reset satellite state before calling consumer's callback
+  const wrappedOnSuccess = useCallback((result) => {
+    setIsEditRequestMode(false);
+    setOriginalEventData(null);
+    onSuccess?.(result);
+  }, [onSuccess]);
+
+  // Core review modal hook
+  const reviewModal = useReviewModal({
+    apiToken,
+    graphToken,
+    selectedCalendarId,
+    onSuccess: wrappedOnSuccess,
+    onError,
+  });
+
+  // =========================================================================
+  // SATELLITE STATE (previously duplicated across 3 consumer files)
+  // =========================================================================
+
+  // Edit request mode (requester creating a new edit request)
+  const [isEditRequestMode, setIsEditRequestMode] = useState(false);
+  const [originalEventData, setOriginalEventData] = useState(null);
+
+  // Transform originalEventData to flat structure for inline diff comparison.
+  // Always apply the transform for consistency — it's idempotent on already-flat data.
+  const flatOriginalEventData = useMemo(() =>
+    originalEventData ? transformEventToFlatStructure(originalEventData) : null,
+  [originalEventData]);
+
+  // Existing edit request state (for viewing pending edit requests)
+  const [existingEditRequest, setExistingEditRequest] = useState(null);
+  const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
+  const [loadingEditRequest, setLoadingEditRequest] = useState(false);
+
+  // Cancel pending edit request state (requester withdrawing their own edit request)
+  const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
+  const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
+
+  // Cancellation request state (requester requesting cancellation of published event)
+  const [isCancellationRequestMode, setIsCancellationRequestMode] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isSubmittingCancellationRequest, setIsSubmittingCancellationRequest] = useState(false);
+
+  // =========================================================================
+  // EDIT REQUEST VIEWING HANDLERS
+  // =========================================================================
+
+  /**
+   * Extract edit request metadata from an event.
+   * Uses Calendar's async version with API fallback for events loaded without embedded data.
+   */
+  const fetchExistingEditRequest = useCallback(async (event) => {
+    if (!event) return null;
+
+    setLoadingEditRequest(true);
+    try {
+      // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
+      const pendingReq = event.pendingEditRequest;
+      if (pendingReq?.status === 'pending') {
+        return {
+          _id: event._id,
+          editRequestId: pendingReq.id,
+          status: pendingReq.status,
+          requestedBy: pendingReq.requestedBy,
+          changeReason: pendingReq.changeReason,
+          proposedChanges: pendingReq.proposedChanges,
+          reviewedBy: pendingReq.reviewedBy,
+          reviewedAt: pendingReq.reviewedAt,
+          reviewNotes: pendingReq.reviewNotes,
+          createdAt: pendingReq.requestedBy?.requestedAt,
+        };
+      }
+
+      // Fallback: API call for events loaded without full data
+      const eventId = event._id || event.eventId;
+      if (!eventId || !apiToken) return null;
+
+      const response = await doFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/edit-requests`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
+        return pendingRequest || null;
+      }
+      return null;
+    } catch (err) {
+      logger.error('Error fetching edit requests:', err);
+      return null;
+    } finally {
+      setLoadingEditRequest(false);
+    }
+  }, [apiToken, doFetch]);
+
+  /**
+   * Effect: Check for existing edit requests when modal opens with a published event.
+   * Resets all satellite state when modal closes.
+   */
+  useEffect(() => {
+    const checkForEditRequest = async () => {
+      if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
+        const editRequest = await fetchExistingEditRequest(reviewModal.currentItem);
+        setExistingEditRequest(editRequest);
+      } else if (!reviewModal.isOpen) {
+        // Reset ALL satellite state on modal close (single cleanup point)
+        setExistingEditRequest(null);
+        setIsViewingEditRequest(false);
+        setOriginalEventData(null);
+        setIsEditRequestMode(false);
+        setIsCancelEditRequestConfirming(false);
+        setIsCancelingEditRequest(false);
+        setIsCancellationRequestMode(false);
+        setCancellationReason('');
+        setIsSubmittingCancellationRequest(false);
+      }
+    };
+    checkForEditRequest();
+  }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
+
+  /** Overlay proposed changes onto the form (view edit request mode) */
+  const handleViewEditRequest = useCallback(() => {
+    if (existingEditRequest) {
+      const currentData = reviewModal.editableData;
+      if (currentData) {
+        setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+      }
+      reviewModal.replaceEditableData(
+        buildEditRequestViewData(reviewModal.currentItem, currentData)
+      );
+      setIsViewingEditRequest(true);
+    }
+  }, [existingEditRequest, reviewModal]);
+
+  /** Toggle back to the original published event */
+  const handleViewOriginalEvent = useCallback(() => {
+    if (originalEventData) {
+      reviewModal.replaceEditableData(originalEventData);
+      setIsViewingEditRequest(false);
+    }
+  }, [originalEventData, reviewModal]);
+
+  // =========================================================================
+  // EDIT REQUEST MODE HANDLERS (requester creating new edit request)
+  // =========================================================================
+
+  /** Enter edit request mode — stores original data for diff comparison */
+  const handleRequestEdit = useCallback(() => {
+    const currentData = reviewModal.editableData;
+    if (currentData) {
+      setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+    }
+    setIsEditRequestMode(true);
+  }, [reviewModal.editableData]);
+
+  /** Cancel edit request mode — reverts form to original data via replaceEditableData (forces remount) */
+  const handleCancelEditRequest = useCallback(() => {
+    setIsEditRequestMode(false);
+    // Revert to original data (replaceEditableData forces remount via reinitKey)
+    if (originalEventData && reviewModal.editableData) {
+      reviewModal.replaceEditableData(originalEventData);
+    }
+    setOriginalEventData(null);
+  }, [originalEventData, reviewModal]);
+
+  /** Compute detected changes using shared utility */
+  const computeDetectedChanges = useCallback(() => {
+    if (!isEditRequestMode) return [];
+    return computeDetectedChangesUtil(originalEventData, reviewModal.editableData);
+  }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
+
+  /** Submit edit request — wraps reviewModal.handleSubmitEditRequest with change detection */
+  const handleSubmitEditRequest = useCallback(() => {
+    return reviewModal.handleSubmitEditRequest(computeDetectedChanges);
+  }, [reviewModal, computeDetectedChanges]);
+
+  // =========================================================================
+  // EDIT REQUEST APPROVE/REJECT WRAPPERS (admin actions)
+  // =========================================================================
+
+  const handleApproveEditRequest = useCallback(() => {
+    const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
+    return reviewModal.handleApproveEditRequest(approverChanges);
+  }, [reviewModal, originalEventData]);
+
+  const handleRejectEditRequest = useCallback(() => {
+    return reviewModal.handleRejectEditRequest();
+  }, [reviewModal]);
+
+  // =========================================================================
+  // CANCEL PENDING EDIT REQUEST (requester withdrawing own edit request)
+  // =========================================================================
+
+  const handleCancelPendingEditRequest = useCallback(async () => {
+    // First click: show confirmation
+    if (!isCancelEditRequestConfirming) {
+      setIsCancelEditRequestConfirming(true);
+      return;
+    }
+
+    // Second click: confirm
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      logger.error('No edit request to cancel');
+      return;
+    }
+
+    try {
+      setIsCancelingEditRequest(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await doFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to cancel edit request');
+      }
+
+      logger.info('Edit request canceled:', eventId);
+
+      // Reset state
+      setIsCancelEditRequestConfirming(false);
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+
+      reviewModal.closeModal();
+      onRefresh?.();
+    } catch (error) {
+      logger.error('Error canceling edit request:', error);
+      showError(`Failed to cancel edit request: ${error.message}`);
+    } finally {
+      setIsCancelingEditRequest(false);
+      setIsCancelEditRequestConfirming(false);
+    }
+  }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, doFetch, onRefresh, showError]);
+
+  const cancelCancelEditRequestConfirmation = useCallback(() => {
+    setIsCancelEditRequestConfirming(false);
+  }, []);
+
+  // =========================================================================
+  // CANCELLATION REQUEST HANDLERS (requester requesting event cancellation)
+  // =========================================================================
+
+  const handleRequestCancellation = useCallback(() => {
+    setIsCancellationRequestMode(true);
+    setCancellationReason('');
+  }, []);
+
+  const handleCancelCancellationRequest = useCallback(() => {
+    setIsCancellationRequestMode(false);
+    setCancellationReason('');
+  }, []);
+
+  const handleSubmitCancellationRequest = useCallback(async () => {
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !cancellationReason.trim()) return;
+
+    setIsSubmittingCancellationRequest(true);
+    try {
+      const eventId = currentItem._id || currentItem.eventId;
+      const response = await doFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-cancellation`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: cancellationReason.trim(),
+            _version: currentItem._version,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit cancellation request');
+      }
+
+      showSuccess('Cancellation request submitted');
+      setIsCancellationRequestMode(false);
+      setCancellationReason('');
+      reviewModal.closeModal();
+      onRefresh?.();
+    } catch (error) {
+      showError(error, { context: 'submitCancellationRequest' });
+    } finally {
+      setIsSubmittingCancellationRequest(false);
+    }
+  }, [reviewModal, cancellationReason, doFetch, onRefresh, showSuccess, showError]);
+
+  // =========================================================================
+  // RETURN
+  // =========================================================================
+
+  return {
+    // All useReviewModal return values (passthrough)
+    ...reviewModal,
+
+    // Edit request viewing
+    existingEditRequest,
+    isViewingEditRequest,
+    loadingEditRequest,
+    handleViewEditRequest,
+    handleViewOriginalEvent,
+
+    // Edit request mode (creating new edit request)
+    isEditRequestMode,
+    handleRequestEdit,
+    handleCancelEditRequest,
+    computeDetectedChanges,
+    handleSubmitEditRequest,
+
+    // Edit request approve/reject (admin)
+    handleApproveEditRequest,
+    handleRejectEditRequest,
+
+    // Cancel pending edit request (requester)
+    isCancelingEditRequest,
+    isCancelEditRequestConfirming,
+    handleCancelPendingEditRequest,
+    cancelCancelEditRequestConfirmation,
+
+    // Cancellation request
+    isCancellationRequestMode,
+    cancellationReason,
+    setCancellationReason,
+    isSubmittingCancellationRequest,
+    handleRequestCancellation,
+    handleCancelCancellationRequest,
+    handleSubmitCancellationRequest,
+
+    // Inline diff data
+    originalEventData,
+    flatOriginalEventData,
+
+    // Config passthrough (needed by EventReviewExperience component)
+    apiToken,
+  };
+}
