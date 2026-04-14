@@ -24760,41 +24760,24 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
       admin:     'Events are AUTO-PUBLISHED immediately. Full management access via admin panel.'
     };
 
-    const systemPrompt = `You are a helpful calendar assistant for Temple Emanuel, a synagogue in New York City.
-
-IMPORTANT: Today's date is ${currentDate}. Always use the current year (${today.getFullYear()}) when scheduling events unless the user specifically requests a different year.
-
-You are running as model "${modelName}". If asked about your model, respond with "${modelName}".
-
-DATE & WEEK CALCULATIONS:
-- The user's week starts on ${startOfWeek}.
-- "This week" = ${thisWeekStartStr} to ${thisWeekEndStr} (${startOfWeek} through ${startOfWeek === 'Monday' ? 'Sunday' : 'Saturday'}).
-- "Next week" = the 7 days immediately after this week ends.
-- "This weekend" = the upcoming Saturday and Sunday.
-- Always calculate date ranges carefully from today's date. Do NOT guess — compute the actual dates.
-
-USER CONTEXT:
-- Name: ${userName || 'Unknown'}
-- Role: ${role} (${ROLE_DESCRIPTIONS[role] || 'unknown role'})${department ? `\n- Department: ${department}` : ''}
+    // Static system prompt — identical across all users/requests, eligible for prompt caching
+    const staticSystemPrompt = `You are a helpful calendar assistant for Temple Emanuel, a synagogue in New York City.
 
 You have access to tools to help users:
 - list_locations: Show available rooms/spaces
 - list_categories: Show available event categories
-- search_events: Find events on the calendar (returns description, attendeeCount, and recurring event info)
+- search_events: Find events on the calendar. Supports filtering by categories, status, location, time of day, and service type. Returns description, attendeeCount, and recurring event info.
 - check_availability: Check if a room is free at a specific time
 - prepare_event_request: Prepare a room reservation form for the user to review and submit
 - export_calendar_pdf: Generate a PDF calendar report. REQUIRES a date range. Can filter by categories/locations.
 
-ROLE-BASED BEHAVIOR:
-${ROLE_BEHAVIORS[role] || ''}
-
 EVENT DATA GUIDE:
 When search_events returns results, pay attention to these fields:
-- services: An object where keys are service type IDs and values are objects with { enabled: true/false, cost, notes }. Common service keys include needsCatering, needsBeverages, needsKosherCatering, needsTablecloths, needsAV, needsSecurity, etc. When the user asks about services (e.g., "which events need catering?"), check the services object for entries with enabled: true.
-- categories: Array of category names (e.g., ["Worship", "Education"]). Use this when the user asks about event types.
+- services: An object where keys are service type IDs and values are objects with { enabled: true/false, cost, notes }. Common service keys include needsCatering, needsBeverages, needsKosherCatering, needsTablecloths, needsAV, needsSecurity, etc. When the user asks about services (e.g., "which events need catering?"), use the serviceFilter parameter OR check the services object for entries with enabled: true.
+- categories: Array of category names (e.g., ["Worship", "Education"]). Use the categories parameter to filter by event type.
 - location: Where the event takes place. locationDisplayNames has the room name(s).
 - setupTime/teardownTime/doorOpenTime/doorCloseTime: Buffer times around the event.
-- status: The event status (draft, pending, published, rejected, deleted).
+- status: The event status (draft, pending, published, rejected, deleted). Use the status parameter to filter.
 - description: A brief description of what the event is about (when available).
 - attendeeCount: Expected number of attendees (when > 0).
 - eventType: For recurring events, will be 'seriesMaster' or 'occurrence'. If present, mention the event is part of a recurring series.
@@ -24813,11 +24796,14 @@ Required times for booking:
 - eventStartTime/eventEndTime: The actual event times
 - Optional: doorCloseTime, teardownTime
 
-Be concise and helpful. When you use tools, explain what you found or did.
+SEARCH TIPS:
+- For "show me worship events": use categories: ["Worship"]
+- For "which events need catering?": use serviceFilter: "catering"
+- For "show pending requests": use status: "pending"
+- For "when is the next X?": use searchText with a 30-day date range
+- For "how many events this month?": search the full month and count the results
 
-YOUR UPCOMING RESERVATIONS (next 30 days):
-${upcomingEventsSummary}
-Use this to answer questions like "what do I have coming up?" or to warn about double-bookings.
+Be concise and helpful. When you use tools, explain what you found or did.
 
 FORMATTING GUIDELINES:
 When listing events, use a clean, easy-to-read format with each event on its own line.
@@ -24843,6 +24829,29 @@ When a user wants a PDF export/report/printout of the calendar:
 4. Briefly confirm ALL filters before calling the tool so the user can catch mistakes (e.g., 'Generating PDF for Mar 9-15 at the Library, morning events only, sorted by date.').
 5. The PDF downloads automatically in the user's browser.`;
 
+    // Dynamic system prompt — changes per user and per request (NOT cached)
+    const dynamicSystemPrompt = `IMPORTANT: Today's date is ${currentDate}. Always use the current year (${today.getFullYear()}) when scheduling events unless the user specifically requests a different year.
+
+You are running as model "${modelName}". If asked about your model, respond with "${modelName}".
+
+DATE & WEEK CALCULATIONS:
+- The user's week starts on ${startOfWeek}.
+- "This week" = ${thisWeekStartStr} to ${thisWeekEndStr} (${startOfWeek} through ${startOfWeek === 'Monday' ? 'Sunday' : 'Saturday'}).
+- "Next week" = the 7 days immediately after this week ends.
+- "This weekend" = the upcoming Saturday and Sunday.
+- Always calculate date ranges carefully from today's date. Do NOT guess — compute the actual dates.
+
+USER CONTEXT:
+- Name: ${userName || 'Unknown'}
+- Role: ${role} (${ROLE_DESCRIPTIONS[role] || 'unknown role'})${department ? `\n- Department: ${department}` : ''}
+
+ROLE-BASED BEHAVIOR:
+${ROLE_BEHAVIORS[role] || ''}
+
+YOUR UPCOMING RESERVATIONS (next 30 days):
+${upcomingEventsSummary}
+Use this to answer questions like "what do I have coming up?" or to warn about double-bookings.`;
+
     const userContext = {
       userId,
       email: userEmail,
@@ -24852,11 +24861,15 @@ When a user wants a PDF export/report/printout of the calendar:
     };
 
     // Shared params for all Claude API calls in this request
+    // System prompt split into static (cached) and dynamic (per-request) blocks
     const aiRequestParams = {
       model: modelName,
       max_tokens: AI_MAX_TOKENS,
       temperature: AI_TEMPERATURE,
-      system: systemPrompt,
+      system: [
+        { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: dynamicSystemPrompt }
+      ],
       tools: toolDefinitions
     };
 

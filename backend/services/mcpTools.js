@@ -51,7 +51,7 @@ const toolDefinitions = [
   },
   {
     name: 'search_events',
-    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events. Supports filtering by time of day (e.g., morning events, after 3pm, before noon). Returns description, attendeeCount, and recurring event info when available.',
+    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events. Supports filtering by categories, status, location, time of day, and service type. Returns description, attendeeCount, and recurring event info when available.',
     input_schema: {
       type: 'object',
       properties: {
@@ -70,6 +70,20 @@ const toolDefinitions = [
         locationId: {
           type: 'string',
           description: 'Filter by specific location/room ID'
+        },
+        categories: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Filter by category names (e.g., ["Worship", "Education"]). Use list_categories to see available options.'
+        },
+        status: {
+          type: 'string',
+          enum: ['published', 'pending', 'draft', 'rejected', 'all'],
+          description: 'Filter by event status. Default: shows published and pending. Use "pending" for awaiting-approval requests. "draft" shows only your own drafts. "all" requires approver/admin role.'
+        },
+        serviceFilter: {
+          type: 'string',
+          description: 'Filter events by service type. Examples: "catering", "AV", "security", "beverages". Matches against enabled services.'
         },
         afterTime: {
           type: 'string',
@@ -220,7 +234,7 @@ class MCPToolExecutor {
         case 'list_categories':
           return await this.listCategories();
         case 'search_events':
-          return await this.searchEvents(input);
+          return await this.searchEvents(input, userContext);
         case 'check_availability':
           return await this.checkAvailability(input);
         case 'export_calendar_pdf':
@@ -481,10 +495,10 @@ class MCPToolExecutor {
   /**
    * Search for events
    */
-  async searchEvents(input) {
-    let { startDate, endDate, searchText, locationId, afterTime, beforeTime } = input || {};
+  async searchEvents(input, userContext) {
+    let { startDate, endDate, searchText, locationId, categories, status, serviceFilter, afterTime, beforeTime } = input || {};
 
-    logger.info(`[MCP] searchEvents called with:`, { startDate, endDate, searchText, locationId, afterTime, beforeTime });
+    logger.info(`[MCP] searchEvents called with:`, { startDate, endDate, searchText, locationId, categories, status, serviceFilter, afterTime, beforeTime });
 
     // Smart detection: if searchText looks like a location, treat it as locationId
     if (searchText && !locationId) {
@@ -541,11 +555,37 @@ class MCPToolExecutor {
       ]
     };
 
+    // Build status filter (role-aware)
+    let statusFilter;
+    if (status === 'all') {
+      // 'all' requires approver/admin — otherwise fall back to default
+      const userRole = userContext?.role || 'viewer';
+      if (userRole === 'admin' || userRole === 'approver') {
+        statusFilter = { $nin: ['deleted'] };
+      } else {
+        statusFilter = { $nin: ['rejected', 'deleted'] };
+      }
+    } else if (status === 'draft') {
+      statusFilter = 'draft';
+    } else if (status) {
+      statusFilter = status;
+    } else {
+      statusFilter = { $nin: ['rejected', 'deleted'] };
+    }
+
     const query = {
       ...dateQuery,
       isDeleted: { $ne: true },
-      status: { $nin: ['rejected', 'deleted'] }
+      status: statusFilter
     };
+
+    // Scope draft searches to the requesting user's own drafts
+    if (status === 'draft' && userContext?.email) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        'roomReservationData.requestedBy.email': userContext.email.toLowerCase()
+      });
+    }
 
     if (searchText) {
       // Ensure $and exists (dateQuery already uses $and)
@@ -580,6 +620,18 @@ class MCPToolExecutor {
       };
       query.$and = query.$and || [];
       query.$and.push(locationMatch);
+    }
+
+    // Category filtering (reuses same pattern as exportCalendarPdf)
+    if (categories && categories.length > 0) {
+      const categoryRegexes = categories.map(c => new RegExp(c, 'i'));
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { categories: { $in: categoryRegexes } },
+          { 'calendarData.categories': { $in: categoryRegexes } }
+        ]
+      });
     }
 
     // Time-of-day filtering on the startTime field (stored as zero-padded "HH:MM")
@@ -638,6 +690,17 @@ class MCPToolExecutor {
       });
     }
 
+    // Post-query service filter (services field has dynamic keys, easier to filter in memory)
+    if (serviceFilter) {
+      const normalizedFilter = serviceFilter.toLowerCase();
+      events = events.filter(e => {
+        const services = e.services || e.calendarData?.services || {};
+        return Object.entries(services).some(([key, v]) =>
+          v && v.enabled && key.toLowerCase().includes(normalizedFilter)
+        );
+      });
+    }
+
     logger.info(`[MCP] searchEvents found ${events.length} events`);
     if (events.length > 0) {
       logger.info(`[MCP] First event:`, events[0]);
@@ -657,6 +720,9 @@ class MCPToolExecutor {
       count: limitedEvents.length,
       dateRange: { start: startDateStr, end: endDateStr },
       ...(afterTime || beforeTime ? { timeFilter: { afterTime, beforeTime } } : {}),
+      ...(categories?.length ? { categoryFilter: categories } : {}),
+      ...(status ? { statusFilter: status } : {}),
+      ...(serviceFilter ? { serviceFilter } : {}),
       events: limitedEvents.map(e => {
         // Build services summary: only include enabled services
         const services = e.services || e.calendarData?.services || {};
