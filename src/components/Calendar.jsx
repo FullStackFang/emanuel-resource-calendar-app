@@ -19,7 +19,6 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField } from '../utils/eventTransformers';
-  // editRequestUtils: computeDetectedChanges is now in useEventReviewExperience
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';

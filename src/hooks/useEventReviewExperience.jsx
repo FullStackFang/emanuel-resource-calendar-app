@@ -11,7 +11,7 @@
  * Consumers only provide: API auth, callbacks (onSuccess/onError/onRefresh),
  * and genuinely-unique props via EventReviewExperience component.
  */
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useReviewModal } from './useReviewModal';
 import { useNotification } from '../context/NotificationContext';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
@@ -47,9 +47,21 @@ export function useEventReviewExperience({
 }) {
   const { showSuccess, showError } = useNotification();
 
-  // Build a fetch function: use authFetch if provided, otherwise raw fetch + apiToken
+  // =========================================================================
+  // SATELLITE STATE — declared first so wrappedOnSuccess can reference setters
+  // =========================================================================
+
+  // Edit request mode (requester creating a new edit request)
+  const [isEditRequestMode, setIsEditRequestMode] = useState(false);
+  const [originalEventData, setOriginalEventData] = useState(null);
+
+  // Stabilize authFetch via ref so doFetch has a stable identity even when
+  // callers pass an inline arrow (Calendar.jsx). Prevents effect re-fires.
+  const authFetchRef = useRef(authFetch);
+  useEffect(() => { authFetchRef.current = authFetch; }, [authFetch]);
+
   const doFetch = useCallback((url, opts = {}) => {
-    if (authFetch) return authFetch(url, opts);
+    if (authFetchRef.current) return authFetchRef.current(url, opts);
     return fetch(url, {
       ...opts,
       headers: {
@@ -57,7 +69,7 @@ export function useEventReviewExperience({
         'Authorization': `Bearer ${apiToken}`,
       },
     });
-  }, [authFetch, apiToken]);
+  }, [apiToken]);
 
   // Wrap onSuccess to reset satellite state before calling consumer's callback
   const wrappedOnSuccess = useCallback((result) => {
@@ -74,14 +86,6 @@ export function useEventReviewExperience({
     onSuccess: wrappedOnSuccess,
     onError,
   });
-
-  // =========================================================================
-  // SATELLITE STATE (previously duplicated across 3 consumer files)
-  // =========================================================================
-
-  // Edit request mode (requester creating a new edit request)
-  const [isEditRequestMode, setIsEditRequestMode] = useState(false);
-  const [originalEventData, setOriginalEventData] = useState(null);
 
   // Transform originalEventData to flat structure for inline diff comparison.
   // Always apply the transform for consistency — it's idempotent on already-flat data.
@@ -156,28 +160,30 @@ export function useEventReviewExperience({
   }, [apiToken, doFetch]);
 
   /**
-   * Effect: Check for existing edit requests when modal opens with a published event.
-   * Resets all satellite state when modal closes.
+   * Effect: Check for existing edit requests on modal open transition.
+   * Uses prevIsOpenRef to fire only once on open (not on item swaps mid-session).
+   * Resets all satellite state on close transition.
    */
+  const prevIsOpenRef = useRef(false);
   useEffect(() => {
-    const checkForEditRequest = async () => {
-      if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
-        const editRequest = await fetchExistingEditRequest(reviewModal.currentItem);
-        setExistingEditRequest(editRequest);
-      } else if (!reviewModal.isOpen) {
-        // Reset ALL satellite state on modal close (single cleanup point)
-        setExistingEditRequest(null);
-        setIsViewingEditRequest(false);
-        setOriginalEventData(null);
-        setIsEditRequestMode(false);
-        setIsCancelEditRequestConfirming(false);
-        setIsCancelingEditRequest(false);
-        setIsCancellationRequestMode(false);
-        setCancellationReason('');
-        setIsSubmittingCancellationRequest(false);
-      }
-    };
-    checkForEditRequest();
+    const justOpened = reviewModal.isOpen && !prevIsOpenRef.current;
+    const justClosed = !reviewModal.isOpen && prevIsOpenRef.current;
+    prevIsOpenRef.current = reviewModal.isOpen;
+
+    if (justOpened && reviewModal.currentItem?.status === 'published') {
+      fetchExistingEditRequest(reviewModal.currentItem).then(setExistingEditRequest);
+    } else if (justClosed) {
+      // Reset ALL satellite state on modal close (single cleanup point)
+      setExistingEditRequest(null);
+      setIsViewingEditRequest(false);
+      setOriginalEventData(null);
+      setIsEditRequestMode(false);
+      setIsCancelEditRequestConfirming(false);
+      setIsCancelingEditRequest(false);
+      setIsCancellationRequestMode(false);
+      setCancellationReason('');
+      setIsSubmittingCancellationRequest(false);
+    }
   }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
 
   /** Overlay proposed changes onto the form (view edit request mode) */
@@ -245,9 +251,7 @@ export function useEventReviewExperience({
     return reviewModal.handleApproveEditRequest(approverChanges);
   }, [reviewModal, originalEventData]);
 
-  const handleRejectEditRequest = useCallback(() => {
-    return reviewModal.handleRejectEditRequest();
-  }, [reviewModal]);
+  // handleRejectEditRequest: no wrapper needed — comes through ...reviewModal spread
 
   // =========================================================================
   // CANCEL PENDING EDIT REQUEST (requester withdrawing own edit request)
@@ -381,7 +385,7 @@ export function useEventReviewExperience({
 
     // Edit request approve/reject (admin)
     handleApproveEditRequest,
-    handleRejectEditRequest,
+    // handleRejectEditRequest comes through ...reviewModal spread
 
     // Cancel pending edit request (requester)
     isCancelingEditRequest,
@@ -398,8 +402,7 @@ export function useEventReviewExperience({
     handleCancelCancellationRequest,
     handleSubmitCancellationRequest,
 
-    // Inline diff data
-    originalEventData,
+    // Inline diff data (originalEventData is internal — only flat version is public)
     flatOriginalEventData,
 
     // Config passthrough (needed by EventReviewExperience component)

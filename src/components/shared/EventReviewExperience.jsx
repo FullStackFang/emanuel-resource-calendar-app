@@ -70,12 +70,11 @@ export default function EventReviewExperience({
   const itemStatus = exp.currentItem?.status || 'published';
   const isPending = itemStatus === 'pending';
 
-  // Requester name resolution (same fallback chain as Calendar)
-  const requesterName =
-    exp.currentItem?.roomReservationData?.requestedBy?.name
-    || exp.currentItem?.calendarData?.requesterName
-    || exp.currentItem?.requesterName
-    || '';
+  // Requester name: editableData is already flat (from transformEventToFlatStructure)
+  const requesterName = exp.editableData?.requesterName || '';
+
+  // Compute detected changes once per render (not twice in JSX props)
+  const detectedChanges = exp.isEditRequestMode ? exp.computeDetectedChanges() : [];
 
   return (
     <>
@@ -90,7 +89,7 @@ export default function EventReviewExperience({
         isRequesterOnly={isRequesterOnly}
         itemStatus={itemStatus}
         requesterName={requesterName}
-        hasChanges={exp.isEditRequestMode ? exp.computeDetectedChanges().length > 0 : exp.hasChanges}
+        hasChanges={exp.isEditRequestMode ? detectedChanges.length > 0 : exp.hasChanges}
         // Permission-gated core actions (override spread defaults)
         onApprove={canApproveReservations ? exp.handleApprove : null}
         onReject={canApproveReservations ? exp.handleReject : null}
@@ -118,7 +117,7 @@ export default function EventReviewExperience({
         onSubmitEditRequest={exp.handleSubmitEditRequest}
         onCancelEditRequest={exp.handleCancelEditRequest}
         originalData={exp.flatOriginalEventData}
-        detectedChanges={exp.isEditRequestMode ? exp.computeDetectedChanges() : []}
+        detectedChanges={detectedChanges}
         // Edit request approve/reject (from experience hook, permission-gated)
         onApproveEditRequest={canApproveReservations ? exp.handleApproveEditRequest : null}
         onRejectEditRequest={canApproveReservations ? exp.handleRejectEditRequest : null}
