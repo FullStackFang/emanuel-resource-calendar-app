@@ -215,14 +215,6 @@ function resolveEffectiveRole(req, user, userEmail) {
 }
 
 /**
- * Get all valid role names
- * @returns {string[]} Array of valid role names
- */
-function getValidRoles() {
-  return Object.keys(ROLE_HIERARCHY);
-}
-
-/**
  * Validate if a role string is valid
  * @param {string} role - Role to validate
  * @returns {boolean} True if role is valid
@@ -240,7 +232,6 @@ module.exports = {
   resolveEffectiveRole,
   hasRole,
   getPermissions,
-  getValidRoles,
   isValidRole,
   getDepartmentEditableFields,
   canEditField,

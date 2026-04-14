@@ -1183,15 +1183,15 @@ function createTestApp(options = {}) {
 
       const now = new Date();
       // Determine auto-publish eligibility using effective role (respects X-Simulated-Role)
-      const submitEffRole = resolveEffectiveRole(req, userDoc, userEmail);
-      let canAutoPublish = ['approver', 'admin'].includes(submitEffRole);
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      let canAutoPublish = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
       // Downgrade approver auto-publish to pending when recurring hard conflicts exist
       // Only admins can auto-publish recurring events with conflicts
       let conflictDowngradedToPending = false;
       if (canAutoPublish && isDraftRecurringSubmit &&
           draftRecurringConflicts?.conflictingOccurrences > 0 &&
-          submitEffRole !== 'admin') {
+          effectiveRole !== 'admin') {
         canAutoPublish = false;
         conflictDowngradedToPending = true;
       }
@@ -1501,8 +1501,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -1573,8 +1573,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -1861,8 +1861,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3092,8 +3092,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3272,8 +3272,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3538,8 +3538,8 @@ function createTestApp(options = {}) {
       });
 
       // Check approver permission (respects X-Simulated-Role)
-      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3788,8 +3788,8 @@ function createTestApp(options = {}) {
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
-      const appCancRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[appCancRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Only approvers and admins can approve cancellation requests' });
       }
 
@@ -3872,8 +3872,8 @@ function createTestApp(options = {}) {
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
-      const rejCancRole = resolveEffectiveRole(req, userDoc, userEmail);
-      if (ROLE_HIERARCHY[rejCancRole] < ROLE_HIERARCHY['approver']) {
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Only approvers and admins can reject cancellation requests' });
       }
 
@@ -4785,9 +4785,9 @@ function createTestApp(options = {}) {
       });
 
       // Respect X-Simulated-Role header (mirrors production api-server.js)
-      const countsEffectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
-      const canViewAll = ROLE_HIERARCHY[countsEffectiveRole] >= ROLE_HIERARCHY['approver'];
-      const adminUser = countsEffectiveRole === 'admin';
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      const canViewAll = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
+      const adminUser = effectiveRole === 'admin';
 
       if (view === 'approval-queue' && !canViewAll) {
         return res.status(403).json({ error: 'Approver or Admin access required' });

@@ -522,18 +522,19 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     }, [reviewModal.isOpen, isEditRequestMode, isCancellationRequestMode]);
 
-    // Update calendarDataService when role simulation changes
-    // This ensures the X-Simulated-Role header is included in API requests
-    // and reloads calendar data with the new role's permissions
-    const prevSimulatedRoleRef = useRef(simulatedRole);
+    // Keep calendarDataService headers in sync with simulation state
     useEffect(() => {
       calendarDataService.setRoleSimulation(simulatedRole, isActualAdmin);
-      // Reload data when simulation role actually changes (not on initial mount)
+    }, [simulatedRole, isActualAdmin]);
+
+    // Reload calendar data when simulation role changes (not on initial mount)
+    const prevSimulatedRoleRef = useRef(simulatedRole);
+    useEffect(() => {
       if (prevSimulatedRoleRef.current !== simulatedRole && apiToken) {
         loadEvents(true, null, { silent: true });
       }
       prevSimulatedRoleRef.current = simulatedRole;
-    }, [simulatedRole, isActualAdmin, apiToken, loadEvents]);
+    }, [simulatedRole, apiToken, loadEvents]);
 
     // Per-event edit permission: considers ownership and department match
     const canEditThisEvent = useMemo(() => {
@@ -3189,18 +3190,14 @@ import ConflictDialog from './shared/ConflictDialog';
       const filtered = allEvents.filter(event => {
 
         // === PENDING EVENT VISIBILITY: Filter based on effective permissions (real or simulated) ===
-        if (isPendingEvent(event)) {
-          if (!canApproveReservations) {
-            // Viewer: cannot see ANY pending events
-            if (!canSubmitReservation) {
-              return false;
-            }
-            // Requester: only their OWN pending events
-            if (!isEventOwner(event)) {
-              return false;
-            }
+        // Approver/Admin see all pending — skip the check entirely for them
+        if (!canApproveReservations && isPendingEvent(event)) {
+          if (!canSubmitReservation) {
+            return false; // Viewer: cannot see ANY pending events
           }
-          // Approver/Admin: see all pending (no filter needed)
+          if (!isEventOwner(event)) {
+            return false; // Requester: only their OWN pending events
+          }
         }
 
         // === DRAFT EVENTS: Only show to creator (defense in depth, backend already filters) ===

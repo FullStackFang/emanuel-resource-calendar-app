@@ -6223,8 +6223,8 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
       // Check if user can view all reservations (respects X-Simulated-Role)
       const user = await getCachedUser(userId);
-      const pendingEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-      const canViewAll = ROLE_HIERARCHY[pendingEffectiveRole] >= ROLE_HIERARCHY['approver'];
+      const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+      const canViewAll = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
       logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
@@ -14379,7 +14379,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     }
 
     // Determine auto-publish eligibility using effective role
-    let canAutoPublish = ['approver', 'admin'].includes(effectiveRole);
+    let canAutoPublish = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     // Validate ownership — approvers/admins can submit any draft
     const isOwner = draft.roomReservationData?.requestedBy?.userId === userId;
@@ -15113,8 +15113,8 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
 
     // Check admin permissions (respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const restoreEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const isAdminUser = restoreEffectiveRole === 'admin';
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const isAdminUser = effectiveRole === 'admin';
 
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -19021,8 +19021,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
 
     // Permission check: requester role or higher required (respects X-Simulated-Role)
     const user = await findUserByIdentity(usersCollection, userId, userEmail);
-    const requestEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    if (ROLE_HIERARCHY[requestEffectiveRole] < ROLE_HIERARCHY['requester']) {
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['requester']) {
       return res.status(403).json({ error: 'Permission denied. Requester role required.' });
     }
 
@@ -19495,8 +19495,8 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: new ObjectId(id) }))
     ]);
 
-    const publishEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[publishEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Approver access required' });
     }
@@ -19505,7 +19505,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
     }
 
     // Only admins can force-override scheduling conflicts
-    if (forcePublish && publishEffectiveRole !== 'admin') {
+    if (forcePublish && effectiveRole !== 'admin') {
       return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
     }
 
@@ -20012,8 +20012,8 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
 
     // Check approver/admin permissions (respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const rejectEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[rejectEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Approver access required' });
@@ -20922,8 +20922,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
     // Check approver/admin permissions (respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const pubEditEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[pubEditEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Approver access required' });
@@ -20933,7 +20933,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const { notes, _version, approverChanges, forcePublishEdit, acknowledgeSoftConflicts } = req.body;
 
     // Only admins can force-override scheduling conflicts
-    if (forcePublishEdit && pubEditEffectiveRole !== 'admin') {
+    if (forcePublishEdit && effectiveRole !== 'admin') {
       return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
     }
 
@@ -21365,8 +21365,8 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
 
     // Check approver/admin permissions (respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const rejEditEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[rejEditEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Approver access required' });
@@ -21821,8 +21821,8 @@ app.put('/api/admin/events/:id/approve-cancellation', verifyToken, async (req, r
 
     // Permission check: approver+ (respects X-Simulated-Role)
     const user = await findUserByIdentity(usersCollection, userId, userEmail);
-    const appCancEffRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[appCancEffRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Only approvers and admins can approve cancellation requests' });
     }
@@ -21969,8 +21969,8 @@ app.put('/api/admin/events/:id/reject-cancellation', verifyToken, async (req, re
 
     // Permission check: approver+ (respects X-Simulated-Role)
     const user = await findUserByIdentity(usersCollection, userId, userEmail);
-    const rejCancEffRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[rejCancEffRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Only approvers and admins can reject cancellation requests' });
     }
@@ -22277,8 +22277,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Check approver/admin permissions (respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const saveEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const hasApproverAccess = ROLE_HIERARCHY[saveEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     if (!hasApproverAccess) {
       return res.status(403).json({ error: 'Approver access required' });
@@ -22288,7 +22288,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const updates = req.body;
 
     // Only admins can force-override scheduling conflicts
-    if (updates.forceUpdate && saveEffectiveRole !== 'admin') {
+    if (updates.forceUpdate && effectiveRole !== 'admin') {
       return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
     }
     const graphToken = updates.graphToken;
@@ -23732,9 +23732,9 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Check permissions (approver+ can delete with scoping rules, respects X-Simulated-Role)
     const user = await getCachedUser(userId);
-    const deleteEffectiveRole = resolveEffectiveRole(req, user, userEmail);
-    const isAdminUser = deleteEffectiveRole === 'admin';
-    const isApprover = ROLE_HIERARCHY[deleteEffectiveRole] >= ROLE_HIERARCHY['approver'];
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const isAdminUser = effectiveRole === 'admin';
+    const isApprover = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
     if (!isAdminUser && !isApprover) {
       return res.status(403).json({ error: 'Approver access required' });

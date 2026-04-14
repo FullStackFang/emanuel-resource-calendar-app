@@ -117,8 +117,7 @@
       "Bash(az webapp:*)",
       "Read(//mnt/c/Users/Stephen.Fang/**)",
       "Bash(unzip -o webapp-logs.zip -d webapp-logs)",
-      "Bash(for func:*)",
-      "Bash(for comp:*)"
+      "Bash(do touch:*)"
     ],
     "deny": []
   },
