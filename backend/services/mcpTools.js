@@ -10,6 +10,22 @@ const calendarConfig = require('../calendar-config.json');
 const DEFAULT_CALENDAR_OWNER = 'TempleEventsSandbox@emanuelnyc.org';
 const DEFAULT_CALENDAR_ID = calendarConfig[DEFAULT_CALENDAR_OWNER] || null;
 
+// Escape regex special characters to prevent ReDoS from user/AI-supplied strings
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Build a MongoDB category filter clause (shared by searchEvents and exportCalendarPdf)
+function buildCategoryFilter(categories) {
+  const categoryRegexes = categories.map(c => new RegExp(escapeRegex(c), 'i'));
+  return {
+    $or: [
+      { categories: { $in: categoryRegexes } },
+      { 'calendarData.categories': { $in: categoryRegexes } }
+    ]
+  };
+}
+
 // Helper to safely convert string to ObjectId
 function toObjectId(str) {
   try {
@@ -557,20 +573,26 @@ class MCPToolExecutor {
 
     // Build status filter (role-aware)
     let statusFilter;
+    let statusNote;
     if (status === 'all') {
-      // 'all' requires approver/admin — otherwise fall back to default
       const userRole = userContext?.role || 'viewer';
       if (userRole === 'admin' || userRole === 'approver') {
         statusFilter = { $nin: ['deleted'] };
       } else {
-        statusFilter = { $nin: ['rejected', 'deleted'] };
+        // Non-privileged users can't see all statuses — fall back to default
+        statusFilter = { $nin: ['rejected', 'deleted', 'draft'] };
+        statusNote = 'Your role does not have access to all statuses. Showing published and pending only.';
       }
     } else if (status === 'draft') {
+      if (!userContext?.email) {
+        return { count: 0, events: [], error: 'Cannot search drafts without user context' };
+      }
       statusFilter = 'draft';
     } else if (status) {
       statusFilter = status;
     } else {
-      statusFilter = { $nin: ['rejected', 'deleted'] };
+      // Default: exclude rejected, deleted, and other users' drafts
+      statusFilter = { $nin: ['rejected', 'deleted', 'draft'] };
     }
 
     const query = {
@@ -580,7 +602,7 @@ class MCPToolExecutor {
     };
 
     // Scope draft searches to the requesting user's own drafts
-    if (status === 'draft' && userContext?.email) {
+    if (status === 'draft') {
       query.$and = query.$and || [];
       query.$and.push({
         'roomReservationData.requestedBy.email': userContext.email.toLowerCase()
@@ -622,16 +644,10 @@ class MCPToolExecutor {
       query.$and.push(locationMatch);
     }
 
-    // Category filtering (reuses same pattern as exportCalendarPdf)
+    // Category filtering (shared helper with exportCalendarPdf)
     if (categories && categories.length > 0) {
-      const categoryRegexes = categories.map(c => new RegExp(c, 'i'));
       query.$and = query.$and || [];
-      query.$and.push({
-        $or: [
-          { categories: { $in: categoryRegexes } },
-          { 'calendarData.categories': { $in: categoryRegexes } }
-        ]
-      });
+      query.$and.push(buildCategoryFilter(categories));
     }
 
     // Time-of-day filtering on the startTime field (stored as zero-padded "HH:MM")
@@ -674,7 +690,7 @@ class MCPToolExecutor {
         attendeeCount: 1,
         eventType: 1
       })
-      .limit(50)
+      .limit((serviceFilter || afterTime || beforeTime) ? 200 : 50)
       .toArray();
 
     // Post-query time filter for events missing top-level startTime field
@@ -722,6 +738,7 @@ class MCPToolExecutor {
       ...(afterTime || beforeTime ? { timeFilter: { afterTime, beforeTime } } : {}),
       ...(categories?.length ? { categoryFilter: categories } : {}),
       ...(status ? { statusFilter: status } : {}),
+      ...(statusNote ? { statusNote } : {}),
       ...(serviceFilter ? { serviceFilter } : {}),
       events: limitedEvents.map(e => {
         // Build services summary: only include enabled services
@@ -970,13 +987,7 @@ class MCPToolExecutor {
 
     // Add category filter
     if (categories && categories.length > 0) {
-      const categoryRegexes = categories.map(c => new RegExp(c, 'i'));
-      query.$and.push({
-        $or: [
-          { categories: { $in: categoryRegexes } },
-          { 'calendarData.categories': { $in: categoryRegexes } }
-        ]
-      });
+      query.$and.push(buildCategoryFilter(categories));
     }
 
     // Add location filter
