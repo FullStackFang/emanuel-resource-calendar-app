@@ -10,6 +10,7 @@ import { logger } from '../utils/logger';
 const STORAGE_KEY = 'role_simulation_session';
 
 // Role templates with their permission sets
+// IMPORTANT: These MUST match backend ROLE_PERMISSIONS in permissionUtils.js
 export const ROLE_TEMPLATES = {
   viewer: {
     name: 'Viewer',
@@ -21,6 +22,8 @@ export const ROLE_TEMPLATES = {
       canEditEvents: false,
       canDeleteEvents: false,
       canApproveReservations: false,
+      canViewAllReservations: false,
+      canGenerateReservationTokens: false,
       isAdmin: false
     }
   },
@@ -34,6 +37,8 @@ export const ROLE_TEMPLATES = {
       canEditEvents: false,
       canDeleteEvents: false,
       canApproveReservations: false,
+      canViewAllReservations: false,
+      canGenerateReservationTokens: false,
       isAdmin: false
     }
   },
@@ -47,7 +52,9 @@ export const ROLE_TEMPLATES = {
       canEditEvents: true,
       canDeleteEvents: true,
       canApproveReservations: true,
-      isAdmin: false  // Approvers are not admins, but canEditEvents allows editing approved events
+      canViewAllReservations: true,
+      canGenerateReservationTokens: true,
+      isAdmin: false
     }
   },
   admin: {
@@ -60,6 +67,8 @@ export const ROLE_TEMPLATES = {
       canEditEvents: true,
       canDeleteEvents: true,
       canApproveReservations: true,
+      canViewAllReservations: true,
+      canGenerateReservationTokens: true,
       isAdmin: true
     }
   }
@@ -190,6 +199,8 @@ export function RoleSimulationProvider({ children }) {
         canEditEvents: actualPermissions.canEditEvents ?? false,
         canDeleteEvents: actualPermissions.canDeleteEvents ?? false,
         canApproveReservations: actualPermissions.canApproveReservations ?? false,
+        canViewAllReservations: actualPermissions.canViewAllReservations ?? false,
+        canGenerateReservationTokens: actualPermissions.canGenerateReservationTokens ?? false,
         isAdmin: actualPermissions.isAdmin ?? false
       };
     }

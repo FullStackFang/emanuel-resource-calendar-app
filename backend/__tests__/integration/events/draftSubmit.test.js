@@ -300,8 +300,9 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
     });
   });
 
-  describe('DS-10b: Approver simulating viewer role skips auto-publish', () => {
-    it('should transition to pending when X-Simulated-Role is viewer', async () => {
+  describe('DS-10b: Non-admin X-Simulated-Role header is ignored', () => {
+    it('should auto-publish (ignore simulation) when non-admin sends X-Simulated-Role', async () => {
+      // Only admins can simulate roles — approver sending the header has it ignored
       const draft = createCompleteDraft({
         userId: approverUser.odataId,
         requesterEmail: approverUser.email,
@@ -316,8 +317,9 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PENDING);
-      expect(res.body.autoPublished).toBeUndefined();
+      // Approver's actual role applies — auto-publishes despite simulation header
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
     });
   });
 

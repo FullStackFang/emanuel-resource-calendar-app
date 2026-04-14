@@ -8,7 +8,7 @@
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
-const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
+const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail, ORGANIZER_FIELD_MAP } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
 const { extractDatePart } = require('../../utils/dateUtils');
@@ -1182,20 +1182,16 @@ function createTestApp(options = {}) {
       }
 
       const now = new Date();
-      let canAutoPublish = isApproverOrAdmin;
-
-      // Respect role simulation: if simulating a non-approver role, skip auto-publish
-      const simulatedRole = req.headers['x-simulated-role'];
-      if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
-        canAutoPublish = false;
-      }
+      // Determine auto-publish eligibility using effective role (respects X-Simulated-Role)
+      const submitEffRole = resolveEffectiveRole(req, userDoc, userEmail);
+      let canAutoPublish = ['approver', 'admin'].includes(submitEffRole);
 
       // Downgrade approver auto-publish to pending when recurring hard conflicts exist
       // Only admins can auto-publish recurring events with conflicts
       let conflictDowngradedToPending = false;
       if (canAutoPublish && isDraftRecurringSubmit &&
           draftRecurringConflicts?.conflictingOccurrences > 0 &&
-          !isAdmin(userDoc, userEmail)) {
+          submitEffRole !== 'admin') {
         canAutoPublish = false;
         conflictDowngradedToPending = true;
       }
@@ -1504,8 +1500,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -1575,8 +1572,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -1862,8 +1860,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3092,8 +3091,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3271,8 +3271,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3536,8 +3537,9 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
+      // Check approver permission (respects X-Simulated-Role)
+      const _effRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[_effRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Permission denied. Approver role required.' });
       }
 
@@ -3782,11 +3784,12 @@ function createTestApp(options = {}) {
       const eventId = req.params.id;
       const { notes, _version } = req.body;
 
-      // Permission check: approver+
+      // Permission check: approver+ (respects X-Simulated-Role)
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
-      if (!canApproveReservations(userDoc, userEmail)) {
+      const appCancRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[appCancRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Only approvers and admins can approve cancellation requests' });
       }
 
@@ -3865,11 +3868,12 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'Rejection reason is required' });
       }
 
-      // Permission check: approver+
+      // Permission check: approver+ (respects X-Simulated-Role)
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
-      if (!canApproveReservations(userDoc, userEmail)) {
+      const rejCancRole = resolveEffectiveRole(req, userDoc, userEmail);
+      if (ROLE_HIERARCHY[rejCancRole] < ROLE_HIERARCHY['approver']) {
         return res.status(403).json({ error: 'Only approvers and admins can reject cancellation requests' });
       }
 
@@ -4623,8 +4627,10 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      const canViewAll = canViewAllReservations(userDoc, userEmail);
-      const adminUser = isAdmin(userDoc, userEmail);
+      // Respect X-Simulated-Role header (mirrors production api-server.js)
+      const effectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      const canViewAll = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
+      const adminUser = effectiveRole === 'admin';
 
       if (view === 'approval-queue' && !canViewAll) {
         return res.status(403).json({ error: 'Approver or Admin access required' });
@@ -4778,8 +4784,10 @@ function createTestApp(options = {}) {
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      const canViewAll = canViewAllReservations(userDoc, userEmail);
-      const adminUser = isAdmin(userDoc, userEmail);
+      // Respect X-Simulated-Role header (mirrors production api-server.js)
+      const countsEffectiveRole = resolveEffectiveRole(req, userDoc, userEmail);
+      const canViewAll = ROLE_HIERARCHY[countsEffectiveRole] >= ROLE_HIERARCHY['approver'];
+      const adminUser = countsEffectiveRole === 'admin';
 
       if (view === 'approval-queue' && !canViewAll) {
         return res.status(403).json({ error: 'Approver or Admin access required' });

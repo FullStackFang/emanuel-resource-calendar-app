@@ -87,6 +87,9 @@ const ROLE_PERMISSIONS = {
   }
 };
 
+// Valid roles for X-Simulated-Role header validation
+const VALID_ROLES = Object.keys(ROLE_HIERARCHY);
+
 // Default admin domain (can be overridden via ADMIN_DOMAIN env var)
 const DEFAULT_ADMIN_DOMAIN = '@emanuelnyc.org';
 
@@ -191,6 +194,27 @@ function getPermissions(user, userEmail) {
 }
 
 /**
+ * Resolve the effective role for a request, respecting role simulation.
+ *
+ * Only actual admins can simulate other roles. If the requesting user is an
+ * admin AND sends a valid X-Simulated-Role header, the simulated role is
+ * returned. Otherwise the user's real role is returned.
+ *
+ * @param {Object} req - Express request object (reads X-Simulated-Role header)
+ * @param {Object} user - User object from database (can be null)
+ * @param {string} userEmail - User's email address
+ * @returns {string} The effective role: 'viewer' | 'requester' | 'approver' | 'admin'
+ */
+function resolveEffectiveRole(req, user, userEmail) {
+  const actualRole = getEffectiveRole(user, userEmail);
+  const simulatedRole = req?.headers?.['x-simulated-role'];
+  if (simulatedRole && actualRole === 'admin' && VALID_ROLES.includes(simulatedRole)) {
+    return simulatedRole;
+  }
+  return actualRole;
+}
+
+/**
  * Get all valid role names
  * @returns {string[]} Array of valid role names
  */
@@ -210,8 +234,10 @@ function isValidRole(role) {
 module.exports = {
   ROLE_HIERARCHY,
   ROLE_PERMISSIONS,
+  VALID_ROLES,
   DEPARTMENT_EDITABLE_FIELDS,
   getEffectiveRole,
+  resolveEffectiveRole,
   hasRole,
   getPermissions,
   getValidRoles,

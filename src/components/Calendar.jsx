@@ -524,9 +524,16 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Update calendarDataService when role simulation changes
     // This ensures the X-Simulated-Role header is included in API requests
+    // and reloads calendar data with the new role's permissions
+    const prevSimulatedRoleRef = useRef(simulatedRole);
     useEffect(() => {
       calendarDataService.setRoleSimulation(simulatedRole, isActualAdmin);
-    }, [simulatedRole, isActualAdmin]);
+      // Reload data when simulation role actually changes (not on initial mount)
+      if (prevSimulatedRoleRef.current !== simulatedRole && apiToken) {
+        loadEvents(true, null, { silent: true });
+      }
+      prevSimulatedRoleRef.current = simulatedRole;
+    }, [simulatedRole, isActualAdmin, apiToken, loadEvents]);
 
     // Per-event edit permission: considers ownership and department match
     const canEditThisEvent = useMemo(() => {
@@ -3181,17 +3188,19 @@ import ConflictDialog from './shared/ConflictDialog';
     const filteredEvents = useMemo(() => {
       const filtered = allEvents.filter(event => {
 
-        // === ROLE SIMULATION: Filter pending events based on simulated role ===
-        if (isSimulating && isPendingEvent(event)) {
-          // Viewer: Cannot see ANY pending events
-          if (simulatedRole === 'viewer') {
-            return false;
+        // === PENDING EVENT VISIBILITY: Filter based on effective permissions (real or simulated) ===
+        if (isPendingEvent(event)) {
+          if (!canApproveReservations) {
+            // Viewer: cannot see ANY pending events
+            if (!canSubmitReservation) {
+              return false;
+            }
+            // Requester: only their OWN pending events
+            if (!isEventOwner(event)) {
+              return false;
+            }
           }
-          // Requester: Only their OWN pending events
-          if (simulatedRole === 'requester' && !isEventOwner(event)) {
-            return false;
-          }
-          // Approver/Admin: See all pending (no filter needed)
+          // Approver/Admin: see all pending (no filter needed)
         }
 
         // === DRAFT EVENTS: Only show to creator (defense in depth, backend already filters) ===
@@ -3328,12 +3337,11 @@ import ConflictDialog from './shared/ConflictDialog';
       isUncategorizedEvent,
       isUnspecifiedLocation,
       locationsMatch,
-      isSimulating,
-      simulatedRole,
+      canApproveReservations,
+      canSubmitReservation,
       isPendingEvent,
       isDraftEvent,
       isEventOwner,
-      canApproveReservations,
       effectivePermissions.isAdmin
     ]);
 
