@@ -1588,8 +1588,14 @@ export default function RoomReservationFormBase({
 
             {/* Event Organizer — optional, for security/operations contact */}
             <div className="organizer-row">
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('organizerName') ? 'field-changed' : ''}`}>
                 <label htmlFor="organizerName">Organizer Name</label>
+                {hasFieldChanged('organizerName') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('organizerName') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="text"
                   id="organizerName"
@@ -1598,10 +1604,17 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   placeholder="John Doe"
+                  className={hasFieldChanged('organizerName') ? 'input-changed' : ''}
                 />
               </div>
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('organizerPhone') ? 'field-changed' : ''}`}>
                 <label htmlFor="organizerPhone">Organizer Phone</label>
+                {hasFieldChanged('organizerPhone') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('organizerPhone') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="tel"
                   id="organizerPhone"
@@ -1610,10 +1623,17 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   placeholder="212-744-1400"
+                  className={hasFieldChanged('organizerPhone') ? 'input-changed' : ''}
                 />
               </div>
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('organizerEmail') ? 'field-changed' : ''}`}>
                 <label htmlFor="organizerEmail">Organizer Email</label>
+                {hasFieldChanged('organizerEmail') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('organizerEmail') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="email"
                   id="organizerEmail"
@@ -1622,6 +1642,7 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   placeholder="example@email.com"
+                  className={hasFieldChanged('organizerEmail') ? 'input-changed' : ''}
                 />
               </div>
             </div>
@@ -1876,22 +1897,36 @@ export default function RoomReservationFormBase({
               <div className="operations-content expanded">
                 <div className={`form-group ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
                   <label htmlFor="setupTime">Setup</label>
+                  {hasFieldChanged('setupTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('setupTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
                   <TimePickerInput
                     id="setupTime"
                     name="setupTime"
                     value={formData.setupTime}
                     onChange={handleInputChange}
                     disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('setupNotes'))}
+                    className={hasFieldChanged('setupTime') ? 'input-changed' : ''}
                   />
                 </div>
                 <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>
                   <label htmlFor="teardownTime">Teardown</label>
+                  {hasFieldChanged('teardownTime') && (
+                    <div className="inline-diff">
+                      <span className="diff-old">{formatTimeForDisplay(getOriginalValue('teardownTime'))}</span>
+                      <span className="diff-arrow">→</span>
+                    </div>
+                  )}
                   <TimePickerInput
                     id="teardownTime"
                     name="teardownTime"
                     value={formData.teardownTime}
                     onChange={handleInputChange}
                     disabled={internalNotesBaseDisabled || (fieldsDisabled && !canEditField('setupNotes'))}
+                    className={hasFieldChanged('teardownTime') ? 'input-changed' : ''}
                   />
                 </div>
                 <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
