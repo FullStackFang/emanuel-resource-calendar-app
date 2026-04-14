@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNotification } from '../context/NotificationContext';
 import './RecurrencePatternModal.css'; // Reuse same modal styling
+import { logger } from '../utils/logger';
 import './OffsiteLocationModal.css'; // Autocomplete styles
 
 /**
@@ -101,7 +102,7 @@ export default function OffsiteLocationModal({
         setSuggestions(results);
         setShowSuggestions(results.length > 0);
       } catch (err) {
-        console.error('Address search failed:', err);
+        logger.error('Address search failed:', err);
         setSuggestions([]);
       } finally {
         setIsSearching(false);

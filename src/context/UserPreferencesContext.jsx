@@ -2,6 +2,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loadUserPreferences } from '../services/userPreferencesService';
+import { logger } from '../utils/logger';
 
 // Create context
 const UserPreferencesContext = createContext();
@@ -27,7 +28,7 @@ export function UserPreferencesProvider({ children, accessToken }) {
           // Get the active account
           const activeAccount = instance.getActiveAccount();
           if (!activeAccount) {
-            console.error("No active account found");
+            logger.error("No active account found");
             setIsLoading(false);
             return;
           }
@@ -39,7 +40,7 @@ export function UserPreferencesProvider({ children, accessToken }) {
             setPreferences(savedPreferences);
           }
         } catch (error) {
-          console.error("Failed to load preferences:", error);
+          logger.error("Failed to load preferences:", error);
         } finally {
           setIsLoading(false);
         }

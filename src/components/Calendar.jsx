@@ -35,7 +35,6 @@
 import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
   import RoomReservationReview from './RoomReservationReview';
-    // import { getCalendars } from '../services/graphService';
   import {
     setApiToken as setGraphServiceApiToken,
     createLinkedEvents,
@@ -4241,12 +4240,6 @@ import ConflictDialog from './shared/ConflictDialog';
         const isTempleEventsCalendar = currentCalendar.name && 
           currentCalendar.name.toLowerCase().includes('templeevents');
 
-        // TODO: Re-enable this check for production
-        // if (!isTempleEventsCalendar) {
-        //   logger.debug('Not a TempleEvents calendar, skipping registration event creation');
-        //   return;
-        // }
-        
         logger.debug(`Creating registration event for calendar: ${currentCalendar.name} (TempleEvents: ${isTempleEventsCalendar})`);
         logger.debug('Event data for registration:', {
           createRegistrationEvent: eventData.createRegistrationEvent,

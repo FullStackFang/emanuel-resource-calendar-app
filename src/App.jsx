@@ -15,7 +15,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
-import { RoleSimulationProvider } from './context/RoleSimulationContext';
+import { RoleSimulationProvider, useRoleSimulation } from './context/RoleSimulationContext';
 import { useAuth } from './context/AuthContext';
 import { SSEProvider } from './context/SSEContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
@@ -88,6 +88,27 @@ const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
 const EventManagement = lazy(() => import('./components/EventManagement'));
 const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
 const AIChat = lazy(() => import('./components/AIChat'));
+
+// Admin-only wrapper — uses effectivePermissions so role simulation also hides the chat
+function AIChatSection({ showAIChat, onClose, onOpen, apiToken }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.isAdmin) return null;
+
+  return (
+    <>
+      <Suspense fallback={null}>
+        <AIChat isOpen={showAIChat} onClose={onClose} apiToken={apiToken} />
+      </Suspense>
+      <button
+        className="ai-chat-fab"
+        onClick={onOpen}
+        title="Open Chat Assistant"
+      >
+        <img src="/emanuel_logo.png?v=4" alt="Chat" className="ai-chat-fab-icon" />
+      </button>
+    </>
+  );
+}
 
 function App() {
   const { apiToken, setApiToken } = useAuth();
@@ -328,21 +349,13 @@ function App() {
                 </Routes>
               </Suspense>
 
-              {/* AI Chat - lazy loaded */}
-              <Suspense fallback={null}>
-                <AIChat
-                  isOpen={showAIChat}
-                  onClose={() => setShowAIChat(false)}
-                  apiToken={apiToken}
-                />
-              </Suspense>
-              <button
-                className="ai-chat-fab"
-                onClick={() => setShowAIChat(true)}
-                title="Open Chat Assistant"
-              >
-                <img src="/emanuel_logo.png?v=4" alt="Chat" className="ai-chat-fab-icon" />
-              </button>
+              {/* AI Chat - admin-only, lazy loaded */}
+              <AIChatSection
+                showAIChat={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                onOpen={() => setShowAIChat(true)}
+                apiToken={apiToken}
+              />
 
               {/* AI Chat Reservation Modal */}
               <ReviewModal
@@ -453,7 +466,7 @@ function App() {
                         try {
                           await instance.loginRedirect(loginRequestConfig);
                         } catch (error) {
-                          console.error('Login redirect failed:', error);
+                          logger.error('Login redirect failed:', error);
                         }
                       }}
                     >

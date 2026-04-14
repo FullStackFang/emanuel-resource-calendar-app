@@ -5,6 +5,7 @@ import {
   parseDateFromString,
   formatTimeFromDateTimeString,
   formatHoursMinutes,
+  formatTimeString,
   normalizeDateTimeSeconds,
 } from '../utils/appTimeUtils';
 import './SchedulingAssistant.css';
@@ -979,15 +980,6 @@ function SchedulingAssistant({
     return formatTime(which === 'start' ? block.startTime : block.endTime);
   };
 
-  // Format time string from HH:MM (24-hour) to "H:MM AM/PM" (12-hour)
-  const formatTimeString = (timeStr) => {
-    if (!timeStr) return '';
-    const [hours, minutes] = timeStr.split(':');
-    const hour = parseInt(hours);
-    const period = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}:${minutes} ${period}`;
-  };
 
   // Snap a Date to the nearest 15-minute increment
   const snapToQuarterHour = (date) => {

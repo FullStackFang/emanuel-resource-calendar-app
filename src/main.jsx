@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
+import { logger } from './utils/logger';
 import './index.css'; // optional
 
 // Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
@@ -148,22 +149,19 @@ msalInstance.initialize()
     }
   })
   .catch((error) => {
-    console.error('MSAL initialization/redirect error:', error);
+    logger.error('MSAL initialization/redirect error:', error);
   });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  // Uncomment Strictmode for Production
-  //<React.StrictMode>
-    <ErrorBoundary>
-      <AuthProvider>
-        <NotificationProvider>
-          <MsalProvider instance={msalInstance}>
-            <App />
-          </MsalProvider>
-          <ToastNotification />
-          <CriticalErrorHandler />
-        </NotificationProvider>
-      </AuthProvider>
-    </ErrorBoundary>
-  //</React.StrictMode>
+  <ErrorBoundary>
+    <AuthProvider>
+      <NotificationProvider>
+        <MsalProvider instance={msalInstance}>
+          <App />
+        </MsalProvider>
+        <ToastNotification />
+        <CriticalErrorHandler />
+      </NotificationProvider>
+    </AuthProvider>
+  </ErrorBoundary>
 );

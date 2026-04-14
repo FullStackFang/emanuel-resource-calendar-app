@@ -29,8 +29,7 @@ const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 const graphApiService = require('./services/graphApiService');
 const sseService = require('./services/sseService');
-// Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
-// const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
+// Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true (see utils/performanceMetrics.js)
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
@@ -152,12 +151,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const webAppURL = 'https://emanuel-resourcescheduler-d4echehehaf3dxfg.canadacentral-01.azurewebsites.net';
 
-// Azure AD configuration
-const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
-const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
-if (!process.env.APP_ID || !process.env.TENANT_ID) {
-  console.warn('⚠️  APP_ID and/or TENANT_ID not set in environment — using hardcoded defaults. Set these in .env for production.');
-}
+// Azure AD configuration (shared across backend services)
+const { APP_ID, TENANT_ID } = require('./config/azureConfig');
 
 // Valid roles for X-Simulated-Role header validation
 const VALID_ROLES = ['viewer', 'requester', 'approver', 'admin'];
@@ -335,13 +330,9 @@ const client = new MongoClient(connectionString, {
 });
 let db;
 let usersCollection;
-// internalEventsCollection removed - using unifiedEventsCollection instead
-// eventCacheCollection removed - using unifiedEventsCollection instead
-let unifiedEventsCollection; // New unified collection
-let calendarDeltasCollection; // Delta token storage
-// roomsCollection removed - DEPRECATED, using locationsCollection instead
-let locationsCollection; // Unified locations from events (includes reservable rooms)
-// unifiedEventsCollection removed - DEPRECATED, using unifiedEventsCollection instead
+let unifiedEventsCollection;
+let calendarDeltasCollection;
+let locationsCollection;
 let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
 
@@ -10350,9 +10341,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
         isCSVImport: true
       });
       
-      // internalEventsCollection removed - no longer needed
-      // eventCacheCollection removed - no longer needed
-      counts.cacheEvents = 0; // Legacy cache collection no longer exists
+      counts.cacheEvents = 0;
 
       counts.total = counts.unifiedEvents + counts.registrationEvents + counts.cacheEvents;
       
@@ -10488,7 +10477,6 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
         }) + '\n\n');
         
         try {
-          // eventCacheCollection removed - no longer exists
           const deleteResult = { deletedCount: 0 };
 
           totalDeleted.cacheEvents += deleteResult.deletedCount;
@@ -20742,7 +20730,7 @@ app.get('/api/events/:id/version', verifyToken, async (req, res) => {
       lastModifiedBy: event.lastModifiedBy || null
     });
   } catch (error) {
-    console.error('Error fetching event version:', error);
+    logger.error('Error fetching event version:', error);
     res.status(500).json({ error: 'Failed to fetch event version' });
   }
 });

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { logger } from '../../utils/logger';
 import './MobileHeader.css';
 
 function MobileHeader() {
@@ -36,7 +37,7 @@ function MobileHeader() {
     try {
       await instance.logoutRedirect();
     } catch (error) {
-      console.error('Mobile logout failed:', error);
+      logger.error('Mobile logout failed:', error);
     }
   };
 

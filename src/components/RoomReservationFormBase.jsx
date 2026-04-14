@@ -16,6 +16,7 @@ import { RecurringIcon } from './shared/CalendarIcons';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
+import { formatTimeString } from '../utils/appTimeUtils';
 import {
   clampEventTimesToReservation,
   expandReservationToContainOperationalTimes,
@@ -611,15 +612,6 @@ export default function RoomReservationFormBase({
     return Math.floor(diffMs / (1000 * 60));
   };
 
-  // Helper function to format time string from HH:MM (24-hour) to "H:MM AM/PM" (12-hour)
-  const formatTimeString = (timeStr) => {
-    if (!timeStr) return '';
-    const [hours, minutes] = timeStr.split(':');
-    const hour = parseInt(hours);
-    const period = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}:${minutes} ${period}`;
-  };
 
   // Check room availability
   const checkAvailability = async () => {

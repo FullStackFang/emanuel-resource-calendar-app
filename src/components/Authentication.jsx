@@ -5,6 +5,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '../config/authConfig';
 import { useRoleSimulationSafe, ROLE_TEMPLATES } from '../context/RoleSimulationContext';
 import { useSessionTimer } from '../hooks/useSessionTimer';
+import { logger } from '../utils/logger';
 
 function Authentication({ onSignIn, onSignOut }) {
   const { instance, accounts } = useMsal();
@@ -39,11 +40,11 @@ function Authentication({ onSignIn, onSignOut }) {
       if (onSignIn) onSignIn(loginResponse.account);
     } catch (error) {
       // Popup failed (blocked by mobile browser or error) — fall back to redirect
-      console.warn('Popup login failed, falling back to redirect:', error.message);
+      logger.warn('Popup login failed, falling back to redirect:', error.message);
       try {
         await instance.loginRedirect(loginRequest);
       } catch (redirectError) {
-        console.error('Redirect login also failed:', redirectError);
+        logger.error('Redirect login also failed:', redirectError);
       }
     }
   };
@@ -53,12 +54,12 @@ function Authentication({ onSignIn, onSignOut }) {
       await instance.logoutPopup();
     } catch (error) {
       // Popup failed (blocked by mobile browser or error) — fall back to redirect
-      console.warn('Popup logout failed, falling back to redirect:', error.message);
+      logger.warn('Popup logout failed, falling back to redirect:', error.message);
       try {
         await instance.logoutRedirect();
         return; // Redirect navigates away — onSignOut not needed
       } catch (redirectError) {
-        console.error('Redirect logout also failed:', redirectError);
+        logger.error('Redirect logout also failed:', redirectError);
       }
     }
     if (onSignOut) onSignOut();

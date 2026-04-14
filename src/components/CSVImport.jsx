@@ -156,7 +156,7 @@ export default function CSVImport({ apiToken, availableCalendars = [] }) {
                   const eventData = JSON.parse(line.substring(6));
                   handleStreamEvent(eventData);
                 } catch (e) {
-                  console.warn('Failed to parse stream event:', line);
+                  logger.warn('Failed to parse stream event:', line);
                 }
               }
             }
@@ -305,7 +305,7 @@ export default function CSVImport({ apiToken, availableCalendars = [] }) {
                   const eventData = JSON.parse(line.substring(6));
                   handleClearStreamEvent(eventData);
                 } catch (e) {
-                  console.warn('Failed to parse clear stream event:', line);
+                  logger.warn('Failed to parse clear stream event:', line);
                 }
               }
             }

@@ -53,7 +53,7 @@ const ensureOfficeReady = () =>
         return acc;
       }, {});
     } catch (err) {
-      console.error('Error loading RoamingSettings:', err);
+      logger.error('Error loading RoamingSettings:', err);
       return getDefaultPreferences();
     }
   };
@@ -66,7 +66,7 @@ const ensureOfficeReady = () =>
   
     // If the Office API or roamingSettings isn't available, bail
     if (!window.Office?.context?.roamingSettings) {
-      console.warn('RoamingSettings unavailable, skipping save');
+      logger.warn('RoamingSettings unavailable, skipping save');
       return false;
     }
   
@@ -85,13 +85,13 @@ const ensureOfficeReady = () =>
           if (asyncResult.status === window.Office.AsyncResultStatus.Succeeded) {
             resolve(true);
           } else {
-            console.error('Failed to save RoamingSettings:', asyncResult.error);
+            logger.error('Failed to save RoamingSettings:', asyncResult.error);
             reject(asyncResult.error);
           }
         });
       });
     } catch (err) {
-      console.error('Error saving RoamingSettings:', err);
+      logger.error('Error saving RoamingSettings:', err);
       return false;
     }
   };

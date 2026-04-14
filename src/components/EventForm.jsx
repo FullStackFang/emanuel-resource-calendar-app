@@ -728,7 +728,7 @@ function EventForm({
         setAttachments(data.attachments || []);
       }
     } catch (error) {
-      console.error('Failed to load attachments:', error);
+      logger.error('Failed to load attachments:', error);
     }
   };
 
@@ -766,7 +766,7 @@ function EventForm({
           showError(new Error(errorData.error), { context: 'EventForm.uploadFiles', userMessage: `Failed to upload ${file.name}` });
         }
       } catch (error) {
-        console.error('Upload error:', error);
+        logger.error('Upload error:', error);
         showError(error, { context: 'EventForm.uploadFiles', userMessage: `Failed to upload ${file.name}` });
       } finally {
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
@@ -801,7 +801,7 @@ function EventForm({
       // For now, just remove from local state
       setAttachments(prev => prev.filter(att => att.id !== attachmentId));
     } catch (error) {
-      console.error('Failed to delete attachment:', error);
+      logger.error('Failed to delete attachment:', error);
     }
   };
 
@@ -852,7 +852,7 @@ function EventForm({
       });
       setShowPreviewModal(true);
     } catch (error) {
-      console.error('Preview failed:', error);
+      logger.error('Preview failed:', error);
       showError(error, { context: 'EventForm.handlePreview', userMessage: 'Failed to load file preview. Please try downloading the file instead.' });
     }
   };
@@ -889,7 +889,7 @@ function EventForm({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
-      console.error('Download failed:', error);
+      logger.error('Download failed:', error);
       showError(error, { context: 'EventForm.handleDownload', userMessage: 'Failed to download file. Please try again.' });
     }
   };

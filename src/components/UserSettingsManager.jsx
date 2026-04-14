@@ -6,6 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
+import { logger } from '../utils/logger';
 
 // MongoDB API endpoint - replace with your Azure Function or API endpoint
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -45,7 +46,7 @@ export default function UserSettingsManager() {
         displayName: currentAccount.name || currentAccount.username.split('@')[0]
       };
     } catch (err) {
-      console.error('Error getting current user info:', err);
+      logger.error('Error getting current user info:', err);
       return null;
     }
   };
@@ -85,7 +86,7 @@ export default function UserSettingsManager() {
         }
       }
     } catch (err) {
-      console.error('Error fetching users:', err);
+      logger.error('Error fetching users:', err);
       setError('Failed to load user settings. Please try again later.');
     } finally {
       setLoading(false);
@@ -109,7 +110,7 @@ export default function UserSettingsManager() {
       
       return await response.json();
     } catch (err) {
-      console.error('Error creating user:', err);
+      logger.error('Error creating user:', err);
       setError('Failed to create user. Please try again.');
       return null;
     }
@@ -132,7 +133,7 @@ export default function UserSettingsManager() {
       
       return await response.json();
     } catch (err) {
-      console.error('Error updating user:', err);
+      logger.error('Error updating user:', err);
       setError('Failed to update user settings. Please try again.');
       return null;
     }
@@ -155,7 +156,7 @@ export default function UserSettingsManager() {
       fetchUsers();
       setSelectedUser(null);
     } catch (err) {
-      console.error('Error deleting user:', err);
+      logger.error('Error deleting user:', err);
       setError('Failed to delete user. Please try again.');
     }
   };

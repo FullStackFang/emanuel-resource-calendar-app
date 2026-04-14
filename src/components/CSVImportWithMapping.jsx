@@ -33,7 +33,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
   const [mappingValid, setMappingValid] = useState(false);
   
   // Preview data
-  const [previewData, setPreviwData] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState(null);
   
@@ -64,7 +64,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
     setAnalysisError(null);
     setFieldMappings({});
     setMappingValid(false);
-    setPreviwData(null);
+    setPreviewData(null);
     setPreviewError(null);
     setImportResult(null);
     setImportError(null);
@@ -176,7 +176,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
           estimatedTotal: csvAnalysis.totalRows || 0
         };
         
-        setPreviwData(mockPreview);
+        setPreviewData(mockPreview);
         setStepsCompleted(prev => new Set([...prev, 'preview']));
         setPreviewing(false);
       }, 1000);

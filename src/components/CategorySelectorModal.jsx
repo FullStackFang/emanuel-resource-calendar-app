@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
 import useScrollLock from '../hooks/useScrollLock';
 import LoadingSpinner from './shared/LoadingSpinner';
+import { logger } from '../utils/logger';
 import './CategorySelectorModal.css';
 
 /**
@@ -51,7 +52,7 @@ export default function CategorySelectorModal({
       const data = await response.json();
       setCategories(data);
     } catch (err) {
-      console.error('Error fetching categories:', err);
+      logger.error('Error fetching categories:', err);
       setError('Failed to load categories. Please try again.');
     } finally {
       setLoading(false);

@@ -2,6 +2,7 @@
 import React from 'react';
 import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
+import { logger } from '../utils/logger';
 
 const ExportToPdfButton = ({ events, dateRange }) => {
   const { showError } = useNotification();
@@ -211,7 +212,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
       doc.save(fileName);
       
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      logger.error('Error generating PDF:', error);
       showError(error, { context: 'CalendarExport.handleExport', userMessage: 'There was an error generating the PDF. Please try again.' });
     }
   };

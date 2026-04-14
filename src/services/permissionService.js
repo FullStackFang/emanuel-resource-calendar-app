@@ -6,6 +6,7 @@
  */
 
 import APP_CONFIG from '../config/config';
+import { logger } from '../utils/logger';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
@@ -56,11 +57,11 @@ export async function fetchPermissions(apiToken, forceRefresh = false) {
 
     return data;
   } catch (error) {
-    console.error('Error fetching permissions:', error);
+    logger.error('Error fetching permissions:', error);
 
     // Return cached data if available, even if expired
     if (permissionCache.data) {
-      console.warn('Using expired permission cache due to fetch error');
+      logger.warn('Using expired permission cache due to fetch error');
       return permissionCache.data;
     }
 

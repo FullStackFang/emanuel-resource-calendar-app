@@ -7,6 +7,7 @@ import './Admin.css';
 import CalendarSelector from './CalendarSelector';
 import APP_CONFIG from '../config/config';
 import LoadingSpinner from './shared/LoadingSpinner';
+import { logger } from '../utils/logger';
 
 export default function EventSyncAdmin({ 
   graphToken, 
@@ -50,7 +51,7 @@ export default function EventSyncAdmin({
       setSyncStatus(status);
       setError(null);
     } catch (err) {
-      console.error('Error loading sync status:', err);
+      logger.error('Error loading sync status:', err);
       // Set a default status instead of leaving it null
       setSyncStatus({
         totalEvents: 0,
@@ -112,7 +113,7 @@ export default function EventSyncAdmin({
       await loadSyncStatus();
 
     } catch (err) {
-      console.error('Sync error:', err);
+      logger.error('Sync error:', err);
       setError(`Failed to sync events: ${err.message}`);
     } finally {
       setLoading(false);
@@ -135,7 +136,7 @@ export default function EventSyncAdmin({
         setSyncedEvents(events);
       }
     } catch (error) {
-      console.error('Error loading synced events:', error);
+      logger.error('Error loading synced events:', error);
     }
   };
 

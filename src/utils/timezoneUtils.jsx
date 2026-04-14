@@ -1,4 +1,5 @@
 import React from 'react';
+import { logger } from './logger';
 
 // Default timezone - simple UTC fallback
 export const DEFAULT_TIMEZONE = 'UTC';
@@ -57,17 +58,6 @@ export const getSafeTimezone = (timezone) => {
   return isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
 };
 
-/**
- * @deprecated Do NOT append Z to stored datetime strings — they are local-time
- * (America/New_York), not UTC. This function is now an identity/passthrough.
- * Callers should be migrated to use string extraction from timezoneUtils.js instead.
- * @param {string} dateString - Date string
- * @returns {string} The same date string, unchanged
- */
-export const ensureUTCFormat = (dateString) => {
-  if (!dateString) return '';
-  return dateString;
-};
 
 /**
  * Format date range for API queries (always in UTC)
@@ -188,7 +178,7 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
     // We compute the offset between browser-local and sourceTimezone, then adjust.
     const browserDate = new Date(localTimeString);
     if (isNaN(browserDate.getTime())) {
-      console.error(`Invalid date format for "${eventSubject}":`, dateString);
+      logger.error(`Invalid date format for "${eventSubject}":`, dateString);
       return '';
     }
 
@@ -206,7 +196,7 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
       timeZone: effectiveDisplayTz,
     });
   } catch (err) {
-    console.error(`Error formatting event time for "${eventSubject}":`, err);
+    logger.error(`Error formatting event time for "${eventSubject}":`, err);
     return '';
   }
 };
@@ -247,7 +237,7 @@ export const formatDateTimeWithTimezone = (dateTimeString, timezone = DEFAULT_TI
     // Parse as browser-local, then correct to source timezone
     const browserDate = new Date(localTimeString);
     if (isNaN(browserDate.getTime())) {
-      console.error('Invalid date for formatting:', dateTimeString);
+      logger.error('Invalid date for formatting:', dateTimeString);
       return '';
     }
 
@@ -275,7 +265,7 @@ export const formatDateTimeWithTimezone = (dateTimeString, timezone = DEFAULT_TI
 
     return `${formattedDate} ${formattedTime}`;
   } catch (error) {
-    console.error('Error formatting date with timezone:', error);
+    logger.error('Error formatting date with timezone:', error);
     return '';
   }
 };

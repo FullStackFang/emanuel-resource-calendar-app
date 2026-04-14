@@ -6,6 +6,7 @@ import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon, CalendarIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
+import { logger } from '../utils/logger';
 import './DayEventPanel.css';
 
 const DayEventPanel = memo(({
@@ -39,7 +40,7 @@ const DayEventPanel = memo(({
       // Fallback: use formatDateTimeWithTimezone if formatEventTime not available
       return formatDateTimeWithTimezone(dateTimeString, userTimezone);
     } catch (error) {
-      console.error('Error formatting event time in DayEventPanel:', error);
+      logger.error('Error formatting event time in DayEventPanel:', error);
       return 'Time unavailable';
     }
   }, [userTimezone, formatEventTime]);

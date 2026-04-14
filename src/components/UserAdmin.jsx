@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import useDepartments from '../hooks/useDepartments';
+import { logger } from '../utils/logger';
 import './UserAdmin.css';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -106,7 +107,7 @@ export default function UserAdmin({ apiToken }) {
         const data = await response.json();
         setUsers(data);
       } catch (err) {
-        console.error('Error fetching users:', err);
+        logger.error('Error fetching users:', err);
         setError('Failed to load users. Please try again later.');
       } finally {
         setLoading(false);
@@ -208,7 +209,7 @@ export default function UserAdmin({ apiToken }) {
       setSuccessMessage(`User ${updatedUser.displayName} updated successfully.`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      console.error('Error updating user:', err);
+      logger.error('Error updating user:', err);
       setError('Failed to update user. Please try again.');
     } finally {
       setLoading(false);
@@ -283,7 +284,7 @@ export default function UserAdmin({ apiToken }) {
       setSuccessMessage(`User ${createdUser.displayName} created successfully.`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      console.error('Error creating user:', err);
+      logger.error('Error creating user:', err);
       setError(`Failed to create user: ${err.message}`);
     } finally {
       setLoading(false);
@@ -322,7 +323,7 @@ export default function UserAdmin({ apiToken }) {
       setSuccessMessage('User deleted successfully.');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      console.error('Error deleting user:', err);
+      logger.error('Error deleting user:', err);
       setError('Failed to delete user. Please try again.');
       setTimeout(() => setError(null), 3000);
     } finally {

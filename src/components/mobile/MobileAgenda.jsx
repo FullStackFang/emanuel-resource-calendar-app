@@ -6,6 +6,7 @@ import MobileWeekStrip, { formatDateKey } from './MobileWeekStrip';
 import MobileEventCard from './MobileEventCard';
 import MobileEventDetail from './MobileEventDetail';
 import { DAY_NAMES, MONTH_NAMES_SHORT } from './mobileConstants';
+import { logger } from '../../utils/logger';
 import './MobileAgenda.css';
 
 function getCalendarOwner() {
@@ -101,7 +102,7 @@ function MobileAgenda() {
         loadedRangeRef.current = { start: new Date(rangeStart), end: new Date(rangeEnd) };
       }
     } catch (err) {
-      console.error('MobileAgenda: Error loading events:', err);
+      logger.error('MobileAgenda: Error loading events:', err);
       setError('Unable to load events. Pull down to retry.');
     } finally {
       setInitialLoading(false);

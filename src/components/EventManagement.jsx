@@ -51,8 +51,6 @@ function formatDateTime(dateStr) {
   }
 }
 
-// formatTime is now imported as formatTimeString from appTimeUtils
-const formatTime = formatTimeString;
 
 export default function EventManagement() {
   const { isAdmin } = usePermissions();
@@ -222,7 +220,7 @@ export default function EventManagement() {
     const startTime = event.calendarData?.startTime || event.startTime || '';
     const endTime = event.calendarData?.endTime || event.endTime || '';
     if (startTime && endTime) {
-      return `${startStr}, ${formatTime(startTime)} – ${formatTime(endTime)}`;
+      return `${startStr}, ${formatTimeString(startTime)} – ${formatTimeString(endTime)}`;
     }
     if (end) {
       return `${startStr} – ${formatDate(end)}`;
@@ -662,9 +660,9 @@ export default function EventManagement() {
                   <div className="em-detail-row">
                     <label>Reservation</label>
                     <span>
-                      {reservationStartTime && `Start: ${formatTime(reservationStartTime)}`}
+                      {reservationStartTime && `Start: ${formatTimeString(reservationStartTime)}`}
                       {reservationStartTime && reservationEndTime && ' · '}
-                      {reservationEndTime && `End: ${formatTime(reservationEndTime)}`}
+                      {reservationEndTime && `End: ${formatTimeString(reservationEndTime)}`}
                     </span>
                   </div>
                 )}
@@ -672,9 +670,9 @@ export default function EventManagement() {
                   <div className="em-detail-row">
                     <label>Setup / Teardown</label>
                     <span>
-                      {setupTime && `Setup: ${formatTime(setupTime)}`}
+                      {setupTime && `Setup: ${formatTimeString(setupTime)}`}
                       {setupTime && teardownTime && ' · '}
-                      {teardownTime && `Teardown: ${formatTime(teardownTime)}`}
+                      {teardownTime && `Teardown: ${formatTimeString(teardownTime)}`}
                     </span>
                   </div>
                 )}
@@ -682,9 +680,9 @@ export default function EventManagement() {
                   <div className="em-detail-row">
                     <label>Doors</label>
                     <span>
-                      {doorOpenTime && `Open: ${formatTime(doorOpenTime)}`}
+                      {doorOpenTime && `Open: ${formatTimeString(doorOpenTime)}`}
                       {doorOpenTime && doorCloseTime && ' · '}
-                      {doorCloseTime && `Close: ${formatTime(doorCloseTime)}`}
+                      {doorCloseTime && `Close: ${formatTimeString(doorCloseTime)}`}
                     </span>
                   </div>
                 )}

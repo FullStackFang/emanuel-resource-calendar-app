@@ -163,7 +163,7 @@ export default function AttachmentsSection({
         setAttachments(data.attachments || []);
       }
     } catch (error) {
-      console.error('Failed to load attachments:', error);
+      logger.error('Failed to load attachments:', error);
     }
   };
 
@@ -214,7 +214,7 @@ export default function AttachmentsSection({
           showError(new Error(errorData.error), { context: 'AttachmentsSection.uploadFiles', userMessage: `Failed to upload ${file.name}` });
         }
       } catch (error) {
-        console.error('Upload error:', error);
+        logger.error('Upload error:', error);
         showError(error, { context: 'AttachmentsSection.uploadFiles', userMessage: `Failed to upload ${file.name}` });
       } finally {
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
@@ -264,7 +264,7 @@ export default function AttachmentsSection({
         showError(new Error(errorData.error), { context: 'AttachmentsSection.deleteAttachment', userMessage: `Failed to delete ${fileName}` });
       }
     } catch (error) {
-      console.error('Failed to delete attachment:', error);
+      logger.error('Failed to delete attachment:', error);
       showError(error, { context: 'AttachmentsSection.deleteAttachment', userMessage: `Failed to delete ${fileName}` });
     }
   };
@@ -320,7 +320,7 @@ export default function AttachmentsSection({
       setPreviewFile({ ...attachment, blobUrl });
       setShowPreviewModal(true);
     } catch (error) {
-      console.error('Preview failed:', error);
+      logger.error('Preview failed:', error);
       showError(error, { context: 'AttachmentsSection.handlePreview', userMessage: 'Failed to load file preview. Please try downloading the file instead.' });
     }
   };
@@ -356,7 +356,7 @@ export default function AttachmentsSection({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
-      console.error('Download failed:', error);
+      logger.error('Download failed:', error);
       showError(error, { context: 'AttachmentsSection.handleDownload', userMessage: 'Failed to download file' });
     }
   };

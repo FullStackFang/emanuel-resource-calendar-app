@@ -6,6 +6,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import './Admin.css';
+import { logger } from '../utils/logger';
 import './EmailTestAdmin.css';
 
 export default function EmailTestAdmin({ apiToken }) {
@@ -100,7 +101,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError('Failed to load email configuration');
       }
     } catch (err) {
-      console.error('Error loading email config:', err);
+      logger.error('Error loading email config:', err);
       setError('Failed to load email configuration');
     } finally {
       setConfigLoading(false);
@@ -123,7 +124,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError('Failed to load email templates');
       }
     } catch (err) {
-      console.error('Error loading templates:', err);
+      logger.error('Error loading templates:', err);
       setError('Failed to load email templates');
     } finally {
       setTemplatesLoading(false);
@@ -157,7 +158,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError(result.error || 'Failed to save settings');
       }
     } catch (err) {
-      console.error('Error saving settings:', err);
+      logger.error('Error saving settings:', err);
       setError(`Failed to save settings: ${err.message}`);
     } finally {
       setSavingSettings(false);
@@ -204,7 +205,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setTestResult(result);
       }
     } catch (err) {
-      console.error('Error sending test email:', err);
+      logger.error('Error sending test email:', err);
       setError(`Failed to send test email: ${err.message}`);
     } finally {
       setLoading(false);
@@ -252,7 +253,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError(result.error || 'Failed to save template');
       }
     } catch (err) {
-      console.error('Error saving template:', err);
+      logger.error('Error saving template:', err);
       setError(`Failed to save template: ${err.message}`);
     } finally {
       setSavingTemplate(false);
@@ -295,7 +296,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError(result.error || 'Failed to reset template');
       }
     } catch (err) {
-      console.error('Error resetting template:', err);
+      logger.error('Error resetting template:', err);
       setError(`Failed to reset template: ${err.message}`);
     } finally {
       setSavingTemplate(false);
@@ -330,7 +331,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setError(result.error || 'Failed to preview template');
       }
     } catch (err) {
-      console.error('Error previewing template:', err);
+      logger.error('Error previewing template:', err);
       setError(`Failed to preview template: ${err.message}`);
     } finally {
       setPreviewLoading(false);

@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
 import { fetchPermissions, clearPermissionCache } from '../services/permissionService';
 import { apiRequest } from '../config/authConfig';
+import { logger } from '../utils/logger';
 
 // Storage key for localStorage persistence
 const STORAGE_KEY = 'role_simulation_session';
@@ -117,7 +118,7 @@ export function RoleSimulationProvider({ children }) {
           setIsActualAdmin(false);
         }
       } catch (error) {
-        console.error('Error fetching permissions for role simulation:', error);
+        logger.error('Error fetching permissions for role simulation:', error);
         // Fall back to viewer role on error
         setActualRole('viewer');
         setActualDepartment(null);
@@ -141,7 +142,7 @@ export function RoleSimulationProvider({ children }) {
           setSimulatedRole(session.roleKey);
         }
       } catch (error) {
-        console.error('Failed to restore role simulation session:', error);
+        logger.error('Failed to restore role simulation session:', error);
         localStorage.removeItem(STORAGE_KEY);
       }
     }
@@ -150,12 +151,12 @@ export function RoleSimulationProvider({ children }) {
   // Start simulating a role
   const startSimulation = useCallback((roleKey) => {
     if (!isActualAdmin) {
-      console.warn('Only admins can use role simulation');
+      logger.warn('Only admins can use role simulation');
       return false;
     }
 
     if (!ROLE_TEMPLATES[roleKey]) {
-      console.error('Invalid role key:', roleKey);
+      logger.error('Invalid role key:', roleKey);
       return false;
     }
 

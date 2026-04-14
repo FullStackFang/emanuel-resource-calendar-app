@@ -1,4 +1,6 @@
 // src/config.js
+import { logger } from '../utils/logger';
+
 const hostname = window.location.hostname;
 const isLocalDevelopment = hostname === 'localhost' || hostname === '127.0.0.1';
 const isAzureProduction = hostname.includes('azurewebsites.net');
@@ -21,7 +23,7 @@ export async function fetchRuntimeConfig() {
       runtimeConfig = await response.json();
     }
   } catch (error) {
-    console.warn('Failed to fetch runtime config, using defaults:', error);
+    logger.warn('Failed to fetch runtime config, using defaults:', error);
   }
 
   return runtimeConfig;

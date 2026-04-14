@@ -151,7 +151,7 @@ const EventSearchExport = ({
       });
 
     } catch (error) {
-      console.error('Error fetching all matching events for export:', error);
+      logger.error('Error fetching all matching events for export:', error);
       throw error;
     }
   };
@@ -178,7 +178,7 @@ const EventSearchExport = ({
         return eventStart >= new Date(startDate) && eventStart <= new Date(endDate);
       });
     } catch (error) {
-      console.error('Error fetching internal events:', error);
+      logger.error('Error fetching internal events:', error);
       showError(error, { context: 'EventSearchExport.fetchAllMatchingEvents', userMessage: 'Failed to fetch internal events. Please try again.' });
       return null;
     }
@@ -269,7 +269,7 @@ const EventSearchExport = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error exporting to JSON:', error);
+      logger.error('Error exporting to JSON:', error);
       showError(error, { context: 'EventSearchExport.exportToJson', userMessage: 'Failed to export to JSON. Please try again.' });
     } finally {
       setExportState({ phase: 'idle', message: '' });
@@ -361,7 +361,7 @@ const EventSearchExport = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error exporting to CSV:', error);
+      logger.error('Error exporting to CSV:', error);
       showError(error, { context: 'EventSearchExport.exportToCsv', userMessage: 'Failed to export to CSV. Please try again.' });
     } finally {
       setExportState({ phase: 'idle', message: '' });
@@ -393,7 +393,7 @@ const EventSearchExport = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      logger.error('Error generating PDF:', error);
       showError(error, { context: 'EventSearchExport.exportToPdf', userMessage: 'There was an error generating the PDF. Please try again.' });
     } finally {
       setExportState({ phase: 'idle', message: '' });

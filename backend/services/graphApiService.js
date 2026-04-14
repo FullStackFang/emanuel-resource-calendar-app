@@ -9,9 +9,8 @@
 const msal = require('@azure/msal-node');
 const logger = require('../utils/logger');
 
-// Azure AD Configuration
-const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
-const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
+// Azure AD Configuration (shared)
+const { APP_ID, TENANT_ID } = require('../config/azureConfig');
 
 // Graph API base URL
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';

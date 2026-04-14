@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loadUserPreferences, saveUserPreferences } from '../services/userPreferencesService';
 import LoadingSpinner from './shared/LoadingSpinner';
-import './Preferences.css'; 
+import { logger } from '../utils/logger';
+import './Preferences.css';
 
 function Preferences({ accessToken }) {
   const { instance } = useMsal();
@@ -26,7 +27,7 @@ function Preferences({ accessToken }) {
           // Get the active account
           const activeAccount = instance.getActiveAccount();
           if (!activeAccount) {
-            console.error("No active account found");
+            logger.error("No active account found");
             setIsLoading(false);
             return;
           }
@@ -38,7 +39,7 @@ function Preferences({ accessToken }) {
             setPreferences(savedPreferences);
           }
         } catch (error) {
-          console.error("Failed to load preferences:", error);
+          logger.error("Failed to load preferences:", error);
         } finally {
           setIsLoading(false);
         }
@@ -63,7 +64,7 @@ function Preferences({ accessToken }) {
     try {
       const activeAccount = instance.getActiveAccount();
       if (!activeAccount) {
-        console.error("No active account found");
+        logger.error("No active account found");
         setSaveStatus('Error: No active account found');
         return;
       }
@@ -78,7 +79,7 @@ function Preferences({ accessToken }) {
         setSaveStatus('Failed to save preferences. Please try again.');
       }
     } catch (error) {
-      console.error("Error saving preferences:", error);
+      logger.error("Error saving preferences:", error);
       setSaveStatus('An error occurred while saving preferences.');
     }
   };

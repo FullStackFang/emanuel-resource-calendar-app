@@ -8,6 +8,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { persistQueryClient } from '@tanstack/react-query-persist-client';
+import { logger } from '../utils/logger';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,7 +43,7 @@ if (typeof window !== 'undefined' && window.sessionStorage) {
     });
   } catch (error) {
     // Graceful degradation if sessionStorage unavailable (private browsing, etc.)
-    console.warn('sessionStorage not available, query cache will not persist:', error.message);
+    logger.warn('sessionStorage not available, query cache will not persist:', error.message);
   }
 }
 

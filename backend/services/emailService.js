@@ -13,9 +13,8 @@ const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'templeEventsSandbo
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Temple Emanuel Reservations';
 const ENV_EMAIL_REDIRECT_TO = process.env.EMAIL_REDIRECT_TO || null; // For testing - redirect all emails
 
-// Azure AD Configuration
-const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
-const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
+// Azure AD Configuration (shared)
+const { APP_ID, TENANT_ID } = require('../config/azureConfig');
 
 // Cached database settings (refreshed on demand)
 let cachedDbSettings = null;
@@ -397,14 +396,25 @@ async function getReviewerEmails(db, preferenceKey = 'emailOnNewRequests') {
 }
 
 /**
+ * Extract the recipient email from a reservation or edit request.
+ * Checks roomReservationData.requestedBy.email first, then falls back to
+ * requesterEmail and contactEmail on the data source itself.
+ * @param {Object} dataSource - Reservation or edit request document
+ * @returns {string|null} Recipient email or null if none found
+ */
+function extractRecipientEmail(dataSource) {
+  const reqData = dataSource.roomReservationData || {};
+  const requestedBy = reqData.requestedBy || {};
+  return requestedBy.email || dataSource.requesterEmail || dataSource.contactEmail || null;
+}
+
+/**
  * Send submission confirmation to requester
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendSubmissionConfirmation(reservation) {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for submission confirmation', {
@@ -455,9 +465,7 @@ const sendAdminNewRequestAlert = sendNewRequestAlert;
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendPublishNotification(reservation, adminNotes = '', reviewChanges = []) {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for publish notification', {
@@ -483,9 +491,7 @@ async function sendPublishNotification(reservation, adminNotes = '', reviewChang
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendRejectionNotification(reservation, rejectionReason = '') {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for rejection notification', {
@@ -511,9 +517,7 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendDeletionNotification(reservation, deletionReason = '', deletedByName = '') {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for deletion notification', {
@@ -538,9 +542,7 @@ async function sendDeletionNotification(reservation, deletionReason = '', delete
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendResubmissionConfirmation(reservation) {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for resubmission confirmation', {
@@ -567,9 +569,7 @@ async function sendResubmissionConfirmation(reservation) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendEventUpdatedNotification(reservation, reviewChanges = []) {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for event updated notification', {
@@ -594,9 +594,7 @@ async function sendEventUpdatedNotification(reservation, reviewChanges = []) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendReviewStartedNotification(reservation) {
-  const reqData = reservation.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+  const recipientEmail = extractRecipientEmail(reservation);
 
   if (!recipientEmail) {
     logger.warn('No requester email for review started notification', {
@@ -625,9 +623,7 @@ async function sendReviewStartedNotification(reservation) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendEditRequestSubmittedConfirmation(editRequest) {
-  const reqData = editRequest.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
+  const recipientEmail = extractRecipientEmail(editRequest);
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request confirmation', {
@@ -675,9 +671,7 @@ async function sendAdminEditRequestAlert(editRequest) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendEditRequestApprovedNotification(editRequest, adminNotes = '', reviewChanges = []) {
-  const reqData = editRequest.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
+  const recipientEmail = extractRecipientEmail(editRequest);
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request approval notification', {
@@ -703,9 +697,7 @@ async function sendEditRequestApprovedNotification(editRequest, adminNotes = '',
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendEditRequestRejectedNotification(editRequest, rejectionReason = '') {
-  const reqData = editRequest.roomReservationData || {};
-  const requestedBy = reqData.requestedBy || {};
-  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
+  const recipientEmail = extractRecipientEmail(editRequest);
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request rejection notification', {

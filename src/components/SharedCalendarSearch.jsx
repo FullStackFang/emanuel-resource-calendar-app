@@ -2,6 +2,7 @@
 // Updated to use backend proxy for Graph API calls (app-only authentication)
 import React, { useState } from 'react';
 import APP_CONFIG from '../config/config';
+import { logger } from '../utils/logger';
 import './SharedCalendarSearch.css';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -55,7 +56,7 @@ function SharedCalendarSearch({ apiToken, onCalendarAdded }) {
         setFoundCalendars(shareableCalendars);
       }
     } catch (err) {
-      console.error('Error searching for calendars:', err);
+      logger.error('Error searching for calendars:', err);
       setError(err.message || 'Failed to search for calendars');
     } finally {
       setSearching(false);
@@ -73,7 +74,7 @@ function SharedCalendarSearch({ apiToken, onCalendarAdded }) {
       setSearchEmail('');
       setFoundCalendars([]);
     } catch (err) {
-      console.error('Error adding calendar:', err);
+      logger.error('Error adding calendar:', err);
       setError('Failed to add calendar');
     }
   };
