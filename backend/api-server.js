@@ -24618,6 +24618,10 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
 const Anthropic = require('@anthropic-ai/sdk');
 const { toolDefinitions, MCPToolExecutor } = require('./services/mcpTools');
 
+const DEFAULT_AI_MODEL = 'claude-sonnet-4-6-20250514';
+const AI_MAX_TOKENS = 2048;
+const AI_TEMPERATURE = 0.2;
+
 let anthropicClient = null;
 let mcpToolExecutor = null;
 const aiConversations = new Map(); // Store conversation history per user
@@ -24629,7 +24633,7 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
     const userId = req.user.oid || req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username;
     const userName = req.user.name;
-    const modelName = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
+    const modelName = process.env.AI_MODEL || DEFAULT_AI_MODEL;
 
     if (!message) {
       return res.status(400).json({ error: 'Message required' });
@@ -24847,12 +24851,18 @@ When a user wants a PDF export/report/printout of the calendar:
       department
     };
 
+    // Shared params for all Claude API calls in this request
+    const aiRequestParams = {
+      model: modelName,
+      max_tokens: AI_MAX_TOKENS,
+      temperature: AI_TEMPERATURE,
+      system: systemPrompt,
+      tools: toolDefinitions
+    };
+
     // Call Claude with tools
     let response = await anthropicClient.messages.create({
-      model: modelName,
-      max_tokens: 1024,
-      system: systemPrompt,
-      tools: toolDefinitions,
+      ...aiRequestParams,
       messages: history
     });
 
@@ -24905,10 +24915,7 @@ When a user wants a PDF export/report/printout of the calendar:
 
       // Continue conversation with tool results
       response = await anthropicClient.messages.create({
-        model: modelName,
-        max_tokens: 1024,
-        system: systemPrompt,
-        tools: toolDefinitions,
+        ...aiRequestParams,
         messages: history
       });
     }
@@ -24955,7 +24962,7 @@ When a user wants a PDF export/report/printout of the calendar:
 app.get('/api/ai/status', verifyToken, (req, res) => {
   res.json({
     enabled: !!process.env.ANTHROPIC_API_KEY,
-    model: process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
+    model: process.env.AI_MODEL || DEFAULT_AI_MODEL
   });
 });
 
