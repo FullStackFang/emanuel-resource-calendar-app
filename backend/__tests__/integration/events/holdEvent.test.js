@@ -1,5 +1,5 @@
 /**
- * Hold Event Tests (HE-1 to HE-7)
+ * Hold Event Tests (HE-1 to HE-10)
  *
  * Tests that [Hold] events (reservation times set, event times blank)
  * are stored correctly across all submission paths, ensuring
@@ -7,6 +7,9 @@
  *
  * HE-6/HE-7: Verify that calendar-load (POST /api/events/calendar-load)
  * returns event.subject with [Hold] prefix for hold events.
+ *
+ * HE-9/HE-10: Verify that calendar-load returns start/end.dateTime derived
+ * from reservation times for Hold events (not the all-day 00:00-23:59 fallback).
  */
 
 const request = require('supertest');
@@ -24,6 +27,8 @@ const {
   createDraftEvent,
   createPendingEvent,
   createPublishedEvent,
+  createRecurringSeriesMaster,
+  createExceptionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -501,6 +506,179 @@ describe('Hold Event Tests (HE-1 to HE-5)', () => {
       expect(loadedEvent).toBeDefined();
       // Should strip [Hold] and NOT re-add it (event has times, not a hold)
       expect(loadedEvent.subject).toBe('Should Not Be Hold');
+    });
+  });
+
+  describe('HE-9: Calendar-load returns reservation times as start/end for Hold events', () => {
+    it('should use reservation times (not all-day fallback) for Hold event start/end.dateTime', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Create a published hold event with all-day startDateTime but specific reservation times
+      const holdEvent = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Hold With Reservation Times',
+        calendarData: {
+          eventTitle: 'Hold With Reservation Times',
+          eventDescription: '',
+          startDateTime: `${dateStr}T00:00`,
+          endDateTime: `${dateStr}T23:59`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '10:30',
+          reservationEndTime: '11:30',
+        },
+      });
+      await insertEvents(db, [holdEvent]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(holdEvent._id));
+      expect(loadedEvent).toBeDefined();
+      // start/end.dateTime should reflect reservation times, NOT the 00:00-23:59 fallback
+      expect(loadedEvent.start.dateTime).toBe(`${dateStr}T10:30`);
+      expect(loadedEvent.end.dateTime).toBe(`${dateStr}T11:30`);
+    });
+
+    it('should keep calendarData.startDateTime/endDateTime as all-day range (unchanged)', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      const holdEvent = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Hold Preserves CalendarData',
+        calendarData: {
+          eventTitle: 'Hold Preserves CalendarData',
+          eventDescription: '',
+          startDateTime: `${dateStr}T00:00`,
+          endDateTime: `${dateStr}T23:59`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: [],
+          categories: ['Meeting'],
+          reservationStartTime: '09:00',
+          reservationEndTime: '17:00',
+        },
+      });
+      await insertEvents(db, [holdEvent]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedEvent = res.body.events.find(e => String(e._id) === String(holdEvent._id));
+      expect(loadedEvent).toBeDefined();
+      // calendarData should still have the original all-day range (used for date queries)
+      expect(loadedEvent.calendarData.startDateTime).toBe(`${dateStr}T00:00`);
+      expect(loadedEvent.calendarData.endDateTime).toBe(`${dateStr}T23:59`);
+      // But start/end should use reservation times
+      expect(loadedEvent.start.dateTime).toBe(`${dateStr}T09:00`);
+      expect(loadedEvent.end.dateTime).toBe(`${dateStr}T17:00`);
+    });
+  });
+
+  describe('HE-10: Calendar-load returns reservation times for Hold exception documents', () => {
+    it('should derive start/end.dateTime from reservation times for exception docs with all-day fallback', async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+
+      // Directly insert an exception doc matching the real-world shape:
+      // calendarData.startDateTime is the all-day fallback (00:00-23:59),
+      // but reservation times are set. This reproduces the actual bug.
+      const exceptionDoc = {
+        _id: new ObjectId(),
+        eventId: `master-id-${dateStr}`,
+        eventType: 'exception',
+        seriesMasterEventId: 'master-id',
+        occurrenceDate: dateStr,
+        overrides: {
+          startTime: '',
+          endTime: '',
+          reservationStartTime: '10:30',
+          reservationEndTime: '11:30',
+          eventTitle: '[Hold] Test Recur Fang',
+        },
+        eventTitle: '[Hold] Test Recur Fang',
+        startTime: '',
+        endTime: '',
+        startDate: dateStr,
+        endDate: dateStr,
+        reservationStartTime: '10:30',
+        reservationEndTime: '11:30',
+        startDateTime: `${dateStr}T00:00`,
+        endDateTime: `${dateStr}T23:59`,
+        calendarData: {
+          eventTitle: '[Hold] Test Recur Fang',
+          eventDescription: '',
+          startDateTime: `${dateStr}T00:00`,
+          endDateTime: `${dateStr}T23:59`,
+          startDate: dateStr,
+          startTime: '',
+          endDate: dateStr,
+          endTime: '',
+          locations: [],
+          locationDisplayNames: '',
+          categories: ['Meeting'],
+          reservationStartTime: '10:30',
+          reservationEndTime: '11:30',
+        },
+        userId: adminUser.odataId,
+        calendarOwner: 'templeeventssandbox@emanuelnyc.org',
+        status: 'published',
+        isDeleted: false,
+        roomReservationData: null,
+        graphData: null,
+        _version: 1,
+        createdAt: new Date(),
+        createdBy: adminUser.email,
+        createdByEmail: adminUser.email,
+        lastModifiedDateTime: new Date(),
+      };
+
+      await insertEvents(db, [exceptionDoc]);
+
+      const res = await request(app)
+        .post('/api/events/calendar-load')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: `${dateStr}T00:00:00`,
+          endDate: `${dateStr}T23:59:59`,
+        })
+        .expect(200);
+
+      const loadedException = res.body.events.find(e =>
+        e.eventType === 'exception' && e.occurrenceDate === dateStr
+      );
+      expect(loadedException).toBeDefined();
+      // Exception doc should have reservation times as display times,
+      // NOT the all-day fallback 00:00/23:59
+      expect(loadedException.start.dateTime).toBe(`${dateStr}T10:30`);
+      expect(loadedException.end.dateTime).toBe(`${dateStr}T11:30`);
     });
   });
 });

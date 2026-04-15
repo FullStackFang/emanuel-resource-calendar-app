@@ -5716,6 +5716,19 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
         const cleanTitle = cd.eventTitle.replace(/^(\[Hold\]\s*)+/, ''); // Defensive: strip stacked [Hold]
         const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
         event.subject = isHold ? `[Hold] ${cleanTitle}` : cleanTitle;
+
+        // For Hold events, override display times with reservation times.
+        // Without this, exception docs (and events with empty startTime) show 00:00-23:59.
+        if (isHold) {
+          const dateStr = cd.startDate || cd.startDateTime?.split('T')[0] || '';
+          if (dateStr && cd.reservationStartTime) {
+            event.start = { dateTime: `${dateStr}T${cd.reservationStartTime}`, timeZone: 'America/New_York' };
+          }
+          const endDateStr = cd.endDate || cd.endDateTime?.split('T')[0] || dateStr;
+          if (endDateStr && cd.reservationEndTime) {
+            event.end = { dateTime: `${endDateStr}T${cd.reservationEndTime}`, timeZone: 'America/New_York' };
+          }
+        }
       }
       // Also populate top-level categories for frontend compatibility
       if (!event.categories && event.calendarData?.categories) {
@@ -6233,12 +6246,15 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         // Add frontend compatibility wrappers
         id: event.eventId || event._id?.toString(),
         subject: event.subject || event.calendarData?.eventTitle || event.graphData?.subject || '(No Subject)',
+        // Prefer the already-normalized event.start/end (from getUnifiedEvents, which
+        // derives Hold display times from reservation times) over raw calendarData
+        // (which may still have the all-day 00:00-23:59 fallback for Hold events).
         start: {
-          dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
+          dateTime: event.start?.dateTime || event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
           timeZone: eventTimezone
         },
         end: {
-          dateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
+          dateTime: event.end?.dateTime || event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
           timeZone: eventTimezone
         },
         // Handle different location field names - read from calendarData

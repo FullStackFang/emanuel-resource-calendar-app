@@ -5215,6 +5215,19 @@ function createTestApp(options = {}) {
           const cleanTitle = cd.eventTitle.replace(/^(\[Hold\]\s*)+/, '');
           const isHold = !cd.startTime && !cd.endTime && (cd.reservationStartTime || cd.reservationEndTime);
           event.subject = isHold ? `[Hold] ${cleanTitle}` : cleanTitle;
+
+          // For Hold events, override display times with reservation times.
+          // Without this, events with empty startTime show 00:00-23:59.
+          if (isHold) {
+            const dateStr = cd.startDate || cd.startDateTime?.split('T')[0] || '';
+            if (dateStr && cd.reservationStartTime) {
+              event.start = { dateTime: `${dateStr}T${cd.reservationStartTime}`, timeZone: 'America/New_York' };
+            }
+            const endDateStr = cd.endDate || cd.endDateTime?.split('T')[0] || dateStr;
+            if (endDateStr && cd.reservationEndTime) {
+              event.end = { dateTime: `${endDateStr}T${cd.reservationEndTime}`, timeZone: 'America/New_York' };
+            }
+          }
         }
         // Promote recurrence and occurrenceOverrides for frontend expansion
         if (!event.recurrence && event.calendarData?.recurrence) {
