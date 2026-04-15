@@ -4647,9 +4647,14 @@ function createTestApp(options = {}) {
       let query = {};
 
       if (view === 'my-events') {
-        query.roomReservationData = { $exists: true, $ne: null };
-        // Always scope to user's own events - admins use admin-browse for all events
-        query['roomReservationData.requestedBy.email'] = userEmail;
+        // Scope to user's own events via two ownership models:
+        // 1. Reservation workflow events: matched by roomReservationData.requestedBy.email
+        // 2. Direct-creation events (unified-form, batch-create): matched by createdByEmail
+        const normalizedEmail = (userEmail || '').toLowerCase();
+        query.$and = [{ $or: [
+          { 'roomReservationData.requestedBy.email': normalizedEmail },
+          { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+        ] }];
 
         if (status === 'deleted') {
           query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -4796,10 +4801,13 @@ function createTestApp(options = {}) {
       }
 
       if (view === 'my-events') {
-        // Always scoped to logged-in user
+        // Scoped to logged-in user via two ownership models
+        const normalizedEmail = (userEmail || '').toLowerCase();
         const baseQuery = {
-          roomReservationData: { $exists: true, $ne: null },
-          'roomReservationData.requestedBy.email': userEmail,
+          $or: [
+            { 'roomReservationData.requestedBy.email': normalizedEmail },
+            { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+          ],
         };
 
         const [all, pending, published, rejected, draft, deleted] = await Promise.all([
@@ -4809,9 +4817,10 @@ function createTestApp(options = {}) {
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
           testCollections.events.countDocuments({
-            'roomReservationData.requestedBy.email': userEmail,
-            roomReservationData: { $exists: true, $ne: null },
-            $or: [{ status: 'deleted' }, { isDeleted: true }],
+            $and: [
+              { $or: baseQuery.$or },
+              { $or: [{ status: 'deleted' }, { isDeleted: true }] }
+            ],
           }),
         ]);
 

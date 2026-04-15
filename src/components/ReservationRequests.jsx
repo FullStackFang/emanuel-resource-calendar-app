@@ -667,8 +667,8 @@ export default function ReservationRequests({ graphToken }) {
       <div className="rr-reservations-list">
         {paginatedReservations.map(reservation => {
           const requesterName = reservation.roomReservationData?.requestedBy?.name || reservation.requesterName;
-          const isOnBehalfOf = reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf;
-          const contactName = reservation.roomReservationData?.contactPerson?.name || reservation.contactName;
+          const isOnBehalfOf = reservation.isOnBehalfOf;
+          const contactName = reservation.contactName;
 
           return (
             <div key={reservation._id} className="rr-card">

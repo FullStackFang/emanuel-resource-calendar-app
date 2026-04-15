@@ -1,5 +1,5 @@
 /**
- * My Events View Tests (ME-1 to ME-8)
+ * My Events View Tests (ME-1 to ME-11)
  *
  * Tests that the my-events view (GET /api/events/list?view=my-events) only
  * returns events belonging to the logged-in user, regardless of role.
@@ -12,6 +12,9 @@
  * ME-6: Admin deleted count only counts their own
  * ME-7: Requester draft count only counts their own
  * ME-8: Calendar view still shows only own drafts (regression for DL-2)
+ * ME-9: Admin's unified-form event (no roomReservationData) appears in my-events
+ * ME-10: Admin's unified-form event is counted in my-events counts
+ * ME-11: Graph-synced event does NOT appear in my-events
  */
 
 const request = require('supertest');
@@ -27,7 +30,9 @@ const {
 const {
   createDraftEvent,
   createPendingEvent,
+  createPublishedEvent,
   createDeletedEvent,
+  createOwnerlessPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -311,5 +316,103 @@ describe('My Events View Tests', () => {
     const draftEvents = res.body.events.filter(e => e.status === 'draft');
     expect(draftEvents).toHaveLength(1);
     expect(draftEvents[0].roomReservationData.requestedBy.email).toBe(TEST_EMAILS.ADMIN);
+  });
+
+  // ── ME-9: Admin's unified-form event (no roomReservationData) appears in my-events ──
+
+  test('ME-9: Unified-form event with no roomReservationData appears in my-events via createdByEmail', async () => {
+    // Simulate an event created via the unified form — has createdByEmail but no roomReservationData
+    const unifiedFormEvent = createPublishedEvent({
+      userId: adminUser.odataId,
+      createdBy: adminUser.odataId,
+      createdByEmail: adminUser.email,
+      createdByName: adminUser.displayName,
+      createdSource: 'unified-form',
+      roomReservationData: null,
+      eventTitle: 'Admin Unified Form Event',
+      calendarData: {
+        eventTitle: 'Admin Unified Form Event',
+        startDateTime: '2026-03-01T10:00:00',
+        endDateTime: '2026-03-01T11:00:00',
+        locations: [],
+      },
+    });
+
+    // Also insert a reservation-workflow event for another user (should NOT appear)
+    const requesterEvent = createOwnedPending(requesterUser, { eventTitle: 'Requester Pending' });
+
+    await insertEvents(db, [unifiedFormEvent, requesterEvent]);
+
+    const res = await request(app)
+      .get(ENDPOINTS.LIST_EVENTS)
+      .query({ view: 'my-events' })
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.events[0].eventTitle).toBe('Admin Unified Form Event');
+  });
+
+  // ── ME-10: Admin's unified-form event is counted in my-events counts ──
+
+  test('ME-10: Unified-form event is included in my-events counts', async () => {
+    const unifiedFormEvent = createPublishedEvent({
+      userId: adminUser.odataId,
+      createdBy: adminUser.odataId,
+      createdByEmail: adminUser.email,
+      createdSource: 'unified-form',
+      roomReservationData: null,
+      eventTitle: 'Admin Unified Counted',
+      calendarData: {
+        eventTitle: 'Admin Unified Counted',
+        startDateTime: '2026-03-01T10:00:00',
+        endDateTime: '2026-03-01T11:00:00',
+        locations: [],
+      },
+    });
+
+    // Also insert an owned draft (should count separately)
+    const adminDraft = createOwnedDraft(adminUser, { eventTitle: 'Admin Draft' });
+
+    await insertEvents(db, [unifiedFormEvent, adminDraft]);
+
+    const res = await request(app)
+      .get(ENDPOINTS.LIST_EVENTS_COUNTS)
+      .query({ view: 'my-events' })
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.published).toBe(1);  // The unified-form event
+    expect(res.body.draft).toBe(1);      // The owned draft
+    expect(res.body.all).toBe(2);        // Both counted in 'all'
+  });
+
+  // ── ME-11: Graph-synced event does NOT appear in my-events ──
+
+  test('ME-11: Graph-synced event does not appear in my-events even if createdByEmail matches', async () => {
+    // Graph-synced event with createdByEmail matching the admin
+    // (simulates a synced event where the admin happens to be the organizer)
+    const graphSyncedEvent = createOwnerlessPublishedEvent({
+      createdByEmail: adminUser.email,
+      createdBy: adminUser.odataId,
+      createdSource: 'graph-sync',
+      eventTitle: 'Graph Synced Event',
+      calendarData: {
+        eventTitle: 'Graph Synced Event',
+        startDateTime: '2026-03-01T14:00:00',
+        endDateTime: '2026-03-01T15:00:00',
+        locations: [],
+      },
+    });
+
+    await insertEvents(db, [graphSyncedEvent]);
+
+    const res = await request(app)
+      .get(ENDPOINTS.LIST_EVENTS)
+      .query({ view: 'my-events' })
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.events).toHaveLength(0);
   });
 });

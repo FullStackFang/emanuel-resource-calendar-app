@@ -266,9 +266,8 @@ export function transformEventToFlatStructure(event) {
     })(),
     requesterName: event.roomReservationData?.requestedBy?.name || getEventField(event, 'requesterName', ''),
     requesterEmail: event.roomReservationData?.requestedBy?.email || getEventField(event, 'requesterEmail', ''),
-    attendeeCount: event.roomReservationData?.attendeeCount || getEventField(event, 'attendeeCount', null) || '',
-    priority: event.roomReservationData?.priority || getEventField(event, 'priority', 'medium'),
-    specialRequirements: event.roomReservationData?.specialRequirements || getEventField(event, 'specialRequirements', ''),
+    attendeeCount: getEventField(event, 'attendeeCount', null) ?? '',
+    specialRequirements: getEventField(event, 'specialRequirements', ''),
     status: event.status === 'room-reservation-request' ? 'pending' : event.status,
     submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
     actionDate: event.roomReservationData?.reviewedAt || null,
@@ -294,9 +293,9 @@ export function transformEventToFlatStructure(event) {
     eventNotes: getEventField(event, 'eventNotes') || event.roomReservationData?.internalNotes?.eventNotes || '',
 
     // Contact person data
-    contactName: event.roomReservationData?.contactPerson?.name || getEventField(event, 'contactName', ''),
-    contactEmail: event.roomReservationData?.contactPerson?.email || getEventField(event, 'contactEmail', ''),
-    isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || getEventField(event, 'isOnBehalfOf', false),
+    contactName: getEventField(event, 'contactName', '') || event.roomReservationData?.contactPerson?.name || '',
+    contactEmail: getEventField(event, 'contactEmail', '') || event.roomReservationData?.contactPerson?.email || '',
+    isOnBehalfOf: getEventField(event, 'isOnBehalfOf', undefined) ?? event.roomReservationData?.contactPerson?.isOnBehalfOf ?? false,
     reviewNotes: event.roomReservationData?.reviewNotes || getEventField(event, 'reviewNotes', ''),
 
     // Event organizer (may differ from requester — for security/operations contact)

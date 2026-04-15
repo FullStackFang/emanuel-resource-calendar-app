@@ -6482,9 +6482,15 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     let query = {};
 
     if (view === 'my-events') {
-      query.roomReservationData = { $exists: true, $ne: null };
-      // Always scope to user's own events - admins use admin-browse for all events
-      query['roomReservationData.requestedBy.email'] = (userEmail || '').toLowerCase();
+      // Scope to user's own events via two ownership models:
+      // 1. Reservation workflow events: matched by roomReservationData.requestedBy.email
+      // 2. Direct-creation events (unified-form, batch-create): matched by createdByEmail
+      // Uses $and to avoid collision with status $or filter for deleted events
+      const normalizedEmail = (userEmail || '').toLowerCase();
+      query.$and = [{ $or: [
+        { 'roomReservationData.requestedBy.email': normalizedEmail },
+        { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+      ] }];
       // Status filtering
       if (status === 'deleted') {
         query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -6782,7 +6788,10 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     if (view === 'my-events') {
       // Single aggregation instead of 7 parallel countDocuments (avoids Cosmos DB rate limits)
       const pipeline = [
-        { $match: { roomReservationData: { $exists: true, $ne: null }, 'roomReservationData.requestedBy.email': (userEmail || '').toLowerCase() } },
+        { $match: { $or: [
+          { 'roomReservationData.requestedBy.email': (userEmail || '').toLowerCase() },
+          { createdByEmail: (userEmail || '').toLowerCase(), createdSource: { $in: ['unified-form', 'batch-create'] } }
+        ] } },
         { $group: {
           _id: null,
           pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
@@ -21030,8 +21039,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       'virtualMeetingUrl', 'virtualPlatform',
       'categories', 'mecCategories', 'services', 'assignedTo',
       'eventSeriesId', 'seriesLength', 'seriesIndex',
-      'requesterName', 'requesterEmail', 'department', 'phone',
-      'attendeeCount', 'priority', 'specialRequirements',
+      'attendeeCount', 'specialRequirements',
       'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
       'organizerName', 'organizerPhone', 'organizerEmail'
     ];
@@ -23330,8 +23338,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       'virtualMeetingUrl', 'virtualPlatform',
       'categories', 'mecCategories', 'services', 'assignedTo',
       'eventSeriesId', 'seriesLength', 'seriesIndex',
-      'requesterName', 'requesterEmail', 'department', 'phone',
-      'attendeeCount', 'priority', 'specialRequirements',
+      'attendeeCount', 'specialRequirements',
       'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
       'organizerName', 'organizerPhone', 'organizerEmail',
       'recurrence'

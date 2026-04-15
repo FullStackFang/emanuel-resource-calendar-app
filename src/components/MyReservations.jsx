@@ -504,8 +504,8 @@ export default function MyReservations() {
       {/* Reservations List */}
       <div className="mr-reservations-list">
         {paginatedReservations.map(reservation => {
-          const isOnBehalfOf = reservation.roomReservationData?.contactPerson?.isOnBehalfOf;
-          const contactName = reservation.roomReservationData?.contactPerson?.name;
+          const isOnBehalfOf = reservation.isOnBehalfOf;
+          const contactName = reservation.contactName;
           const isDraft = reservation.status === 'draft';
 
           return (
