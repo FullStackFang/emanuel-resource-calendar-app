@@ -5334,6 +5334,17 @@ function createTestApp(options = {}) {
         'pendingEditRequest.status': 'pending',
       }).toArray();
 
+      // Published series masters sharing requested rooms (no date filter)
+      const seriesMasters = await testCollections.events.find({
+        isDeleted: { $ne: true },
+        status: 'published',
+        eventType: 'seriesMaster',
+        $or: [
+          { 'calendarData.locations': { $in: roomObjectIds } },
+          { 'calendarData.locations': { $in: roomIdStrings } },
+        ],
+      }).toArray();
+
       // Split merged results in-memory
       const excludeId = excludeEventId ? excludeEventId.toString() : null;
       const allReservations = allEventsAndPending.filter(e => e.status === 'published');
@@ -5341,6 +5352,38 @@ function createTestApp(options = {}) {
       const pendingReservationEvents = allEventsAndPending.filter(e =>
         e.status === 'pending' && (!excludeId || e._id.toString() !== excludeId)
       );
+
+      // Expand series masters into synthetic occurrence entries
+      const mainQueryIdSet = new Set(allEventsAndPending.map(e => e._id.toString()));
+      const expandedOccurrences = [];
+
+      for (const master of seriesMasters) {
+        const masterId = master._id.toString();
+        if (excludeId && masterId === excludeId) continue;
+        const mainQueryHasMaster = mainQueryIdSet.has(masterId);
+
+        try {
+          const occurrences = expandRecurringOccurrencesInWindow(
+            master, new Date(start), new Date(end)
+          );
+          for (const occ of occurrences) {
+            if (mainQueryHasMaster) {
+              const masterStartDate = (master.calendarData?.startDateTime || '').split('T')[0];
+              if (occ.occurrenceDate === masterStartDate) continue;
+            }
+            if (occ.startDateTime < end && occ.endDateTime > start) {
+              expandedOccurrences.push({
+                master,
+                startDateTime: occ.startDateTime,
+                endDateTime: occ.endDateTime,
+                locations: occ.locations || master.calendarData?.locations || [],
+              });
+            }
+          }
+        } catch (err) {
+          // Non-fatal: skip expansion errors
+        }
+      }
 
       const availability = rooms.map(room => {
         const roomIdString = room._id.toString();
@@ -5362,6 +5405,23 @@ function createTestApp(options = {}) {
           effectiveEnd: r.calendarData?.endDateTime,
           isAllowedConcurrent: r.isAllowedConcurrent ?? false,
         }));
+
+        // Append expanded recurring occurrences for this room
+        const roomExpandedOccs = expandedOccurrences.filter(eo =>
+          eo.locations.some(locId => locId.toString() === roomIdString)
+        );
+        for (const eo of roomExpandedOccs) {
+          detailedReservations.push({
+            id: eo.master._id,
+            eventTitle: eo.master.calendarData?.eventTitle,
+            status: eo.master.status,
+            originalStart: eo.startDateTime,
+            originalEnd: eo.endDateTime,
+            effectiveStart: eo.startDateTime,
+            effectiveEnd: eo.endDateTime,
+            isAllowedConcurrent: eo.master.isAllowedConcurrent ?? false,
+          });
+        }
 
         const detailedEvents = roomEvents.map(e => ({
           id: e._id,

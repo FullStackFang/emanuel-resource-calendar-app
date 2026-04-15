@@ -2142,11 +2142,16 @@ const CONFLICT_PROJECTION = {
 // Projection for availability endpoint — only fields used by response builders (lines 13283-13481)
 const AVAILABILITY_PROJECTION = {
   _id: 1, status: 1, isAllowedConcurrent: 1, categories: 1,
+  eventType: 1,                                // identify series masters for recurrence expansion
+  recurrence: 1,                               // expandRecurringOccurrencesInWindow reads top-level
+  'calendarData.recurrence': 1,                // expandRecurringOccurrencesInWindow reads nested path
+  occurrenceOverrides: 1,                      // per-occurrence time/location overrides
   'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
   'calendarData.startTime': 1, 'calendarData.endTime': 1,
   'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
   'calendarData.eventTitle': 1, 'calendarData.categories': 1,
   'calendarData.setupTime': 1, 'calendarData.teardownTime': 1,
+  'calendarData.doorOpenTime': 1, 'calendarData.doorCloseTime': 1,
   'calendarData.setupTimeMinutes': 1, 'calendarData.teardownTimeMinutes': 1,
   'calendarData.reservationStartMinutes': 1, 'calendarData.reservationEndMinutes': 1,
   'calendarData.reservationStartTime': 1, 'calendarData.reservationEndTime': 1,
@@ -13474,14 +13479,17 @@ app.get('/api/rooms/availability', async (req, res) => {
     logger.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
     logger.log('[AVAILABILITY DEBUG] Date range for query:', { start, end });
 
-    // Run two DB queries in parallel (down from 4 sequential):
+    // Run three DB queries in parallel:
     //  1. Merged query: published + calendar (no status) + pending events with room/date overlap
     //  2. Simplified pending edits: all events with pending edit requests (filter rooms in-memory)
+    //  3. Published series masters sharing requested rooms (no date filter — master dates
+    //     only reflect the first occurrence, so date filtering misses future occurrences)
     let allEventsAndPending = [];
     let pendingEditEvents = [];
+    let seriesMasters = [];
 
     if (roomObjectIds.length > 0) {
-      [allEventsAndPending, pendingEditEvents] = await Promise.all([
+      [allEventsAndPending, pendingEditEvents, seriesMasters] = await Promise.all([
         // Merged Q2+Q4: captures published, pending, AND Graph (no-status) events in one query
         withCosmosRetry(() => unifiedEventsCollection.find({
           isDeleted: { $ne: true },
@@ -13501,6 +13509,18 @@ app.get('/api/rooms/availability', async (req, res) => {
           status: { $nin: ['draft', 'rejected', 'deleted'] },
           'pendingEditRequest.status': 'pending',
         }).project(AVAILABILITY_PROJECTION).toArray()),
+
+        // Q4: Published series masters sharing any requested rooms.
+        // No date filter — same design as checkRoomConflicts() (eventType is highly selective).
+        withCosmosRetry(() => unifiedEventsCollection.find({
+          isDeleted: { $ne: true },
+          status: 'published',
+          eventType: 'seriesMaster',
+          $or: [
+            { 'calendarData.locations': { $in: roomObjectIds } },
+            { 'calendarData.locations': { $in: roomIdStrings } }
+          ]
+        }).project(AVAILABILITY_PROJECTION).toArray()),
       ]);
     }
 
@@ -13518,6 +13538,48 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length,
       'Calendar events:', allCalendarEvents.length, 'Pending reservations:', pendingReservationEvents.length);
+
+    // --- Expand series masters into synthetic occurrence entries ---
+    // Mirrors checkRoomConflicts() pattern: query series masters without date filter,
+    // then expand each within the availability window using recurrenceExpansion.
+    const mainQueryIdSet = new Set(allEventsAndPending.map(e => e._id.toString()));
+    const expandedOccurrences = []; // { master, startDateTime, endDateTime, locations }
+
+    for (const master of seriesMasters) {
+      const masterId = master._id.toString();
+      if (excludeId && masterId === excludeId) continue;
+
+      const mainQueryHasMaster = mainQueryIdSet.has(masterId);
+
+      try {
+        const occurrences = expandRecurringOccurrencesInWindow(
+          master,
+          new Date(start),
+          new Date(end)
+        );
+
+        for (const occ of occurrences) {
+          // Skip if main query already has this master on its first-occurrence date (dedup)
+          if (mainQueryHasMaster) {
+            const masterStartDate = (master.calendarData?.startDateTime || '').split('T')[0];
+            if (occ.occurrenceDate === masterStartDate) continue;
+          }
+
+          if (occ.startDateTime < end && occ.endDateTime > start) {
+            expandedOccurrences.push({
+              master,
+              startDateTime: occ.startDateTime,
+              endDateTime: occ.endDateTime,
+              locations: occ.locations || master.calendarData?.locations || [],
+            });
+          }
+        }
+      } catch (err) {
+        logger.warn('[AVAILABILITY] Error expanding series master (non-fatal):', masterId, err.message);
+      }
+    }
+
+    logger.log('[AVAILABILITY DEBUG] Expanded recurring occurrences:', expandedOccurrences.length);
 
     // Helper function to format time for display
     const formatTime = (date) => date.toLocaleTimeString('en-US', {
@@ -13587,6 +13649,41 @@ app.get('/api/rooms/availability', async (req, res) => {
           categories: res.calendarData?.categories || res.categories || []
         };
       });
+
+      // Append expanded recurring occurrences that belong to this room.
+      // Each synthetic entry matches the same shape as regular reservation entries above.
+      const roomExpandedOccs = expandedOccurrences.filter(eo =>
+        eo.locations.some(locId => locId.toString() === roomIdString)
+      );
+      for (const eo of roomExpandedOccs) {
+        const cd = eo.master.calendarData || {};
+        const occStartDate = eo.startDateTime.split('T')[0];
+        const occEndDate = eo.endDateTime.split('T')[0];
+
+        // Blocking window: same widest-span logic as regular reservations
+        const eoStarts = [cd.reservationStartTime, cd.setupTime, cd.doorOpenTime].filter(Boolean);
+        const eoEnds = [cd.reservationEndTime, cd.teardownTime, cd.doorCloseTime].filter(Boolean);
+        const eoEarliest = eoStarts.length ? eoStarts.sort()[0] : cd.reservationStartTime;
+        const eoLatest = eoEnds.length ? eoEnds.sort().pop() : cd.reservationEndTime;
+        const eoEffStart = eoEarliest ? `${occStartDate}T${normTime(eoEarliest)}` : eo.startDateTime;
+        const eoEffEnd = eoLatest ? `${occEndDate}T${normTime(eoLatest)}` : eo.endDateTime;
+
+        detailedReservationConflicts.push({
+          id: eo.master._id,
+          eventTitle: cd.eventTitle,
+          requesterName: eo.master.roomReservationData?.requestedBy?.name || cd.requesterName || '',
+          requesterEmail: eo.master.roomReservationData?.requestedBy?.email || cd.requesterEmail || '',
+          status: eo.master.status,
+          originalStart: eo.startDateTime,
+          originalEnd: eo.endDateTime,
+          effectiveStart: eoEffStart,
+          effectiveEnd: eoEffEnd,
+          reservationStart: cd.reservationStartTime ? `${occStartDate}T${normTime(cd.reservationStartTime)}` : null,
+          reservationEnd: cd.reservationEndTime ? `${occEndDate}T${normTime(cd.reservationEndTime)}` : null,
+          isAllowedConcurrent: eo.master.isAllowedConcurrent ?? false,
+          categories: cd.categories || eo.master.categories || [],
+        });
+      }
 
       // Return detailed event data (frontend will calculate conflicts dynamically)
       // All effectiveStart/effectiveEnd are local-time strings (no Z suffix) to avoid UTC shift
