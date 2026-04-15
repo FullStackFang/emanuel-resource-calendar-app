@@ -108,6 +108,24 @@ describe('mergeDefaultsWithOverrides', () => {
     expect(effectiveFields.doorOpenTime).toBeNull();
   });
 
+  it('EDS-23: should cascade to reservationStartTime/EndTime for Hold events', () => {
+    const overrides = { startTime: '', endTime: '', reservationStartTime: '10:30', reservationEndTime: '11:30' };
+    const { effectiveFields, effectiveCalendarData } = mergeDefaultsWithOverrides(master, overrides, '2026-03-17');
+
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T10:30');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:30');
+    expect(effectiveCalendarData.startDateTime).toBe('2026-03-17T10:30');
+    expect(effectiveCalendarData.endDateTime).toBe('2026-03-17T11:30');
+  });
+
+  it('EDS-24: should cascade to reservationStartTime when startTime is null', () => {
+    const overrides = { startTime: null, endTime: null, reservationStartTime: '14:00', reservationEndTime: '15:00' };
+    const { effectiveFields } = mergeDefaultsWithOverrides(master, overrides, '2026-03-17');
+
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T14:00');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T15:00');
+  });
+
   it('EDS-4: should produce correct calendarData mirror', () => {
     const overrides = { startTime: '15:00', endTime: '16:30' };
     const { effectiveCalendarData } = mergeDefaultsWithOverrides(master, overrides, '2026-03-24');

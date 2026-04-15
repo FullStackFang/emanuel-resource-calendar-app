@@ -6872,12 +6872,6 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     let events = await withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project(projection);
-      // Server-side sort for approval-queue: newest submissions first.
-      // Ensures recently submitted pending events are included within the limit
-      // rather than being truncated by Cosmos DB's natural document order.
-      if (view === 'approval-queue') {
-        cursor = cursor.sort({ createdAt: -1 });
-      }
       if (limitNum > 0) {
         cursor = cursor.skip(skip).limit(limitNum);
       }
