@@ -361,4 +361,44 @@ describe('Event Update Tests - Graph Sync Gate', () => {
         .expect(404);
     });
   });
+
+  describe('Organizer field routing', () => {
+    it('should persist organizer changes to roomReservationData.organizer', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      // Seed initial organizer data
+      published.roomReservationData.organizer = {
+        name: 'Original Organizer',
+        phone: '555-0000',
+        email: 'original@example.com',
+      };
+      const [saved] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          organizerName: 'Updated Organizer',
+          organizerPhone: '555-9999',
+          organizerEmail: 'updated@example.com',
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      // Verify MongoDB has updated values at the correct nested path
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.roomReservationData.organizer.name).toBe('Updated Organizer');
+      expect(updated.roomReservationData.organizer.phone).toBe('555-9999');
+      expect(updated.roomReservationData.organizer.email).toBe('updated@example.com');
+
+      // Verify organizer fields are NOT written as top-level document fields
+      expect(updated.organizerName).toBeUndefined();
+      expect(updated.organizerPhone).toBeUndefined();
+      expect(updated.organizerEmail).toBeUndefined();
+    });
+  });
 });

@@ -4523,6 +4523,13 @@ function createTestApp(options = {}) {
         mongoUpdate['calendarData.occurrenceOverrides'] = mergedOverrides;
       }
 
+      // Route organizer fields to roomReservationData.organizer.* (dot-path, same as production)
+      for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
+        if (updates[flatKey] !== undefined) {
+          mongoUpdate[`roomReservationData.organizer.${nestedKey}`] = updates[flatKey];
+        }
+      }
+
       // Handle requestedRooms → locations mapping
       if (updates.requestedRooms !== undefined) {
         mongoUpdate.locations = updates.requestedRooms;

@@ -23358,6 +23358,15 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // Organizer fields aren't in CALENDAR_DATA_FIELDS, so they land as bare top-level keys above.
+    // Re-route them to roomReservationData.organizer.* where the read path expects them.
+    for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
+      if (finalUpdateOperations[flatKey] !== undefined) {
+        finalUpdateOperations[`roomReservationData.organizer.${nestedKey}`] = finalUpdateOperations[flatKey];
+        delete finalUpdateOperations[flatKey];
+      }
+    }
+
     // Sync recurrence to top-level (Calendar.jsx reads top-level recurrence for expansion)
     if (finalUpdateOperations['calendarData.recurrence'] !== undefined) {
       finalUpdateOperations['recurrence'] = finalUpdateOperations['calendarData.recurrence'];
