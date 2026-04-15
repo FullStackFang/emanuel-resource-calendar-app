@@ -15861,6 +15861,8 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       // Versioning and history
       _version: event._version || null,
       statusHistory: event.statusHistory || [],
+      // Edit request data (needed by fetchExistingEditRequest for scope filtering)
+      pendingEditRequest: event.pendingEditRequest || null,
       // Include calendarData for frontend compatibility
       calendarData: cd
     };
@@ -20761,6 +20763,8 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
         eventId: event.eventId,
         editRequestId: event.pendingEditRequest.id,
         status: event.pendingEditRequest.status,
+        editScope: event.pendingEditRequest.editScope || null,
+        occurrenceDate: event.pendingEditRequest.occurrenceDate || null,
         requestedBy: event.pendingEditRequest.requestedBy,
         proposedChanges: event.pendingEditRequest.proposedChanges,
         reviewedBy: event.pendingEditRequest.reviewedBy,

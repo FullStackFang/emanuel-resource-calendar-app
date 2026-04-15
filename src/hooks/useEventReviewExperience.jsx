@@ -115,14 +115,42 @@ export function useEventReviewExperience({
    * Extract edit request metadata from an event.
    * Uses Calendar's async version with API fallback for events loaded without embedded data.
    */
-  const fetchExistingEditRequest = useCallback(async (event) => {
+  const fetchExistingEditRequest = useCallback(async (event, viewingEditScope) => {
     if (!event) return null;
+
+    // Resolve the event's start date across all possible field locations.
+    // Events arrive in different shapes depending on source (calendar expansion,
+    // API response, list view), so we check multiple paths.
+    const resolveEventDate = (evt) =>
+      evt.startDate || evt.calendarData?.startDate
+      || evt.startDateTime?.split('T')[0] || evt.start?.dateTime?.split('T')[0];
+
+    // Check whether an edit request targets a different occurrence than the current event.
+    // Returns true when the edit should be hidden from this view.
+    const isEditForDifferentOccurrence = (editReq, evt) =>
+      editReq?.editScope === 'thisEvent'
+      && editReq.occurrenceDate
+      && resolveEventDate(evt) !== editReq.occurrenceDate;
+
+    // Series-level view ('allEvents') should not show occurrence-scoped edits ('thisEvent').
+    // The reverse is fine: viewing one occurrence should show series-wide edits since they affect it.
+    const isScopeMismatch = (editReq, viewScope) =>
+      viewScope === 'allEvents' && editReq?.editScope === 'thisEvent';
 
     setLoadingEditRequest(true);
     try {
       // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
       const pendingReq = event.pendingEditRequest;
       if (pendingReq?.status === 'pending') {
+        // Skip occurrence-scoped edit requests when viewing the whole series.
+        // The edit's proposedChanges are computed against that occurrence's baseline —
+        // showing them on the master or a different occurrence would display no/wrong diffs.
+        if (isScopeMismatch(pendingReq, viewingEditScope)) {
+          return null;
+        }
+        if (isEditForDifferentOccurrence(pendingReq, event)) {
+          return null;
+        }
         return {
           _id: event._id,
           editRequestId: pendingReq.id,
@@ -137,7 +165,14 @@ export function useEventReviewExperience({
         };
       }
 
-      // Fallback: API call for events loaded without full data
+      // Calendar-expanded occurrences had pendingEditRequest scoped by Calendar.jsx.
+      // Absence means the edit doesn't target this occurrence — skip the API fallback
+      // which would re-fetch the master's edit request and bypass that scoping.
+      if (event.isRecurringOccurrence) {
+        return null;
+      }
+
+      // Fallback: API call for events loaded without full data (e.g., from list views)
       const eventId = event._id || event.eventId;
       if (!eventId || !apiToken) return null;
 
@@ -148,6 +183,12 @@ export function useEventReviewExperience({
       if (response.ok) {
         const data = await response.json();
         const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
+        if (isScopeMismatch(pendingRequest, viewingEditScope)) {
+          return null;
+        }
+        if (isEditForDifferentOccurrence(pendingRequest, event)) {
+          return null;
+        }
         return pendingRequest || null;
       }
       return null;
@@ -171,7 +212,7 @@ export function useEventReviewExperience({
     prevIsOpenRef.current = reviewModal.isOpen;
 
     if (justOpened && reviewModal.currentItem?.status === 'published') {
-      fetchExistingEditRequest(reviewModal.currentItem).then(setExistingEditRequest);
+      fetchExistingEditRequest(reviewModal.currentItem, reviewModal.editScope).then(setExistingEditRequest);
     } else if (justClosed) {
       // Reset ALL satellite state on modal close (single cleanup point)
       setExistingEditRequest(null);
