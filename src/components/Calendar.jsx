@@ -1738,14 +1738,16 @@ import ConflictDialog from './shared/ConflictDialog';
                       start: event.start || event.graphData?.start,
                       end: event.end || event.graphData?.end,
                       subject: event.subject || event.eventTitle || event.calendarData?.eventTitle || event.graphData?.subject,
-                      recurrence: recurrence
+                      recurrence: recurrence,
+                      calendarData: event.calendarData,
                     }
                   : {
                       eventId: event.eventId,
                       start: { dateTime: event.startDateTime || event.calendarData?.startDateTime, timeZone: 'America/New_York' },
                       end: { dateTime: event.endDateTime || event.calendarData?.endDateTime, timeZone: 'America/New_York' },
                       subject: event.subject || event.eventTitle || event.calendarData?.eventTitle,
-                      recurrence: recurrence
+                      recurrence: recurrence,
+                      calendarData: event.calendarData,
                     };
 
                 // Expand the master into occurrences for the current view range

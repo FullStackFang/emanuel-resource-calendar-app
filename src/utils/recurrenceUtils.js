@@ -217,6 +217,43 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
     }
   }
 
+  // Master-level time values (loop-invariant — computed once, used by all occurrences).
+  // When event times are empty (Hold pattern), fall back to reservation times.
+  const cd = masterEvent.calendarData || masterEvent;
+  const masterStartTime = cd.startTime || cd.reservationStartTime || '';
+  const masterEndTime = cd.endTime || cd.reservationEndTime || '';
+  const masterIsHold = !cd.startTime || !cd.endTime;
+  const masterStartTimePart = masterStartTime
+    ? masterStartTime + ':00.0000000'
+    : masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+  const masterEndTimePart = masterEndTime
+    ? masterEndTime + ':00.0000000'
+    : masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+
+  // Resolve effective times for an occurrence, accounting for overrides and Hold fallbacks.
+  // Uses 'in' operator to distinguish "field explicitly set to empty" from "field absent".
+  function resolveOccurrenceTimes(date, override) {
+    const hasOverride = override !== null;
+    if (hasOverride) {
+      const occStartTime = ('startTime' in override) ? override.startTime : cd.startTime;
+      const occEndTime = ('endTime' in override) ? override.endTime : cd.endTime;
+      const occResStart = override.reservationStartTime || cd.reservationStartTime;
+      const occResEnd = override.reservationEndTime || cd.reservationEndTime;
+      const effStart = occStartTime || occResStart || masterStartTime;
+      const effEnd = occEndTime || occResEnd || masterEndTime;
+      return {
+        startDT: effStart ? `${date}T${effStart}:00.0000000` : `${date}T${masterStartTimePart}`,
+        endDT: effEnd ? `${date}T${effEnd}:00.0000000` : `${date}T${masterEndTimePart}`,
+        isHold: !occStartTime || !occEndTime,
+      };
+    }
+    return {
+      startDT: `${date}T${masterStartTimePart}`,
+      endDT: `${date}T${masterEndTimePart}`,
+      isHold: masterIsHold,
+    };
+  }
+
   // Track generated dates to avoid duplicates with additions
   const generatedDates = new Set();
 
@@ -256,53 +293,29 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
           });
         }
       } else {
-        // Extract time portion, keeping Graph API format (HH:MM:SS.0000000, no Z)
-        const startTime = masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
-        const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
-
-        // Check for per-occurrence override
-        const override = overrideMap[occurrenceDate] || {};
-        const hasOverride = Object.keys(override).length > 0;
-        // [Hold] override: null event times with reservation times — keep master times for positioning
-        const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
-          && 'endTime' in override && !override.endTime;
-        // Use 'in' operator (not truthiness) to distinguish "field explicitly set to empty"
-        // from "field absent". Empty string "" means intentionally cleared (e.g., [Hold] pattern).
-        // When event time is empty, fall back to reservation time for calendar positioning.
-        const effectiveStartTime = ('startTime' in override)
-          ? (override.startTime
-              ? `${occurrenceDate}T${override.startTime}:00.0000000`
-              : (override.reservationStartTime
-                  ? `${occurrenceDate}T${override.reservationStartTime}:00.0000000`
-                  : `${occurrenceDate}T${startTime}`))
-          : `${occurrenceDate}T${startTime}`;
-        const effectiveEndTime = ('endTime' in override)
-          ? (override.endTime
-              ? `${occurrenceDate}T${override.endTime}:00.0000000`
-              : (override.reservationEndTime
-                  ? `${occurrenceDate}T${override.reservationEndTime}:00.0000000`
-                  : effectiveStartTime))
-          : `${occurrenceDate}T${endTime}`;
+        const override = overrideMap[occurrenceDate] ?? null;
+        const hasOverride = override !== null;
+        const { startDT, endDT, isHold } = resolveOccurrenceTimes(occurrenceDate, override);
 
         occurrences.push({
           ...masterEvent,
-          ...override,
+          ...(override || {}),
           eventId: `${masterEvent.eventId}-${occurrenceDate}`,
           seriesMasterId: masterEvent.eventId,
-          subject: override.eventTitle || masterEvent.subject,
+          subject: override?.eventTitle || masterEvent.subject,
           start: {
-            dateTime: effectiveStartTime,
+            dateTime: startDT,
             timeZone: masterEvent.start.timeZone
           },
           end: {
-            dateTime: effectiveEndTime,
+            dateTime: endDT,
             timeZone: masterEvent.end.timeZone
           },
           location: masterEvent.location,
           isRecurring: true,
           isException: hasOverride,
           hasOccurrenceOverride: hasOverride,
-          isHoldOverride,
+          isHoldOverride: isHold,
         });
       }
     }
@@ -318,46 +331,29 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
     const addDateObj = new Date(addDate + 'T00:00:00');
     if (addDateObj < viewStart || addDateObj > viewEnd) continue;
 
-    const startTime = masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
-    const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
-    const override = overrideMap[addDate] || {};
-    const hasOverride = Object.keys(override).length > 0;
-    const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
-      && 'endTime' in override && !override.endTime;
-    const effectiveStartTime = ('startTime' in override)
-      ? (override.startTime
-          ? `${addDate}T${override.startTime}:00.0000000`
-          : (override.reservationStartTime
-              ? `${addDate}T${override.reservationStartTime}:00.0000000`
-              : `${addDate}T${startTime}`))
-      : `${addDate}T${startTime}`;
-    const effectiveEndTime = ('endTime' in override)
-      ? (override.endTime
-          ? `${addDate}T${override.endTime}:00.0000000`
-          : (override.reservationEndTime
-              ? `${addDate}T${override.reservationEndTime}:00.0000000`
-              : effectiveStartTime))
-      : `${addDate}T${endTime}`;
+    const addOverride = overrideMap[addDate] ?? null;
+    const addHasOverride = addOverride !== null;
+    const { startDT, endDT, isHold } = resolveOccurrenceTimes(addDate, addOverride);
 
     occurrences.push({
       ...masterEvent,
-      ...override,
+      ...(addOverride || {}),
       eventId: `${masterEvent.eventId}-${addDate}`,
       seriesMasterId: masterEvent.eventId,
-      subject: override.eventTitle || masterEvent.subject,
+      subject: addOverride?.eventTitle || masterEvent.subject,
       start: {
-        dateTime: effectiveStartTime,
+        dateTime: startDT,
         timeZone: masterEvent.start.timeZone
       },
       end: {
-        dateTime: effectiveEndTime,
+        dateTime: endDT,
         timeZone: masterEvent.end.timeZone
       },
       location: masterEvent.location,
       isRecurring: true,
-      isException: hasOverride,
-      hasOccurrenceOverride: hasOverride,
-      isHoldOverride,
+      isException: addHasOverride,
+      hasOccurrenceOverride: addHasOverride,
+      isHoldOverride: isHold,
       isAdHocAddition: true,
     });
   }
