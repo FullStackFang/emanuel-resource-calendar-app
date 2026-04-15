@@ -292,10 +292,31 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-9: Requester CAN cancel own pending (future: not implemented in test app)', () => {
-    // Note: This would require a specific cancel endpoint
-    // For now, we test that requesters cannot delete pending via admin endpoint
-    it('should return 403 when trying to delete pending via admin endpoint', async () => {
+  describe('R-9: Requester CAN withdraw own pending', () => {
+    it('should soft delete own pending event when reason is provided', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Withdraw Me',
+      });
+      const [savedPending] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ reason: 'Changed my mind' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      const deletedEvent = await db.collection(COLLECTIONS.EVENTS).findOne({
+        _id: savedPending._id,
+      });
+      expect(deletedEvent.isDeleted).toBe(true);
+      expect(deletedEvent.status).toBe(STATUS.DELETED);
+    });
+
+    it('should return 400 when reason is missing', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -305,9 +326,58 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
       const res = await request(app)
         .delete(`/api/admin/events/${savedPending._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
+        .send({})
+        .expect(400);
+
+      expect(res.body.error).toMatch(/reason.*required/i);
+    });
+
+    it('should return 400 when reason is whitespace-only', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      const [savedPending] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ reason: '   ' })
+        .expect(400);
+
+      expect(res.body.error).toMatch(/reason.*required/i);
+    });
+
+    it('should return 403 when trying to delete other requester\'s pending', async () => {
+      const otherPending = createPendingEvent({
+        userId: otherRequesterUser.odataId,
+        requesterEmail: otherRequesterUser.email,
+      });
+      const [savedPending] = await insertEvents(db, [otherPending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ reason: 'Trying to withdraw someone else\'s' })
         .expect(403);
 
-      expect(res.body.error).toMatch(/permission denied/i);
+      expect(res.body.error).toMatch(/your own pending/i);
+    });
+
+    it('should return 403 when trying to delete own published event', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ reason: 'Want to delete published' })
+        .expect(403);
+
+      expect(res.body.error).toMatch(/your own pending/i);
     });
   });
 
@@ -389,7 +459,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(403);
 
-      expect(res.body.error).toMatch(/permission denied/i);
+      expect(res.body.error).toMatch(/your own pending/i);
     });
   });
 

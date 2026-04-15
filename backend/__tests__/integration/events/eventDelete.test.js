@@ -669,7 +669,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .expect(403);
     });
 
-    it('AD-9: Requester cannot delete any event', async () => {
+    it('AD-9: Requester cannot delete own pending without reason', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -677,10 +677,12 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       });
       const [saved] = await insertEvents(db, [pending]);
 
-      await request(app)
+      const res = await request(app)
         .delete(`/api/admin/events/${saved._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(403);
+        .expect(400);
+
+      expect(res.body.error).toMatch(/reason.*required/i);
     });
 
     it('AD-10: Delete with reason stores reason in statusHistory', async () => {

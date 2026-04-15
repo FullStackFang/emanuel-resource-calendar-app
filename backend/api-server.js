@@ -23730,14 +23730,14 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check permissions (approver+ can delete with scoping rules, respects X-Simulated-Role)
+    // Check permissions (requester+ can delete with scoping rules, respects X-Simulated-Role)
     const user = await getCachedUser(userId);
     const effectiveRole = resolveEffectiveRole(req, user, userEmail);
     const isAdminUser = effectiveRole === 'admin';
     const isApprover = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
 
-    if (!isAdminUser && !isApprover) {
-      return res.status(403).json({ error: 'Approver access required' });
+    if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['requester']) {
+      return res.status(403).json({ error: 'Permission denied' });
     }
 
     const id = req.params.id;
@@ -23760,21 +23760,27 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Approver scoping: own events (any status) or any published event
-    // Admins can delete anything
+    const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
+    const isOwner = ownerEmail === (userEmail || '').toLowerCase();
+
+    // Role-based scoping: Admins can delete anything, others have restrictions
     if (!isAdminUser) {
-      const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
-      const isOwner = ownerEmail === (userEmail || '').toLowerCase();
-      if (!isOwner && event.status !== 'published') {
-        return res.status(403).json({ error: 'Approvers can only delete their own events or published events' });
+      if (!isApprover) {
+        // Requesters: can only delete (withdraw) their own pending events
+        if (!isOwner || event.status !== 'pending') {
+          return res.status(403).json({ error: 'You can only withdraw your own pending requests' });
+        }
+      } else {
+        // Approvers: own events (any status) or any published event
+        if (!isOwner && event.status !== 'published') {
+          return res.status(403).json({ error: 'Approvers can only delete their own events or published events' });
+        }
       }
     }
 
     // Reason required when a requester (not admin or approver) withdraws their own pending event.
     // Admins and approvers use the 'Delete' button which has no reason UI — skip check for them.
-    const ownerEmailForReason = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
-    const isOwnerForReason = ownerEmailForReason === (userEmail || '').toLowerCase();
-    const isRequesterDelete = isOwnerForReason && !isAdminUser && !isApprover;
+    const isRequesterDelete = isOwner && !isAdminUser && !isApprover;
     if (isRequesterDelete && event.status === 'pending' && (!reason || !reason.trim())) {
       return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
     }
@@ -24086,7 +24092,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
               changedAt: new Date(),
               changedBy: userId,
               changedByEmail: userEmail,
-              reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : 'Deleted by approver')
+              reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Withdrawn by requester'))
             }
           }
         },

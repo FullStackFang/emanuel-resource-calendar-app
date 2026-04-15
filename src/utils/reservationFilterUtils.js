@@ -17,15 +17,19 @@
 export function filterBySearchAndDate(items, { searchTerm, dateFrom, dateTo }) {
   let results = items;
 
-  if (searchTerm) {
-    const term = searchTerm.toLowerCase();
-    results = results.filter(r =>
-      (r.eventTitle || '').toLowerCase().includes(term) ||
-      (r.requesterName || '').toLowerCase().includes(term) ||
-      (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
-      (r.locationDisplayNames || '').toLowerCase().includes(term) ||
-      (r.eventDescription || '').toLowerCase().includes(term)
-    );
+  if (searchTerm?.trim()) {
+    const term = searchTerm.trim().toLowerCase();
+    results = results.filter(r => {
+      const rawTitle = (r.eventTitle || '');
+      const displayTitle = (r.isHold && !rawTitle.startsWith('[Hold]'))
+        ? `[Hold] ${rawTitle}`
+        : rawTitle;
+      return displayTitle.toLowerCase().includes(term) ||
+        (r.requesterName || '').toLowerCase().includes(term) ||
+        (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
+        (r.locationDisplayNames || '').toLowerCase().includes(term) ||
+        (r.eventDescription || '').toLowerCase().includes(term);
+    });
   }
 
   if (dateFrom) {

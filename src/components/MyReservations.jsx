@@ -677,7 +677,7 @@ export default function MyReservations() {
         title={getModalTitle()}
         modalMode={getModalMode()}
         isRequesterOnly={isRequesterOnly}
-        permissions={{ canApproveReservations, canEditEvents: !isRequesterOnly, canDeleteEvents: !isRequesterOnly || reviewModal.currentItem?.status === 'pending' }}
+        permissions={{ canApproveReservations, canEditEvents: !isRequesterOnly, canDeleteEvents: !isRequesterOnly }}
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
         canRequestCancellation={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
         readOnly={!canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}

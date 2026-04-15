@@ -494,8 +494,19 @@ Requester info lives in `roomReservationData.requestedBy` (name, email, departme
 ### Delete Permissions (Scoped by Role)
 - **Admin**: Can delete any event in any status
 - **Approver**: Can delete own events (any status) + any published event. Cannot delete other users' draft/pending/rejected events.
-- **Requester deleting own pending**: Uses the same delete endpoint but reason is required (replaces old cancel flow). UI shows "Withdraw Request" button.
+- **Requester withdrawing own pending**: Uses `DELETE /api/admin/events/:id` with `reason` required. Backend scoping: own pending only, 403 for anything else. UI shows "Withdraw Request" button via `EventReviewExperience`.
 - **Notification**: Requester is notified when someone else deletes their event.
+
+### EventReviewExperience (Unified Modal Layer)
+`src/components/shared/EventReviewExperience.jsx` is the **single shared component** that all entry points (Calendar, MyReservations, ReservationRequests) use to render ReviewModal + RoomReservationReview + ConflictDialogs. Permission-gated actions are computed here, NOT in each caller.
+
+**Key permission gates inside EventReviewExperience:**
+- `onApprove`/`onReject` — gated by `canApproveReservations`
+- `onSave` — gated by `canEditEvents`
+- `onDelete` — gated by `effectiveCanDelete` (= `canDeleteEvents || (isRequesterOnly && isPending)`)
+- `onRestore` — gated by raw `canDeleteEvents` (requesters cannot restore)
+
+**Adding new permission-gated actions:** Put the logic in `EventReviewExperience`, not in individual callers. Callers pass raw permissions from `usePermissions()` and caller-specific props (handlers, state). The component computes derived flags like `effectiveCanDelete` so behavior is consistent everywhere.
 
 ### Scheduling Conflict Detection
 `checkRoomConflicts()` runs on publish, admin save, owner edit, and restore endpoints. Returns 409 `SchedulingConflict` with conflict details. Admins can force-override; owners cannot.

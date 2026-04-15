@@ -69,6 +69,8 @@ export default function EventReviewExperience({
   const { canApproveReservations, canEditEvents, canDeleteEvents } = permissions;
   const itemStatus = exp.currentItem?.status || 'published';
   const isPending = itemStatus === 'pending';
+  // Requesters may withdraw their own pending events even though canDeleteEvents is false for the role
+  const effectiveCanDelete = canDeleteEvents || (isRequesterOnly && isPending);
 
   // Requester name: editableData is already flat (from transformEventToFlatStructure)
   const requesterName = exp.editableData?.requesterName || '';
@@ -94,7 +96,7 @@ export default function EventReviewExperience({
         onApprove={canApproveReservations ? exp.handleApprove : null}
         onReject={canApproveReservations ? exp.handleReject : null}
         onSave={canEditEvents && !exp.isDraft ? exp.handleSave : null}
-        onDelete={canDeleteEvents && itemStatus !== 'deleted' ? exp.handleDelete : null}
+        onDelete={effectiveCanDelete && itemStatus !== 'deleted' ? exp.handleDelete : null}
         onRestore={onRestore || (canDeleteEvents && itemStatus === 'deleted' ? exp.handleRestore : null)}
         isRestoring={isRestoring}
         // Requester actions (pre-gated by caller)
