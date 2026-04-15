@@ -1,9 +1,10 @@
 /**
- * Query Correctness Tests (QC-1 to QC-3)
+ * Query Correctness Tests (QC-1 to QC-4)
  *
  * Tests for Phase 2 code review fixes:
  * - C3: Admin-browse date filter uses local-time strings (not UTC)
  * - C4: my-events view limit raised to 500
+ * - QC-4: approval-queue status=needs_attention filter
  */
 
 const request = require('supertest');
@@ -18,6 +19,8 @@ const {
 } = require('../../__helpers__/userFactory');
 const {
   createPendingEvent,
+  createPublishedEvent,
+  createPublishedEventWithEditRequest,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -93,10 +96,10 @@ describe('Query Correctness Tests (QC-1 to QC-3)', () => {
   });
 
   // ============================================
-  // QC-2: approval-queue still capped at 100 (C4 safety check)
+  // QC-2: approval-queue capped at 1000 (raised from 100 to avoid silent truncation)
   // ============================================
-  describe('QC-2: approval-queue view stays capped at 100', () => {
-    it('should cap at 100 for non-my-events views', async () => {
+  describe('QC-2: approval-queue view capped at 1000', () => {
+    it('should return all 110 events (within 1000 cap) for approval-queue', async () => {
       const events = [];
       for (let i = 0; i < 110; i++) {
         events.push(createPendingEvent({
@@ -115,12 +118,13 @@ describe('Query Correctness Tests (QC-1 to QC-3)', () => {
 
       const res = await request(app)
         .get(ENDPOINTS.LIST_EVENTS)
-        .query({ view: 'approval-queue', limit: '500' })
+        .query({ view: 'approval-queue', limit: '1500' })
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       const returnedEvents = res.body.events || [];
-      expect(returnedEvents.length).toBe(100);
+      // All 110 returned (limit=1500 capped to 1000, but only 110 exist)
+      expect(returnedEvents.length).toBe(110);
     });
   });
 
@@ -213,6 +217,50 @@ describe('Query Correctness Tests (QC-1 to QC-3)', () => {
       const events = res.body.events || [];
       const titles = events.map(e => e.calendarData?.eventTitle || e.eventTitle);
       expect(titles).not.toContain('March 20 Event');
+    });
+  });
+
+  // ============================================
+  // QC-4: approval-queue status=needs_attention filter
+  // ============================================
+  describe('QC-4: approval-queue needs_attention filter', () => {
+    it('should return pending events and published events with pending edits', async () => {
+      const pending = createPendingEvent({
+        eventTitle: 'Pending Request',
+        userId: 'user-a',
+        requesterEmail: 'a@emanuelnyc.org',
+        roomReservationData: {
+          requestedBy: { userId: 'user-a', email: 'a@emanuelnyc.org' },
+        },
+      });
+      const publishedPlain = createPublishedEvent({
+        eventTitle: 'Published No Edits',
+        userId: 'user-b',
+        requesterEmail: 'b@emanuelnyc.org',
+        roomReservationData: {
+          requestedBy: { userId: 'user-b', email: 'b@emanuelnyc.org' },
+        },
+      });
+      const publishedWithEdit = createPublishedEventWithEditRequest({
+        eventTitle: 'Published With Edit',
+        userId: 'user-c',
+        requesterEmail: 'c@emanuelnyc.org',
+        roomReservationData: {
+          requestedBy: { userId: 'user-c', email: 'c@emanuelnyc.org' },
+        },
+      });
+      await insertEvents(db, [pending, publishedPlain, publishedWithEdit]);
+
+      const res = await request(app)
+        .get(ENDPOINTS.LIST_EVENTS)
+        .query({ view: 'approval-queue', status: 'needs_attention' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      const titles = (res.body.events || []).map(e => e.calendarData?.eventTitle);
+      expect(titles).toContain('Pending Request');
+      expect(titles).toContain('Published With Edit');
+      expect(titles).not.toContain('Published No Edits');
     });
   });
 });

@@ -189,7 +189,7 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
  * @param {Array} exceptions - Array of exception events
  * @returns {Array} Array of occurrence events
  */
-export function expandRecurringSeries(masterEvent, startDate, endDate, exceptions = [], occurrenceOverrides = []) {
+export function expandRecurringSeries(masterEvent, startDate, endDate, exceptions = [], occurrenceOverrides = [], materializedDates = null) {
   if (!masterEvent.recurrence) return [];
 
   const occurrences = [];
@@ -279,6 +279,13 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       count++;
       generatedDates.add(occurrenceDate);
 
+      // Skip dates that have a materialized exception document — they're already
+      // in the loaded events as first-class documents and don't need virtual expansion.
+      if (materializedDates && materializedDates.has(occurrenceDate)) {
+        current.setDate(current.getDate() + 1);
+        continue;
+      }
+
       // Check if this occurrence has a Graph API exception
       const exception = exceptions.find(ex =>
         ex.originalStartDateTime?.split('T')[0] === occurrenceDate
@@ -328,6 +335,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
   const viewEnd = new Date(endDate + 'T23:59:59');
   for (const addDate of additions) {
     if (generatedDates.has(addDate) || exclusionSet.has(addDate)) continue;
+    if (materializedDates && materializedDates.has(addDate)) continue;
     const addDateObj = new Date(addDate + 'T00:00:00');
     if (addDateObj < viewStart || addDateObj > viewEnd) continue;
 

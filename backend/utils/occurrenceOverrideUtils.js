@@ -164,8 +164,85 @@ function validateOccurrenceDateInRange(dateKey, recurrence) {
   return { valid: true };
 }
 
+/**
+ * Extract override data from a flat source object (request body / updates).
+ * Only includes fields that are explicitly present (not undefined) in the source.
+ * Handles categories/mecCategories merge and location overlay.
+ *
+ * @param {Object} source - Flat dict of field values (e.g., req.body or updates)
+ * @param {Object} [resolvedLocations] - Pre-resolved { locations, locationDisplayNames } or null
+ * @returns {Object} Override data object suitable for createExceptionDocument/updateExceptionDocument
+ */
+function extractOverrideData(source, resolvedLocations) {
+  const data = {};
+
+  // Time fields
+  if (source.startTime !== undefined) data.startTime = source.startTime;
+  if (source.endTime !== undefined) data.endTime = source.endTime;
+
+  // Text fields
+  if (source.eventTitle !== undefined) data.eventTitle = source.eventTitle?.trim();
+  if (source.eventDescription !== undefined) data.eventDescription = source.eventDescription;
+
+  // Scheduling fields
+  if (source.setupTime !== undefined) data.setupTime = source.setupTime;
+  if (source.teardownTime !== undefined) data.teardownTime = source.teardownTime;
+  if (source.reservationStartTime !== undefined) data.reservationStartTime = source.reservationStartTime;
+  if (source.reservationEndTime !== undefined) data.reservationEndTime = source.reservationEndTime;
+  if (source.doorOpenTime !== undefined) data.doorOpenTime = source.doorOpenTime;
+  if (source.doorCloseTime !== undefined) data.doorCloseTime = source.doorCloseTime;
+
+  // Category/service fields
+  if (source.categories !== undefined || source.mecCategories !== undefined) {
+    data.categories = source.categories || source.mecCategories;
+  }
+  if (source.services !== undefined) data.services = source.services;
+  if (source.assignedTo !== undefined) data.assignedTo = source.assignedTo;
+
+  // Locations (pre-resolved ObjectIds + display names)
+  if (resolvedLocations) Object.assign(data, resolvedLocations);
+
+  // Offsite fields
+  if (source.isOffsite !== undefined) data.isOffsite = source.isOffsite;
+  if (source.offsiteName !== undefined) data.offsiteName = source.offsiteName;
+  if (source.offsiteAddress !== undefined) data.offsiteAddress = source.offsiteAddress;
+
+  // Additional info
+  if (source.attendeeCount !== undefined) data.attendeeCount = source.attendeeCount;
+  if (source.eventNotes !== undefined) data.eventNotes = source.eventNotes;
+  if (source.setupNotes !== undefined) data.setupNotes = source.setupNotes;
+  if (source.doorNotes !== undefined) data.doorNotes = source.doorNotes;
+  if (source.specialRequirements !== undefined) data.specialRequirements = source.specialRequirements;
+
+  return data;
+}
+
+/**
+ * Resolve raw location IDs to ObjectIds + display names string.
+ * Returns null if no valid locations provided.
+ *
+ * @param {Collection} locationsCollection - MongoDB locations collection
+ * @param {Array} rawLocations - Array of location ID strings or ObjectIds
+ * @returns {Object|null} { locations: ObjectId[], locationDisplayNames: string } or null
+ */
+async function resolveLocationOverride(locationsCollection, rawLocations) {
+  if (!Array.isArray(rawLocations) || rawLocations.length === 0) return null;
+  try {
+    const locationIds = rawLocations.map(lid =>
+      typeof lid === 'string' && lid.length === 24 ? new ObjectId(lid) : lid
+    );
+    const docs = await locationsCollection.find({ _id: { $in: locationIds } }).toArray();
+    const displayNames = docs.map(loc => loc.displayName || loc.name || '').filter(Boolean).join('; ');
+    return { locations: locationIds, locationDisplayNames: displayNames };
+  } catch (err) {
+    return null;
+  }
+}
+
 module.exports = {
   buildOccurrenceOverrideFields,
   applyOccurrenceOverride,
-  validateOccurrenceDateInRange
+  validateOccurrenceDateInRange,
+  extractOverrideData,
+  resolveLocationOverride,
 };

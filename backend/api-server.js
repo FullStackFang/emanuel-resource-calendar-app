@@ -23,7 +23,8 @@ const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
-const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange } = require('./utils/occurrenceOverrideUtils');
+const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
@@ -595,6 +596,35 @@ async function createUnifiedEventIndexes() {
       },
       {
         name: "requester_email_status",
+        background: true
+      }
+    );
+
+    // Index E: Exception document lookup — covers getExceptionsForMaster() and findExceptionForDate()
+    await unifiedEventsCollection.createIndex(
+      {
+        seriesMasterEventId: 1,
+        eventType: 1,
+        isDeleted: 1,
+        occurrenceDate: 1
+      },
+      {
+        name: "exception_master_date",
+        background: true
+      }
+    );
+
+    // Index F: Exception/addition documents in date range — covers calendar load query
+    await unifiedEventsCollection.createIndex(
+      {
+        calendarOwner: 1,
+        eventType: 1,
+        isDeleted: 1,
+        startDateTime: 1,
+        endDateTime: 1
+      },
+      {
+        name: "exception_type_dates",
         background: true
       }
     );
@@ -2123,11 +2153,122 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
 }
 
 /**
+ * Sync exception/addition documents to Graph after series creation.
+ * Each exception doc stores its own graphEventId for 1:1 mapping.
+ *
+ * - Addition docs → create standalone Graph events
+ * - Exception docs → find + PATCH the Graph occurrence instance
+ *
+ * Non-fatal: failure does not block publish.
+ */
+async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMasterGraphId, seriesMasterEventId, eventData, { preloadedDocs } = {}) {
+  const results = { synced: [], failed: [] };
+
+  const exceptionDocs = preloadedDocs || await getExceptionsForMaster(unifiedEventsCollection, seriesMasterEventId);
+  if (!exceptionDocs.length) return results;
+
+  const graphTimezone = eventData?.start?.timeZone || 'America/New_York';
+
+  for (const doc of exceptionDocs) {
+    try {
+      if (doc.eventType === EVENT_TYPE.ADDITION) {
+        // Addition docs become standalone Graph events
+        const additionEvent = {
+          subject: doc.eventTitle || eventData.subject,
+          start: { dateTime: doc.startDateTime + ':00', timeZone: graphTimezone },
+          end: { dateTime: doc.endDateTime + ':00', timeZone: graphTimezone },
+          location: eventData.location,
+          body: doc.eventDescription !== undefined
+            ? { contentType: 'html', content: doc.eventDescription || '' }
+            : eventData.body,
+          categories: doc.categories || eventData.categories,
+        };
+        if (doc.locationDisplayNames) {
+          const locDispName = doc.locationDisplayNames;
+          additionEvent.location = { displayName: locDispName, locationType: 'default' };
+          additionEvent.locations = locDispName.split('; ').filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' }));
+        }
+
+        if (doc.graphEventId) {
+          // Already synced — update in place
+          await graphApiService.updateCalendarEvent(calendarOwner, calendarId, doc.graphEventId, additionEvent);
+          results.synced.push({ date: doc.occurrenceDate, graphId: doc.graphEventId });
+        } else {
+          // Create new standalone event
+          const created = await graphApiService.createCalendarEvent(calendarOwner, calendarId, additionEvent);
+          await unifiedEventsCollection.updateOne(
+            { _id: doc._id },
+            { $set: { graphEventId: created.id } }
+          );
+          results.synced.push({ date: doc.occurrenceDate, graphId: created.id });
+        }
+
+      } else if (doc.eventType === EVENT_TYPE.EXCEPTION) {
+        // Exception docs map to Graph occurrence instances
+        const patch = {};
+        const overrides = doc.overrides || {};
+        if (overrides.eventTitle) patch.subject = overrides.eventTitle;
+        if (overrides.eventDescription !== undefined) {
+          patch.body = { contentType: 'html', content: overrides.eventDescription || '' };
+        }
+        if (doc.startDateTime) {
+          patch.start = { dateTime: doc.startDateTime + ':00', timeZone: graphTimezone };
+        }
+        if (doc.endDateTime) {
+          patch.end = { dateTime: doc.endDateTime + ':00', timeZone: graphTimezone };
+        }
+        if (overrides.categories !== undefined) patch.categories = overrides.categories;
+        if (overrides.locationDisplayNames !== undefined) {
+          const locDispName = overrides.locationDisplayNames || '';
+          patch.location = { displayName: locDispName, locationType: 'default' };
+          patch.locations = locDispName.split('; ').filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' }));
+        }
+
+        if (Object.keys(patch).length === 0) continue;
+
+        if (doc.graphEventId) {
+          await graphApiService.updateCalendarEvent(calendarOwner, calendarId, doc.graphEventId, patch);
+          results.synced.push({ date: doc.occurrenceDate, graphId: doc.graphEventId });
+        } else {
+          // Discover Graph instance ID
+          const dayStart = `${doc.occurrenceDate}T00:00:00`;
+          const dayEnd = `${doc.occurrenceDate}T23:59:59`;
+          const instances = await graphApiService.getRecurringEventInstances(
+            calendarOwner, calendarId, seriesMasterGraphId, dayStart, dayEnd
+          );
+          const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+          const match = instanceList.find(inst =>
+            inst.start?.dateTime?.startsWith(doc.occurrenceDate)
+          );
+          if (match) {
+            await graphApiService.updateCalendarEvent(calendarOwner, calendarId, match.id, patch);
+            await unifiedEventsCollection.updateOne(
+              { _id: doc._id },
+              { $set: { graphEventId: match.id } }
+            );
+            results.synced.push({ date: doc.occurrenceDate, graphId: match.id });
+          } else {
+            results.failed.push({ date: doc.occurrenceDate, reason: 'no matching Graph instance' });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to sync exception doc to Graph:', { date: doc.occurrenceDate, error: err.message });
+      results.failed.push({ date: doc.occurrenceDate, reason: err.message });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Projection for conflict-check queries — only fields needed for overlap + concurrency filtering.
  * Excludes graphData blob, statusHistory, roomReservationData details, etc. to reduce RU cost.
  */
 const CONFLICT_PROJECTION = {
-  _id: 1, status: 1, eventType: 1, eventTitle: 1,
+  _id: 1, status: 1, eventType: 1, eventTitle: 1, seriesMasterEventId: 1, occurrenceDate: 1,
   'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
   'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
   'calendarData.categories': 1, 'calendarData.eventTitle': 1,
@@ -5385,6 +5526,7 @@ function getCalendarOwnerFromConfig(calendarId) {
 const CALENDAR_VIEW_PROJECTION = {
   _id: 1, eventId: 1, userId: 1, calendarId: 1, calendarOwner: 1,
   status: 1, isDeleted: 1, eventType: 1, seriesMasterId: 1,
+  seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1, graphEventId: 1,
   calendarData: 1, roomReservationData: 1,
   recurrence: 1, occurrenceOverrides: 1,
   createdByEmail: 1, createdAt: 1, createdBy: 1,
@@ -6477,7 +6619,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     const pageNum = Math.max(1, parseInt(page) || 1);
     const EXPORT_MAX_EVENTS = 2000;
     // my-events is scoped to a single user, so allow a higher cap (500)
-    const maxLimit = view === 'my-events' ? 500 : 100;
+    // approval-queue loads all events client-side for tab filtering, so allow up to 1000
+    const maxLimit = view === 'approval-queue' ? 1000 : view === 'my-events' ? 500 : 100;
     const limitNum = limit === '0' || limit === 0
       ? EXPORT_MAX_EVENTS
       : Math.min(maxLimit, Math.max(1, parseInt(limit) || 20));
@@ -6524,7 +6667,16 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         { 'pendingCancellationRequest.status': 'pending' },
         { 'pendingEditRequest.status': 'pending' }
       ];
-      if (status === 'pending') {
+      if (status === 'needs_attention') {
+        // Pending events + published events with pending edit/cancel requests
+        const needsAttentionFilter = { $or: [
+          { status: { $in: ['pending', 'room-reservation-request'] } },
+          { status: 'published', 'pendingEditRequest.status': 'pending' },
+          { status: 'published', 'pendingCancellationRequest.status': 'pending' }
+        ]};
+        query.$and = [{ $or: query.$or }, needsAttentionFilter];
+        delete query.$or;
+      } else if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
       } else if (status === 'published' || status === 'rejected') {
         query.status = status;
@@ -6720,6 +6872,12 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     let events = await withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project(projection);
+      // Server-side sort for approval-queue: newest submissions first.
+      // Ensures recently submitted pending events are included within the limit
+      // rather than being truncated by Cosmos DB's natural document order.
+      if (view === 'approval-queue') {
+        cursor = cursor.sort({ createdAt: -1 });
+      }
       if (limitNum > 0) {
         cursor = cursor.skip(skip).limit(limitNum);
       }
@@ -14197,7 +14355,7 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       organizerEmail
     } = req.body;
 
-    // --- thisEvent scope: write per-occurrence override and return early ---
+    // --- thisEvent scope: write per-occurrence exception document and return early ---
     if (editScope === 'thisEvent' && occurrenceDate) {
       const dateKey = occurrenceDate.split('T')[0];
 
@@ -14206,47 +14364,32 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (!draft) {
         return res.status(404).json({ error: 'Draft not found for occurrence edit' });
       }
-      const recurrence = draft.calendarData?.recurrence;
+      const recurrence = draft.calendarData?.recurrence || draft.recurrence;
       const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
       if (!rangeCheck.valid) {
         return res.status(400).json({ error: rangeCheck.error });
       }
 
-      // Resolve location docs for display name generation
-      let resolvedLocationDocs = [];
-      if (requestedRooms !== undefined && Array.isArray(requestedRooms) && requestedRooms.length > 0) {
-        try {
-          const locationIds = requestedRooms.map(lid =>
-            typeof lid === 'string' ? new ObjectId(lid) : lid
-          );
-          resolvedLocationDocs = await locationsCollection.find({
-            _id: { $in: locationIds }
-          }).toArray();
-        } catch (locErr) {
-          logger.warn('Failed to resolve occurrence override locations:', locErr.message);
-        }
+      // Resolve locations and build override data via shared helpers
+      const resolvedLocations = await resolveLocationOverride(locationsCollection, requestedRooms);
+      const overrideData = extractOverrideData(req.body, resolvedLocations);
+
+      // Create or update exception document
+      const existingException = await findExceptionForDate(unifiedEventsCollection, draft.eventId, dateKey);
+      let exceptionDoc;
+      if (existingException) {
+        exceptionDoc = await updateExceptionDocument(
+          unifiedEventsCollection, existingException, draft, overrideData,
+          { modifiedBy: req.user?.email }
+        );
+      } else {
+        exceptionDoc = await createExceptionDocument(
+          unifiedEventsCollection, draft, dateKey, overrideData,
+          { createdBy: req.user?.email, createdByEmail: req.user?.email }
+        );
       }
 
-      // Build override fields via shared helper
-      // Note: draft handler uses requestedRooms (not locations) as the raw location key
-      const draftChanges = {
-        startTime, endTime, eventTitle, eventDescription,
-        setupTime, teardownTime, reservationStartTime, reservationEndTime,
-        doorOpenTime, doorCloseTime, categories, mecCategories, services,
-        requestedRooms, isOffsite, offsiteName, offsiteAddress,
-        attendeeCount, eventNotes, setupNotes, doorNotes, specialRequirements
-      };
-      const overrideFields = buildOccurrenceOverrideFields(dateKey, draftChanges, { locationDocs: resolvedLocationDocs });
-
-      // Apply override atomically ($pull/$push/mirror) via shared helper
-      const updatedDraft = await applyOccurrenceOverride(
-        unifiedEventsCollection,
-        new ObjectId(draftId),
-        draft.occurrenceOverrides,
-        overrideFields,
-        { lastDraftSaved: new Date(), lastModified: new Date() }
-      );
-      return res.json(updatedDraft);
+      return res.json(exceptionDoc);
     }
 
     // Validation - eventTitle and dates required
@@ -14616,7 +14759,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         }
       }
 
-      // Sync occurrence-level overrides (categories, locations) to Graph
+      // Sync occurrence-level overrides (categories, locations) to Graph (legacy path)
       if (draftOccurrenceOverrides?.length) {
         try {
           await syncOccurrenceOverridesToGraph(
@@ -14627,6 +14770,21 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           logger.warn('Failed to sync occurrence overrides to Graph on draft auto-publish:', overrideSyncError.message);
         }
       }
+
+      // Sync exception documents to Graph (new path — 1:1 doc-to-Graph mapping)
+      try {
+        await syncExceptionDocumentsToGraph(
+          calendarOwner, draft.calendarId || null, createdEvent.id, draft.eventId, graphEventData
+        );
+      } catch (exDocSyncError) {
+        logger.warn('Failed to sync exception documents to Graph on draft auto-publish:', exDocSyncError.message);
+      }
+
+      // Cascade status to exception docs (they were draft, now published)
+      await cascadeStatusUpdate(unifiedEventsCollection, draft.eventId, 'published', {
+        changedBy: userEmail,
+        reason: 'Series published via draft auto-publish',
+      });
 
       const now = new Date();
       const draftPublishSet = {
@@ -15085,7 +15243,7 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
             }
           }
 
-          // Sync occurrence-level overrides (categories, locations) to Graph
+          // Sync occurrence-level overrides (categories, locations) to Graph (legacy path)
           if (ownerRestoreOverrides?.length) {
             try {
               await syncOccurrenceOverridesToGraph(
@@ -15095,6 +15253,15 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
             } catch (overrideSyncError) {
               logger.warn('Failed to sync occurrence overrides to Graph on owner restore:', overrideSyncError.message);
             }
+          }
+
+          // Sync exception documents to Graph (new path)
+          try {
+            await syncExceptionDocumentsToGraph(
+              calendarOwner, calendarId, createdEvent.id, reservation.eventId, graphEventData
+            );
+          } catch (exDocSyncError) {
+            logger.warn('Failed to sync exception documents to Graph on owner restore:', exDocSyncError.message);
           }
 
           // Store new Graph data in MongoDB
@@ -15352,7 +15519,7 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
             }
           }
 
-          // Sync occurrence-level overrides (categories, locations) to Graph
+          // Sync occurrence-level overrides (categories, locations) to Graph (legacy path)
           if (adminRestoreOverrides?.length) {
             try {
               await syncOccurrenceOverridesToGraph(
@@ -15362,6 +15529,15 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
             } catch (overrideSyncError) {
               logger.warn('Failed to sync occurrence overrides to Graph on admin restore:', overrideSyncError.message);
             }
+          }
+
+          // Sync exception documents to Graph (new path)
+          try {
+            await syncExceptionDocumentsToGraph(
+              calendarOwner, calendarId, createdEvent.id, event.eventId, graphEventData
+            );
+          } catch (exDocSyncError) {
+            logger.warn('Failed to sync exception documents to Graph on admin restore:', exDocSyncError.message);
           }
 
           // Store new Graph data in MongoDB
@@ -19788,7 +19964,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           }
         }
 
-        // Sync occurrence-level overrides (categories, locations) to Graph
+        // Sync occurrence-level overrides (categories, locations) to Graph (legacy path)
         if (eventOccurrenceOverrides?.length) {
           try {
             const overrideSyncResults = await syncOccurrenceOverridesToGraph(
@@ -19800,6 +19976,22 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
             logger.warn('Failed to sync occurrence overrides to Graph on publish:', overrideSyncError.message);
           }
         }
+
+        // Sync exception documents to Graph (new path — 1:1 doc-to-Graph mapping)
+        try {
+          const exDocSyncResults = await syncExceptionDocumentsToGraph(
+            selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
+          );
+          calendarEventResult.exceptionDocSyncResults = exDocSyncResults;
+        } catch (exDocSyncError) {
+          logger.warn('Failed to sync exception documents to Graph on publish:', exDocSyncError.message);
+        }
+
+        // Cascade status to exception docs (they were pending, now published)
+        await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'published', {
+          changedBy: userEmail,
+          reason: 'Series published',
+        });
       } catch (error) {
         logger.error('Graph event creation failed after MongoDB publish, rolling back status:', error);
         // Roll back: revert status to pre-publish state
@@ -20378,17 +20570,18 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     const proposedChanges = {};
     const changesArray = []; // For audit logging
     const cd = originalEvent.calendarData || {};
-    // For occurrence-scoped edits, merge existing override into baseline so the diff
-    // correctly identifies what changed for THAT specific occurrence (not the master).
-    // Defer the copy to the occurrence-only path to avoid cloning cd on every request.
+    // For occurrence-scoped edits, merge existing exception doc's overrides into baseline
+    // so the diff correctly identifies what changed for THAT specific occurrence (not the master).
     let baselineData = cd;
     if (editScope === 'thisEvent' && occurrenceDate) {
       baselineData = { ...cd };
       const dateKey = occurrenceDate.split('T')[0];
-      const existingOverride = (originalEvent.occurrenceOverrides || [])
-        .find(o => o.occurrenceDate === dateKey);
-      if (existingOverride) {
-        for (const [k, v] of Object.entries(existingOverride)) {
+      // Check exception document first, fall back to legacy occurrenceOverrides array
+      const existingException = await findExceptionForDate(unifiedEventsCollection, originalEvent.eventId, dateKey);
+      const overrideSource = existingException?.overrides
+        || (originalEvent.occurrenceOverrides || []).find(o => o.occurrenceDate === dateKey);
+      if (overrideSource) {
+        for (const [k, v] of Object.entries(overrideSource)) {
           if (k !== 'occurrenceDate') baselineData[k] = v;
         }
       }
@@ -21057,7 +21250,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
     }
 
-    // --- Occurrence-scoped edit: write to occurrenceOverrides, not calendarData ---
+    // --- Occurrence-scoped edit: write to exception document, not calendarData ---
     if (pendingEditRequest.editScope === 'thisEvent' && pendingEditRequest.occurrenceDate) {
       const dateKey = pendingEditRequest.occurrenceDate.split('T')[0];
       const cd = event.calendarData || {};
@@ -21070,32 +21263,11 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         return res.status(400).json({ error: rangeCheck.error });
       }
 
-      // Resolve location ObjectIds to display names
-      const rawLocations = finalChanges.requestedRooms || finalChanges.locations;
-      let resolvedLocationDocs = [];
-      if (rawLocations !== undefined && Array.isArray(rawLocations) && rawLocations.length > 0) {
-        try {
-          const locationIds = rawLocations.map(lid =>
-            typeof lid === 'string' ? new ObjectId(lid) : lid
-          );
-          resolvedLocationDocs = await locationsCollection.find({
-            _id: { $in: locationIds }
-          }).toArray();
-        } catch (locErr) {
-          logger.warn('Failed to resolve occurrence override locations for publish-edit:', locErr.message);
-        }
-      }
+      // Resolve locations and build override data via shared helpers
+      const resolvedLocations = await resolveLocationOverride(locationsCollection, finalChanges.requestedRooms || finalChanges.locations);
+      const overrideData = extractOverrideData(finalChanges, resolvedLocations);
 
-      // Build override fields via shared helper
-      const overrideFields = buildOccurrenceOverrideFields(dateKey, finalChanges, { locationDocs: resolvedLocationDocs });
-
-      // Merge with existing override (preserve fields not in this edit request)
-      const existingOverride = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === dateKey);
-      const mergedOverride = { ...(existingOverride || {}), ...overrideFields, occurrenceDate: dateKey };
-
-      // Update pendingEditRequest status to approved + apply override atomically
-      // Use separate updateOne for pendingEditRequest status (not conditionalUpdate —
-      // the $pull/$push in applyOccurrenceOverride is separate atomic ops, matching admin-save pattern)
+      // Update pendingEditRequest status to approved on the master document
       await unifiedEventsCollection.updateOne(
         { _id: event._id },
         {
@@ -21113,14 +21285,20 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         }
       );
 
-      // Apply override atomically ($pull/$push/mirror) via shared helper
-      const finalDoc = await applyOccurrenceOverride(
-        unifiedEventsCollection,
-        event._id,
-        event.occurrenceOverrides,
-        mergedOverride,
-        { lastModifiedDateTime: now, lastModifiedBy: userEmail }
-      );
+      // Create or update exception document
+      const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
+      let exceptionDoc;
+      if (existingException) {
+        exceptionDoc = await updateExceptionDocument(
+          unifiedEventsCollection, existingException, event, overrideData,
+          { modifiedBy: userEmail }
+        );
+      } else {
+        exceptionDoc = await createExceptionDocument(
+          unifiedEventsCollection, event, dateKey, overrideData,
+          { createdBy: userEmail, createdByEmail: userEmail }
+        );
+      }
 
       // Graph sync: find + patch specific occurrence
       const storedGraphEventId = event.graphData?.id;
@@ -21130,30 +21308,31 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
           const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
           const graphUpdate = {};
 
-          if (mergedOverride.eventTitle) graphUpdate.subject = mergedOverride.eventTitle;
-          if (mergedOverride.eventDescription !== undefined) {
-            graphUpdate.body = { contentType: 'html', content: mergedOverride.eventDescription || '' };
+          if (exceptionDoc.eventTitle) graphUpdate.subject = exceptionDoc.eventTitle;
+          if (exceptionDoc.eventDescription !== undefined) {
+            graphUpdate.body = { contentType: 'html', content: exceptionDoc.eventDescription || '' };
           }
-          if (mergedOverride.startDateTime) {
-            graphUpdate.start = { dateTime: mergedOverride.startDateTime + ':00', timeZone: graphTimezone };
+          if (exceptionDoc.startDateTime) {
+            graphUpdate.start = { dateTime: exceptionDoc.startDateTime + ':00', timeZone: graphTimezone };
           }
-          if (mergedOverride.endDateTime) {
-            graphUpdate.end = { dateTime: mergedOverride.endDateTime + ':00', timeZone: graphTimezone };
+          if (exceptionDoc.endDateTime) {
+            graphUpdate.end = { dateTime: exceptionDoc.endDateTime + ':00', timeZone: graphTimezone };
           }
-          if (mergedOverride.categories !== undefined) graphUpdate.categories = mergedOverride.categories;
-          if (mergedOverride.locationDisplayNames !== undefined) {
-            const locDispName = mergedOverride.locationDisplayNames || '';
+          if (exceptionDoc.categories !== undefined) graphUpdate.categories = exceptionDoc.categories;
+          if (exceptionDoc.locationDisplayNames !== undefined) {
+            const locDispName = exceptionDoc.locationDisplayNames || '';
             graphUpdate.location = { displayName: locDispName, locationType: 'default' };
             graphUpdate.locations = locDispName.split('; ').filter(Boolean)
               .map(name => ({ displayName: name, locationType: 'default' }));
           }
 
           if (Object.keys(graphUpdate).length > 0) {
-            const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
-            if (additionEntry) {
-              await graphApiService.updateCalendarEvent(
-                event.calendarOwner, event.calendarId, additionEntry.graphId, graphUpdate
-              );
+            const exGraphId = exceptionDoc.graphEventId
+              || (event.exceptionEventIds || []).find(e => e.date === dateKey)?.graphId;
+
+            if (exGraphId) {
+              await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, exGraphId, graphUpdate);
+              graphSynced = true;
             } else {
               const smGraphId = pendingEditRequest.seriesMasterId || storedGraphEventId;
               const occDate = new Date(pendingEditRequest.occurrenceDate);
@@ -21167,12 +21346,14 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
                 new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
               );
               if (match) {
-                await graphApiService.updateCalendarEvent(
-                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, match.id, graphUpdate);
+                await unifiedEventsCollection.updateOne(
+                  { _id: exceptionDoc._id },
+                  { $set: { graphEventId: match.id } }
                 );
+                graphSynced = true;
               }
             }
-            graphSynced = true;
           }
         } catch (graphErr) {
           logger.warn('Non-fatal: Graph sync for occurrence edit-request approval failed:', graphErr.message);
@@ -21181,8 +21362,9 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
       // Audit log
       const changesArray = [];
+      const existingOverrideData = existingException?.overrides || {};
       for (const [field, newValue] of Object.entries(finalChanges)) {
-        changesArray.push({ field, oldValue: (existingOverride?.[field] ?? cd[field]) || '', newValue });
+        changesArray.push({ field, oldValue: (existingOverrideData[field] ?? cd[field]) || '', newValue });
       }
       await eventAuditHistoryCollection.insertOne({
         eventId: event.eventId,
@@ -21216,15 +21398,15 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         const editRequestForEmail = {
           _id: event._id,
           eventId: event.eventId,
-          eventTitle: mergedOverride.eventTitle || cd.eventTitle,
-          startDateTime: mergedOverride.startDateTime || cd.startDateTime,
-          endDateTime: mergedOverride.endDateTime || cd.endDateTime,
+          eventTitle: exceptionDoc.eventTitle || cd.eventTitle,
+          startDateTime: exceptionDoc.startDateTime || cd.startDateTime,
+          endDateTime: exceptionDoc.endDateTime || cd.endDateTime,
           requesterName: pendingEditRequest.requestedBy?.name,
           requesterEmail: pendingEditRequest.requestedBy?.email,
-          startTime: mergedOverride.startDateTime || cd.startDateTime,
-          endTime: mergedOverride.endDateTime || cd.endDateTime,
-          locationDisplayNames: mergedOverride.locationDisplayNames || cd.locationDisplayNames,
-          occurrenceDate: dateKey, // For email context
+          startTime: exceptionDoc.startDateTime || cd.startDateTime,
+          endTime: exceptionDoc.endDateTime || cd.endDateTime,
+          locationDisplayNames: exceptionDoc.locationDisplayNames || cd.locationDisplayNames,
+          occurrenceDate: dateKey,
         };
         await emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray);
       } catch (emailError) {
@@ -21235,7 +21417,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         success: true,
         message: 'Edit request published for single occurrence',
         eventId: event.eventId,
-        _version: finalDoc?._version,
+        _version: exceptionDoc?._version,
         occurrenceDate: dateKey,
         changesApplied: finalChanges,
         graphSynced
@@ -22540,7 +22722,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
-    // --- thisEvent scope: write per-occurrence override and return early ---
+    // --- thisEvent scope: write per-occurrence exception document and return early ---
     if (updates.editScope === 'thisEvent' && updates.occurrenceDate) {
       const dateKey = updates.occurrenceDate.split('T')[0];
 
@@ -22551,88 +22733,71 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         return res.status(400).json({ error: rangeCheck.error });
       }
 
-      // Resolve location docs for display name generation (async, before helper call)
-      const rawLocations = updates.requestedRooms || updates.locations;
-      let resolvedLocationDocs = [];
-      if (rawLocations !== undefined && Array.isArray(rawLocations) && rawLocations.length > 0) {
-        try {
-          const locationIds = rawLocations.map(lid =>
-            typeof lid === 'string' ? new ObjectId(lid) : lid
-          );
-          resolvedLocationDocs = await locationsCollection.find({
-            _id: { $in: locationIds }
-          }).toArray();
-        } catch (locErr) {
-          logger.warn('Failed to resolve occurrence override locations:', locErr.message);
-        }
-      }
+      // Resolve locations and build override data via shared helpers
+      const resolvedLocations = await resolveLocationOverride(locationsCollection, updates.requestedRooms || updates.locations);
+      const overrideData = extractOverrideData(updates, resolvedLocations);
 
-      // Build override fields via shared helper
-      const overrideFields = buildOccurrenceOverrideFields(dateKey, updates, { locationDocs: resolvedLocationDocs });
+      // Create or update exception document
+      const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
+      let exceptionDoc;
+      if (existingException) {
+        exceptionDoc = await updateExceptionDocument(
+          unifiedEventsCollection, existingException, event, overrideData,
+          { modifiedBy: userEmail }
+        );
+      } else {
+        exceptionDoc = await createExceptionDocument(
+          unifiedEventsCollection, event, dateKey, overrideData,
+          { createdBy: userEmail, createdByEmail: userEmail }
+        );
+      }
 
       // Graph sync: if published, update the specific occurrence in Graph
       const storedGraphEventId = event.graphData?.id;
+      let graphSynced = false;
       if (storedGraphEventId && event.calendarOwner) {
         try {
           const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+          const isOccurrenceHold = overrideData.startTime !== undefined && !overrideData.startTime
+            && overrideData.endTime !== undefined && !overrideData.endTime
+            && (overrideData.reservationStartTime || event.calendarData?.reservationStartTime);
 
-          // Detect [Hold] pattern: null event times with reservation times present
-          const isOccurrenceHold = overrideFields.startTime !== undefined && !overrideFields.startTime
-            && overrideFields.endTime !== undefined && !overrideFields.endTime
-            && (overrideFields.reservationStartTime || event.calendarData?.reservationStartTime);
-
-          // Build graphUpdate from overrideFields (shared by both addition and regular paths)
           const graphUpdate = {};
-
-          // Subject: [Hold] prefix when times are nulled, otherwise use override title
           if (isOccurrenceHold) {
-            const rawTitle = overrideFields.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
-            const baseTitle = rawTitle.replace(/^(\[Hold\]\s*)+/, ''); // Defensive: strip stacked [Hold]
+            const rawTitle = overrideData.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
+            const baseTitle = rawTitle.replace(/^(\[Hold\]\s*)+/, '');
             graphUpdate.subject = `[Hold] ${baseTitle}`;
-          } else if (overrideFields.eventTitle) {
-            graphUpdate.subject = overrideFields.eventTitle;
+          } else if (overrideData.eventTitle) {
+            graphUpdate.subject = overrideData.eventTitle;
           }
-
-          if (overrideFields.eventDescription !== undefined) {
-            graphUpdate.body = { contentType: 'html', content: overrideFields.eventDescription || '' };
+          if (overrideData.eventDescription !== undefined) {
+            graphUpdate.body = { contentType: 'html', content: overrideData.eventDescription || '' };
           }
-          // For [Hold] occurrences: skip time update (keep master times in Outlook for positioning)
           if (!isOccurrenceHold) {
-            if (overrideFields.startDateTime) {
-              graphUpdate.start = {
-                dateTime: overrideFields.startDateTime + ':00',
-                timeZone: graphTimezone
-              };
+            if (exceptionDoc.startDateTime) {
+              graphUpdate.start = { dateTime: exceptionDoc.startDateTime + ':00', timeZone: graphTimezone };
             }
-            if (overrideFields.endDateTime) {
-              graphUpdate.end = {
-                dateTime: overrideFields.endDateTime + ':00',
-                timeZone: graphTimezone
-              };
+            if (exceptionDoc.endDateTime) {
+              graphUpdate.end = { dateTime: exceptionDoc.endDateTime + ':00', timeZone: graphTimezone };
             }
           }
-          if (overrideFields.categories !== undefined) {
-            graphUpdate.categories = overrideFields.categories;
-          }
-          if (overrideFields.locationDisplayNames !== undefined) {
-            const locDispName = overrideFields.locationDisplayNames || '';
+          if (overrideData.categories !== undefined) graphUpdate.categories = overrideData.categories;
+          if (overrideData.locationDisplayNames !== undefined) {
+            const locDispName = overrideData.locationDisplayNames || '';
             graphUpdate.location = { displayName: locDispName, locationType: 'default' };
-            graphUpdate.locations = locDispName
-              .split('; ')
-              .filter(Boolean)
+            graphUpdate.locations = locDispName.split('; ').filter(Boolean)
               .map(name => ({ displayName: name, locationType: 'default' }));
           }
 
           if (Object.keys(graphUpdate).length > 0) {
-            // Fast-path: addition events are standalone Graph events, not series instances
-            const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
+            // Use exception doc's graphEventId if available, or fall back to finding the Graph instance
+            const exGraphId = exceptionDoc.graphEventId
+              || (event.exceptionEventIds || []).find(e => e.date === dateKey)?.graphId;
 
-            if (additionEntry) {
-              await graphApiService.updateCalendarEvent(
-                event.calendarOwner, event.calendarId, additionEntry.graphId, graphUpdate
-              );
+            if (exGraphId) {
+              await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, exGraphId, graphUpdate);
+              graphSynced = true;
             } else {
-              // Regular occurrence — find instance ID via getRecurringEventInstances
               const occDate = new Date(updates.occurrenceDate);
               const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
               const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
@@ -22644,9 +22809,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
                 new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
               );
               if (match) {
-                await graphApiService.updateCalendarEvent(
-                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, match.id, graphUpdate);
+                // Persist the discovered Graph ID on the exception doc for future syncs
+                await unifiedEventsCollection.updateOne(
+                  { _id: exceptionDoc._id },
+                  { $set: { graphEventId: match.id } }
                 );
+                graphSynced = true;
               }
             }
           }
@@ -22655,15 +22824,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
       }
 
-      // Apply override atomically ($pull/$push/mirror) via shared helper
-      const finalDoc = await applyOccurrenceOverride(
-        unifiedEventsCollection,
-        new ObjectId(id),
-        event.occurrenceOverrides,
-        overrideFields,
-        { lastModifiedDateTime: new Date(), lastModifiedBy: userEmail }
-      );
-      return res.json({ success: true, event: finalDoc, graphSynced: false });
+      return res.json({ success: true, event: exceptionDoc, graphSynced });
     }
 
     // Validate offsite fields - both name and address required when isOffsite is true
@@ -24147,7 +24308,13 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         throw err;
       }
 
-      // Clean up: pull matching occurrenceOverrides and additions (separate update to avoid $addToSet + $pull conflict)
+      // Soft-delete the exception document if one exists for this occurrence
+      await softDeleteException(unifiedEventsCollection, event.eventId, dateKey, {
+        deletedBy: userEmail,
+        reason: reason || `Occurrence ${dateKey} deleted`,
+      });
+
+      // Legacy cleanup: pull matching occurrenceOverrides and additions (for pre-migration data)
       const cleanupOps = {};
       if (event.occurrenceOverrides && event.occurrenceOverrides.some(o => o.occurrenceDate === dateKey)) {
         cleanupOps.$pull = { occurrenceOverrides: { occurrenceDate: dateKey } };
@@ -24258,6 +24425,18 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     logger.log('✅ Event soft-deleted from MongoDB');
+
+    // Cascade soft-delete any exception/addition documents linked to this event
+    if (event.eventType === 'seriesMaster') {
+      const cascadeCount = await cascadeDeleteExceptions(unifiedEventsCollection, event.eventId, {
+        deletedBy: userEmail,
+        reason: reason?.trim() || 'Series deleted',
+      });
+      if (cascadeCount > 0) {
+        logger.info('Cascade-deleted exception documents:', { eventId: event.eventId, count: cascadeCount });
+      }
+    }
+
     logger.info('Internal event soft-deleted:', {
       mongoId: id,
       eventId: event.eventId,

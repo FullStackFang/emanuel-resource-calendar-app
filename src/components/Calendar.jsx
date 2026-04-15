@@ -1698,13 +1698,15 @@ import ConflictDialog from './shared/ConflictDialog';
             return eventType === 'seriesMaster' && recurrence;
           });
           const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
+          // Include exception doc count in cache key so cache invalidates when exceptions change
+          const exceptionCount = eventsToDisplay.filter(e => e.eventType === 'exception' || e.eventType === 'addition').length;
           // Use local date getters — start/end are UTC ISO strings from formatDateRangeForAPI,
           // which shift dates forward in negative-offset timezones (e.g. EDT).
           // dateRange.start/end are local Date objects, safe for local-date expansion.
           const pad = (n) => String(n).padStart(2, '0');
           const expandStart = `${dateRange.start.getFullYear()}-${pad(dateRange.start.getMonth() + 1)}-${pad(dateRange.start.getDate())}`;
           const expandEnd = `${dateRange.end.getFullYear()}-${pad(dateRange.end.getMonth() + 1)}-${pad(dateRange.end.getDate())}`;
-          const cacheKey = `${expandStart}-${expandEnd}-${masterIds}`;
+          const cacheKey = `${expandStart}-${expandEnd}-${masterIds}-ex${exceptionCount}`;
 
           // Check cache first
           let expandedOccurrences = [];
@@ -1714,6 +1716,18 @@ import ConflictDialog from './shared/ConflictDialog';
             logger.debug(`Using cached recurring expansion (${cachedExpansion.length} occurrences)`);
             expandedOccurrences = cachedExpansion;
           } else {
+            // Build map of materialized exception/addition doc dates per series master.
+            // Only needed on cache miss — these dates are skipped during virtual expansion.
+            const materializedDatesByMaster = new Map();
+            for (const evt of eventsToDisplay) {
+              if ((evt.eventType === 'exception' || evt.eventType === 'addition') && evt.seriesMasterEventId && evt.occurrenceDate) {
+                if (!materializedDatesByMaster.has(evt.seriesMasterEventId)) {
+                  materializedDatesByMaster.set(evt.seriesMasterEventId, new Set());
+                }
+                materializedDatesByMaster.get(evt.seriesMasterEventId).add(evt.occurrenceDate);
+              }
+            }
+
             // Expand each series master
             for (const event of seriesMasters) {
               // Get recurrence from top-level (authoritative) or graphData (fallback)
@@ -1752,12 +1766,14 @@ import ConflictDialog from './shared/ConflictDialog';
 
                 // Expand the master into occurrences for the current view range
                 const eventOverrides = event.occurrenceOverrides || [];
+                const materializedDates = materializedDatesByMaster.get(event.eventId) || null;
                 const occurrences = expandRecurringSeries(
                   masterForExpansion,
                   expandStart,
                   expandEnd,
                   [],  // exceptions (Graph API only)
-                  eventOverrides
+                  eventOverrides,
+                  materializedDates
                 );
 
                 // Determine if this is an infinite series (no end date)

@@ -6,6 +6,7 @@
 
 const { ObjectId } = require('mongodb');
 const { STATUS, COLLECTIONS, TEST_CALENDAR_OWNER, TEST_CALENDAR_ID } = require('./testConstants');
+const { mergeDefaultsWithOverrides, EVENT_TYPE } = require('../../utils/exceptionDocumentService');
 
 // Format a Date as local-time ISO string matching production storage format (no ms, no Z)
 const pad = (n) => String(n).padStart(2, '0');
@@ -406,6 +407,78 @@ function createRecurringSeriesMaster(options = {}) {
 }
 
 /**
+ * Shared builder for exception and addition test documents.
+ * Uses mergeDefaultsWithOverrides from the service to ensure test docs
+ * match production field inheritance and fallback behavior.
+ * @private
+ */
+function _buildOccurrenceTestDoc(masterEvent, occurrenceDate, data, eventType, eventIdSuffix, options = {}) {
+  const masterEventId = masterEvent.eventId;
+  const eventId = options.eventId || `${masterEventId}${eventIdSuffix}${occurrenceDate}`;
+  const now = new Date();
+
+  const { effectiveFields, effectiveCalendarData } = mergeDefaultsWithOverrides(masterEvent, data, occurrenceDate);
+
+  return {
+    _id: new ObjectId(),
+    eventId,
+    eventType,
+    seriesMasterEventId: masterEventId,
+    occurrenceDate,
+    overrides: { ...data },
+
+    ...effectiveFields,
+    calendarData: effectiveCalendarData,
+
+    userId: masterEvent.userId,
+    calendarOwner: masterEvent.calendarOwner || TEST_CALENDAR_OWNER,
+    calendarId: masterEvent.calendarId || TEST_CALENDAR_ID,
+    status: options.status || masterEvent.status,
+    isDeleted: options.isDeleted || false,
+    roomReservationData: masterEvent.roomReservationData || null,
+    graphEventId: options.graphEventId || null,
+    graphData: options.graphData || null,
+    _version: options._version || 1,
+    statusHistory: options.statusHistory || [{
+      status: options.status || masterEvent.status,
+      changedAt: now,
+      changedBy: masterEvent.createdBy || 'test-user',
+      reason: `${eventType === EVENT_TYPE.EXCEPTION ? 'Exception' : 'Addition'} created`,
+    }],
+    createdAt: options.createdAt || now,
+    createdBy: options.createdBy || masterEvent.createdBy || 'test-user',
+    createdByEmail: options.createdByEmail || masterEvent.createdByEmail || 'requester@external.com',
+    lastModifiedDateTime: options.lastModifiedDateTime || now,
+    lastModifiedBy: options.lastModifiedBy || masterEvent.lastModifiedBy || 'test-user',
+    ...options,
+  };
+}
+
+/**
+ * Create an exception document (modified single occurrence of a recurring series)
+ * @param {Object} masterEvent - The series master event (from createRecurringSeriesMaster)
+ * @param {string} occurrenceDate - YYYY-MM-DD date for this occurrence
+ * @param {Object} overrides - Fields that differ from the master (e.g., { startTime: '14:00' })
+ * @param {Object} [options] - Additional options
+ * @returns {Object} Exception document
+ */
+function createExceptionDocument(masterEvent, occurrenceDate, overrides = {}, options = {}) {
+  return _buildOccurrenceTestDoc(masterEvent, occurrenceDate, overrides, EVENT_TYPE.EXCEPTION, '-', options);
+}
+
+/**
+ * Create an addition document (ad-hoc date outside the recurrence pattern)
+ * @param {Object} masterEvent - The series master event
+ * @param {string} occurrenceDate - YYYY-MM-DD date for this addition
+ * @param {Object} [fields] - Event field values (defaults inherited from master)
+ * @param {Object} [options] - Additional options
+ * @returns {Object} Addition document
+ */
+function createAdditionDocument(masterEvent, occurrenceDate, fields = {}, options = {}) {
+  return _buildOccurrenceTestDoc(masterEvent, occurrenceDate, fields, EVENT_TYPE.ADDITION, '-add-', options);
+}
+
+/**
  * Create a published event with NO owner (simulates Graph-synced or rsSched-imported events)
  * These events have no roomReservationData.requestedBy, only createdBy/createdByEmail metadata.
  * @param {Object} options - Event options
@@ -431,6 +504,8 @@ module.exports = {
   createRejectedEvent,
   createDeletedEvent,
   createRecurringSeriesMaster,
+  createExceptionDocument,
+  createAdditionDocument,
   createOwnerlessPublishedEvent,
   insertEvent,
   insertEvents,

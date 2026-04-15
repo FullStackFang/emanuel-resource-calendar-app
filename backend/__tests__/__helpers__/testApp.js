@@ -4717,7 +4717,7 @@ function createTestApp(options = {}) {
       }
 
       const pageNum = Math.max(1, parseInt(page) || 1);
-      const maxLimit = view === 'my-events' ? 500 : 100;
+      const maxLimit = view === 'approval-queue' ? 1000 : view === 'my-events' ? 500 : 100;
       const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(maxLimit, Math.max(1, parseInt(limit) || 20));
       const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
       const shouldIncludeDeleted = includeDeleted === 'true';
@@ -4757,7 +4757,16 @@ function createTestApp(options = {}) {
           { 'pendingCancellationRequest.status': 'pending' },
           { 'pendingEditRequest.status': 'pending' }
         ];
-        if (status === 'pending') {
+        if (status === 'needs_attention') {
+          // Pending events + published events with pending edit/cancel requests
+          const needsAttentionFilter = { $or: [
+            { status: { $in: ['pending', 'room-reservation-request'] } },
+            { status: 'published', 'pendingEditRequest.status': 'pending' },
+            { status: 'published', 'pendingCancellationRequest.status': 'pending' }
+          ]};
+          query.$and = [{ $or: query.$or }, needsAttentionFilter];
+          delete query.$or;
+        } else if (status === 'pending') {
           query.status = { $in: ['pending', 'room-reservation-request'] };
         } else if (status === 'published' || status === 'rejected') {
           query.status = status;

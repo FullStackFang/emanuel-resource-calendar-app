@@ -44,6 +44,7 @@ export default function ReservationRequests({ graphToken }) {
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
+  const [serverCounts, setServerCounts] = useState({ needs_attention: 0, all: 0 });
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -90,16 +91,20 @@ export default function ReservationRequests({ graphToken }) {
     }
   };
 
-  const loadReservations = useCallback(async ({ silent = false } = {}) => {
+  const loadReservations = useCallback(async ({ silent = false, tab } = {}) => {
     try {
       if (!silent) {
         setLoading(true);
         setError('');
       }
 
-      // Load all reservations at once (small dataset, <100 items typically)
+      // Tab-scoped query: 'needs_attention' fetches only actionable events,
+      // 'all' fetches every status. Avoids loading hundreds of published events
+      // when only pending items are needed.
+      const effectiveTab = tab || activeTab;
+      const statusParam = effectiveTab === 'needs_attention' ? '&status=needs_attention' : '';
       const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000`
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000${statusParam}`
       );
 
       if (!response.ok) {
@@ -127,13 +132,30 @@ export default function ReservationRequests({ graphToken }) {
         setLoading(false);
       }
     }
+  }, [authFetch, activeTab]);
+
+  // Fetch tab badge counts from the server (lightweight aggregation)
+  const loadCounts = useCallback(async () => {
+    try {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`);
+      if (response.ok) {
+        const data = await response.json();
+        setServerCounts({
+          needs_attention: (data.pending || 0) + (data.published_edit || 0) + (data.published_cancellation || 0),
+          all: data.all || 0,
+        });
+      }
+    } catch (err) {
+      logger.error('Error loading approval queue counts:', err);
+    }
   }, [authFetch]);
 
   // Refresh callback for the experience hook
   const handleRefresh = useCallback(() => {
     loadReservations();
+    loadCounts();
     dispatchRefresh('approval-queue', 'navigation-counts');
-  }, [loadReservations]);
+  }, [loadReservations, loadCounts]);
 
   // --- Unified review modal experience (replaces useReviewModal + satellite state) ---
   const reviewModal = useEventReviewExperience({
@@ -165,16 +187,20 @@ export default function ReservationRequests({ graphToken }) {
     onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
   });
 
-  // Load calendar settings + reservations on mount
+  // Load calendar settings + reservations + counts on mount
   useEffect(() => {
     if (apiToken) {
       loadCalendarSettings();
       loadReservations();
+      loadCounts();
     }
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll for new reservations every 60s (silent — no loading spinner)
-  const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
+  // Poll for new reservations every 5 min (silent — no loading spinner)
+  const silentRefresh = useCallback(() => {
+    loadReservations({ silent: true });
+    loadCounts();
+  }, [loadReservations, loadCounts]);
   usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Listen for refresh events from other views
@@ -231,16 +257,8 @@ export default function ReservationRequests({ graphToken }) {
     return results;
   }, [searchFiltered, activeTab, statusFilter]);
 
-  // Compute tab counts from search-filtered results (counts reflect active search/date filters)
-  const statusCounts = useMemo(() => ({
-    needs_attention: searchFiltered.filter(r =>
-      r.status === 'pending' ||
-      r.status === 'room-reservation-request' ||
-      (r.status === 'published' && r.pendingEditRequest?.status === 'pending') ||
-      (r.status === 'published' && r.pendingCancellationRequest?.status === 'pending')
-    ).length,
-    all: searchFiltered.length,
-  }), [searchFiltered]);
+  // Tab badge counts come from the server (via loadCounts).
+  // This avoids computing cross-tab counts from a tab-scoped dataset.
 
   // Sort filtered results
   const sortedReservations = useMemo(
@@ -302,15 +320,16 @@ export default function ReservationRequests({ graphToken }) {
   const startIndex = (page - 1) * PAGE_SIZE;
   const paginatedReservations = sortedReservations.slice(startIndex, startIndex + PAGE_SIZE);
 
-  // Handle tab changes - no API call, filtering is client-side
+  // Handle tab changes — re-fetches with tab-scoped query
   const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
-    setPage(1); // Reset pagination on tab change (previously done via useEffect)
+    setPage(1);
     // Clear status filters that don't apply to the "Needs Attention" tab
     if (newTab === 'needs_attention' && (statusFilter === 'published' || statusFilter === 'rejected')) {
       setStatusFilter('');
     }
-  }, [statusFilter]);
+    loadReservations({ tab: newTab });
+  }, [statusFilter, loadReservations]);
 
   // Handle page changes - no API call, pagination is client-side
   const handlePageChange = useCallback((newPage) => {
@@ -567,14 +586,14 @@ export default function ReservationRequests({ graphToken }) {
             onClick={() => handleTabChange('needs_attention')}
           >
             Needs Attention
-            <span className="count">({statusCounts.needs_attention})</span>
+            <span className="count">({serverCounts.needs_attention})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'all' ? 'active' : ''}`}
             onClick={() => handleTabChange('all')}
           >
             All Requests
-            <span className="count">({statusCounts.all})</span>
+            <span className="count">({serverCounts.all})</span>
           </button>
         </div>
       </div>

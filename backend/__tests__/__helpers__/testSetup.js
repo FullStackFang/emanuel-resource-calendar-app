@@ -70,6 +70,8 @@ async function createCollections(database) {
   await eventsCollection.createIndex({ startDateTime: 1, endDateTime: 1 });
   await eventsCollection.createIndex({ isDeleted: 1 });
   await eventsCollection.createIndex({ 'roomReservationData.requesterEmail': 1 });
+  await eventsCollection.createIndex({ seriesMasterEventId: 1, eventType: 1, isDeleted: 1, occurrenceDate: 1 });
+  await eventsCollection.createIndex({ calendarOwner: 1, eventType: 1, isDeleted: 1, startDateTime: 1, endDateTime: 1 });
 
   // Create indexes for users collection
   const usersCollection = database.collection(COLLECTIONS.USERS);

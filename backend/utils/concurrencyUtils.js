@@ -87,9 +87,7 @@ async function conditionalUpdate(collection, filter, update, options = {}) {
     { returnDocument: 'after' }
   );
 
-  // findOneAndUpdate returns the document directly in newer drivers,
-  // or { value: doc } in older drivers
-  const updatedDoc = result?.value !== undefined ? result.value : result;
+  const updatedDoc = unwrapFindOneResult(result);
 
   if (updatedDoc) {
     return updatedDoc;
@@ -125,4 +123,14 @@ async function conditionalUpdate(collection, filter, update, options = {}) {
   );
 }
 
-module.exports = { conditionalUpdate, getNestedValue };
+/**
+ * Normalize the return value from findOneAndUpdate across MongoDB driver versions.
+ * Newer drivers return the document directly; older drivers wrap it in { value: doc }.
+ * @param {Object} result - Raw findOneAndUpdate result
+ * @returns {Object|null} The document, or null
+ */
+function unwrapFindOneResult(result) {
+  return result?.value !== undefined ? result.value : result;
+}
+
+module.exports = { conditionalUpdate, getNestedValue, unwrapFindOneResult };
