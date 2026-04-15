@@ -319,6 +319,7 @@ export function transformEventToFlatStructure(event) {
     // Recurring event metadata (authoritative top-level, with graphData fallback)
     eventType: getEventField(event, 'eventType') || event.graphData?.type || null,
     seriesMasterId: getEventField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
+    seriesMasterEventId: event.seriesMasterEventId || null,
     recurrence: getEventField(event, 'recurrence') || event.graphData?.recurrence || null,
 
     // All-day event flag

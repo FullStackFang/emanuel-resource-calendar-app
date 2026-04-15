@@ -1679,6 +1679,41 @@ import ConflictDialog from './shared/ConflictDialog';
             return false;
           });
 
+          // --- NORMALIZE EXCEPTION/ADDITION DOCS ---
+          // Bridge the field name gap: exception docs carry seriesMasterEventId,
+          // but downstream consumers check isRecurringOccurrence/masterEventId.
+          // Single pass: build master lookup and collect exception indices simultaneously.
+          const masterById = new Map();
+          const exceptionIndices = [];
+          for (let i = 0; i < eventsToDisplay.length; i++) {
+            const evt = eventsToDisplay[i];
+            if ((evt.eventType || evt.graphData?.type) === 'seriesMaster') {
+              masterById.set(evt.eventId, evt);
+            } else if ((evt.eventType === 'exception' || evt.eventType === 'addition') && evt.seriesMasterEventId) {
+              exceptionIndices.push(i);
+            }
+          }
+
+          if (exceptionIndices.length > 0) {
+            eventsToDisplay = eventsToDisplay.slice();
+            for (const i of exceptionIndices) {
+              const evt = eventsToDisplay[i];
+              const masterDoc = masterById.get(evt.seriesMasterEventId);
+              eventsToDisplay[i] = {
+                ...evt,
+                isRecurringOccurrence: true,
+                masterEventId: evt.seriesMasterEventId,
+                masterDocId: masterDoc?._id?.toString() || null,
+                hasOccurrenceOverride: true,
+                isAdHocAddition: evt.eventType === 'addition',
+                showOccurrenceNumbers: false,
+                occurrenceNumber: null,
+                totalOccurrences: null,
+                isInfiniteSeries: false,
+              };
+            }
+          }
+
           // Track event count before expansion for accurate metrics
           const eventsBeforeExpansion = eventsToDisplay.length;
           const seriesMastersWithRecurrence = eventsToDisplay.filter(e => {
@@ -4061,7 +4096,10 @@ import ConflictDialog from './shared/ConflictDialog';
       return !!(
         seriesMasterId ||
         recurrence ||
-        eventType === 'seriesMaster'
+        eventType === 'seriesMaster' ||
+        eventType === 'exception' ||
+        eventType === 'addition' ||
+        event.isRecurringOccurrence
       );
     }, []);
 
@@ -4115,7 +4153,8 @@ import ConflictDialog from './shared/ConflictDialog';
             // Keep dialog open with loading state while fetching master
             setRecurringScopeDialog(prev => ({ ...prev, isLoading: true }));
             try {
-              const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${event._id}`, {
+              const fetchId = event.masterDocId || event._id;
+              const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${fetchId}`, {
                 headers: { 'Authorization': `Bearer ${apiToken}` }
               });
               const masterEvent = res.ok ? await res.json() : event; // fallback to occurrence

@@ -310,7 +310,8 @@ export default function WeekTimelineModal({
                         >
                           {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
                             (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                            (event.recurrence || event.graphData?.recurrence)) && (
+                            (event.recurrence || event.graphData?.recurrence) ||
+                            event.isRecurringOccurrence) && (
                             <div style={{
                               position: 'absolute',
                               top: '2px',

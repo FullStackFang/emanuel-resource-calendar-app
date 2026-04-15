@@ -166,7 +166,8 @@ const DayEventsPopup = ({
                   {/* Recurring indicator */}
                   {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
                     (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                    (event.recurrence || event.graphData?.recurrence)) && (
+                    (event.recurrence || event.graphData?.recurrence) ||
+                    event.isRecurringOccurrence) && (
                     <div className="dep-recurring-icon" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <RecurringIcon size={14} />
                     </div>

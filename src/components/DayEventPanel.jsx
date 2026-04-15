@@ -138,7 +138,8 @@ const DayEventPanel = memo(({
                   {/* Recurring event indicator - check top-level (authoritative) then graphData (fallback) */}
                   {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
                     (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                    (event.recurrence || event.graphData?.recurrence)) && (
+                    (event.recurrence || event.graphData?.recurrence) ||
+                    event.isRecurringOccurrence) && (
                     <div style={{
                       position: 'absolute',
                       top: '4px',
