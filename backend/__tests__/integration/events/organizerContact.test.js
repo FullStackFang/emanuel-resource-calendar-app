@@ -62,7 +62,7 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
   // OC-1: Draft creation stores organizer fields
   // ============================================
   describe('OC-1: Draft creation stores organizer fields', () => {
-    it('should persist organizer in roomReservationData', async () => {
+    it('should persist organizer in calendarData', async () => {
       const res = await request(app)
         .post('/api/room-reservations/draft')
         .set('Authorization', `Bearer ${requesterToken}`)
@@ -76,11 +76,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(201);
 
       const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.draft.eventId });
-      expect(draft.roomReservationData.organizer).toEqual({
-        name: 'Rabbi Sarah',
-        phone: '212-555-0101',
-        email: 'rabbi.sarah@emanuelnyc.org',
-      });
+      expect(draft.calendarData.organizerName).toBe('Rabbi Sarah');
+      expect(draft.calendarData.organizerPhone).toBe('212-555-0101');
+      expect(draft.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
     });
   });
 
@@ -101,11 +99,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(201);
 
       const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.draft.eventId });
-      expect(draft.roomReservationData.organizer).toEqual({
-        name: '',
-        phone: '',
-        email: '',
-      });
+      expect(draft.calendarData.organizerName).toBe('');
+      expect(draft.calendarData.organizerPhone).toBe('');
+      expect(draft.calendarData.organizerEmail).toBe('');
     });
   });
 
@@ -130,11 +126,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await findEvent(db, draftEvent._id);
-      expect(updated.roomReservationData.organizer).toEqual({
-        name: 'Rabbi Sarah',
-        phone: '212-555-0101',
-        email: 'rabbi.sarah@emanuelnyc.org',
-      });
+      expect(updated.calendarData.organizerName).toBe('Rabbi Sarah');
+      expect(updated.calendarData.organizerPhone).toBe('212-555-0101');
+      expect(updated.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
     });
   });
 
@@ -142,7 +136,7 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
   // OC-4: Event request stores organizer fields
   // ============================================
   describe('OC-4: Event request stores organizer fields', () => {
-    it('should persist organizer in roomReservationData', async () => {
+    it('should persist organizer in calendarData', async () => {
       const res = await request(app)
         .post('/api/events/request')
         .set('Authorization', `Bearer ${requesterToken}`)
@@ -159,11 +153,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(201);
 
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.eventId });
-      expect(event.roomReservationData.organizer).toEqual({
-        name: 'Rabbi Sarah',
-        phone: '212-555-0101',
-        email: 'rabbi.sarah@emanuelnyc.org',
-      });
+      expect(event.calendarData.organizerName).toBe('Rabbi Sarah');
+      expect(event.calendarData.organizerPhone).toBe('212-555-0101');
+      expect(event.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
     });
   });
 
@@ -192,11 +184,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await findEvent(db, pendingEvent._id);
-      expect(updated.roomReservationData.organizer).toEqual({
-        name: 'Rabbi Sarah',
-        phone: '212-555-0101',
-        email: 'rabbi.sarah@emanuelnyc.org',
-      });
+      expect(updated.calendarData.organizerName).toBe('Rabbi Sarah');
+      expect(updated.calendarData.organizerPhone).toBe('212-555-0101');
+      expect(updated.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
     });
   });
 
@@ -244,11 +234,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await findEvent(db, pendingEvent._id);
-      expect(updated.roomReservationData.organizer).toEqual({
-        name: '',
-        phone: '',
-        email: '',
-      });
+      expect(updated.calendarData.organizerName).toBe('');
+      expect(updated.calendarData.organizerPhone).toBe('');
+      expect(updated.calendarData.organizerEmail).toBe('');
     });
   });
 
@@ -278,11 +266,9 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
 
       const updated = await findEvent(db, rejectedEvent._id);
       expect(updated.status).toBe('pending');
-      expect(updated.roomReservationData.organizer).toEqual({
-        name: 'Rabbi Sarah',
-        phone: '212-555-0101',
-        email: 'rabbi.sarah@emanuelnyc.org',
-      });
+      expect(updated.calendarData.organizerName).toBe('Rabbi Sarah');
+      expect(updated.calendarData.organizerPhone).toBe('212-555-0101');
+      expect(updated.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
     });
   });
 
@@ -291,14 +277,13 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
   // ============================================
   describe('OC-8: Existing events without organizer return gracefully', () => {
     it('should have undefined organizer for legacy events', async () => {
-      // Legacy event: no roomReservationData.organizer field
+      // Legacy event: no organizer fields in calendarData
       const legacyEvent = createPendingEvent({ requesterUser });
-      delete legacyEvent.roomReservationData?.organizer;
       await insertEvents(db, [legacyEvent]);
 
       const event = await findEvent(db, legacyEvent._id);
       // organizer is undefined on legacy events — transformer defaults to empty strings
-      expect(event.roomReservationData.organizer).toBeUndefined();
+      expect(event.calendarData.organizerName).toBeUndefined();
     });
   });
 });

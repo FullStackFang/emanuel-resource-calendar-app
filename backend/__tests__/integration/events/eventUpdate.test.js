@@ -363,18 +363,16 @@ describe('Event Update Tests - Graph Sync Gate', () => {
   });
 
   describe('Organizer field routing', () => {
-    it('should persist organizer changes to roomReservationData.organizer', async () => {
+    it('should persist organizer changes to calendarData', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         calendarOwner: TEST_CALENDAR_OWNER,
       });
-      // Seed initial organizer data
-      published.roomReservationData.organizer = {
-        name: 'Original Organizer',
-        phone: '555-0000',
-        email: 'original@example.com',
-      };
+      // Seed initial organizer data in calendarData
+      published.calendarData.organizerName = 'Original Organizer';
+      published.calendarData.organizerPhone = '555-0000';
+      published.calendarData.organizerEmail = 'original@example.com';
       const [saved] = await insertEvents(db, [published]);
 
       const res = await request(app)
@@ -389,11 +387,11 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
       expect(res.body.success).toBe(true);
 
-      // Verify MongoDB has updated values at the correct nested path
+      // Verify MongoDB has updated values in calendarData
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(updated.roomReservationData.organizer.name).toBe('Updated Organizer');
-      expect(updated.roomReservationData.organizer.phone).toBe('555-9999');
-      expect(updated.roomReservationData.organizer.email).toBe('updated@example.com');
+      expect(updated.calendarData.organizerName).toBe('Updated Organizer');
+      expect(updated.calendarData.organizerPhone).toBe('555-9999');
+      expect(updated.calendarData.organizerEmail).toBe('updated@example.com');
 
       // Verify organizer fields are NOT written as top-level document fields
       expect(updated.organizerName).toBeUndefined();

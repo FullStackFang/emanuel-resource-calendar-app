@@ -126,10 +126,9 @@ export default function EditRequestComparison({
     simpleField('Offsite', 'isOffsite', (v) => v ? 'Yes' : 'No'),
     simpleField('Offsite Name', 'offsiteName'),
     simpleField('Offsite Address', 'offsiteAddress'),
-    // Organizer fields — originals come from roomReservationData.organizer, not calendarData
-    simpleField('Organizer Name', 'organizerName', null, eventRoomReservationData?.organizer?.name),
-    simpleField('Organizer Phone', 'organizerPhone', null, eventRoomReservationData?.organizer?.phone),
-    simpleField('Organizer Email', 'organizerEmail', null, eventRoomReservationData?.organizer?.email),
+    simpleField('Organizer Name', 'organizerName'),
+    simpleField('Organizer Phone', 'organizerPhone'),
+    simpleField('Organizer Email', 'organizerEmail'),
   ];
 
   // Filter to only show changed fields in the "Changes" section

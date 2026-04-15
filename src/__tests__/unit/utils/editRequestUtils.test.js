@@ -292,7 +292,6 @@ describe('buildEditRequestViewData', () => {
     },
     roomReservationData: {
       requestedBy: { name: 'Jane Doe', email: 'jane@example.com', userId: 'user-1' },
-      organizer: { name: 'John Org', phone: '555-1234', email: 'john@example.com' },
     },
     graphData: { id: 'graph-event-1', subject: 'Board Meeting' },
     pendingEditRequest: null,
@@ -346,7 +345,6 @@ describe('buildEditRequestViewData', () => {
       const event = makeEvent({ eventTitle: 'New Title' });
       const result = buildEditRequestViewData(event, currentData);
       expect(result.roomReservationData).toEqual(currentData.roomReservationData);
-      expect(result.roomReservationData.organizer.name).toBe('John Org');
     });
 
     it('preserves graphData from currentData', () => {

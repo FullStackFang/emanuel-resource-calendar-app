@@ -9,7 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('../../utils/authUtils');
-const { detectEventChanges, formatChangesForEmail, ORGANIZER_FIELD_MAP } = require('../../utils/changeDetection');
+const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
 const { extractDatePart } = require('../../utils/dateUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
@@ -757,6 +757,9 @@ function createTestApp(options = {}) {
           reservationStartTime: reservationStartTime || '',
           reservationEndTime: reservationEndTime || '',
           attendeeCount: parseInt(attendeeCount) || null,
+          organizerName: req.body.organizerName || '',
+          organizerPhone: req.body.organizerPhone || '',
+          organizerEmail: req.body.organizerEmail || '',
         },
 
         // Room reservation data
@@ -766,11 +769,6 @@ function createTestApp(options = {}) {
           department: department || '',
           phone: phone || '',
           attendees: attendees || 0,
-          organizer: {
-            name: req.body.organizerName || '',
-            phone: req.body.organizerPhone || '',
-            email: req.body.organizerEmail || ''
-          },
         },
 
         // Status history
@@ -991,14 +989,10 @@ function createTestApp(options = {}) {
         }
       }
 
-      // Update organizer fields
-      if (req.body.organizerName !== undefined || req.body.organizerPhone !== undefined || req.body.organizerEmail !== undefined) {
-        updateFields['roomReservationData.organizer'] = {
-          name: req.body.organizerName || '',
-          phone: req.body.organizerPhone || '',
-          email: req.body.organizerEmail || ''
-        };
-      }
+      // Update organizer fields (in calendarData like other form fields)
+      if (req.body.organizerName !== undefined) updateFields['calendarData.organizerName'] = req.body.organizerName;
+      if (req.body.organizerPhone !== undefined) updateFields['calendarData.organizerPhone'] = req.body.organizerPhone;
+      if (req.body.organizerEmail !== undefined) updateFields['calendarData.organizerEmail'] = req.body.organizerEmail;
 
       // Set eventType based on recurrence
       if (req.body.recurrence?.pattern && req.body.recurrence?.range) {
@@ -2960,14 +2954,10 @@ function createTestApp(options = {}) {
       if (req.body.phone !== undefined) {
         updateFields['roomReservationData.phone'] = req.body.phone;
       }
-      // Organizer fields
-      if (req.body.organizerName !== undefined || req.body.organizerPhone !== undefined || req.body.organizerEmail !== undefined) {
-        updateFields['roomReservationData.organizer'] = {
-          name: req.body.organizerName || '',
-          phone: req.body.organizerPhone || '',
-          email: req.body.organizerEmail || ''
-        };
-      }
+      // Organizer fields (in calendarData like other form fields)
+      if (req.body.organizerName !== undefined) updateFields['calendarData.organizerName'] = req.body.organizerName;
+      if (req.body.organizerPhone !== undefined) updateFields['calendarData.organizerPhone'] = req.body.organizerPhone;
+      if (req.body.organizerEmail !== undefined) updateFields['calendarData.organizerEmail'] = req.body.organizerEmail;
 
       updateFields.lastModified = now;
       updateFields.lastModifiedBy = userEmail;
@@ -3452,12 +3442,8 @@ function createTestApp(options = {}) {
 
       // Apply finalChanges to both top-level and calendarData (matching production behavior)
       for (const [field, value] of Object.entries(finalChanges)) {
-        if (ORGANIZER_FIELD_MAP[field]) {
-          mongoUpdate[`roomReservationData.organizer.${ORGANIZER_FIELD_MAP[field]}`] = value;
-        } else {
-          mongoUpdate[field] = value;
-          mongoUpdate[`calendarData.${field}`] = value;
-        }
+        mongoUpdate[field] = value;
+        mongoUpdate[`calendarData.${field}`] = value;
       }
 
       // Update pendingEditRequest status (not $unset — matches production)
@@ -4523,10 +4509,10 @@ function createTestApp(options = {}) {
         mongoUpdate['calendarData.occurrenceOverrides'] = mergedOverrides;
       }
 
-      // Route organizer fields to roomReservationData.organizer.* (dot-path, same as production)
-      for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
-        if (updates[flatKey] !== undefined) {
-          mongoUpdate[`roomReservationData.organizer.${nestedKey}`] = updates[flatKey];
+      // Route organizer fields to calendarData (same as other form fields)
+      for (const field of ['organizerName', 'organizerPhone', 'organizerEmail']) {
+        if (updates[field] !== undefined) {
+          mongoUpdate[`calendarData.${field}`] = updates[field];
         }
       }
 
@@ -4965,6 +4951,9 @@ function createTestApp(options = {}) {
           reservationEndTime: reservationEndTime || '',
           recurrence: recurrence || null,
           occurrenceOverrides: occurrenceOverrides || null,
+          organizerName: req.body.organizerName || '',
+          organizerPhone: req.body.organizerPhone || '',
+          organizerEmail: req.body.organizerEmail || '',
         },
         roomReservationData: {
           requestedBy: {
@@ -4973,11 +4962,6 @@ function createTestApp(options = {}) {
             department: department || userDoc?.department || '',
             phone: phone || '',
             userId,
-          },
-          organizer: {
-            name: req.body.organizerName || '',
-            phone: req.body.organizerPhone || '',
-            email: req.body.organizerEmail || ''
           },
         },
         graphData: null,

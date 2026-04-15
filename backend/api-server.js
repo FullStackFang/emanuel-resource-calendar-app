@@ -21,7 +21,7 @@ const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/er
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
-const { detectEventChanges, formatChangesForEmail, valuesAreDifferent, ORGANIZER_FIELD_MAP } = require('./utils/changeDetection');
+const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
@@ -13895,11 +13895,6 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
-        organizer: {
-          name: organizerName || '',
-          phone: organizerPhone || '',
-          email: organizerEmail || ''
-        },
         submittedAt: new Date()
       },
 
@@ -13975,6 +13970,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         isOnBehalfOf: isOnBehalfOf || false,
         contactName: isOnBehalfOf ? contactName : '',
         contactEmail: isOnBehalfOf ? contactEmail : '',
+        // Organizer (event contact person)
+        organizerName: organizerName || '',
+        organizerPhone: organizerPhone || '',
+        organizerEmail: organizerEmail || '',
         // Recurrence
         recurrence: recurrence || null
       },
@@ -14287,11 +14286,9 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
         email: contactEmail || '',
         isOnBehalfOf: true
       } : null,
-      'roomReservationData.organizer': {
-        name: organizerName || '',
-        phone: organizerPhone || '',
-        email: organizerEmail || ''
-      },
+      'calendarData.organizerName': organizerName || '',
+      'calendarData.organizerPhone': organizerPhone || '',
+      'calendarData.organizerEmail': organizerEmail || '',
       'roomReservationData.department': department || '',
       'roomReservationData.phone': phone || '',
       // Set eventType when recurrence is present
@@ -15639,11 +15636,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
-        organizer: {
-          name: organizerName || '',
-          phone: organizerPhone || '',
-          email: organizerEmail || ''
-        },
         submittedAt: new Date(),
         currentRevision: 1,
         reviewingBy: null,
@@ -15704,7 +15696,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         offsiteName: '',
         offsiteAddress: '',
         offsiteLat: null,
-        offsiteLon: null
+        offsiteLon: null,
+        // Organizer (event contact person)
+        organizerName: organizerName || '',
+        organizerPhone: organizerPhone || '',
+        organizerEmail: organizerEmail || ''
       },
 
       // Status history for tracking transitions
@@ -16274,11 +16270,9 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
-        'roomReservationData.organizer': {
-          name: organizerName || '',
-          phone: organizerPhone || '',
-          email: organizerEmail || ''
-        },
+        'calendarData.organizerName': organizerName || '',
+        'calendarData.organizerPhone': organizerPhone || '',
+        'calendarData.organizerEmail': organizerEmail || '',
         'roomReservationData.department': department || '',
         'roomReservationData.phone': phone || '',
         // Metadata
@@ -19249,11 +19243,6 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           email: contactEmail,
           isOnBehalfOf: true
         } : null,
-        organizer: {
-          name: organizerName || '',
-          phone: organizerPhone || '',
-          email: organizerEmail || ''
-        },
         // Workflow metadata
         submittedAt: new Date(),
         changeKey: generateChangeKey({
@@ -19331,6 +19320,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         contactName: isOnBehalfOf ? contactName : '',
         contactEmail: isOnBehalfOf ? contactEmail : '',
         isOnBehalfOf: isOnBehalfOf || false,
+        // Organizer (event contact person)
+        organizerName: organizerName || '',
+        organizerPhone: organizerPhone || '',
+        organizerEmail: organizerEmail || '',
         // Recurring event fields
         recurrence: recurrence || null,
         occurrenceOverrides: occurrenceOverrides || []
@@ -20481,15 +20474,14 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       proposedChanges.contactEmail = contactEmail;
     }
 
-    // Handle organizer changes (stored in roomReservationData.organizer, not calendarData)
-    const originalOrganizer = originalEvent.roomReservationData?.organizer || {};
-    for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
-      const newVal = req.body[flatKey];
+    // Handle organizer changes (stored in calendarData like other form fields)
+    for (const field of ['organizerName', 'organizerPhone', 'organizerEmail']) {
+      const newVal = req.body[field];
       if (newVal === undefined) continue;
-      const oldVal = originalOrganizer[nestedKey] || '';
+      const oldVal = cd[field] || '';
       if (valuesAreDifferent(oldVal, newVal)) {
-        proposedChanges[flatKey] = newVal;
-        changesArray.push({ field: flatKey, oldValue: oldVal, newValue: newVal });
+        proposedChanges[field] = newVal;
+        changesArray.push({ field, oldValue: oldVal, newValue: newVal });
       }
     }
 
@@ -21040,7 +21032,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       'eventSeriesId', 'seriesLength', 'seriesIndex',
       'requesterName', 'requesterEmail', 'department', 'phone',
       'attendeeCount', 'priority', 'specialRequirements',
-      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes'
+      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
+      'organizerName', 'organizerPhone', 'organizerEmail'
     ];
 
     // Apply all final changes to the event (writing to calendarData for calendar fields)
@@ -21080,10 +21073,6 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
       if (field === 'locationDisplayNames') {
         updateFields['calendarData.locationDisplayNames'] = value;
-      }
-      // Organizer fields live in roomReservationData.organizer, not calendarData
-      if (ORGANIZER_FIELD_MAP[field]) {
-        updateFields[`roomReservationData.organizer.${ORGANIZER_FIELD_MAP[field]}`] = value;
       }
     }
 
@@ -23344,6 +23333,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       'requesterName', 'requesterEmail', 'department', 'phone',
       'attendeeCount', 'priority', 'specialRequirements',
       'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
+      'organizerName', 'organizerPhone', 'organizerEmail',
       'recurrence'
     ];
 
@@ -23355,15 +23345,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       } else {
         // Keep non-calendar fields as-is (graphData.*, status, etc.)
         finalUpdateOperations[key] = value;
-      }
-    }
-
-    // Organizer fields aren't in CALENDAR_DATA_FIELDS, so they land as bare top-level keys above.
-    // Re-route them to roomReservationData.organizer.* where the read path expects them.
-    for (const [flatKey, nestedKey] of Object.entries(ORGANIZER_FIELD_MAP)) {
-      if (finalUpdateOperations[flatKey] !== undefined) {
-        finalUpdateOperations[`roomReservationData.organizer.${nestedKey}`] = finalUpdateOperations[flatKey];
-        delete finalUpdateOperations[flatKey];
       }
     }
 

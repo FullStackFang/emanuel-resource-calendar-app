@@ -226,31 +226,21 @@ describe('Edit Request Organizer Tests (ERO-1 to ERO-7)', () => {
   });
 
   describe('Publish-edit: organizer change application', () => {
-    it('ERO-6: should apply organizer changes to roomReservationData.organizer', async () => {
+    it('ERO-6: should apply organizer changes to calendarData', async () => {
       const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Test Event',
-        roomReservationData: {
-          requestedBy: {
-            userId: requesterUser.odataId,
-            name: 'Test Requester',
-            email: requesterUser.email,
-            department: 'General',
-            phone: '555-1234',
-          },
-          organizer: {
-            name: 'Original Organizer',
-            phone: '555-0000',
-            email: 'original@org.com',
-          },
-        },
         requestedChanges: {
           organizerName: 'Updated Organizer',
           organizerPhone: '555-9999',
           organizerEmail: 'updated@org.com',
         },
       });
+      // Seed initial organizer in calendarData
+      eventWithEdit.calendarData.organizerName = 'Original Organizer';
+      eventWithEdit.calendarData.organizerPhone = '555-0000';
+      eventWithEdit.calendarData.organizerEmail = 'original@org.com';
       const [saved] = await insertEvents(db, [eventWithEdit]);
 
       const res = await request(app)
@@ -261,11 +251,11 @@ describe('Edit Request Organizer Tests (ERO-1 to ERO-7)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.event.pendingEditRequest.status).toBe('approved');
 
-      // Verify organizer was written to roomReservationData.organizer
+      // Verify organizer was written to calendarData
       const dbEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(dbEvent.roomReservationData.organizer.name).toBe('Updated Organizer');
-      expect(dbEvent.roomReservationData.organizer.phone).toBe('555-9999');
-      expect(dbEvent.roomReservationData.organizer.email).toBe('updated@org.com');
+      expect(dbEvent.calendarData.organizerName).toBe('Updated Organizer');
+      expect(dbEvent.calendarData.organizerPhone).toBe('555-9999');
+      expect(dbEvent.calendarData.organizerEmail).toBe('updated@org.com');
     });
 
     it('ERO-7: should preserve unchanged organizer fields when applying other changes', async () => {
@@ -273,25 +263,15 @@ describe('Edit Request Organizer Tests (ERO-1 to ERO-7)', () => {
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
-        roomReservationData: {
-          requestedBy: {
-            userId: requesterUser.odataId,
-            name: 'Test Requester',
-            email: requesterUser.email,
-            department: 'General',
-            phone: '555-1234',
-          },
-          organizer: {
-            name: 'Keep This Organizer',
-            phone: '555-0000',
-            email: 'keep@org.com',
-          },
-        },
         requestedChanges: {
           eventTitle: 'Updated Title',
           // No organizer changes
         },
       });
+      // Seed initial organizer in calendarData
+      eventWithEdit.calendarData.organizerName = 'Keep This Organizer';
+      eventWithEdit.calendarData.organizerPhone = '555-0000';
+      eventWithEdit.calendarData.organizerEmail = 'keep@org.com';
       const [saved] = await insertEvents(db, [eventWithEdit]);
 
       const res = await request(app)
@@ -304,9 +284,9 @@ describe('Edit Request Organizer Tests (ERO-1 to ERO-7)', () => {
 
       // Verify organizer was NOT changed
       const dbEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(dbEvent.roomReservationData.organizer.name).toBe('Keep This Organizer');
-      expect(dbEvent.roomReservationData.organizer.phone).toBe('555-0000');
-      expect(dbEvent.roomReservationData.organizer.email).toBe('keep@org.com');
+      expect(dbEvent.calendarData.organizerName).toBe('Keep This Organizer');
+      expect(dbEvent.calendarData.organizerPhone).toBe('555-0000');
+      expect(dbEvent.calendarData.organizerEmail).toBe('keep@org.com');
     });
   });
 });

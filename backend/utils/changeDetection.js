@@ -64,17 +64,6 @@ const FIELD_DISPLAY_NAMES = {
 };
 
 /**
- * Maps flat organizer field names to their nested sub-keys in roomReservationData.organizer.
- * Organizer fields are stored outside calendarData, so comparison and write logic
- * needs this mapping to resolve the correct source/destination path.
- */
-const ORGANIZER_FIELD_MAP = {
-  organizerName: 'name',
-  organizerPhone: 'phone',
-  organizerEmail: 'email',
-};
-
-/**
  * Get display name for a field
  * @param {string} fieldName - Internal field name
  * @returns {string} Human-readable name
@@ -208,12 +197,7 @@ function detectEventChanges(originalEvent, modifiedFields, options = {}) {
     if (newValue === undefined) continue;
 
     // Get original value from calendarData first, then top-level
-    let oldValue;
-    if (ORGANIZER_FIELD_MAP[field]) {
-      oldValue = originalEvent.roomReservationData?.organizer?.[ORGANIZER_FIELD_MAP[field]] ?? '';
-    } else {
-      oldValue = cd[field] !== undefined ? cd[field] : originalEvent[field];
-    }
+    const oldValue = cd[field] !== undefined ? cd[field] : originalEvent[field];
 
     if (valuesAreDifferent(oldValue, newValue)) {
       changes.push({
@@ -250,6 +234,5 @@ module.exports = {
   getFieldDisplayName,
   valuesAreDifferent,
   NOTIFIABLE_FIELDS,
-  FIELD_DISPLAY_NAMES,
-  ORGANIZER_FIELD_MAP
+  FIELD_DISPLAY_NAMES
 };

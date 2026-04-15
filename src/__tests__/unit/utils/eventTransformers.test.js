@@ -879,9 +879,24 @@ describe('sortEventsByStartTime', () => {
 // Event Organizer Contact Fields
 // =============================================================
 describe('transformEventToFlatStructure - organizer fields', () => {
-  it('extracts organizer from roomReservationData.organizer', () => {
+  it('extracts organizer from calendarData', () => {
     const event = {
       _id: 'evt-1',
+      calendarData: {
+        organizerName: 'Rabbi Sarah',
+        organizerPhone: '212-555-0101',
+        organizerEmail: 'rabbi.sarah@emanuelnyc.org',
+      },
+    };
+    const result = transformEventToFlatStructure(event);
+    expect(result.organizerName).toBe('Rabbi Sarah');
+    expect(result.organizerPhone).toBe('212-555-0101');
+    expect(result.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
+  });
+
+  it('falls back to roomReservationData.organizer for legacy events', () => {
+    const event = {
+      _id: 'evt-1-legacy',
       roomReservationData: {
         organizer: {
           name: 'Rabbi Sarah',
