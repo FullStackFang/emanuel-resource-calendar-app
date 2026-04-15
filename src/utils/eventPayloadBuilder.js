@@ -283,14 +283,21 @@ export function buildOwnerEditPayload(data, { eventVersion } = {}) {
  * @param {Object} data - Form data (from getFormData)
  * @param {Object} options
  * @param {number|null} options.eventVersion - OCC version
+ * @param {string} [options.editScope] - 'thisEvent' | 'allEvents' (for recurring occurrence edits)
+ * @param {string} [options.occurrenceDate] - ISO date (YYYY-MM-DD) of the targeted occurrence
+ * @param {string} [options.seriesMasterId] - Graph series master ID (for Graph sync on approval)
  * @returns {Object} edit request API payload
  */
-export function buildEditRequestPayload(data, { eventVersion } = {}) {
+export function buildEditRequestPayload(data, { eventVersion, editScope, occurrenceDate, seriesMasterId } = {}) {
   // Normalize datetime: append ':00' seconds if missing (backend stores with seconds)
   const normalizeDT = (dt) => dt && dt.length === 16 ? `${dt}:00` : dt;
 
   return {
     _version: eventVersion ?? null,
+    // Recurring event scope fields (undefined when not applicable — stripped by JSON.stringify)
+    editScope: editScope || undefined,
+    occurrenceDate: occurrenceDate || undefined,
+    seriesMasterId: seriesMasterId || undefined,
     eventTitle: data.eventTitle || '',
     eventDescription: data.eventDescription || '',
     // For Hold events (startTime is empty), DON'T send startDateTime at all — the

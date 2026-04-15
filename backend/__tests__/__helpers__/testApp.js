@@ -11,6 +11,7 @@ const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
+const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange } = require('../../utils/occurrenceOverrideUtils');
 const { extractDatePart } = require('../../utils/dateUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
@@ -3132,7 +3133,7 @@ function createTestApp(options = {}) {
       const userId = req.user.userId;
       const userEmail = req.user.email;
       const eventId = req.params.id;
-      const { proposedChanges } = req.body;
+      const { proposedChanges, editScope, occurrenceDate, seriesMasterId } = req.body;
 
       if (!proposedChanges) {
         return res.status(400).json({ error: 'proposedChanges is required' });
@@ -3168,8 +3169,9 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'An edit request already exists for this event' });
       }
 
-      // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
-      if (event.eventType === 'seriesMaster' && (proposedChanges.startDateTime || proposedChanges.endDateTime)) {
+      // Prevent date changes on recurring series masters (dates are tied to recurrence pattern).
+      // Single-occurrence edits (editScope === 'thisEvent') are exempt.
+      if (event.eventType === 'seriesMaster' && editScope !== 'thisEvent' && (proposedChanges.startDateTime || proposedChanges.endDateTime)) {
         const cd = event.calendarData || {};
         const originalStartDate = extractDatePart(cd.startDateTime);
         const originalEndDate = extractDatePart(cd.endDateTime);
@@ -3198,6 +3200,10 @@ function createTestApp(options = {}) {
       const pendingEditRequest = {
         id: editRequestId,
         status: 'pending',
+        // Recurring event scope fields
+        editScope: editScope || null,
+        occurrenceDate: occurrenceDate || null,
+        seriesMasterId: seriesMasterId || null,
         requestedBy: {
           userId,
           email: userEmail,
@@ -3338,6 +3344,78 @@ function createTestApp(options = {}) {
             conflicts: softConflicts,
           });
         }
+      }
+
+      // --- Occurrence-scoped edit: write to occurrenceOverrides, not calendarData ---
+      if (event.pendingEditRequest.editScope === 'thisEvent' && event.pendingEditRequest.occurrenceDate) {
+        const dateKey = event.pendingEditRequest.occurrenceDate.split('T')[0];
+
+        // Validate occurrence date falls within series range
+        const recurrence = event.calendarData?.recurrence || event.recurrence;
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
+
+        // Resolve location docs
+        const rawLocations = finalChanges.requestedRooms || finalChanges.locations;
+        let resolvedLocationDocs = [];
+        if (rawLocations !== undefined && Array.isArray(rawLocations) && rawLocations.length > 0) {
+          try {
+            const locationIds = rawLocations.map(lid =>
+              typeof lid === 'string' ? new ObjectId(lid) : lid
+            );
+            resolvedLocationDocs = await testCollections.locations.find({
+              _id: { $in: locationIds }
+            }).toArray();
+          } catch (locErr) {
+            // Non-blocking
+          }
+        }
+
+        // Build + merge override
+        const overrideFields = buildOccurrenceOverrideFields(dateKey, finalChanges, { locationDocs: resolvedLocationDocs });
+        const existingOverride = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === dateKey);
+        const mergedOverride = { ...(existingOverride || {}), ...overrideFields, occurrenceDate: dateKey };
+
+        // Update pendingEditRequest status
+        await testCollections.events.updateOne(query, {
+          $set: {
+            'pendingEditRequest.status': 'approved',
+            'pendingEditRequest.reviewedAt': now,
+            'pendingEditRequest.reviewedBy': { userId, name: userEmail, email: userEmail },
+            'pendingEditRequest.reviewNotes': notes || '',
+          },
+          $inc: { _version: 1 }
+        });
+
+        // Apply override atomically
+        const finalDoc = await applyOccurrenceOverride(
+          testCollections.events,
+          event._id,
+          event.occurrenceOverrides,
+          mergedOverride,
+          { lastModifiedDateTime: now, lastModifiedBy: userId }
+        );
+
+        // Audit
+        await createAuditLog({
+          eventId: event.eventId,
+          action: 'edit_approved',
+          performedBy: userId,
+          performedByEmail: userEmail,
+          previousState: event,
+          newState: finalDoc,
+          changes: finalChanges,
+          metadata: { editScope: 'thisEvent', occurrenceDate: dateKey },
+        });
+
+        return res.json({
+          success: true,
+          event: finalDoc,
+          occurrenceDate: dateKey,
+          graphSynced: false,
+        });
       }
 
       // Detect key field changes before applying (compare original event vs final changes)

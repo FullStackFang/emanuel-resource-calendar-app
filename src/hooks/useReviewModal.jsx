@@ -1173,6 +1173,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleSubmitEditRequest = useCallback(async (computeDetectedChanges) => {
     if (!currentItem) return { success: false, error: 'No item' };
 
+    // Guard: recurring series masters require editScope (set by RecurringScopeDialog in Calendar).
+    // MyReservations has no scope dialog, so block before confirmation to avoid confusing UX.
+    if (currentItem?.eventType === 'seriesMaster' && !editScope) {
+      if (onError) onError('Please edit recurring events from the calendar view to select which occurrence to change.');
+      return { success: false, error: 'Missing editScope for recurring event' };
+    }
+
     // Check for changes (zero-change guard)
     if (computeDetectedChanges) {
       const detectedChanges = computeDetectedChanges();
@@ -1201,7 +1208,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsSubmittingEditRequest(true);
     try {
       const eventId = currentItem._id || currentItem.eventId;
-      const payload = buildEditRequestPayload(liveFormData, { eventVersion });
+      const payload = buildEditRequestPayload(liveFormData, {
+        eventVersion,
+        editScope,
+        occurrenceDate: editScope === 'thisEvent'
+          ? (currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0])
+          : undefined,
+        seriesMasterId: editScope
+          ? (currentItem?.seriesMasterId || currentItem?.graphData?.seriesMasterId || currentItem?.graphData?.id)
+          : undefined,
+      });
 
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`,
@@ -1231,7 +1247,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSubmittingEditRequest(false);
     }
-  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
+  }, [currentItem, apiToken, eventVersion, editScope, notifySuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
 
   const cancelEditRequestConfirmation = useCallback(() => {
     setPendingEditRequestConfirmation(false);

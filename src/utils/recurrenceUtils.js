@@ -266,11 +266,22 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
         // [Hold] override: null event times with reservation times — keep master times for positioning
         const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
           && 'endTime' in override && !override.endTime;
-        const effectiveStartTime = override.startTime
-          ? `${occurrenceDate}T${override.startTime}:00.0000000`
+        // Use 'in' operator (not truthiness) to distinguish "field explicitly set to empty"
+        // from "field absent". Empty string "" means intentionally cleared (e.g., [Hold] pattern).
+        // When event time is empty, fall back to reservation time for calendar positioning.
+        const effectiveStartTime = ('startTime' in override)
+          ? (override.startTime
+              ? `${occurrenceDate}T${override.startTime}:00.0000000`
+              : (override.reservationStartTime
+                  ? `${occurrenceDate}T${override.reservationStartTime}:00.0000000`
+                  : `${occurrenceDate}T${startTime}`))
           : `${occurrenceDate}T${startTime}`;
-        const effectiveEndTime = override.endTime
-          ? `${occurrenceDate}T${override.endTime}:00.0000000`
+        const effectiveEndTime = ('endTime' in override)
+          ? (override.endTime
+              ? `${occurrenceDate}T${override.endTime}:00.0000000`
+              : (override.reservationEndTime
+                  ? `${occurrenceDate}T${override.reservationEndTime}:00.0000000`
+                  : effectiveStartTime))
           : `${occurrenceDate}T${endTime}`;
 
         occurrences.push({
@@ -313,11 +324,19 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
     const hasOverride = Object.keys(override).length > 0;
     const isHoldOverride = hasOverride && 'startTime' in override && !override.startTime
       && 'endTime' in override && !override.endTime;
-    const effectiveStartTime = override.startTime
-      ? `${addDate}T${override.startTime}:00.0000000`
+    const effectiveStartTime = ('startTime' in override)
+      ? (override.startTime
+          ? `${addDate}T${override.startTime}:00.0000000`
+          : (override.reservationStartTime
+              ? `${addDate}T${override.reservationStartTime}:00.0000000`
+              : `${addDate}T${startTime}`))
       : `${addDate}T${startTime}`;
-    const effectiveEndTime = override.endTime
-      ? `${addDate}T${override.endTime}:00.0000000`
+    const effectiveEndTime = ('endTime' in override)
+      ? (override.endTime
+          ? `${addDate}T${override.endTime}:00.0000000`
+          : (override.reservationEndTime
+              ? `${addDate}T${override.reservationEndTime}:00.0000000`
+              : effectiveStartTime))
       : `${addDate}T${endTime}`;
 
     occurrences.push({

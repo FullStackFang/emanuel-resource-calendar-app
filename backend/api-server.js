@@ -23,6 +23,7 @@ const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
+const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange } = require('./utils/occurrenceOverrideUtils');
 const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
@@ -14109,103 +14110,45 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
         return res.status(404).json({ error: 'Draft not found for occurrence edit' });
       }
       const recurrence = draft.calendarData?.recurrence;
-      const recRange = recurrence?.range;
-      const additions = recurrence?.additions || [];
-      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
-        return res.status(400).json({ error: 'Occurrence date is outside series range' });
+      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+      if (!rangeCheck.valid) {
+        return res.status(400).json({ error: rangeCheck.error });
       }
 
-      // Build override from changed fields
-      const overrideFields = { occurrenceDate: dateKey };
-      if (startTime !== undefined) overrideFields.startTime = startTime;
-      if (endTime !== undefined) overrideFields.endTime = endTime;
-      if (eventTitle !== undefined) overrideFields.eventTitle = eventTitle?.trim();
-      if (eventDescription !== undefined) overrideFields.eventDescription = eventDescription;
-      // Compute startDateTime/endDateTime — null when time is explicitly null ([Hold] pattern)
-      if (startTime !== undefined) {
-        overrideFields.startDateTime = startTime ? `${dateKey}T${startTime}` : null;
-      }
-      if (endTime !== undefined) {
-        overrideFields.endDateTime = endTime ? `${dateKey}T${endTime}` : null;
-      }
-      if (setupTime !== undefined) overrideFields.setupTime = setupTime;
-      if (teardownTime !== undefined) overrideFields.teardownTime = teardownTime;
-      if (reservationStartTime !== undefined) overrideFields.reservationStartTime = reservationStartTime;
-      if (reservationEndTime !== undefined) overrideFields.reservationEndTime = reservationEndTime;
-      if (doorOpenTime !== undefined) overrideFields.doorOpenTime = doorOpenTime;
-      if (doorCloseTime !== undefined) overrideFields.doorCloseTime = doorCloseTime;
-      if (categories !== undefined || mecCategories !== undefined) overrideFields.categories = categories || mecCategories;
-      if (services !== undefined) overrideFields.services = services;
-
-      // Handle locations: convert requestedRooms to ObjectIds + display names
-      if (requestedRooms !== undefined) {
-        if (Array.isArray(requestedRooms) && requestedRooms.length > 0) {
-          try {
-            const locationIds = requestedRooms.map(lid =>
-              typeof lid === 'string' ? new ObjectId(lid) : lid
-            );
-            overrideFields.locations = locationIds;
-
-            const locationDocs = await locationsCollection.find({
-              _id: { $in: locationIds }
-            }).toArray();
-            const displayNames = locationDocs
-              .map(loc => loc.displayName || loc.name || '')
-              .filter(Boolean)
-              .join('; ');
-            if (displayNames) {
-              overrideFields.locationDisplayNames = displayNames;
-            }
-          } catch (locErr) {
-            logger.warn('Failed to process occurrence override locations:', locErr.message);
-            overrideFields.locations = requestedRooms;
-          }
-        } else {
-          overrideFields.locations = [];
-          overrideFields.locationDisplayNames = '';
+      // Resolve location docs for display name generation
+      let resolvedLocationDocs = [];
+      if (requestedRooms !== undefined && Array.isArray(requestedRooms) && requestedRooms.length > 0) {
+        try {
+          const locationIds = requestedRooms.map(lid =>
+            typeof lid === 'string' ? new ObjectId(lid) : lid
+          );
+          resolvedLocationDocs = await locationsCollection.find({
+            _id: { $in: locationIds }
+          }).toArray();
+        } catch (locErr) {
+          logger.warn('Failed to resolve occurrence override locations:', locErr.message);
         }
       }
 
-      // Handle offsite fields
-      if (isOffsite !== undefined) overrideFields.isOffsite = isOffsite;
-      if (offsiteName !== undefined) overrideFields.offsiteName = offsiteName;
-      if (offsiteAddress !== undefined) overrideFields.offsiteAddress = offsiteAddress;
-      // Additional trackable fields
-      if (attendeeCount !== undefined) overrideFields.attendeeCount = attendeeCount;
-      if (eventNotes !== undefined) overrideFields.eventNotes = eventNotes;
-      if (setupNotes !== undefined) overrideFields.setupNotes = setupNotes;
-      if (doorNotes !== undefined) overrideFields.doorNotes = doorNotes;
-      if (specialRequirements !== undefined) overrideFields.specialRequirements = specialRequirements;
+      // Build override fields via shared helper
+      // Note: draft handler uses requestedRooms (not locations) as the raw location key
+      const draftChanges = {
+        startTime, endTime, eventTitle, eventDescription,
+        setupTime, teardownTime, reservationStartTime, reservationEndTime,
+        doorOpenTime, doorCloseTime, categories, mecCategories, services,
+        requestedRooms, isOffsite, offsiteName, offsiteAddress,
+        attendeeCount, eventNotes, setupNotes, doorNotes, specialRequirements
+      };
+      const overrideFields = buildOccurrenceOverrideFields(dateKey, draftChanges, { locationDocs: resolvedLocationDocs });
 
-      // Remove existing override for this date (if any), then add new one.
-      // Guard: $pull throws if occurrenceOverrides is null (some creation paths set null instead of []).
-      if (Array.isArray(draft.occurrenceOverrides)) {
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(draftId) },
-          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
-        );
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(draftId) },
-          {
-            $push: { occurrenceOverrides: overrideFields },
-            $set: { lastDraftSaved: new Date(), lastModified: new Date() }
-          }
-        );
-      } else {
-        // Initialize as array with the new override (handles null/undefined)
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(draftId) },
-          {
-            $set: {
-              occurrenceOverrides: [overrideFields],
-              lastDraftSaved: new Date(),
-              lastModified: new Date(),
-            }
-          }
-        );
-      }
-
-      const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      // Apply override atomically ($pull/$push/mirror) via shared helper
+      const updatedDraft = await applyOccurrenceOverride(
+        unifiedEventsCollection,
+        new ObjectId(draftId),
+        draft.occurrenceOverrides,
+        overrideFields,
+        { lastDraftSaved: new Date(), lastModified: new Date() }
+      );
       return res.json(updatedDraft);
     }
 
@@ -15488,34 +15431,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       return res.status(400).json({ error: 'Invalid time ordering', validationErrors: publicTimeErrors });
     }
 
-    // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
-    const baseStart = new Date(startDateTime);
-    const baseEnd = new Date(endDateTime);
-
-    // If reservation start time is provided, use it; else fall back to setup time
-    let effectiveStart = baseStart;
-    if (reservationStartTime) {
-      const [resStartHours, resStartMinutes] = reservationStartTime.split(':').map(Number);
-      effectiveStart = new Date(baseStart);
-      effectiveStart.setHours(resStartHours, resStartMinutes, 0, 0);
-    } else if (setupTime) {
-      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
-      effectiveStart = new Date(baseStart);
-      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
-    }
-
-    // If reservation end time is provided, use it; else fall back to teardown time
-    let effectiveEnd = baseEnd;
-    if (reservationEndTime) {
-      const [resEndHours, resEndMinutes] = reservationEndTime.split(':').map(Number);
-      effectiveEnd = new Date(baseEnd);
-      effectiveEnd.setHours(resEndHours, resEndMinutes, 0, 0);
-    } else if (teardownTime) {
-      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
-      effectiveEnd = new Date(baseEnd);
-      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
-    }
-
     // Update token with usage metadata (token was already atomically claimed above)
     await reservationTokensCollection.updateOne(
       { _id: tokenDoc._id },
@@ -15599,8 +15514,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       requesterId: `guest-${tokenDoc._id}`,
       status: 'pending',
       calendarOwner: getDefaultCalendarOwner(),
-      effectiveStart: effectiveStart, // Used for room blocking (includes setup)
-      effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
 
       // Concurrent scheduling settings (guest reservations default to false - admin can update later)
       isAllowedConcurrent: false,
@@ -19183,32 +19096,6 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       ? `${offsiteName} (Offsite) - ${offsiteAddress}`
       : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
 
-    // Calculate effective blocking times (reservation start/end take precedence over setup/teardown)
-    const baseStart = new Date(startDateTime);
-    const baseEnd = new Date(endDateTime);
-
-    let effectiveStart = baseStart;
-    if (reservationStartTime) {
-      const [resStartHours, resStartMinutes] = reservationStartTime.split(':').map(Number);
-      effectiveStart = new Date(baseStart);
-      effectiveStart.setHours(resStartHours, resStartMinutes, 0, 0);
-    } else if (setupTime) {
-      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
-      effectiveStart = new Date(baseStart);
-      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
-    }
-
-    let effectiveEnd = baseEnd;
-    if (reservationEndTime) {
-      const [resEndHours, resEndMinutes] = reservationEndTime.split(':').map(Number);
-      effectiveEnd = new Date(baseEnd);
-      effectiveEnd.setHours(resEndHours, resEndMinutes, 0, 0);
-    } else if (teardownTime) {
-      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
-      effectiveEnd = new Date(baseEnd);
-      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
-    }
-
     // Generate unique event ID
     const eventId = `evt-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -19227,8 +19114,6 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       source: 'Room Reservation System',
       status: 'pending', // Status 'pending' allows event to show on calendar with pending styling
       isDeleted: false,
-      effectiveStart, // Used for room blocking (includes setup)
-      effectiveEnd, // Used for room blocking (includes teardown)
       // Concurrent scheduling settings (top-level for indexing)
       isAllowedConcurrent: isAllowedConcurrent || false,
       allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
@@ -20235,7 +20120,11 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       organizerName,
       organizerPhone,
       organizerEmail,
-      _version
+      _version,
+      // Recurring event scope fields (for per-occurrence edit requests)
+      editScope,        // 'thisEvent' | 'allEvents' | undefined
+      occurrenceDate,   // ISO date string e.g. '2026-03-12' | undefined
+      seriesMasterId    // Graph series master ID (for Graph sync on approval)
     } = req.body;
 
     // Support both requestedRooms and locationIds (alias)
@@ -20322,8 +20211,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       });
     }
 
-    // Prevent date changes on recurring series masters (dates are tied to recurrence pattern)
-    if (originalEvent.eventType === 'seriesMaster' && (startDateTime || endDateTime)) {
+    // Prevent date changes on recurring series masters (dates are tied to recurrence pattern).
+    // Single-occurrence edits (editScope === 'thisEvent') are exempt — they go to occurrenceOverrides.
+    if (originalEvent.eventType === 'seriesMaster' && editScope !== 'thisEvent' && (startDateTime || endDateTime)) {
       const cd = originalEvent.calendarData || {};
       const originalStartDate = extractDatePart(cd.startDateTime);
       const originalEndDate = extractDatePart(cd.endDateTime);
@@ -20383,12 +20273,27 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     // Generate unique edit request ID
     const editRequestId = `edit-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Calculate proposed changes (delta - only fields that are different)
+    // Calculate proposed changes (delta - only fields that are different).
     // Read original values from calendarData (authoritative source for calendar fields)
     // since the event document isn't modified until the edit is approved.
     const proposedChanges = {};
     const changesArray = []; // For audit logging
     const cd = originalEvent.calendarData || {};
+    // For occurrence-scoped edits, merge existing override into baseline so the diff
+    // correctly identifies what changed for THAT specific occurrence (not the master).
+    // Defer the copy to the occurrence-only path to avoid cloning cd on every request.
+    let baselineData = cd;
+    if (editScope === 'thisEvent' && occurrenceDate) {
+      baselineData = { ...cd };
+      const dateKey = occurrenceDate.split('T')[0];
+      const existingOverride = (originalEvent.occurrenceOverrides || [])
+        .find(o => o.occurrenceDate === dateKey);
+      if (existingOverride) {
+        for (const [k, v] of Object.entries(existingOverride)) {
+          if (k !== 'occurrenceDate') baselineData[k] = v;
+        }
+      }
+    }
 
     const fieldsToCompare = [
       'eventTitle', 'eventDescription',
@@ -20408,7 +20313,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
 
     for (const field of fieldsToCompare) {
       const newValue = req.body[field];
-      const oldValue = cd[field];
+      const oldValue = baselineData[field];
       // Only include if value was provided and is different
       if (newValue !== undefined && newValue !== oldValue) {
         proposedChanges[field] = newValue;
@@ -20420,9 +20325,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       }
     }
 
-    // Handle requestedRooms/locations comparison (read from calendarData)
+    // Handle requestedRooms/locations comparison (read from baseline)
     const newRooms = requestedRooms || [];
-    const oldRooms = cd.locations || [];
+    const oldRooms = baselineData.locations || cd.locations || [];
 
     // Normalize both to string format for accurate comparison
     const normalizedNewRooms = newRooms.map(id => id?.toString?.() || String(id)).sort();
@@ -20501,6 +20406,10 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     const pendingEditRequest = {
       id: editRequestId,
       status: 'pending',
+      // Recurring event scope (null for non-recurring or series-level edits)
+      editScope: editScope || null,
+      occurrenceDate: occurrenceDate || null,
+      seriesMasterId: seriesMasterId || null,
       requestedBy: {
         userId,
         email: userEmail,
@@ -20551,7 +20460,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       changes: [], // No changes applied yet
       metadata: {
         editRequestId,
-        proposedChanges
+        proposedChanges,
+        ...(editScope && { editScope }),
+        ...(occurrenceDate && { occurrenceDate }),
       }
     });
 
@@ -20971,29 +20882,54 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       : proposedChanges;
 
     // --- Scheduling conflict check on publish-edit ---
-    // Check if the effective (merged) rooms/times conflict with other events
+    // Check if the effective (merged) rooms/times conflict with other events.
+    // For occurrence-scoped edits, use occurrence-specific baseline (existing override + finalChanges).
     const hasTimeOrRoomChange = finalChanges.startDateTime || finalChanges.endDateTime ||
       finalChanges.locations || finalChanges.requestedRooms ||
       finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined ||
       finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined;
 
     if (hasTimeOrRoomChange && !forcePublishEdit) {
-      const effectiveData = buildEffectiveEditData({ ...event, pendingEditRequest: { ...pendingEditRequest, proposedChanges: finalChanges } });
-      const conflictReservation = {
-        startDateTime: effectiveData.startDateTime,
-        endDateTime: effectiveData.endDateTime,
-        setupTimeMinutes: effectiveData.setupTimeMinutes,
-        teardownTimeMinutes: effectiveData.teardownTimeMinutes,
-        calendarData: {
-          locations: effectiveData.locations,
+      let conflictReservation;
+      if (pendingEditRequest.editScope === 'thisEvent' && pendingEditRequest.occurrenceDate) {
+        // Occurrence-scoped: merge existing override + finalChanges for effective times
+        const occDateKey = pendingEditRequest.occurrenceDate.split('T')[0];
+        const occOverride = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === occDateKey) || {};
+        const occBaseline = { ...(event.calendarData || {}), ...occOverride, ...finalChanges };
+        conflictReservation = {
+          startDateTime: occBaseline.startDateTime,
+          endDateTime: occBaseline.endDateTime,
+          setupTimeMinutes: occBaseline.setupTimeMinutes,
+          teardownTimeMinutes: occBaseline.teardownTimeMinutes,
+          calendarData: {
+            locations: occBaseline.locations || occBaseline.requestedRooms,
+            startDateTime: occBaseline.startDateTime,
+            endDateTime: occBaseline.endDateTime,
+            setupTimeMinutes: occBaseline.setupTimeMinutes,
+            teardownTimeMinutes: occBaseline.teardownTimeMinutes,
+          },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: occBaseline.categories || [],
+        };
+      } else {
+        // Series-level: use existing buildEffectiveEditData
+        const effectiveData = buildEffectiveEditData({ ...event, pendingEditRequest: { ...pendingEditRequest, proposedChanges: finalChanges } });
+        conflictReservation = {
           startDateTime: effectiveData.startDateTime,
           endDateTime: effectiveData.endDateTime,
           setupTimeMinutes: effectiveData.setupTimeMinutes,
           teardownTimeMinutes: effectiveData.teardownTimeMinutes,
-        },
-        isAllowedConcurrent: event.isAllowedConcurrent ?? false,
-        categories: finalChanges.categories || event.calendarData?.categories || [],
-      };
+          calendarData: {
+            locations: effectiveData.locations,
+            startDateTime: effectiveData.startDateTime,
+            endDateTime: effectiveData.endDateTime,
+            setupTimeMinutes: effectiveData.setupTimeMinutes,
+            teardownTimeMinutes: effectiveData.teardownTimeMinutes,
+          },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: finalChanges.categories || event.calendarData?.categories || [],
+        };
+      }
 
       const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(conflictReservation, eventId);
       if (hardConflicts.length > 0) {
@@ -21018,6 +20954,200 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
           conflicts: softConflicts,
         });
       }
+    }
+
+    // --- Occurrence-scoped edit: write to occurrenceOverrides, not calendarData ---
+    if (pendingEditRequest.editScope === 'thisEvent' && pendingEditRequest.occurrenceDate) {
+      const dateKey = pendingEditRequest.occurrenceDate.split('T')[0];
+      const cd = event.calendarData || {};
+      const now = new Date();
+
+      // Validate occurrence date falls within series range
+      const recurrence = cd.recurrence || event.recurrence;
+      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+      if (!rangeCheck.valid) {
+        return res.status(400).json({ error: rangeCheck.error });
+      }
+
+      // Resolve location ObjectIds to display names
+      const rawLocations = finalChanges.requestedRooms || finalChanges.locations;
+      let resolvedLocationDocs = [];
+      if (rawLocations !== undefined && Array.isArray(rawLocations) && rawLocations.length > 0) {
+        try {
+          const locationIds = rawLocations.map(lid =>
+            typeof lid === 'string' ? new ObjectId(lid) : lid
+          );
+          resolvedLocationDocs = await locationsCollection.find({
+            _id: { $in: locationIds }
+          }).toArray();
+        } catch (locErr) {
+          logger.warn('Failed to resolve occurrence override locations for publish-edit:', locErr.message);
+        }
+      }
+
+      // Build override fields via shared helper
+      const overrideFields = buildOccurrenceOverrideFields(dateKey, finalChanges, { locationDocs: resolvedLocationDocs });
+
+      // Merge with existing override (preserve fields not in this edit request)
+      const existingOverride = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === dateKey);
+      const mergedOverride = { ...(existingOverride || {}), ...overrideFields, occurrenceDate: dateKey };
+
+      // Update pendingEditRequest status to approved + apply override atomically
+      // Use separate updateOne for pendingEditRequest status (not conditionalUpdate —
+      // the $pull/$push in applyOccurrenceOverride is separate atomic ops, matching admin-save pattern)
+      await unifiedEventsCollection.updateOne(
+        { _id: event._id },
+        {
+          $set: {
+            'pendingEditRequest.status': 'approved',
+            'pendingEditRequest.reviewedAt': now,
+            'pendingEditRequest.reviewedBy': {
+              userId,
+              name: user?.displayName || userEmail,
+              email: userEmail
+            },
+            'pendingEditRequest.reviewNotes': notes || '',
+          },
+          $inc: { _version: 1 }
+        }
+      );
+
+      // Apply override atomically ($pull/$push/mirror) via shared helper
+      const finalDoc = await applyOccurrenceOverride(
+        unifiedEventsCollection,
+        event._id,
+        event.occurrenceOverrides,
+        mergedOverride,
+        { lastModifiedDateTime: now, lastModifiedBy: userEmail }
+      );
+
+      // Graph sync: find + patch specific occurrence
+      const storedGraphEventId = event.graphData?.id;
+      let graphSynced = false;
+      if (storedGraphEventId && event.calendarOwner) {
+        try {
+          const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+          const graphUpdate = {};
+
+          if (mergedOverride.eventTitle) graphUpdate.subject = mergedOverride.eventTitle;
+          if (mergedOverride.eventDescription !== undefined) {
+            graphUpdate.body = { contentType: 'html', content: mergedOverride.eventDescription || '' };
+          }
+          if (mergedOverride.startDateTime) {
+            graphUpdate.start = { dateTime: mergedOverride.startDateTime + ':00', timeZone: graphTimezone };
+          }
+          if (mergedOverride.endDateTime) {
+            graphUpdate.end = { dateTime: mergedOverride.endDateTime + ':00', timeZone: graphTimezone };
+          }
+          if (mergedOverride.categories !== undefined) graphUpdate.categories = mergedOverride.categories;
+          if (mergedOverride.locationDisplayNames !== undefined) {
+            const locDispName = mergedOverride.locationDisplayNames || '';
+            graphUpdate.location = { displayName: locDispName, locationType: 'default' };
+            graphUpdate.locations = locDispName.split('; ').filter(Boolean)
+              .map(name => ({ displayName: name, locationType: 'default' }));
+          }
+
+          if (Object.keys(graphUpdate).length > 0) {
+            const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
+            if (additionEntry) {
+              await graphApiService.updateCalendarEvent(
+                event.calendarOwner, event.calendarId, additionEntry.graphId, graphUpdate
+              );
+            } else {
+              const smGraphId = pendingEditRequest.seriesMasterId || storedGraphEventId;
+              const occDate = new Date(pendingEditRequest.occurrenceDate);
+              const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
+              const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
+              const instances = await graphApiService.getRecurringEventInstances(
+                event.calendarOwner, event.calendarId, smGraphId,
+                dayStart.toISOString(), dayEnd.toISOString()
+              );
+              const match = (instances || []).find(occ =>
+                new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
+              );
+              if (match) {
+                await graphApiService.updateCalendarEvent(
+                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                );
+              }
+            }
+            graphSynced = true;
+          }
+        } catch (graphErr) {
+          logger.warn('Non-fatal: Graph sync for occurrence edit-request approval failed:', graphErr.message);
+        }
+      }
+
+      // Audit log
+      const changesArray = [];
+      for (const [field, newValue] of Object.entries(finalChanges)) {
+        changesArray.push({ field, oldValue: (existingOverride?.[field] ?? cd[field]) || '', newValue });
+      }
+      await eventAuditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'edit-request-approved',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: now,
+        changes: changesArray,
+        metadata: {
+          editRequestId: pendingEditRequest.id,
+          requestedBy: pendingEditRequest.requestedBy?.email,
+          approvalNotes: notes || '',
+          editScope: 'thisEvent',
+          occurrenceDate: dateKey,
+          ...(approverChanges && { approverChanges }),
+          ...(approverChanges && { originalProposedChanges: proposedChanges })
+        }
+      });
+
+      logger.info('Occurrence-scoped edit request published:', {
+        eventId: event.eventId,
+        editRequestId: pendingEditRequest.id,
+        occurrenceDate: dateKey,
+        publishedBy: userEmail,
+        changesApplied: Object.keys(finalChanges).length
+      });
+
+      // Email notification (non-blocking)
+      try {
+        const editRequestForEmail = {
+          _id: event._id,
+          eventId: event.eventId,
+          eventTitle: mergedOverride.eventTitle || cd.eventTitle,
+          startDateTime: mergedOverride.startDateTime || cd.startDateTime,
+          endDateTime: mergedOverride.endDateTime || cd.endDateTime,
+          requesterName: pendingEditRequest.requestedBy?.name,
+          requesterEmail: pendingEditRequest.requestedBy?.email,
+          startTime: mergedOverride.startDateTime || cd.startDateTime,
+          endTime: mergedOverride.endDateTime || cd.endDateTime,
+          locationDisplayNames: mergedOverride.locationDisplayNames || cd.locationDisplayNames,
+          occurrenceDate: dateKey, // For email context
+        };
+        await emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray);
+      } catch (emailError) {
+        logger.error('Occurrence edit request publish email failed:', emailError.message);
+      }
+
+      res.json({
+        success: true,
+        message: 'Edit request published for single occurrence',
+        eventId: event.eventId,
+        _version: finalDoc?._version,
+        occurrenceDate: dateKey,
+        changesApplied: finalChanges,
+        graphSynced
+      });
+
+      broadcastEventChange({
+        eventId: req.params.id,
+        action: 'edit-published',
+        actorEmail: userEmail,
+        requesterEmail: pendingEditRequest.requestedBy?.email
+      });
+
+      return; // Do NOT fall through to series-level apply
     }
 
     // Concurrent modification check is now handled atomically via _version
@@ -22315,74 +22445,29 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // Validate dateKey falls within series range
       const recurrence = event.calendarData?.recurrence || event.recurrence;
-      const recRange = recurrence?.range;
-      const additions = recurrence?.additions || [];
-      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
-        return res.status(400).json({ error: 'Occurrence date is outside series range' });
+      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+      if (!rangeCheck.valid) {
+        return res.status(400).json({ error: rangeCheck.error });
       }
 
-      // Build override from changed fields
-      const overrideFields = { occurrenceDate: dateKey };
-      if (updates.startTime !== undefined) overrideFields.startTime = updates.startTime;
-      if (updates.endTime !== undefined) overrideFields.endTime = updates.endTime;
-      if (updates.eventTitle !== undefined) overrideFields.eventTitle = updates.eventTitle?.trim();
-      if (updates.eventDescription !== undefined) overrideFields.eventDescription = updates.eventDescription;
-      // Compute startDateTime/endDateTime — null when time is explicitly null ([Hold] pattern)
-      if (updates.startTime !== undefined) {
-        overrideFields.startDateTime = updates.startTime ? `${dateKey}T${updates.startTime}` : null;
-      }
-      if (updates.endTime !== undefined) {
-        overrideFields.endDateTime = updates.endTime ? `${dateKey}T${updates.endTime}` : null;
-      }
-      if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
-      if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
-      if (updates.reservationStartTime !== undefined) overrideFields.reservationStartTime = updates.reservationStartTime;
-      if (updates.reservationEndTime !== undefined) overrideFields.reservationEndTime = updates.reservationEndTime;
-      if (updates.doorOpenTime !== undefined) overrideFields.doorOpenTime = updates.doorOpenTime;
-      if (updates.doorCloseTime !== undefined) overrideFields.doorCloseTime = updates.doorCloseTime;
-      if (updates.categories !== undefined) overrideFields.categories = updates.categories;
-      if (updates.services !== undefined) overrideFields.services = updates.services;
-      if (updates.assignedTo !== undefined) overrideFields.assignedTo = updates.assignedTo;
-      // Offsite fields (align with draft handler)
-      if (updates.isOffsite !== undefined) overrideFields.isOffsite = updates.isOffsite;
-      if (updates.offsiteName !== undefined) overrideFields.offsiteName = updates.offsiteName;
-      if (updates.offsiteAddress !== undefined) overrideFields.offsiteAddress = updates.offsiteAddress;
-      // Additional trackable fields
-      if (updates.attendeeCount !== undefined) overrideFields.attendeeCount = updates.attendeeCount;
-      if (updates.eventNotes !== undefined) overrideFields.eventNotes = updates.eventNotes;
-      if (updates.setupNotes !== undefined) overrideFields.setupNotes = updates.setupNotes;
-      if (updates.doorNotes !== undefined) overrideFields.doorNotes = updates.doorNotes;
-      if (updates.specialRequirements !== undefined) overrideFields.specialRequirements = updates.specialRequirements;
-
-      // Handle locations: convert requestedRooms/locations to ObjectIds + display names
+      // Resolve location docs for display name generation (async, before helper call)
       const rawLocations = updates.requestedRooms || updates.locations;
-      if (rawLocations !== undefined) {
-        if (Array.isArray(rawLocations) && rawLocations.length > 0) {
-          try {
-            const locationIds = rawLocations.map(lid =>
-              typeof lid === 'string' ? new ObjectId(lid) : lid
-            );
-            overrideFields.locations = locationIds;
-
-            const locationDocs = await locationsCollection.find({
-              _id: { $in: locationIds }
-            }).toArray();
-            const displayNames = locationDocs
-              .map(loc => loc.displayName || loc.name || '')
-              .filter(Boolean)
-              .join('; ');
-            if (displayNames) {
-              overrideFields.locationDisplayNames = displayNames;
-            }
-          } catch (locErr) {
-            logger.warn('Failed to process occurrence override locations:', locErr.message);
-            overrideFields.locations = rawLocations;
-          }
-        } else {
-          overrideFields.locations = [];
-          overrideFields.locationDisplayNames = '';
+      let resolvedLocationDocs = [];
+      if (rawLocations !== undefined && Array.isArray(rawLocations) && rawLocations.length > 0) {
+        try {
+          const locationIds = rawLocations.map(lid =>
+            typeof lid === 'string' ? new ObjectId(lid) : lid
+          );
+          resolvedLocationDocs = await locationsCollection.find({
+            _id: { $in: locationIds }
+          }).toArray();
+        } catch (locErr) {
+          logger.warn('Failed to resolve occurrence override locations:', locErr.message);
         }
       }
+
+      // Build override fields via shared helper
+      const overrideFields = buildOccurrenceOverrideFields(dateKey, updates, { locationDocs: resolvedLocationDocs });
 
       // Graph sync: if published, update the specific occurrence in Graph
       const storedGraphEventId = event.graphData?.id;
@@ -22469,49 +22554,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
       }
 
-      // Remove existing override for this date, then add new one.
-      // Guard: $pull throws if occurrenceOverrides is null (some creation paths set null instead of []).
-      if (Array.isArray(event.occurrenceOverrides)) {
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
-        );
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $push: { occurrenceOverrides: overrideFields },
-            $set: {
-              'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
-              lastModifiedDateTime: new Date(),
-              lastModifiedBy: userEmail
-            }
-          }
-        );
-      } else {
-        // Initialize as array with the new override (handles null/undefined)
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $set: {
-              occurrenceOverrides: [overrideFields],
-              'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
-              lastModifiedDateTime: new Date(),
-              lastModifiedBy: userEmail
-            }
-          }
-        );
-      }
-
-      // Mirror occurrenceOverrides into calendarData
-      const updatedDoc = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-      if (updatedDoc) {
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { 'calendarData.occurrenceOverrides': updatedDoc.occurrenceOverrides || [] } }
-        );
-      }
-
-      const finalDoc = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+      // Apply override atomically ($pull/$push/mirror) via shared helper
+      const finalDoc = await applyOccurrenceOverride(
+        unifiedEventsCollection,
+        new ObjectId(id),
+        event.occurrenceOverrides,
+        overrideFields,
+        { lastModifiedDateTime: new Date(), lastModifiedBy: userEmail }
+      );
       return res.json({ success: true, event: finalDoc, graphSynced: false });
     }
 

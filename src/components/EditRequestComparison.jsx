@@ -173,6 +173,16 @@ export default function EditRequestComparison({
                 <label>Submitted At:</label>
                 <span>{formatDateTime(editRequest?.submittedAt)}</span>
               </div>
+              {editRequest?.editScope === 'thisEvent' && editRequest?.occurrenceDate && (
+                <div className="info-item">
+                  <label>Scope:</label>
+                  <span>
+                    This occurrence only ({new Date(editRequest.occurrenceDate + 'T00:00:00').toLocaleDateString('en-US', {
+                      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                    })})
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

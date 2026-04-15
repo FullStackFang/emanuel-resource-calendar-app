@@ -146,12 +146,22 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
 
       // Skip excluded dates — don't count them toward numbered limit
       if (!exclusions.includes(dateStr)) {
-        // Apply per-occurrence override times and locations if present
+        // Apply per-occurrence override times and locations if present.
+        // Use 'in' operator (not ||) to distinguish null (intentionally empty) from absent.
+        // When event time is null (intentionally empty), fall back to reservation time for conflict window.
         const override = overrideMap[dateStr];
+        const defaultStart = `${dateStr}T${startTimePart}`;
+        const resStart = override?.reservationStartTime ? `${dateStr}T${override.reservationStartTime}` : null;
+        const resEnd = override?.reservationEndTime ? `${dateStr}T${override.reservationEndTime}` : null;
+        const occStartDT = (override && 'startDateTime' in override)
+          ? (override.startDateTime || resStart || defaultStart)
+          : defaultStart;
         occurrences.push({
           occurrenceDate: dateStr,
-          startDateTime: (override?.startDateTime) || `${dateStr}T${startTimePart}`,
-          endDateTime: (override?.endDateTime) || `${dateStr}T${endTimePart}`,
+          startDateTime: occStartDT,
+          endDateTime: (override && 'endDateTime' in override)
+            ? (override.endDateTime || resEnd || occStartDT)
+            : `${dateStr}T${endTimePart}`,
           ...(override?.locations !== undefined && { locations: override.locations }),
         });
         count++;
