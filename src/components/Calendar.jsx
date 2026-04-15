@@ -5707,6 +5707,9 @@ import ConflictDialog from './shared/ConflictDialog';
             date={timelineModal.dateRange[0]}
             events={timelineModal.events}
             calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}
+            onQuickAdd={handleTimelineQuickAdd}
+            canAddEvent={canAddEvent}
+            locationId={timelineModal.locationId}
           />
         )}
 

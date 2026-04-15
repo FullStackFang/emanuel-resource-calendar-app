@@ -130,6 +130,28 @@ export const calculateOverlapLayout = (event, dayEvents) => {
 };
 
 /**
+ * Convert a decimal hour (e.g., 9.5) to a display string ("9:30 AM").
+ * Used by timeline modals for the quick-add hover indicator.
+ */
+export const formatDecimalHour = (decimalHour) => {
+  const hours = Math.floor(decimalHour);
+  const minutes = Math.round((decimalHour - hours) * 60);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHour = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  return `${displayHour}:${String(minutes).padStart(2, '0')} ${period}`;
+};
+
+/**
+ * Convert mouse Y position within a 24-hour grid element to a decimal hour,
+ * snapped to 30-minute increments. Returns values in [0, 23.5].
+ */
+export const getDecimalHourFromMouseEvent = (e, gridEl) => {
+  const rect = gridEl.getBoundingClientRect();
+  const rawHour = ((e.clientY - rect.top) / rect.height) * 24;
+  return Math.max(0, Math.min(23.5, Math.round(rawHour * 2) / 2));
+};
+
+/**
  * Format event time range for timeline display.
  *
  * @param {object} event - Event with start.dateTime and end.dateTime
