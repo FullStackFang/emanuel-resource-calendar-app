@@ -17,6 +17,12 @@ export function getStatusBadgeInfo(reservation) {
     return { label: 'Pending', className: 'status-pending' };
   }
   if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
+    const per = reservation.pendingEditRequest;
+    if (per.editScope === 'thisEvent' && per.occurrenceDate) {
+      const dateLabel = new Date(per.occurrenceDate + 'T00:00:00')
+        .toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return { label: `Edit Requested (${dateLabel})`, className: 'status-published-edit' };
+    }
     return { label: 'Edit Requested', className: 'status-published-edit' };
   }
   if (reservation.status === 'published' && reservation.pendingCancellationRequest?.status === 'pending') {

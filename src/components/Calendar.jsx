@@ -1767,6 +1767,16 @@ import ConflictDialog from './shared/ConflictDialog';
 
                 // Convert each occurrence to our event format
                 // Use view-relative counting: position within visible occurrences, not absolute series position
+                // Pre-compute edit request scoping (loop-invariant — master doesn't change across iterations).
+                // When editScope === 'thisEvent', only the occurrence matching the target date inherits
+                // the edit request and badge; all others get null/false. Series-level edits propagate to all.
+                // TODO: pendingCancellationRequest has the same leaking problem but lacks
+                // editScope/occurrenceDate fields. Deferred until cancellation scoping is added.
+                const masterEditRequest = event.pendingEditRequest;
+                const editRequestTargetDate = (masterEditRequest?.status === 'pending'
+                  && masterEditRequest.editScope === 'thisEvent'
+                  && masterEditRequest.occurrenceDate) || null;
+
                 let visibleIndex = 0;
                 occurrences.forEach(occurrence => {
                   visibleIndex++;
@@ -1780,6 +1790,14 @@ import ConflictDialog from './shared/ConflictDialog';
                     eventType: 'occurrence',
                     seriesMasterId: masterId,
                     recurrence: null, // Occurrences don't have recurrence pattern
+                    // Scope pendingEditRequest to only the targeted occurrence (leaks via ...event spread).
+                    pendingEditRequest: editRequestTargetDate
+                      ? (editRequestTargetDate === occurrenceDate ? masterEditRequest : null)
+                      : masterEditRequest,
+                    // Re-scope badge flag — DayEventPanel/DayEventsPopup read this, not pendingEditRequest.
+                    showPendingEditBadge: editRequestTargetDate
+                      ? (editRequestTargetDate === occurrenceDate && event.showPendingEditBadge)
+                      : event.showPendingEditBadge || false,
                     graphData: event.graphData ? {
                       ...occurrence,
                       id: `${masterId}-occurrence-${occurrenceDate}`,
