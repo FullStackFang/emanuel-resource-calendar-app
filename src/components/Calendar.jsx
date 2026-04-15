@@ -161,6 +161,8 @@ import ConflictDialog from './shared/ConflictDialog';
     const [allEvents, setAllEventsState] = useState([]);
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
     const allEventsRef = useRef(allEvents);
+    // Series masters are filtered out of allEvents during expansion — keep a ref for scope dialog lookups
+    const seriesMastersRef = useRef(new Map());
     // Deep-link support: auto-open event from email link (?eventId=...)
     const [searchParams, setSearchParams] = useSearchParams();
     const deepLinkProcessedRef = useRef(false);
@@ -1692,6 +1694,12 @@ import ConflictDialog from './shared/ConflictDialog';
             } else if ((evt.eventType === 'exception' || evt.eventType === 'addition') && evt.seriesMasterEventId) {
               exceptionIndices.push(i);
             }
+          }
+
+          // Persist masters for scope dialog — they get filtered out during expansion.
+          // Only replace when new masters found; preserves prior masters across sliding view windows.
+          if (masterById.size > 0) {
+            seriesMastersRef.current = masterById;
           }
 
           if (exceptionIndices.length > 0) {
@@ -4143,8 +4151,8 @@ import ConflictDialog from './shared/ConflictDialog';
         const needsMasterFetch = scope === 'allEvents' && event.isRecurringOccurrence && event.masterEventId;
 
         if (needsMasterFetch) {
-          // Check if master is already in current view
-          const found = allEventsRef.current.find(e => e.eventId === event.masterEventId);
+          // Masters are filtered out of allEventsRef during expansion — use the dedicated ref
+          const found = seriesMastersRef.current.get(event.masterEventId);
           if (found) {
             // Master available locally — close dialog and open modal directly
             setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
