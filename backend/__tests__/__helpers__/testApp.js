@@ -4330,16 +4330,23 @@ function createTestApp(options = {}) {
             testCollections.events, masterDocForException.eventId, dateKey
           );
           let resultDoc;
-          if (existingException) {
-            resultDoc = await svcUpdateExceptionDocument(
-              testCollections.events, existingException, masterDocForException, exOverrideData,
-              { modifiedBy: userEmail }
-            );
-          } else {
-            resultDoc = await svcCreateExceptionDocument(
-              testCollections.events, masterDocForException, dateKey, exOverrideData,
-              { createdBy: userEmail, createdByEmail: userEmail }
-            );
+          try {
+            if (existingException) {
+              resultDoc = await svcUpdateExceptionDocument(
+                testCollections.events, existingException, masterDocForException, exOverrideData,
+                { modifiedBy: userEmail }
+              );
+            } else {
+              resultDoc = await svcCreateExceptionDocument(
+                testCollections.events, masterDocForException, dateKey, exOverrideData,
+                { createdBy: userEmail, createdByEmail: userEmail }
+              );
+            }
+          } catch (err) {
+            if (err.statusCode) {
+              return res.status(err.statusCode).json({ error: err.code, message: err.message });
+            }
+            throw err;
           }
           return res.json({ success: true, event: resultDoc, graphSynced: false });
         }
@@ -4365,16 +4372,23 @@ function createTestApp(options = {}) {
           testCollections.locations, updates.requestedRooms || updates.locations
         );
         const masterExOverrideData = extractOverrideData(updates, masterResolvedLocations);
-        if (existingException) {
-          await svcUpdateExceptionDocument(
-            testCollections.events, existingException, masterDocForException, masterExOverrideData,
-            { modifiedBy: userEmail }
-          );
-        } else {
-          await svcCreateExceptionDocument(
-            testCollections.events, masterDocForException, dateKey, masterExOverrideData,
-            { createdBy: userEmail, createdByEmail: userEmail }
-          );
+        try {
+          if (existingException) {
+            await svcUpdateExceptionDocument(
+              testCollections.events, existingException, masterDocForException, masterExOverrideData,
+              { modifiedBy: userEmail }
+            );
+          } else {
+            await svcCreateExceptionDocument(
+              testCollections.events, masterDocForException, dateKey, masterExOverrideData,
+              { createdBy: userEmail, createdByEmail: userEmail }
+            );
+          }
+        } catch (err) {
+          if (err.statusCode) {
+            return res.status(err.statusCode).json({ error: err.code, message: err.message });
+          }
+          throw err;
         }
 
         // Build override from changed fields

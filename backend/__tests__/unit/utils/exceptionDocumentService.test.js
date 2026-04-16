@@ -386,3 +386,160 @@ describe('softDeleteException', () => {
     expect(result).toBeNull();
   });
 });
+
+// ─── DATE_IMMUTABLE guard (requirement D) ─────────────────────────────────
+//
+// The helpers enforce date-immutability structurally: any attempt to create or
+// update an exception whose overrides.startDate / overrides.endDate differs
+// from the dateKey anchor throws { statusCode: 400, code: 'DATE_IMMUTABLE' }.
+// This makes the guarantee endpoint-agnostic — every write path that uses the
+// helpers inherits the check automatically.
+
+describe('DATE_IMMUTABLE — createExceptionDocument', () => {
+  it('EDS-DI-1: rejects overrides.startDate that differs from dateKey', async () => {
+    await expect(
+      createExceptionDocument(
+        collection,
+        master,
+        '2026-03-17', // dateKey
+        { startDate: '2026-03-20', eventTitle: 'Moved' } // mismatched override
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DATE_IMMUTABLE',
+    });
+  });
+
+  it('EDS-DI-2: rejects overrides.endDate that differs from dateKey', async () => {
+    await expect(
+      createExceptionDocument(
+        collection,
+        master,
+        '2026-03-17',
+        { endDate: '2026-03-18' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DATE_IMMUTABLE',
+    });
+  });
+
+  it('EDS-DI-3: accepts overrides.startDate matching dateKey (no-op diff)', async () => {
+    const result = await createExceptionDocument(
+      collection,
+      master,
+      '2026-03-17',
+      { startDate: '2026-03-17', startTime: '14:00' }
+    );
+    expect(result).toBeDefined();
+    expect(result.occurrenceDate).toBe('2026-03-17');
+    expect(result.code).toBeUndefined(); // not an error
+  });
+
+  it('EDS-DI-4: accepts overrides that omit startDate/endDate entirely', async () => {
+    const result = await createExceptionDocument(
+      collection,
+      master,
+      '2026-03-17',
+      { eventTitle: 'Renamed', startTime: '14:00' } // no date fields
+    );
+    expect(result).toBeDefined();
+    expect(result.occurrenceDate).toBe('2026-03-17');
+  });
+
+  it('EDS-DI-5: rejects BEFORE writing any document', async () => {
+    const before = await collection.countDocuments({ eventType: 'exception' });
+    try {
+      await createExceptionDocument(
+        collection,
+        master,
+        '2026-03-17',
+        { startDate: '2026-03-25' }
+      );
+    } catch (_err) {
+      // expected
+    }
+    const after = await collection.countDocuments({ eventType: 'exception' });
+    expect(after).toBe(before);
+  });
+});
+
+describe('DATE_IMMUTABLE — updateExceptionDocument', () => {
+  let existingException;
+
+  beforeEach(async () => {
+    // Seed an existing exception at 2026-03-17 for update tests
+    existingException = await createExceptionDocument(
+      collection,
+      master,
+      '2026-03-17',
+      { startTime: '10:00' }
+    );
+  });
+
+  it('EDS-DI-6: rejects newOverrides.startDate differing from existing occurrenceDate', async () => {
+    await expect(
+      updateExceptionDocument(
+        collection,
+        existingException,
+        master,
+        { startDate: '2026-03-25' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DATE_IMMUTABLE',
+    });
+  });
+
+  it('EDS-DI-7: rejects newOverrides.endDate differing from existing occurrenceDate', async () => {
+    await expect(
+      updateExceptionDocument(
+        collection,
+        existingException,
+        master,
+        { endDate: '2026-03-25' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DATE_IMMUTABLE',
+    });
+  });
+
+  it('EDS-DI-8: accepts newOverrides.startDate matching existing occurrenceDate', async () => {
+    const result = await updateExceptionDocument(
+      collection,
+      existingException,
+      master,
+      { startDate: '2026-03-17', eventTitle: 'Updated' }
+    );
+    expect(result).not.toBeNull();
+    expect(result.occurrenceDate).toBe('2026-03-17');
+  });
+
+  it('EDS-DI-9: accepts time-only updates (no date fields in overrides)', async () => {
+    const result = await updateExceptionDocument(
+      collection,
+      existingException,
+      master,
+      { startTime: '15:00', endTime: '16:00' }
+    );
+    expect(result).not.toBeNull();
+    expect(result.overrides.startTime).toBe('15:00');
+  });
+
+  it('EDS-DI-10: on rejection, does NOT increment _version or modify document', async () => {
+    const versionBefore = existingException._version;
+    try {
+      await updateExceptionDocument(
+        collection,
+        existingException,
+        master,
+        { startDate: '2026-03-25' }
+      );
+    } catch (_err) {
+      // expected
+    }
+    const reread = await collection.findOne({ _id: existingException._id });
+    expect(reread._version).toBe(versionBefore);
+  });
+});

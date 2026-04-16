@@ -29,6 +29,52 @@ const EXCEPTION_TYPES = [EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION];
 
 const MAX_EXCEPTIONS_PER_QUERY = 500;
 
+/**
+ * Structural DATE_IMMUTABLE guard for occurrence / exception writes.
+ *
+ * Occurrence dates are immutable: moving a recurring event to a different day
+ * must be done via the series schedule (or by clicking the target date on the
+ * calendar), not by mutating an existing occurrence's date. This helper is
+ * invoked at the top of {@link createExceptionDocument} and
+ * {@link updateExceptionDocument}, so every write path that goes through the
+ * shared helpers inherits the guarantee automatically — no per-call-site
+ * duplication required.
+ *
+ * Thrown error shape matches the existing `resolveSeriesMaster` pattern
+ * (`err.statusCode = 400; err.code = '...'`), so call sites can catch once and
+ * surface the 400 response uniformly.
+ *
+ * Rules:
+ *   - If `overrides.startDate` is defined AND !== `dateKey` → throw 400 DATE_IMMUTABLE
+ *   - If `overrides.endDate` is defined AND !== `dateKey` → throw 400 DATE_IMMUTABLE
+ *   - Same-value re-sends (override === dateKey) pass as no-ops.
+ *   - Omitted `startDate` / `endDate` pass (only present-and-different triggers).
+ *
+ * @param {Object} overrides - Proposed override fields for this occurrence
+ * @param {string} dateKey - Canonical occurrence date (YYYY-MM-DD)
+ * @throws {Error} With `statusCode: 400`, `code: 'DATE_IMMUTABLE'` on mismatch
+ * @private
+ */
+function _validateOccurrenceDateNotChanged(overrides, dateKey) {
+  if (!overrides || !dateKey) return;
+  if (overrides.startDate !== undefined && overrides.startDate !== dateKey) {
+    const err = new Error(
+      `Occurrence startDate (${overrides.startDate}) cannot differ from its occurrenceDate (${dateKey}). To move this event to a different day, edit the series schedule or create a new event.`
+    );
+    err.statusCode = 400;
+    err.code = 'DATE_IMMUTABLE';
+    throw err;
+  }
+  if (overrides.endDate !== undefined && overrides.endDate !== dateKey) {
+    const err = new Error(
+      `Occurrence endDate (${overrides.endDate}) cannot differ from its occurrenceDate (${dateKey}). To move this event to a different day, edit the series schedule or create a new event.`
+    );
+    err.statusCode = 400;
+    err.code = 'DATE_IMMUTABLE';
+    throw err;
+  }
+}
+
 // Fields copied from master to produce complete denormalized docs.
 // Override value wins when the field key exists in the overrides object (even if null).
 const INHERITABLE_FIELDS = [
@@ -153,6 +199,7 @@ async function _insertOccurrenceDocument(collection, masterEvent, occurrenceDate
  * @returns {Object} The inserted exception document
  */
 async function createExceptionDocument(collection, masterEvent, occurrenceDate, overrides, options = {}) {
+  _validateOccurrenceDateNotChanged(overrides, occurrenceDate);
   return _insertOccurrenceDocument(collection, masterEvent, occurrenceDate, overrides, EVENT_TYPE.EXCEPTION, '-', options);
 }
 
@@ -189,6 +236,7 @@ async function createAdditionDocument(collection, masterEvent, occurrenceDate, f
  * @returns {Object|null} The updated document, or null on OCC conflict
  */
 async function updateExceptionDocument(collection, exceptionDoc, masterEvent, newOverrides, options = {}) {
+  _validateOccurrenceDateNotChanged(newOverrides, exceptionDoc.occurrenceDate);
   const mergedOverrides = { ...exceptionDoc.overrides, ...newOverrides };
   const { effectiveFields, effectiveCalendarData } = mergeDefaultsWithOverrides(
     masterEvent, mergedOverrides, exceptionDoc.occurrenceDate

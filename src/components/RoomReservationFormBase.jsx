@@ -1151,6 +1151,13 @@ export default function RoomReservationFormBase({
   // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
   const isRecurringDateLocked = !!recurrencePattern;
 
+  // Occurrence view ('This Event' scope): dates are immutable per requirement D.
+  // Users who want to move a recurring event to a different day should click the
+  // target date on the calendar or edit the series schedule — NOT change the date
+  // on the occurrence itself. Server-side DATE_IMMUTABLE enforcement lands in the
+  // exception-document helpers (see backend/utils/exceptionDocumentService.js).
+  const isOccurrenceView = editScope === 'thisEvent';
+
   // Display-layer transform: on a series master, the read-only "Reservation Start/End Date"
   // inputs show the series range from recurrence.range, not the first-occurrence date stored
   // in formData. The underlying formData and DB fields are unchanged — see
@@ -1627,7 +1634,7 @@ export default function RoomReservationFormBase({
                   name="startDate"
                   value={displayStartDate || ''}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled || isRecurringDateLocked}
+                  disabled={fieldsDisabled || isRecurringDateLocked || isOccurrenceView}
                   required
                   className={hasFieldChanged('startDate') ? 'input-changed' : ''}
                 />
@@ -1649,7 +1656,7 @@ export default function RoomReservationFormBase({
                   value={displayEndDate || ''}
                   onChange={handleInputChange}
                   min={displayStartDate || formData.startDate}
-                  disabled={fieldsDisabled || isRecurringDateLocked}
+                  disabled={fieldsDisabled || isRecurringDateLocked || isOccurrenceView}
                   required
                   className={hasFieldChanged('endDate') ? 'input-changed' : ''}
                 />
@@ -1677,6 +1684,11 @@ export default function RoomReservationFormBase({
                 />
               </div>
             </div>
+            {isOccurrenceView && (
+              <div className="occurrence-date-lock-hint" style={{ fontSize: '12px', color: 'var(--color-text-secondary, #5f6368)', marginTop: '-8px', marginBottom: '12px' }}>
+                Date is locked for this occurrence. To move this event to a different day, click the target date on the calendar or edit the series schedule.
+              </div>
+            )}
 
             {/* Ad Hoc Calendar Picker - Show when toggled on */}
             {showAdHocPicker && (

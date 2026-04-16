@@ -14430,18 +14430,26 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       const overrideData = extractOverrideData(req.body, resolvedLocations);
 
       // Create or update exception document. Key off masterDoc.eventId, never draft.eventId.
+      // The helpers enforce DATE_IMMUTABLE internally — catch their 400 throws.
       const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
-      if (existingException) {
-        exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, masterDoc, overrideData,
-          { modifiedBy: req.user?.email }
-        );
-      } else {
-        exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, masterDoc, dateKey, overrideData,
-          { createdBy: req.user?.email, createdByEmail: req.user?.email }
-        );
+      try {
+        if (existingException) {
+          exceptionDoc = await updateExceptionDocument(
+            unifiedEventsCollection, existingException, masterDoc, overrideData,
+            { modifiedBy: req.user?.email }
+          );
+        } else {
+          exceptionDoc = await createExceptionDocument(
+            unifiedEventsCollection, masterDoc, dateKey, overrideData,
+            { createdBy: req.user?.email, createdByEmail: req.user?.email }
+          );
+        }
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
       }
 
       return res.json(exceptionDoc);
@@ -21356,18 +21364,26 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       );
 
       // Create or update exception document. Key off masterDoc.eventId.
+      // The helpers enforce DATE_IMMUTABLE internally — catch their 400 throws.
       const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
-      if (existingException) {
-        exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, masterDoc, overrideData,
-          { modifiedBy: userEmail }
-        );
-      } else {
-        exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, masterDoc, dateKey, overrideData,
-          { createdBy: userEmail, createdByEmail: userEmail }
-        );
+      try {
+        if (existingException) {
+          exceptionDoc = await updateExceptionDocument(
+            unifiedEventsCollection, existingException, masterDoc, overrideData,
+            { modifiedBy: userEmail }
+          );
+        } else {
+          exceptionDoc = await createExceptionDocument(
+            unifiedEventsCollection, masterDoc, dateKey, overrideData,
+            { createdBy: userEmail, createdByEmail: userEmail }
+          );
+        }
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
       }
 
       // Graph sync: find + patch specific occurrence
@@ -22825,18 +22841,28 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // Create or update exception document. Always use masterDoc.eventId as the key
       // (not event.eventId, which may be a date-suffixed exception eventId).
+      // The helpers enforce DATE_IMMUTABLE internally — catch their 400 throws
+      // and surface as the proper response envelope (outer catch would turn them
+      // into a generic 500).
       const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
-      if (existingException) {
-        exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, masterDoc, overrideData,
-          { modifiedBy: userEmail }
-        );
-      } else {
-        exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, masterDoc, dateKey, overrideData,
-          { createdBy: userEmail, createdByEmail: userEmail }
-        );
+      try {
+        if (existingException) {
+          exceptionDoc = await updateExceptionDocument(
+            unifiedEventsCollection, existingException, masterDoc, overrideData,
+            { modifiedBy: userEmail }
+          );
+        } else {
+          exceptionDoc = await createExceptionDocument(
+            unifiedEventsCollection, masterDoc, dateKey, overrideData,
+            { createdBy: userEmail, createdByEmail: userEmail }
+          );
+        }
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
       }
 
       // Graph sync: if published, update the specific occurrence in Graph
