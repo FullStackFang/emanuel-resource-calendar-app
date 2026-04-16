@@ -453,8 +453,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         graphToken: isGraphEvent ? graphToken : undefined,
         // Include edit scope for recurring events
         editScope: editScope,
-        // For 'thisEvent' scope, include occurrence identification data
-        occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
+        // For 'thisEvent' scope, include occurrence identification data.
+        // Prefer currentItem.occurrenceDate (canonical for exception docs) over
+        // start.dateTime (virtual occurrences only have start.dateTime).
+        occurrenceDate: editScope === 'thisEvent'
+          ? (currentItem.occurrenceDate || currentItem.start?.dateTime)
+          : null,
         seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null
       };
 
@@ -962,8 +966,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           graphToken: graphToken, // Always pass graphToken - backend will use it if needed
           // Include edit scope for recurring events
           editScope: editScope,
-          // For 'thisEvent' scope, include occurrence identification data
-          occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
+          // For 'thisEvent' scope, include occurrence identification data.
+          // Prefer currentItem.occurrenceDate (exception docs) over start.dateTime.
+          occurrenceDate: editScope === 'thisEvent'
+            ? (currentItem.occurrenceDate || currentItem.start?.dateTime)
+            : null,
           seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
           calendarId: currentItem.calendarId,
           _version: eventVersion,
@@ -989,8 +996,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (result.occurrenceExcluded) {
-        // Single occurrence was excluded from series - series still alive
+      if (result.occurrenceExcluded || result.occurrenceDeleted) {
+        // Single occurrence was excluded (master delete path) OR the exception
+        // document itself was soft-deleted (exception/addition delete path).
+        // Both cases: series still alive, just one occurrence removed.
         notifySuccess({ ...result, occurrenceExcluded: true });
       } else {
         notifySuccess({ ...result, deleted: true });
@@ -1212,7 +1221,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         eventVersion,
         editScope,
         occurrenceDate: editScope === 'thisEvent'
-          ? (currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0])
+          ? (currentItem?.occurrenceDate || currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0])
           : undefined,
         seriesMasterId: editScope
           ? (currentItem?.seriesMasterId || currentItem?.graphData?.seriesMasterId || currentItem?.graphData?.id)
