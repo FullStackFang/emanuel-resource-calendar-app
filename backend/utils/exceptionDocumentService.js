@@ -343,6 +343,54 @@ async function cascadeStatusUpdate(collection, seriesMasterEventId, newStatus, o
 }
 
 /**
+ * Resolve the canonical series master document from any related event reference.
+ *
+ * When a caller loads a document by _id, it may be the master, an exception, or
+ * an addition. Per-occurrence write paths must always operate against the master
+ * so that createExceptionDocument/updateExceptionDocument receive the correct
+ * masterEventId. Failing to resolve leads to Bug B: date-suffixed seriesMasterEventId
+ * and double-suffixed eventId corruption on re-edit.
+ *
+ * @param {Collection} collection - templeEvents__Events
+ * @param {Object} event - May be a seriesMaster, exception, or addition document
+ * @returns {Promise<Object>} The series master document (input returned unchanged if already master)
+ * @throws {Error} statusCode=400 OrphanedException if exception has no seriesMasterEventId
+ * @throws {Error} statusCode=404 MasterNotFound if linked master cannot be found
+ * @throws {Error} statusCode=400 InvalidEventType for unsupported eventType values
+ *
+ * NOTE: Master lookup intentionally does NOT filter isDeleted. The allEvents cascade
+ * delete path must reach a soft-deleted master to clean up any surviving live children.
+ */
+async function resolveSeriesMaster(collection, event) {
+  if (event.eventType === EVENT_TYPE.SERIES_MASTER) return event;
+
+  if (event.eventType === EVENT_TYPE.EXCEPTION || event.eventType === EVENT_TYPE.ADDITION) {
+    if (!event.seriesMasterEventId) {
+      const err = new Error('Exception document missing seriesMasterEventId');
+      err.statusCode = 400;
+      err.code = 'OrphanedException';
+      throw err;
+    }
+    const master = await collection.findOne({
+      eventId: event.seriesMasterEventId,
+      eventType: EVENT_TYPE.SERIES_MASTER,
+    });
+    if (!master) {
+      const err = new Error(`Series master '${event.seriesMasterEventId}' not found`);
+      err.statusCode = 404;
+      err.code = 'MasterNotFound';
+      throw err;
+    }
+    return master;
+  }
+
+  const err = new Error(`resolveSeriesMaster: unexpected eventType '${event.eventType}'`);
+  err.statusCode = 400;
+  err.code = 'InvalidEventType';
+  throw err;
+}
+
+/**
  * Soft-delete a single exception document (for single-occurrence deletion).
  *
  * @param {Collection} collection
@@ -399,4 +447,5 @@ module.exports = {
   cascadeDeleteExceptions,
   cascadeStatusUpdate,
   softDeleteException,
+  resolveSeriesMaster,
 };

@@ -24,7 +24,7 @@ const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
@@ -14399,32 +14399,47 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
     if (editScope === 'thisEvent' && occurrenceDate) {
       const dateKey = occurrenceDate.split('T')[0];
 
-      // Validate dateKey falls within series range
       const draft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
       if (!draft) {
         return res.status(404).json({ error: 'Draft not found for occurrence edit' });
       }
-      const recurrence = draft.calendarData?.recurrence || draft.recurrence;
-      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
-      if (!rangeCheck.valid) {
-        return res.status(400).json({ error: rangeCheck.error });
+
+      // Resolve to master: if loaded draft is itself an exception/addition, fetch
+      // its parent master (prevents Bug B seriesMasterEventId corruption on re-edit).
+      let masterDoc;
+      try {
+        masterDoc = await resolveSeriesMaster(unifiedEventsCollection, draft);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      // Validate dateKey falls within series range — skip for addition docs.
+      if (draft.eventType !== EVENT_TYPE.ADDITION) {
+        const recurrence = masterDoc.calendarData?.recurrence || masterDoc.recurrence;
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
       }
 
       // Resolve locations and build override data via shared helpers
       const resolvedLocations = await resolveLocationOverride(locationsCollection, requestedRooms);
       const overrideData = extractOverrideData(req.body, resolvedLocations);
 
-      // Create or update exception document
-      const existingException = await findExceptionForDate(unifiedEventsCollection, draft.eventId, dateKey);
+      // Create or update exception document. Key off masterDoc.eventId, never draft.eventId.
+      const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
       if (existingException) {
         exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, draft, overrideData,
+          unifiedEventsCollection, existingException, masterDoc, overrideData,
           { modifiedBy: req.user?.email }
         );
       } else {
         exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, draft, dateKey, overrideData,
+          unifiedEventsCollection, masterDoc, dateKey, overrideData,
           { createdBy: req.user?.email, createdByEmail: req.user?.email }
         );
       }
@@ -21293,21 +21308,36 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     // --- Occurrence-scoped edit: write to exception document, not calendarData ---
     if (pendingEditRequest.editScope === 'thisEvent' && pendingEditRequest.occurrenceDate) {
       const dateKey = pendingEditRequest.occurrenceDate.split('T')[0];
-      const cd = event.calendarData || {};
       const now = new Date();
 
-      // Validate occurrence date falls within series range
-      const recurrence = cd.recurrence || event.recurrence;
-      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
-      if (!rangeCheck.valid) {
-        return res.status(400).json({ error: rangeCheck.error });
+      // Resolve to master: in edit-request approval path, `event` is almost always
+      // the master (edit requests are filed against the master). But guard anyway
+      // for future robustness — if event is an exception, resolve to its master.
+      let masterDoc;
+      try {
+        masterDoc = await resolveSeriesMaster(unifiedEventsCollection, event);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      // Validate occurrence date falls within series range — skip for addition docs.
+      if (event.eventType !== EVENT_TYPE.ADDITION) {
+        const recurrence = masterDoc.calendarData?.recurrence || masterDoc.recurrence;
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
       }
 
       // Resolve locations and build override data via shared helpers
       const resolvedLocations = await resolveLocationOverride(locationsCollection, finalChanges.requestedRooms || finalChanges.locations);
       const overrideData = extractOverrideData(finalChanges, resolvedLocations);
 
-      // Update pendingEditRequest status to approved on the master document
+      // Update pendingEditRequest status to approved on the document the request
+      // was filed against (event._id — may be master or exception, intentional).
       await unifiedEventsCollection.updateOne(
         { _id: event._id },
         {
@@ -21325,17 +21355,17 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         }
       );
 
-      // Create or update exception document
-      const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
+      // Create or update exception document. Key off masterDoc.eventId.
+      const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
       if (existingException) {
         exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, event, overrideData,
+          unifiedEventsCollection, existingException, masterDoc, overrideData,
           { modifiedBy: userEmail }
         );
       } else {
         exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, event, dateKey, overrideData,
+          unifiedEventsCollection, masterDoc, dateKey, overrideData,
           { createdBy: userEmail, createdByEmail: userEmail }
         );
       }
@@ -22766,28 +22796,45 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     if (updates.editScope === 'thisEvent' && updates.occurrenceDate) {
       const dateKey = updates.occurrenceDate.split('T')[0];
 
-      // Validate dateKey falls within series range
-      const recurrence = event.calendarData?.recurrence || event.recurrence;
-      const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
-      if (!rangeCheck.valid) {
-        return res.status(400).json({ error: rangeCheck.error });
+      // Resolve to master: if loaded event is itself an exception/addition, fetch
+      // its parent master so createExceptionDocument/updateExceptionDocument always
+      // receive the real master (prevents Bug B seriesMasterEventId corruption).
+      let masterDoc;
+      try {
+        masterDoc = await resolveSeriesMaster(unifiedEventsCollection, event);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      // Validate dateKey falls within series range — skip for addition docs
+      // because ad-hoc dates are by definition outside the recurrence pattern.
+      if (event.eventType !== EVENT_TYPE.ADDITION) {
+        const recurrence = masterDoc.calendarData?.recurrence || masterDoc.recurrence;
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
       }
 
       // Resolve locations and build override data via shared helpers
       const resolvedLocations = await resolveLocationOverride(locationsCollection, updates.requestedRooms || updates.locations);
       const overrideData = extractOverrideData(updates, resolvedLocations);
 
-      // Create or update exception document
-      const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
+      // Create or update exception document. Always use masterDoc.eventId as the key
+      // (not event.eventId, which may be a date-suffixed exception eventId).
+      const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
       let exceptionDoc;
       if (existingException) {
         exceptionDoc = await updateExceptionDocument(
-          unifiedEventsCollection, existingException, event, overrideData,
+          unifiedEventsCollection, existingException, masterDoc, overrideData,
           { modifiedBy: userEmail }
         );
       } else {
         exceptionDoc = await createExceptionDocument(
-          unifiedEventsCollection, event, dateKey, overrideData,
+          unifiedEventsCollection, masterDoc, dateKey, overrideData,
           { createdBy: userEmail, createdByEmail: userEmail }
         );
       }

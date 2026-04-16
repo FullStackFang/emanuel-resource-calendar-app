@@ -12,6 +12,16 @@ const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations,
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange } = require('../../utils/occurrenceOverrideUtils');
+const {
+  createExceptionDocument: svcCreateExceptionDocument,
+  updateExceptionDocument: svcUpdateExceptionDocument,
+  findExceptionForDate: svcFindExceptionForDate,
+  cascadeDeleteExceptions: svcCascadeDeleteExceptions,
+  getExceptionsForMaster: svcGetExceptionsForMaster,
+  resolveSeriesMaster: svcResolveSeriesMaster,
+  EVENT_TYPE: SVC_EVENT_TYPE,
+  EXCEPTION_TYPES: SVC_EXCEPTION_TYPES,
+} = require('../../utils/exceptionDocumentService');
 const { extractDatePart } = require('../../utils/dateUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
@@ -4108,12 +4118,101 @@ function createTestApp(options = {}) {
       if (editScope === 'thisEvent' && occurrenceDate) {
         const dateKey = occurrenceDate.split('T')[0];
 
+        // Resolve master — if loaded event is itself an exception/addition, fetch
+        // its parent (prevents Bug B seriesMasterEventId corruption on re-edit).
+        let masterDocForException;
+        try {
+          masterDocForException = await svcResolveSeriesMaster(testCollections.events, event);
+        } catch (resolveErr) {
+          if (resolveErr.statusCode) {
+            return res.status(resolveErr.statusCode).json({ error: resolveErr.code, message: resolveErr.message });
+          }
+          throw resolveErr;
+        }
+
+        // When loaded doc is already an exception/addition, route through the
+        // new service path ONLY — skip legacy occurrenceOverrides array writes
+        // (which would be written to the wrong document anyway).
+        const isInputExceptionDoc = event.eventType === SVC_EVENT_TYPE.EXCEPTION
+          || event.eventType === SVC_EVENT_TYPE.ADDITION;
+
+        if (isInputExceptionDoc) {
+          // Skip range validation for additions (ad-hoc dates outside pattern).
+          if (event.eventType !== SVC_EVENT_TYPE.ADDITION) {
+            const masterRecurrence = masterDocForException.calendarData?.recurrence
+              || masterDocForException.recurrence;
+            const masterRange = masterRecurrence?.range;
+            const masterAdditions = masterRecurrence?.additions || [];
+            if (masterRange?.endDate
+              && (dateKey < masterRange.startDate || dateKey > masterRange.endDate)
+              && !masterAdditions.includes(dateKey)) {
+              return res.status(400).json({ error: 'Occurrence date is outside series range' });
+            }
+          }
+
+          // Build override data from request body.
+          const exOverrideData = {};
+          for (const field of ['startTime', 'endTime', 'eventTitle', 'eventDescription',
+            'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime',
+            'doorOpenTime', 'doorCloseTime', 'categories', 'services', 'assignedTo',
+            'locations', 'locationDisplayNames', 'isOffsite', 'offsiteName', 'offsiteAddress',
+            'attendeeCount', 'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements']) {
+            if (updates[field] !== undefined) exOverrideData[field] = updates[field];
+          }
+
+          const existingException = await svcFindExceptionForDate(
+            testCollections.events, masterDocForException.eventId, dateKey
+          );
+          let resultDoc;
+          if (existingException) {
+            resultDoc = await svcUpdateExceptionDocument(
+              testCollections.events, existingException, masterDocForException, exOverrideData,
+              { modifiedBy: userEmail }
+            );
+          } else {
+            resultDoc = await svcCreateExceptionDocument(
+              testCollections.events, masterDocForException, dateKey, exOverrideData,
+              { createdBy: userEmail, createdByEmail: userEmail }
+            );
+          }
+          return res.json({ success: true, event: resultDoc, graphSynced: false });
+        }
+
+        // Series master input: validate range FIRST, then dual-write exception doc
+        // (new path) + legacy occurrenceOverrides below.
+
         // Validate dateKey falls within series range (additions are valid even outside range)
         const recurrence = event.calendarData?.recurrence || event.recurrence;
         const recRange = recurrence?.range;
         const additions = recurrence?.additions || [];
         if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
           return res.status(400).json({ error: 'Occurrence date is outside series range' });
+        }
+
+        // Dual-write: create/update exception document alongside legacy array.
+        // This matches production's exception-as-document architecture while
+        // preserving legacy occurrenceOverrides assertions in AOE/DOE test suites.
+        const existingException = await svcFindExceptionForDate(
+          testCollections.events, masterDocForException.eventId, dateKey
+        );
+        const masterExOverrideData = {};
+        for (const field of ['startTime', 'endTime', 'eventTitle', 'eventDescription',
+          'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime',
+          'doorOpenTime', 'doorCloseTime', 'categories', 'services', 'assignedTo',
+          'locations', 'locationDisplayNames', 'isOffsite', 'offsiteName', 'offsiteAddress',
+          'attendeeCount', 'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements']) {
+          if (updates[field] !== undefined) masterExOverrideData[field] = updates[field];
+        }
+        if (existingException) {
+          await svcUpdateExceptionDocument(
+            testCollections.events, existingException, masterDocForException, masterExOverrideData,
+            { modifiedBy: userEmail }
+          );
+        } else {
+          await svcCreateExceptionDocument(
+            testCollections.events, masterDocForException, dateKey, masterExOverrideData,
+            { createdBy: userEmail, createdByEmail: userEmail }
+          );
         }
 
         // Build override from changed fields
