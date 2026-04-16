@@ -1975,9 +1975,16 @@ import ConflictDialog from './shared/ConflictDialog';
           });
           return false;
         } else {
-          // No events returned but no errors - this might be legitimate (empty calendar)
-          // Clear events when 0 events returned, regardless of loading strategy
+          // No events returned but no errors
           if (loadResult.count === 0 && loadResult.events?.length === 0) {
+            // Stale-while-revalidate: during a silent background refresh, if events are
+            // currently displayed but the server transiently returned 0, keep the stale
+            // data rather than blanking the calendar. The next poll or a forced refresh
+            // (navigation, manual refresh) will reconcile. Only clear on explicit loads.
+            if (silent && allEventsRef.current.length > 0) {
+              logger.warn(`loadEventsUnified: Silent refresh returned 0 events but ${allEventsRef.current.length} events displayed — keeping stale data (source: ${loadResult.source})`);
+              return false;
+            }
             setAllEvents([]);
             logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
             return true;
@@ -2021,18 +2028,20 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [isDemoMode, loadDemoEvents, loadEventsUnified]);
     loadEventsRef.current = loadEvents;
 
-    // Listen for refresh events from other views (AI chat, reservation requests, etc.)
-    useDataRefreshBus('calendar', useCallback(() => {
-      logger.debug('Data refresh bus triggered calendar refresh');
-      loadEvents(true, null, { silent: true });
-    }, [loadEvents]), !!apiToken && !isDemoMode);
-
-    // Poll for updates every 120s (silent — no loading spinner, skip in demo mode or while modal is open)
-    const silentCalendarRefresh = useCallback(() => {
+    // Shared silent-refresh callback used by both polling and the data-refresh bus.
+    // Accepts forceRefresh so polling (false = use cache) and bus events (true = fresh
+    // data after a real change) can share the same modal guard without duplication.
+    const silentCalendarRefresh = useCallback((forceRefresh = false) => {
       if (reviewModal.isOpen || eventCreation.isOpen) return;
-      loadEvents(false, null, { silent: true });
+      loadEvents(forceRefresh, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventCreation.isOpen]);
+
+    // Poll for updates every 5 min (no spinner, skip while modal is open)
     usePolling(silentCalendarRefresh, 300_000, !!apiToken && !isDemoMode && !initializing);
+
+    // Listen for refresh events from other views (AI chat, reservation requests, etc.)
+    // Bus events signal real data changes (SSE, saves) so force a fresh fetch.
+    useDataRefreshBus('calendar', () => silentCalendarRefresh(true), !!apiToken && !isDemoMode);
 
     // Manual refresh handler for FreshnessIndicator
     const handleManualCalendarRefresh = useCallback(async () => {

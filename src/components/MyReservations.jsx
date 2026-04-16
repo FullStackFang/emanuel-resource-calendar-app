@@ -37,6 +37,9 @@ export default function MyReservations() {
   const [restoreConflicts, setRestoreConflicts] = useState(null);
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  // Tracks in-flight silent polling fetches so the empty state doesn't flash
+  // if the server momentarily returns an empty result during a background refresh.
+  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
 
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
@@ -48,6 +51,8 @@ export default function MyReservations() {
       if (!silent) {
         setLoading(true);
         setError('');
+      } else {
+        setIsSilentRefreshing(true);
       }
 
       const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`);
@@ -67,6 +72,7 @@ export default function MyReservations() {
       }
     } finally {
       if (!silent) setLoading(false);
+      else setIsSilentRefreshing(false);
     }
   }, [authFetch]);
 
@@ -137,15 +143,18 @@ export default function MyReservations() {
     }
   }, [loadMyReservations]);
 
-  // Listen for refresh events from other views (draft submission, approval actions, etc.)
-  useDataRefreshBus('my-reservations', loadMyReservations, !!apiToken);
-
-  // Poll for updates every 5 min (silent — no loading spinner, skip while modal is open)
+  // Poll for updates every 5 min (silent — no loading spinner, skip while modal is open).
+  // Declared before useDataRefreshBus so the bus subscription can reuse the same
+  // silent-refresh callback (previously the bus handler used loadMyReservations
+  // directly, which caused a jarring spinner flash on cross-view refresh events).
   const silentRefresh = useCallback(() => {
     if (reviewModal.isOpen) return;
     return loadMyReservations({ silent: true });
   }, [loadMyReservations, reviewModal.isOpen]);
   usePolling(silentRefresh, 300_000, !!apiToken);
+
+  // Listen for refresh events from other views (draft submission, approval actions, etc.)
+  useDataRefreshBus('my-reservations', silentRefresh, !!apiToken);
 
   // Manual refresh handler for FreshnessIndicator
   const handleManualRefresh = useCallback(async () => {
@@ -637,7 +646,7 @@ export default function MyReservations() {
           );
         })}
 
-        {paginatedReservations.length === 0 && !loading && (
+        {paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
           <div className="mr-empty-state">
             <div className="mr-empty-icon">
               {hasActiveFilters ? '🔍' : '📁'}

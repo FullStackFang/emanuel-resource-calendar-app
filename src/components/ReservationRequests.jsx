@@ -37,6 +37,9 @@ export default function ReservationRequests({ graphToken }) {
   const PAGE_SIZE = 20;
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  // Tracks in-flight silent polling fetches so the empty state doesn't flash
+  // if the server momentarily returns an empty result during a background refresh.
+  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
 
   // Search & date filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -96,6 +99,8 @@ export default function ReservationRequests({ graphToken }) {
       if (!silent) {
         setLoading(true);
         setError('');
+      } else {
+        setIsSilentRefreshing(true);
       }
 
       // Tab-scoped query: 'needs_attention' fetches only actionable events,
@@ -130,6 +135,8 @@ export default function ReservationRequests({ graphToken }) {
     } finally {
       if (!silent) {
         setLoading(false);
+      } else {
+        setIsSilentRefreshing(false);
       }
     }
   }, [authFetch, activeTab]);
@@ -810,7 +817,7 @@ export default function ReservationRequests({ graphToken }) {
           );
         })}
 
-        {paginatedReservations.length === 0 && !loading && (
+        {paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
               {hasActiveFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
