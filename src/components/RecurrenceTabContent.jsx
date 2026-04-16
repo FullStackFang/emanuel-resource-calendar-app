@@ -376,6 +376,7 @@ export default function RecurrenceTabContent({
           reservationStartMinutes: formData?.reservationStartMinutes || reservation?.calendarData?.reservationStartMinutes || 0,
           reservationEndMinutes: formData?.reservationEndMinutes || reservation?.calendarData?.reservationEndMinutes || 0,
           excludeEventId: reservation?._id?.toString?.() || reservation?.id || null,
+          excludeMasterEventId: reservation?.eventId || null,
           isAllowedConcurrent: formData?.isAllowedConcurrent || reservation?.isAllowedConcurrent || false,
           categories: formData?.categories || reservation?.calendarData?.categories || [],
         }),
@@ -660,7 +661,6 @@ export default function RecurrenceTabContent({
     setOccurrenceEdits({});
     setShowRoomPicker(false);
     setShowCategoryPicker(false);
-    setShowSecondaryTimes(false);
   }, [commitPendingEdits]);
 
   // ── Calendar popover actions ─────────────────────────────────

@@ -14,12 +14,13 @@ const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPublishedEvent,
   createRecurringSeriesMaster,
+  createExceptionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS } = require('../../__helpers__/testConstants');
 
-describe('Recurring Batch Conflict Tests (RBC-1 to RBC-8)', () => {
+describe('Recurring Batch Conflict Tests (RBC-1 to RBC-9)', () => {
   let mongoClient;
   let db;
   let app;
@@ -322,6 +323,128 @@ describe('Recurring Batch Conflict Tests (RBC-1 to RBC-8)', () => {
       expect(res.body.totalOccurrences).toBe(62); // Mar 1 to May 1 = 62 days
       expect(res.body.conflictingOccurrences).toBe(1);
       expect(res.body.conflicts[0].occurrenceDate).toBe('2026-03-15');
+    });
+  });
+
+  // RBC-9: excludeEventId also excludes own exception/addition documents (self-conflict prevention)
+  describe('RBC-9: excludeEventId excludes own exception documents', () => {
+    it('should not report own exception documents as conflicts', async () => {
+      const seriesMaster = createRecurringSeriesMaster({
+        eventId: 'series-master-rec-9',
+        status: 'published',
+        eventTitle: 'Test Recur',
+        startDateTime: new Date('2026-03-10T14:00:00'),
+        endDateTime: new Date('2026-03-10T15:00:00'),
+        locations: [roomId],
+        locationDisplayNames: ['Chapel'],
+        recurrence: weeklyTuesdayRecurrence,
+        publishedAt: new Date(),
+        publishedBy: 'admin@test.com',
+      });
+      // Exception with shifted time so it overlaps the recurrence's occurrence on the same date
+      const exceptionDoc = createExceptionDocument(
+        seriesMaster,
+        '2026-03-17',
+        { startTime: '14:30', endTime: '15:30' }
+      );
+      await insertEvents(db, [seriesMaster, exceptionDoc]);
+
+      const res = await request(app)
+        .post('/api/rooms/recurring-conflicts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDateTime: recurringStart,
+          endDateTime: recurringEnd,
+          recurrence: weeklyTuesdayRecurrence,
+          roomIds: [roomId.toString()],
+          excludeEventId: seriesMaster._id.toString(),
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.conflictingOccurrences).toBe(0);
+      expect(res.body.conflicts).toHaveLength(0);
+    });
+
+    it('should still report exception docs from OTHER series as conflicts', async () => {
+      const otherMaster = createRecurringSeriesMaster({
+        eventId: 'series-master-other',
+        status: 'published',
+        eventTitle: 'Other Series',
+        startDateTime: new Date('2026-03-10T14:00:00'),
+        endDateTime: new Date('2026-03-10T15:00:00'),
+        locations: [roomId],
+        locationDisplayNames: ['Chapel'],
+        recurrence: weeklyTuesdayRecurrence,
+        publishedAt: new Date(),
+        publishedBy: 'admin@test.com',
+      });
+      const otherException = createExceptionDocument(
+        otherMaster,
+        '2026-03-17',
+        { startTime: '14:30', endTime: '15:30' }
+      );
+      const sourceEvent = createPublishedEvent({
+        eventId: 'source-evt',
+        eventTitle: 'My New Series',
+        startDateTime: new Date('2026-03-10T14:00:00'),
+        endDateTime: new Date('2026-03-10T15:00:00'),
+        locations: [roomId],
+      });
+      await insertEvents(db, [otherMaster, otherException, sourceEvent]);
+
+      const res = await request(app)
+        .post('/api/rooms/recurring-conflicts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDateTime: recurringStart,
+          endDateTime: recurringEnd,
+          recurrence: weeklyTuesdayRecurrence,
+          roomIds: [roomId.toString()],
+          excludeEventId: sourceEvent._id.toString(),
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.conflictingOccurrences).toBeGreaterThanOrEqual(1);
+      const march17 = res.body.conflicts.find(c => c.occurrenceDate === '2026-03-17');
+      expect(march17).toBeDefined();
+      expect(march17.hardConflicts.length).toBeGreaterThan(0);
+    });
+
+    it('should honor caller-provided excludeMasterEventId without needing the DB lookup', async () => {
+      // Source master not even inserted into DB — proves the lookup path is bypassed
+      const masterEventId = 'series-master-rec-9c';
+      const exceptionDoc = createExceptionDocument(
+        // synthetic master object just for createExceptionDocument inheritance
+        {
+          eventId: masterEventId,
+          status: 'published',
+          calendarData: {
+            eventTitle: 'Hot Path Test',
+            startTime: '14:00',
+            endTime: '15:00',
+            locations: [roomId],
+            locationDisplayNames: ['Chapel'],
+          },
+          createdBy: 'admin',
+        },
+        '2026-03-17',
+        { startTime: '14:30', endTime: '15:30' }
+      );
+      await insertEvents(db, [exceptionDoc]);
+
+      const res = await request(app)
+        .post('/api/rooms/recurring-conflicts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDateTime: recurringStart,
+          endDateTime: recurringEnd,
+          recurrence: weeklyTuesdayRecurrence,
+          roomIds: [roomId.toString()],
+          excludeMasterEventId: masterEventId,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.conflictingOccurrences).toBe(0);
     });
   });
 

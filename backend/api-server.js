@@ -2709,6 +2709,7 @@ async function checkRecurringRoomConflicts(params) {
     reservationStartMinutes,
     reservationEndMinutes,
     excludeEventId = null,
+    excludeMasterEventId = null,
     isAllowedConcurrent = false,
     categories = [],
   } = params;
@@ -2721,6 +2722,24 @@ async function checkRecurringRoomConflicts(params) {
   const allOccurrences = expandAllOccurrences(recurrence, startDateTime, endDateTime);
   if (allOccurrences.length === 0) {
     return { totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] };
+  }
+
+  // Resolve the source's eventId so we can also exclude its own exception/addition docs
+  // (which inherit status='published' and the same rooms — would otherwise self-conflict).
+  // Frontend hot path passes excludeMasterEventId directly to skip the lookup.
+  let excludeSeriesEventId = excludeMasterEventId || null;
+  if (!excludeSeriesEventId && excludeEventId) {
+    try {
+      const sourceEvent = await withCosmosRetry(() =>
+        unifiedEventsCollection.findOne(
+          { _id: new ObjectId(excludeEventId) },
+          { projection: { _id: 0, eventId: 1 } }
+        )
+      );
+      if (sourceEvent?.eventId) {
+        excludeSeriesEventId = sourceEvent.eventId;
+      }
+    } catch (_) { /* invalid ObjectId — skip series-children exclusion */ }
   }
 
   const pad = (n) => String(n).padStart(2, '0');
@@ -2755,6 +2774,10 @@ async function checkRecurringRoomConflicts(params) {
   };
   if (excludeEventId) {
     query._id = { $ne: new ObjectId(excludeEventId) };
+  }
+  if (excludeSeriesEventId) {
+    // Exclude exception/addition documents whose master is the source event itself
+    query.seriesMasterEventId = { $ne: excludeSeriesEventId };
   }
 
   const potentialConflicts = await withCosmosRetry(() =>
@@ -14010,6 +14033,7 @@ app.post('/api/rooms/recurring-conflicts', verifyToken, async (req, res) => {
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
       excludeEventId = null,
+      excludeMasterEventId = null,
       isAllowedConcurrent = false,
       categories = [],
     } = req.body;
@@ -14037,6 +14061,7 @@ app.post('/api/rooms/recurring-conflicts', verifyToken, async (req, res) => {
       setupTimeMinutes: parseInt(setupTimeMinutes) || 0,
       teardownTimeMinutes: parseInt(teardownTimeMinutes) || 0,
       excludeEventId,
+      excludeMasterEventId,
       isAllowedConcurrent,
       categories,
     });

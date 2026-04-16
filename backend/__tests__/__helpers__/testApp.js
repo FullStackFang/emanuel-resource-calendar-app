@@ -431,7 +431,7 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
     startDateTime, endDateTime, recurrence, roomIds,
     setupTimeMinutes = 0, teardownTimeMinutes = 0,
     reservationStartMinutes, reservationEndMinutes,
-    excludeEventId = null, isAllowedConcurrent = false,
+    excludeEventId = null, excludeMasterEventId = null, isAllowedConcurrent = false,
   } = params;
 
   const effectiveSetupMinutes = reservationStartMinutes ?? setupTimeMinutes ?? 0;
@@ -463,6 +463,21 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
   const spanEffectiveStart = occurrenceWindows[0].effectiveStart;
   const spanEffectiveEnd = occurrenceWindows[occurrenceWindows.length - 1].effectiveEnd;
 
+  // Resolve source's eventId so we can also exclude its own exception/addition docs.
+  // Caller hot path passes excludeMasterEventId directly to skip the lookup.
+  let excludeSeriesEventId = excludeMasterEventId || null;
+  if (!excludeSeriesEventId && excludeIdObj) {
+    try {
+      const sourceEvent = await eventsCollection.findOne(
+        { _id: excludeIdObj },
+        { projection: { _id: 0, eventId: 1 } }
+      );
+      if (sourceEvent?.eventId) {
+        excludeSeriesEventId = sourceEvent.eventId;
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   const query = {
     status: 'published',
     eventType: { $ne: 'seriesMaster' },
@@ -474,6 +489,7 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
     'calendarData.endDateTime': { $gt: spanEffectiveStart },
   };
   if (excludeIdObj) query._id = { $ne: excludeIdObj };
+  if (excludeSeriesEventId) query.seriesMasterEventId = { $ne: excludeSeriesEventId };
 
   const potentialConflicts = await eventsCollection.find(query).toArray();
 
@@ -5526,7 +5542,7 @@ function createTestApp(options = {}) {
         startDateTime, endDateTime, recurrence, roomIds,
         setupTimeMinutes = 0, teardownTimeMinutes = 0,
         reservationStartMinutes, reservationEndMinutes,
-        excludeEventId = null, isAllowedConcurrent = false, categories = [],
+        excludeEventId = null, excludeMasterEventId = null, isAllowedConcurrent = false, categories = [],
       } = req.body;
 
       if (!startDateTime || !endDateTime) {
@@ -5549,7 +5565,7 @@ function createTestApp(options = {}) {
         teardownTimeMinutes: parseInt(teardownTimeMinutes) || 0,
         reservationStartMinutes: reservationStartMinutes ?? (parseInt(setupTimeMinutes) || 0),
         reservationEndMinutes: reservationEndMinutes ?? (parseInt(teardownTimeMinutes) || 0),
-        excludeEventId, isAllowedConcurrent, categories,
+        excludeEventId, excludeMasterEventId, isAllowedConcurrent, categories,
       }, testCollections.events);
 
       res.json(result);

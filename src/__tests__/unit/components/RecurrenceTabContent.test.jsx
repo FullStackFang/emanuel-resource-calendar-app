@@ -32,6 +32,12 @@ vi.mock('../../../utils/logger', () => ({
   logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
+// Mock LocationContext (component calls useRooms() during render)
+vi.mock('../../../context/LocationContext', () => ({
+  useRooms: () => ({ rooms: [], getLocationName: (id) => id }),
+  useLocations: () => ({ locations: [], rooms: [], getLocationName: (id) => id }),
+}));
+
 import RecurrenceTabContent from '../../../components/RecurrenceTabContent';
 
 const weeklyPattern = {
@@ -293,8 +299,8 @@ describe('RecurrenceTabContent', () => {
       const rows = container.querySelectorAll('.recurrence-occ-main');
       expect(rows.length).toBeGreaterThan(0);
       fireEvent.click(rows[0]);
-      // Should show back button
-      expect(screen.getByText(/back to list/i)).toBeInTheDocument();
+      // Should show back button (icon-only, identified by class)
+      expect(container.querySelector('.recurrence-back-btn')).toBeInTheDocument();
     });
 
     it('detail view shows editable fields for non-excluded occurrence', () => {
@@ -317,8 +323,25 @@ describe('RecurrenceTabContent', () => {
       );
       const rows = container.querySelectorAll('.recurrence-occ-main');
       fireEvent.click(rows[0]);
-      fireEvent.click(screen.getByText(/back to list/i));
+      fireEvent.click(container.querySelector('.recurrence-back-btn'));
       expect(container.querySelector('.recurrence-tab-list-header')).toBeInTheDocument();
+    });
+
+    it('back to list does not throw any errors (regression: setShowSecondaryTimes orphan)', () => {
+      // React swallows errors thrown in event handlers and logs them via console.error.
+      // Spy on console.error to catch any uncaught reference errors during the round-trip.
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      const rows = container.querySelectorAll('.recurrence-occ-main');
+      fireEvent.click(rows[0]);
+      fireEvent.click(container.querySelector('.recurrence-back-btn'));
+      // No React-logged errors (e.g., ReferenceError) should have surfaced
+      const errorMessages = errorSpy.mock.calls.map(args => String(args[0])).join('\n');
+      expect(errorMessages).not.toMatch(/setShowSecondaryTimes is not defined/);
+      expect(errorMessages).not.toMatch(/ReferenceError/);
+      errorSpy.mockRestore();
     });
 
     it('excluded occurrence shows restore action, no editable fields', () => {
