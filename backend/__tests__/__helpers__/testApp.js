@@ -1995,13 +1995,8 @@ function createTestApp(options = {}) {
         }
       }
 
-      // If already deleted, return early
-      if (event.isDeleted) {
-        return res.json({
-          success: true,
-          message: 'Event already deleted',
-        });
-      }
+      // NOTE: isDeleted early-return moved below exception-branch so the new
+      // branch can return a proper 409 AlreadyDeleted for exception re-deletes.
 
       const { editScope, occurrenceDate, _version, reason } = req.body;
 
@@ -2010,6 +2005,182 @@ function createTestApp(options = {}) {
       const isRequesterDelete = isOwner && !isAdminUser && !isApprover;
       if (isRequesterDelete && event.status === 'pending' && (!reason || !reason.trim())) {
         return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
+      }
+
+      // ─── EXCEPTION/ADDITION DELETE BRANCH (Bug A fix, mirrors production) ───
+      const isExceptionDocInput = event.eventType === SVC_EVENT_TYPE.EXCEPTION
+        || event.eventType === SVC_EVENT_TYPE.ADDITION;
+
+      if (isExceptionDocInput) {
+        let masterEvent;
+        try {
+          masterEvent = await svcResolveSeriesMaster(testCollections.events, event);
+        } catch (resolveErr) {
+          if (resolveErr.statusCode) {
+            return res.status(resolveErr.statusCode).json({ error: resolveErr.code, message: resolveErr.message });
+          }
+          throw resolveErr;
+        }
+
+        // allEvents: cascade master + children + Graph events
+        if (editScope === 'allEvents') {
+          const liveChildren = await svcGetExceptionsForMaster(
+            testCollections.events, masterEvent.eventId
+          );
+          for (const child of liveChildren) {
+            if (child.graphEventId && masterEvent.calendarOwner) {
+              try {
+                await graphApiMock.deleteCalendarEvent(
+                  masterEvent.calendarOwner, masterEvent.calendarId || null, child.graphEventId
+                );
+              } catch (_) { /* 404/other non-fatal */ }
+            }
+          }
+          const masterGraphId = masterEvent.graphData?.id;
+          if (masterGraphId && masterEvent.calendarOwner) {
+            try {
+              await graphApiMock.deleteCalendarEvent(
+                masterEvent.calendarOwner, masterEvent.calendarId || null, masterGraphId
+              );
+            } catch (_) { /* non-fatal */ }
+          }
+          const cascadeCount = await svcCascadeDeleteExceptions(
+            testCollections.events, masterEvent.eventId,
+            { deletedBy: userEmail, reason: reason?.trim() || 'Series deleted via exception card' }
+          );
+          const nowCascade = new Date();
+          await testCollections.events.updateOne(
+            { _id: masterEvent._id },
+            {
+              $set: {
+                status: 'deleted', isDeleted: true,
+                deletedAt: nowCascade, deletedBy: userId,
+                pendingEditRequest: null,
+              },
+              $inc: { _version: 1 },
+              $push: {
+                statusHistory: {
+                  status: 'deleted', changedAt: nowCascade,
+                  changedBy: userId, changedByEmail: userEmail,
+                  reason: reason?.trim() || 'Series deleted via exception card',
+                }
+              }
+            }
+          );
+          return res.json({
+            success: true, cascaded: true,
+            masterEventId: masterEvent.eventId,
+            childrenDeleted: cascadeCount,
+          });
+        }
+
+        // thisEvent or null: soft-delete this exception only
+        const dateKey = event.occurrenceDate;
+        if (!dateKey) {
+          return res.status(400).json({
+            error: 'MissingOccurrenceDate',
+            message: 'Exception document is missing occurrenceDate field'
+          });
+        }
+
+        // Already-deleted idempotency check (before Graph delete — avoid double-call)
+        if (event.isDeleted) {
+          return res.status(409).json({
+            error: 'AlreadyDeleted',
+            details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
+          });
+        }
+
+        // OCC check on exception
+        if (_version != null && event._version != null && event._version !== _version) {
+          return res.status(409).json({
+            error: 'VERSION_CONFLICT',
+            details: {
+              code: 'VERSION_CONFLICT',
+              expectedVersion: _version,
+              currentVersion: event._version
+            }
+          });
+        }
+
+        // Delete exception's own graphEventId (NOT master's graphData.id)
+        let exGraphDeleted = false;
+        if (event.graphEventId && event.calendarOwner) {
+          try {
+            await graphApiMock.deleteCalendarEvent(
+              event.calendarOwner, event.calendarId || null, event.graphEventId
+            );
+            exGraphDeleted = true;
+          } catch (_) { exGraphDeleted = true; }
+        }
+
+        const nowEx = new Date();
+        const softDeleteRes = await testCollections.events.updateOne(
+          { _id: new ObjectId(eventId), isDeleted: { $ne: true } },
+          {
+            $set: {
+              isDeleted: true, status: 'deleted',
+              deletedAt: nowEx, deletedBy: userId, deletedByEmail: userEmail,
+            },
+            $inc: { _version: 1 },
+            $push: {
+              statusHistory: {
+                status: 'deleted', changedAt: nowEx,
+                changedBy: userId, changedByEmail: userEmail,
+                reason: reason?.trim() || `Occurrence ${dateKey} deleted`,
+              }
+            }
+          }
+        );
+
+        if (softDeleteRes.modifiedCount === 0) {
+          return res.status(409).json({
+            error: 'AlreadyDeleted',
+            details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
+          });
+        }
+
+        // Exclusion only for 'exception' type, not 'addition'
+        let masterExclusionAdded = false;
+        if (event.eventType === SVC_EVENT_TYPE.EXCEPTION) {
+          const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
+          if (masterRecurrence) {
+            const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
+            await testCollections.events.updateOne(
+              { _id: masterEvent._id },
+              {
+                $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
+                $inc: { _version: 1 },
+                $set: { lastModifiedDateTime: nowEx, lastModifiedBy: userEmail },
+                $push: {
+                  statusHistory: {
+                    status: masterEvent.status, changedAt: nowEx,
+                    changedBy: userId, changedByEmail: userEmail,
+                    reason: `Occurrence ${dateKey} excluded (exception deleted)`,
+                  }
+                }
+              }
+            );
+            masterExclusionAdded = true;
+          }
+        }
+
+        const finalDoc = await testCollections.events.findOne({ _id: new ObjectId(eventId) });
+        return res.json({
+          success: true, occurrenceDeleted: true,
+          deletedDate: dateKey, eventType: event.eventType,
+          masterExclusionAdded, graphDeleted: exGraphDeleted,
+          _version: finalDoc._version,
+        });
+      }
+      // ─── END EXCEPTION/ADDITION BRANCH ───────────────────────────────────
+
+      // If already deleted (non-exception path), return early
+      if (event.isDeleted) {
+        return res.json({
+          success: true,
+          message: 'Event already deleted',
+        });
       }
 
       // Handle single occurrence deletion for recurring events

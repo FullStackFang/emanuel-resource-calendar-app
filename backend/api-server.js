@@ -24197,6 +24197,200 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       hasEventId: !!event.eventId
     });
 
+    // ─── EXCEPTION/ADDITION DELETE BRANCH (Bug A fix) ──────────────────────
+    // When the document itself is an exception or addition (not a series master),
+    // route through dedicated logic that understands the parent master link.
+    //   - editScope: 'allEvents' → cascade delete master + all children + Graph events
+    //   - editScope: 'thisEvent' (or null) → soft-delete this doc; for exceptions,
+    //     also add occurrenceDate to master's recurrence.exclusions so the virtual
+    //     slot does not re-appear (additions skip this since they were never in pattern).
+    const isExceptionDocInput = event.eventType === EVENT_TYPE.EXCEPTION
+      || event.eventType === EVENT_TYPE.ADDITION;
+
+    if (isExceptionDocInput) {
+      let masterEvent;
+      try {
+        masterEvent = await resolveSeriesMaster(unifiedEventsCollection, event);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      // ── editScope: 'allEvents' — cascade everything ─────────────────────
+      if (editScope === 'allEvents') {
+        // Delete each live child's own Graph event (cascadeDeleteExceptions
+        // only handles MongoDB soft-delete, not Graph cascade).
+        const liveChildren = await getExceptionsForMaster(
+          unifiedEventsCollection, masterEvent.eventId
+        );
+        for (const child of liveChildren) {
+          if (child.graphEventId && masterEvent.calendarOwner) {
+            try {
+              await graphApiService.deleteCalendarEvent(
+                masterEvent.calendarOwner,
+                masterEvent.calendarId || null,
+                child.graphEventId
+              );
+            } catch (gErr) {
+              if (!gErr.message?.includes('404') && gErr.status !== 404) {
+                logger.warn('Graph delete failed for child exception:', gErr.message);
+              }
+            }
+          }
+        }
+
+        // Delete master's own Graph event.
+        const masterGraphId = masterEvent.graphData?.id;
+        if (masterGraphId && masterEvent.calendarOwner) {
+          try {
+            await graphApiService.deleteCalendarEvent(
+              masterEvent.calendarOwner,
+              masterEvent.calendarId || null,
+              masterGraphId
+            );
+          } catch (gErr) {
+            if (!gErr.message?.includes('404') && gErr.status !== 404) {
+              logger.warn('Graph delete failed for master:', gErr.message);
+            }
+          }
+        }
+
+        // MongoDB cascade for all surviving children.
+        const cascadeCount = await cascadeDeleteExceptions(
+          unifiedEventsCollection, masterEvent.eventId,
+          { deletedBy: userEmail, reason: reason?.trim() || 'Series deleted via exception card' }
+        );
+
+        // Soft-delete the master with null OCC (client only has exception's _version).
+        try {
+          await conditionalUpdate(
+            unifiedEventsCollection,
+            { _id: masterEvent._id },
+            {
+              $set: {
+                status: 'deleted', isDeleted: true,
+                deletedAt: new Date(), deletedBy: userId, deletedByEmail: userEmail,
+                pendingEditRequest: null,
+              },
+              $push: {
+                statusHistory: {
+                  status: 'deleted', changedAt: new Date(),
+                  changedBy: userId, changedByEmail: userEmail,
+                  reason: reason?.trim() || 'Series deleted via exception card',
+                }
+              }
+            },
+            { expectedVersion: null, modifiedBy: userEmail, snapshotFields: CONFLICT_SNAPSHOT_FIELDS }
+          );
+        } catch (err) {
+          if (err.statusCode === 409) return res.status(409).json(err.toJSON());
+          throw err;
+        }
+
+        return res.json({
+          success: true, cascaded: true,
+          masterEventId: masterEvent.eventId,
+          childrenDeleted: cascadeCount,
+        });
+      }
+
+      // ── editScope: 'thisEvent' or null — soft-delete this exception only ──
+      const dateKey = event.occurrenceDate;
+      if (!dateKey) {
+        return res.status(400).json({
+          error: 'MissingOccurrenceDate',
+          message: 'Exception document is missing occurrenceDate field'
+        });
+      }
+
+      // Delete exception's OWN graphEventId (NOT master's graphData.id).
+      let exGraphDeleted = false;
+      if (event.graphEventId && event.calendarOwner) {
+        try {
+          await graphApiService.deleteCalendarEvent(
+            event.calendarOwner, event.calendarId || null, event.graphEventId
+          );
+          exGraphDeleted = true;
+        } catch (gErr) {
+          if (gErr.message?.includes('404') || gErr.status === 404) exGraphDeleted = true;
+          else logger.warn('Non-fatal: Graph delete for exception failed:', gErr.message);
+        }
+      }
+
+      // Soft-delete with OCC + isDeleted guard (idempotency).
+      let deletedExDoc;
+      try {
+        deletedExDoc = await conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: new ObjectId(id), isDeleted: { $ne: true } },
+          {
+            $set: {
+              isDeleted: true, status: 'deleted',
+              deletedAt: new Date(), deletedBy: userId, deletedByEmail: userEmail,
+            },
+            $push: {
+              statusHistory: {
+                status: 'deleted', changedAt: new Date(),
+                changedBy: userId, changedByEmail: userEmail,
+                reason: reason?.trim() || `Occurrence ${dateKey} deleted`,
+              }
+            }
+          },
+          { expectedVersion: _version || null, modifiedBy: userEmail, snapshotFields: CONFLICT_SNAPSHOT_FIELDS }
+        );
+      } catch (err) {
+        if (err.statusCode === 409) return res.status(409).json(err.toJSON());
+        throw err;
+      }
+
+      if (!deletedExDoc) {
+        // Filter excluded the doc — already deleted.
+        return res.status(409).json({
+          error: 'AlreadyDeleted',
+          details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
+        });
+      }
+
+      // For 'exception' (NOT 'addition'), add date to master's exclusions.
+      // Skipped if master has no recurrence (log + continue — do not block delete).
+      let masterExclusionAdded = false;
+      if (event.eventType === EVENT_TYPE.EXCEPTION) {
+        const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
+        if (!masterRecurrence) {
+          logger.warn('Master has no recurrence; cannot add exclusion:', masterEvent.eventId);
+        } else {
+          const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
+          // Bare updateOne + $addToSet (idempotent under concurrency, no false 409s).
+          await unifiedEventsCollection.updateOne(
+            { _id: masterEvent._id },
+            {
+              $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
+              $inc: { _version: 1 },
+              $set: { lastModifiedDateTime: new Date(), lastModifiedBy: userEmail },
+              $push: {
+                statusHistory: {
+                  status: masterEvent.status, changedAt: new Date(),
+                  changedBy: userId, changedByEmail: userEmail,
+                  reason: `Occurrence ${dateKey} excluded (exception deleted)`,
+                }
+              }
+            }
+          );
+          masterExclusionAdded = true;
+        }
+      }
+
+      return res.json({
+        success: true, occurrenceDeleted: true,
+        deletedDate: dateKey, eventType: event.eventType,
+        masterExclusionAdded, graphDeleted: exGraphDeleted,
+        _version: deletedExDoc._version,
+      });
+    }
+    // ─── END EXCEPTION/ADDITION BRANCH ────────────────────────────────────
+
     let graphDeleted = false;
 
     // Step 2: If event has a Graph event ID, delete from Microsoft Graph first
