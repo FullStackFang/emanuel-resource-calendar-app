@@ -137,6 +137,16 @@ async function migrate() {
     for (let i = 0; i < malformed.length; i += BATCH_SIZE) {
       const batch = malformed.slice(i, i + BATCH_SIZE);
 
+      // Batch-fetch masters for the whole batch in one query (avoids N+1 findOne).
+      const batchMasterUuids = [...new Set(
+        batch.map(d => stripDateSuffixes(d.seriesMasterEventId)).filter(Boolean)
+      )];
+      const batchMasters = await collection.find(
+        { eventId: { $in: batchMasterUuids }, eventType: EVENT_TYPE.SERIES_MASTER },
+        { projection: { _id: 1, eventId: 1 } }
+      ).toArray();
+      const masterByEventId = new Map(batchMasters.map(m => [m.eventId, m]));
+
       for (const doc of batch) {
         const correctMasterUuid = stripDateSuffixes(doc.seriesMasterEventId);
 
@@ -148,11 +158,7 @@ async function migrate() {
           continue;
         }
 
-        // Verify master exists
-        const master = await collection.findOne(
-          { eventId: correctMasterUuid, eventType: EVENT_TYPE.SERIES_MASTER },
-          { projection: { _id: 1 } }
-        );
+        const master = masterByEventId.get(correctMasterUuid);
         if (!master) {
           missingMaster++;
           if (isDryRun) {

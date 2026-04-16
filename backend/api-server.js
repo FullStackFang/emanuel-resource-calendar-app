@@ -24220,42 +24220,32 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // ── editScope: 'allEvents' — cascade everything ─────────────────────
       if (editScope === 'allEvents') {
-        // Delete each live child's own Graph event (cascadeDeleteExceptions
-        // only handles MongoDB soft-delete, not Graph cascade).
+        // Delete children's Graph events AND master's Graph event in parallel
+        // (cascadeDeleteExceptions only handles MongoDB soft-delete, not Graph).
         const liveChildren = await getExceptionsForMaster(
           unifiedEventsCollection, masterEvent.eventId
         );
+        const graphDeleteTargets = [];
         for (const child of liveChildren) {
           if (child.graphEventId && masterEvent.calendarOwner) {
-            try {
-              await graphApiService.deleteCalendarEvent(
-                masterEvent.calendarOwner,
-                masterEvent.calendarId || null,
-                child.graphEventId
-              );
-            } catch (gErr) {
-              if (!gErr.message?.includes('404') && gErr.status !== 404) {
-                logger.warn('Graph delete failed for child exception:', gErr.message);
-              }
-            }
+            graphDeleteTargets.push({ gId: child.graphEventId, label: 'child exception' });
           }
         }
-
-        // Delete master's own Graph event.
         const masterGraphId = masterEvent.graphData?.id;
         if (masterGraphId && masterEvent.calendarOwner) {
+          graphDeleteTargets.push({ gId: masterGraphId, label: 'master' });
+        }
+        await Promise.allSettled(graphDeleteTargets.map(async ({ gId, label }) => {
           try {
             await graphApiService.deleteCalendarEvent(
-              masterEvent.calendarOwner,
-              masterEvent.calendarId || null,
-              masterGraphId
+              masterEvent.calendarOwner, masterEvent.calendarId || null, gId
             );
           } catch (gErr) {
             if (!gErr.message?.includes('404') && gErr.status !== 404) {
-              logger.warn('Graph delete failed for master:', gErr.message);
+              logger.warn(`Graph delete failed for ${label}:`, gErr.message);
             }
           }
-        }
+        }));
 
         // MongoDB cascade for all surviving children.
         const cascadeCount = await cascadeDeleteExceptions(
@@ -24355,12 +24345,14 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // For 'exception' (NOT 'addition'), add date to master's exclusions.
       // Skipped if master has no recurrence (log + continue — do not block delete).
+      // Skipped if date is already excluded (avoid no-op version bumps / duplicate
+      // statusHistory entries on delete retries).
       let masterExclusionAdded = false;
       if (event.eventType === EVENT_TYPE.EXCEPTION) {
         const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
         if (!masterRecurrence) {
           logger.warn('Master has no recurrence; cannot add exclusion:', masterEvent.eventId);
-        } else {
+        } else if (!(masterRecurrence.exclusions || []).includes(dateKey)) {
           const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
           // Bare updateOne + $addToSet (idempotent under concurrency, no false 409s).
           await unifiedEventsCollection.updateOne(

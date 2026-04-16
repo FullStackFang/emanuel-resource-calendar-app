@@ -11,7 +11,7 @@ const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, canApproveReservations, hasRole, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
-const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange } = require('../../utils/occurrenceOverrideUtils');
+const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('../../utils/occurrenceOverrideUtils');
 const {
   createExceptionDocument: svcCreateExceptionDocument,
   updateExceptionDocument: svcUpdateExceptionDocument,
@@ -2022,28 +2022,26 @@ function createTestApp(options = {}) {
           throw resolveErr;
         }
 
-        // allEvents: cascade master + children + Graph events
+        // allEvents: cascade master + children + Graph events (parallel)
         if (editScope === 'allEvents') {
           const liveChildren = await svcGetExceptionsForMaster(
             testCollections.events, masterEvent.eventId
           );
+          const graphDeleteTargets = [];
           for (const child of liveChildren) {
             if (child.graphEventId && masterEvent.calendarOwner) {
-              try {
-                await graphApiMock.deleteCalendarEvent(
-                  masterEvent.calendarOwner, masterEvent.calendarId || null, child.graphEventId
-                );
-              } catch (_) { /* 404/other non-fatal */ }
+              graphDeleteTargets.push(child.graphEventId);
             }
           }
           const masterGraphId = masterEvent.graphData?.id;
           if (masterGraphId && masterEvent.calendarOwner) {
-            try {
-              await graphApiMock.deleteCalendarEvent(
-                masterEvent.calendarOwner, masterEvent.calendarId || null, masterGraphId
-              );
-            } catch (_) { /* non-fatal */ }
+            graphDeleteTargets.push(masterGraphId);
           }
+          await Promise.allSettled(graphDeleteTargets.map(gId =>
+            graphApiMock.deleteCalendarEvent(
+              masterEvent.calendarOwner, masterEvent.calendarId || null, gId
+            ).catch(() => { /* 404/other non-fatal */ })
+          ));
           const cascadeCount = await svcCascadeDeleteExceptions(
             testCollections.events, masterEvent.eventId,
             { deletedBy: userEmail, reason: reason?.trim() || 'Series deleted via exception card' }
@@ -2140,11 +2138,12 @@ function createTestApp(options = {}) {
           });
         }
 
-        // Exclusion only for 'exception' type, not 'addition'
+        // Exclusion only for 'exception' type, not 'addition'.
+        // Skip if date already excluded (avoid no-op version bumps on retries).
         let masterExclusionAdded = false;
         if (event.eventType === SVC_EVENT_TYPE.EXCEPTION) {
           const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
-          if (masterRecurrence) {
+          if (masterRecurrence && !(masterRecurrence.exclusions || []).includes(dateKey)) {
             const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
             await testCollections.events.updateOne(
               { _id: masterEvent._id },
@@ -4321,15 +4320,11 @@ function createTestApp(options = {}) {
             }
           }
 
-          // Build override data from request body.
-          const exOverrideData = {};
-          for (const field of ['startTime', 'endTime', 'eventTitle', 'eventDescription',
-            'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime',
-            'doorOpenTime', 'doorCloseTime', 'categories', 'services', 'assignedTo',
-            'locations', 'locationDisplayNames', 'isOffsite', 'offsiteName', 'offsiteAddress',
-            'attendeeCount', 'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements']) {
-            if (updates[field] !== undefined) exOverrideData[field] = updates[field];
-          }
+          // Build override data via shared helper (matches production api-server.js).
+          const exResolvedLocations = await resolveLocationOverride(
+            testCollections.locations, updates.requestedRooms || updates.locations
+          );
+          const exOverrideData = extractOverrideData(updates, exResolvedLocations);
 
           const existingException = await svcFindExceptionForDate(
             testCollections.events, masterDocForException.eventId, dateKey
@@ -4366,14 +4361,10 @@ function createTestApp(options = {}) {
         const existingException = await svcFindExceptionForDate(
           testCollections.events, masterDocForException.eventId, dateKey
         );
-        const masterExOverrideData = {};
-        for (const field of ['startTime', 'endTime', 'eventTitle', 'eventDescription',
-          'setupTime', 'teardownTime', 'reservationStartTime', 'reservationEndTime',
-          'doorOpenTime', 'doorCloseTime', 'categories', 'services', 'assignedTo',
-          'locations', 'locationDisplayNames', 'isOffsite', 'offsiteName', 'offsiteAddress',
-          'attendeeCount', 'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements']) {
-          if (updates[field] !== undefined) masterExOverrideData[field] = updates[field];
-        }
+        const masterResolvedLocations = await resolveLocationOverride(
+          testCollections.locations, updates.requestedRooms || updates.locations
+        );
+        const masterExOverrideData = extractOverrideData(updates, masterResolvedLocations);
         if (existingException) {
           await svcUpdateExceptionDocument(
             testCollections.events, existingException, masterDocForException, masterExOverrideData,
