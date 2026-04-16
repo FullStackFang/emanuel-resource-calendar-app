@@ -139,32 +139,51 @@ Time-of-day inputs (`startTime`, `endTime`, `setupTime`, `doorOpenTime`, `doorCl
 
 ### Requirement: Server rejects occurrence date mutations
 
-The `PUT /api/room-reservations/:id/edit` endpoint SHALL reject requests that attempt to change the `startDate` or `endDate` of an occurrence or exception document (any document whose `eventType === 'occurrence'` OR that is otherwise identified as an exception). Rejection SHALL return HTTP `400` with a response body containing `{ code: 'DATE_IMMUTABLE', message: <user-readable explanation> }`. The update MUST NOT be partially applied.
+Every backend endpoint that writes occurrence or exception documents on an `editScope: 'thisEvent'` request SHALL reject requests that attempt to change the `startDate` or `endDate` to a value different from the request body's `occurrenceDate`. The endpoints in scope are:
 
-Requests that modify only time-of-day fields (and leave `startDate` / `endDate` matching the persisted values) SHALL be accepted and processed normally. Same-value re-sends of `startDate` / `endDate` SHALL be treated as a no-op diff and accepted (the guard compares values, not presence).
+- `PUT /api/admin/events/:id` (thisEvent block at `backend/api-server.js:22795`)
+- `PUT /api/room-reservations/draft/:id` (thisEvent block at `backend/api-server.js:14399`)
+- `POST /api/admin/events/:id/publish-edit` (thisEvent block at `backend/api-server.js:21309`)
 
-The check SHALL apply unconditionally to all callers — including any frontend build and any direct API client — so the immutability guarantee cannot be bypassed by a misbehaving or outdated UI.
+Rejection SHALL return HTTP `400` with a response body containing `{ code: 'DATE_IMMUTABLE', message: <user-readable explanation> }`. The update MUST NOT be partially applied — the rejection fires before any write to the exception document or its master.
 
-#### Scenario: Date-change attempt on an occurrence is rejected (AC-D4)
-- **WHEN** a `PUT /api/room-reservations/:id/edit` request targets an occurrence document with persisted `startDate = '2026-04-22'`
-- **AND** the request body contains `startDate = '2026-04-23'`
+Requests that modify only time-of-day fields (and leave `startDate` / `endDate` matching `occurrenceDate`) SHALL be accepted and processed normally. Same-value re-sends of `startDate` / `endDate` where the body's value equals `occurrenceDate` SHALL be treated as a no-op diff and accepted — the guard compares values, not presence.
+
+The check SHALL be implemented as a shared helper (`validateOccurrenceDateNotChanged(incomingBody, occurrenceDate)`) exported from `backend/utils/exceptionDocumentService.js`, invoked at all three call sites so the immutability behavior is consistent regardless of entry point. The anchor for comparison SHALL be the request body's `occurrenceDate` parameter (not the persisted exception document), so the rule applies uniformly to both create-new-exception and update-existing-exception paths.
+
+The check SHALL apply unconditionally to all callers — including any frontend build, integration script, or direct API client — so the immutability guarantee cannot be bypassed by a misbehaving or outdated UI.
+
+The `PUT /api/room-reservations/:id/edit` endpoint is explicitly **out of scope** for this requirement: it is master-only and has no code path that writes to an occurrence or exception document. Adding validation there would attach a guard no occurrence edit can reach.
+
+#### Scenario: Date-change attempt at admin PUT is rejected (AC-D4 primary)
+- **WHEN** a `PUT /api/admin/events/:id` request carries `editScope: 'thisEvent'`, `occurrenceDate: '2026-04-22'`, and body fields including `startDate: '2026-04-23'`
 - **THEN** the server responds with HTTP `400`
 - **AND** the response body has `code: 'DATE_IMMUTABLE'`
-- **AND** the document in MongoDB is unchanged (no partial write)
+- **AND** no new exception document is created, and no existing exception document for `'2026-04-22'` is modified
+
+#### Scenario: Same rejection applies to draft PUT and publish-edit (AC-D4 coverage)
+- **WHEN** the same body shape (above) is sent to `PUT /api/room-reservations/draft/:id` with `editScope: 'thisEvent'`
+- **OR** to `POST /api/admin/events/:id/publish-edit` where the pending edit request carries `editScope: 'thisEvent'` and mismatched dates
+- **THEN** both endpoints return HTTP `400` with `code: 'DATE_IMMUTABLE'`
+- **AND** the rejection behavior is identical to the admin PUT case — the shared helper drives the verdict
 
 #### Scenario: Time-only edits to an occurrence succeed (AC-D5)
-- **WHEN** a `PUT /api/room-reservations/:id/edit` request targets an occurrence document
-- **AND** the request body changes `startTime` from `'09:00'` to `'10:00'` and leaves `startDate` unchanged
+- **WHEN** a thisEvent request to any of the three occurrence-write endpoints carries `occurrenceDate: '2026-04-22'` and the body's `startDate = '2026-04-22'` (matches), but `startTime` changes from `'09:00'` to `'10:00'`
 - **THEN** the server responds with HTTP `200`
 - **AND** the occurrence document is updated with the new time
 - **AND** no `DATE_IMMUTABLE` error is raised
 
-#### Scenario: Same-value date re-send is a no-op (AC-D6 part 1)
-- **WHEN** a client sends `startDate = '2026-04-22'` in a request body, matching the persisted value
+#### Scenario: Same-value date matching `occurrenceDate` passes through (AC-D6 part 1)
+- **WHEN** a client sends a thisEvent request with `occurrenceDate: '2026-04-22'` and body `startDate: '2026-04-22'` (matching the anchor)
 - **THEN** the server does not raise `DATE_IMMUTABLE`
-- **AND** processes any other (non-date) changes normally
+- **AND** processes any other (non-date) changes normally — this is the canonical "UI correctly locked the date" payload shape
+
+#### Scenario: Omitted startDate/endDate in request body is accepted
+- **WHEN** a thisEvent request body includes `occurrenceDate: '2026-04-22'` but omits `startDate` and `endDate` entirely (e.g., a payload that only updates title or location)
+- **THEN** the server does not raise `DATE_IMMUTABLE`
+- **AND** the exception is written with the occurrence's date implied from `occurrenceDate` — the helper only validates fields that are actually present in the body
 
 #### Scenario: Direct API bypass still enforces the rule (AC-D6 part 2)
-- **WHEN** a client (e.g., a non-standard frontend, an integration script, a test harness) sends a date-change request directly to `PUT /api/room-reservations/:id/edit` for an occurrence
+- **WHEN** a client (e.g., a non-standard frontend, an integration script, a test harness) sends a date-change request directly to any of the three occurrence-write endpoints with mismatched `startDate` vs `occurrenceDate`
 - **THEN** the server returns HTTP `400` with `code: 'DATE_IMMUTABLE'`
-- **AND** the rejection behavior is identical regardless of the request origin
+- **AND** the rejection behavior is identical regardless of the request origin — the server-side helper makes the UI layer's `disabled` attribute a non-load-bearing guarantee
