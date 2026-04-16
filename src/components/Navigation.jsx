@@ -106,9 +106,7 @@ export default function Navigation() {
           <li>
             <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
               My Reservations
-              {pendingCount > 0 && (
-                <span className="nav-badge pending">{pendingCount}</span>
-              )}
+              <span className="nav-badge pending">{pendingCount}</span>
             </NavLink>
           </li>
         )}
