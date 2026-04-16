@@ -1,9 +1,11 @@
 /**
- * Search View Tests (SV-1 to SV-8)
+ * Search View Tests (SV-1 to SV-11)
  *
  * Tests for the ungated 'search' view on GET /api/events/list.
  * All authenticated users (viewer, requester, approver, admin)
  * should be able to search published events.
+ *
+ * SV-9 to SV-11 verify that both startDate and endDate are required.
  */
 
 const request = require('supertest');
@@ -25,7 +27,13 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
-describe('Search View Tests (SV-1 to SV-8)', () => {
+// Fixed date range used by role-access and filter tests.
+// Events in those tests are explicitly assigned dates within this range.
+const FIXED_START = '2026-06-01';
+const FIXED_END   = '2026-06-30';
+const FIXED_DT    = '2026-06-15T10:00:00';
+
+describe('Search View Tests (SV-1 to SV-11)', () => {
   let mongoClient;
   let db;
   let app;
@@ -62,7 +70,7 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
   // SV-1: Viewer can access search view
   it('SV-1: viewer can access search view', async () => {
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${viewerToken}`);
 
     expect(res.status).toBe(200);
@@ -72,7 +80,7 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
   // SV-2: Requester can access search view
   it('SV-2: requester can access search view', async () => {
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${requesterToken}`);
 
     expect(res.status).toBe(200);
@@ -82,7 +90,7 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
   // SV-3: Approver can access search view
   it('SV-3: approver can access search view', async () => {
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${approverToken}`);
 
     expect(res.status).toBe(200);
@@ -92,7 +100,7 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
   // SV-4: Admin can access search view
   it('SV-4: admin can access search view', async () => {
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
@@ -112,10 +120,16 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
     deleted.status = 'deleted';
     deleted.isDeleted = true;
 
+    // Pin all events to FIXED_DT so they fall within the required date range
+    for (const ev of [published1, published2, pending, draft, rejected, deleted]) {
+      ev.calendarData.startDateTime = FIXED_DT;
+      ev.calendarData.endDateTime   = '2026-06-15T11:00:00';
+    }
+
     await insertEvents(db, [published1, published2, pending, draft, rejected, deleted]);
 
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${viewerToken}`);
 
     expect(res.status).toBe(200);
@@ -134,10 +148,17 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
   it('SV-6: search view supports text search filter', async () => {
     const event1 = createPublishedEvent({ eventTitle: 'Board Meeting' });
     const event2 = createPublishedEvent({ eventTitle: 'Youth Shabbat' });
+
+    // Pin events to FIXED_DT so they fall within the required date range
+    event1.calendarData.startDateTime = FIXED_DT;
+    event1.calendarData.endDateTime   = '2026-06-15T11:00:00';
+    event2.calendarData.startDateTime = FIXED_DT;
+    event2.calendarData.endDateTime   = '2026-06-15T11:00:00';
+
     await insertEvents(db, [event1, event2]);
 
     const res = await request(app)
-      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&search=Board`)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&search=Board&startDate=${FIXED_START}&endDate=${FIXED_END}`)
       .set('Authorization', `Bearer ${requesterToken}`);
 
     expect(res.status).toBe(200);
@@ -148,7 +169,7 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
     expect(titles).not.toContain('Youth Shabbat');
   });
 
-  // SV-7: Search view supports date range filter
+  // SV-7: Search view supports date range filter (unchanged — already uses explicit dates)
   it('SV-7: search view supports date range filter', async () => {
     const inRange = createPublishedEvent({ eventTitle: 'March Event' });
     inRange.calendarData.startDateTime = '2026-03-15T10:00:00';
@@ -194,5 +215,38 @@ describe('Search View Tests (SV-1 to SV-8)', () => {
       .get(`${ENDPOINTS.LIST_EVENTS}?view=admin-browse`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(adminRes.status).toBe(200);
+  });
+
+  // SV-9: search view requires startDate — missing startDate returns 400
+  it('SV-9: search view returns 400 when startDate is missing', async () => {
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&endDate=${FIXED_END}`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toMatch(/startDate and endDate are required/i);
+  });
+
+  // SV-10: search view requires endDate — missing endDate returns 400
+  it('SV-10: search view returns 400 when endDate is missing', async () => {
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toMatch(/startDate and endDate are required/i);
+  });
+
+  // SV-11: search view requires both dates — missing both returns 400
+  it('SV-11: search view returns 400 when both dates are missing', async () => {
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toMatch(/startDate and endDate are required/i);
   });
 });

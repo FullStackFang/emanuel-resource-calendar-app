@@ -4790,6 +4790,12 @@ function createTestApp(options = {}) {
           query.status = { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] };
         }
       } else if (view === 'search') {
+        // Both date bounds are required to prevent full-collection scans
+        const { startDate: qStartForGuard, endDate: qEndForGuard } = req.query;
+        if (!qStartForGuard || !qEndForGuard) {
+          return res.status(400).json({ error: 'startDate and endDate are required for the search view' });
+        }
+
         // Public calendar search — published, non-deleted only
         query.status = 'published';
         query.isDeleted = { $ne: true };

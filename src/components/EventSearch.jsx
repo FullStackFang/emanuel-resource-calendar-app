@@ -593,18 +593,15 @@ function EventSearch({
   
   // Handle search execution - only triggered by button click
   const handleSearch = () => {
-    // Require at least one filter
-    if (!searchTerm && !dateRange.start && !dateRange.end &&
-        !selectedCategories.length && !selectedLocations.length) {
-      setSearchError('Please enter a search term or select search criteria');
+    // Both dates are required
+    if (!dateRange.start || !dateRange.end) {
+      setSearchError('A start date and end date are both required');
       return;
     }
 
-    // Require minimum 2 characters for search term if no other filters
-    const hasOtherFilters = dateRange.start || dateRange.end ||
-                           selectedCategories.length > 0 || selectedLocations.length > 0;
-    if (searchTerm && searchTerm.trim().length < 2 && !hasOtherFilters) {
-      setSearchError('Search term must be at least 2 characters, or add a date range/category/location filter');
+    // Require minimum 2 characters for search term
+    if (searchTerm && searchTerm.trim().length < 2) {
+      setSearchError('Search term must be at least 2 characters');
       return;
     }
 

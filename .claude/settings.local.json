@@ -120,7 +120,8 @@
       "Bash(for func:*)",
       "Bash(for comp:*)",
       "Bash(do git:*)",
-      "Bash(echo \"UNTRACKED: $f\")"
+      "Bash(echo \"UNTRACKED: $f\")",
+      "Bash(openspec --version)"
     ],
     "deny": []
   },

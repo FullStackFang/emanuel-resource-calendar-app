@@ -6771,6 +6771,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         query.status = 'draft';
       }
     } else if (view === 'search') {
+      // Both date bounds are required to prevent full-collection scans
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'startDate and endDate are required for the search view' });
+      }
+
       // Public calendar search — any authenticated user.
       // Always scoped to published, non-deleted events only.
       // The status param is intentionally ignored; callers send status=active
