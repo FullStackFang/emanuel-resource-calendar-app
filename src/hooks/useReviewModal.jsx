@@ -6,7 +6,7 @@ import {
   buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload,
   buildRequesterPayload, buildGraphFields, buildInternalFields,
 } from '../utils/eventPayloadBuilder';
-import { transformEventToDuplicatePrefill, transformEventToFlatStructure } from '../utils/eventTransformers';
+import { transformEventToDuplicatePrefill, transformEventToFlatStructure, getOccurrenceDateKey } from '../utils/eventTransformers';
 import { usePermissions } from './usePermissions';
 import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
@@ -454,11 +454,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         // Include edit scope for recurring events
         editScope: editScope,
         // For 'thisEvent' scope, include occurrence identification data.
-        // Prefer currentItem.occurrenceDate (canonical for exception docs) over
-        // start.dateTime (virtual occurrences only have start.dateTime).
-        occurrenceDate: editScope === 'thisEvent'
-          ? (currentItem.occurrenceDate || currentItem.start?.dateTime)
-          : null,
+        // Uses getOccurrenceDateKey to return a canonical YYYY-MM-DD date key
+        // (normalizes occurrenceDate, startDate, or start.dateTime in that order).
+        occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : null,
         seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null
       };
 
@@ -966,11 +964,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           graphToken: graphToken, // Always pass graphToken - backend will use it if needed
           // Include edit scope for recurring events
           editScope: editScope,
-          // For 'thisEvent' scope, include occurrence identification data.
-          // Prefer currentItem.occurrenceDate (exception docs) over start.dateTime.
-          occurrenceDate: editScope === 'thisEvent'
-            ? (currentItem.occurrenceDate || currentItem.start?.dateTime)
-            : null,
+          // For 'thisEvent' scope, include canonical YYYY-MM-DD occurrence date key
+          // via getOccurrenceDateKey (normalizes occurrenceDate, startDate, or
+          // start.dateTime in that order).
+          occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : null,
           seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
           calendarId: currentItem.calendarId,
           _version: eventVersion,
@@ -1220,9 +1217,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const payload = buildEditRequestPayload(liveFormData, {
         eventVersion,
         editScope,
-        occurrenceDate: editScope === 'thisEvent'
-          ? (currentItem?.occurrenceDate || currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0])
-          : undefined,
+        occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : undefined,
         seriesMasterId: editScope
           ? (currentItem?.seriesMasterId || currentItem?.graphData?.seriesMasterId || currentItem?.graphData?.id)
           : undefined,
@@ -1621,7 +1616,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // For thisEvent scope, add scope context and strip master-level fields
       if (editScope === 'thisEvent') {
         payload.editScope = 'thisEvent';
-        payload.occurrenceDate = currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0];
+        payload.occurrenceDate = getOccurrenceDateKey(currentItem);
         delete payload.recurrence;   // Don't overwrite master's recurrence
         delete payload.eventType;    // Don't overwrite master's eventType
 

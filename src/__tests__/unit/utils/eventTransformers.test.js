@@ -10,7 +10,9 @@ import { describe, it, expect } from 'vitest';
 import {
   transformEventToFlatStructure,
   transformEventsToFlatStructure,
-  sortEventsByStartTime
+  sortEventsByStartTime,
+  getSeriesMasterDisplayDates,
+  getOccurrenceDateKey
 } from '../../../utils/eventTransformers';
 
 describe('transformEventToFlatStructure', () => {
@@ -930,5 +932,230 @@ describe('transformEventToFlatStructure - organizer fields', () => {
     expect(result.organizerName).toBe('');
     expect(result.organizerPhone).toBe('');
     expect(result.organizerEmail).toBe('');
+  });
+});
+
+describe('requirement B — virtual occurrence date resolution', () => {
+  // Shape of a virtual occurrence produced by Calendar.jsx recurring expansion
+  // (lines ~1860-1880). Both top-level flat fields AND Graph-shape fields are set
+  // to the CLICKED day's values. But `calendarData` is inherited from the master
+  // via `...event` spread and still carries the master's first-occurrence date.
+  function buildVirtualOccurrence({
+    clickedDate = '2026-04-22',
+    masterFirstOccurrenceDate = '2026-04-15',
+  } = {}) {
+    return {
+      // Top-level flat fields — CORRECT for the clicked occurrence
+      startDate: clickedDate,
+      endDate: clickedDate,
+      startTime: '09:00',
+      endTime: '10:00',
+      startDateTime: `${clickedDate}T09:00:00`,
+      endDateTime: `${clickedDate}T10:00:00`,
+      // Graph-shape fields — CORRECT for the clicked occurrence
+      start: { dateTime: `${clickedDate}T09:00:00` },
+      end: { dateTime: `${clickedDate}T10:00:00` },
+      // Recurring metadata
+      isRecurringOccurrence: true,
+      hasOccurrenceOverride: false, // NOT an override — just a regular occurrence
+      eventType: 'occurrence',
+      masterEventId: 'master-uuid',
+      // calendarData inherited from master — STILL carries MASTER'S first-occurrence date
+      calendarData: {
+        startDate: masterFirstOccurrenceDate,
+        endDate: masterFirstOccurrenceDate,
+        startTime: '09:00',
+        endTime: '10:00',
+        startDateTime: `${masterFirstOccurrenceDate}T09:00:00`,
+        endDateTime: `${masterFirstOccurrenceDate}T10:00:00`,
+        eventTitle: 'Weekly class',
+      },
+      eventTitle: 'Weekly class',
+    };
+  }
+
+  it('transforms a virtual occurrence so the flat startDate reflects the clicked day (AC-B1)', () => {
+    const occurrence = buildVirtualOccurrence({
+      clickedDate: '2026-04-22',
+      masterFirstOccurrenceDate: '2026-04-15',
+    });
+    const result = transformEventToFlatStructure(occurrence);
+    expect(result.startDate).toBe('2026-04-22'); // clicked day, NOT master's 2026-04-15
+    expect(result.endDate).toBe('2026-04-22');
+  });
+
+  it('transforms a virtual occurrence so startTime/endTime reflect the occurrence, not the master via calendarData', () => {
+    const occurrence = buildVirtualOccurrence({
+      clickedDate: '2026-04-22',
+      masterFirstOccurrenceDate: '2026-04-15',
+    });
+    // Give the occurrence a different time than the master carries in calendarData
+    occurrence.startTime = '14:00';
+    occurrence.endTime = '15:00';
+    occurrence.startDateTime = '2026-04-22T14:00:00';
+    occurrence.endDateTime = '2026-04-22T15:00:00';
+    occurrence.start.dateTime = '2026-04-22T14:00:00';
+    occurrence.end.dateTime = '2026-04-22T15:00:00';
+    // calendarData still has 09:00 from the master
+    const result = transformEventToFlatStructure(occurrence);
+    expect(result.startDate).toBe('2026-04-22');
+    expect(result.startTime).toBe('14:00');
+    expect(result.endTime).toBe('15:00');
+  });
+
+  it('respects occurrence override fields (existing behavior regression guard)', () => {
+    // When hasOccurrenceOverride === true, top-level has always won.
+    // Ensure that behavior is preserved.
+    const occurrence = buildVirtualOccurrence();
+    occurrence.hasOccurrenceOverride = true;
+    occurrence.eventTitle = 'Special title for this week';
+    occurrence.calendarData.eventTitle = 'Weekly class';
+    const result = transformEventToFlatStructure(occurrence);
+    expect(result.eventTitle).toBe('Special title for this week');
+  });
+});
+
+describe('getSeriesMasterDisplayDates', () => {
+  it('returns recurrence range dates when eventType is seriesMaster (AC-A1, AC-A2)', () => {
+    const reservation = { eventType: 'seriesMaster' };
+    const recurrencePattern = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'] },
+      range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-04-30' }
+    };
+    const formData = { startDate: '2026-04-15', endDate: '2026-04-15' }; // first-occurrence
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    expect(result.displayStartDate).toBe('2026-04-15');
+    expect(result.displayEndDate).toBe('2026-04-30'); // shows series range, not first-occurrence
+  });
+
+  it('returns range.startDate even when it differs from the first-occurrence date', () => {
+    // Pattern: series starts 4/15, but first actual occurrence might be 4/16 after
+    // day-of-week snapping. The master read-only display should still show range.startDate.
+    const reservation = { eventType: 'seriesMaster' };
+    const recurrencePattern = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'] },
+      range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-05-06' }
+    };
+    const formData = { startDate: '2026-04-16', endDate: '2026-04-16' }; // different first-occurrence
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    expect(result.displayStartDate).toBe('2026-04-15');
+    expect(result.displayEndDate).toBe('2026-05-06');
+  });
+
+  it('falls back to formData dates for singleInstance events (AC-A3 regression guard)', () => {
+    const reservation = { eventType: 'singleInstance' };
+    const recurrencePattern = null;
+    const formData = { startDate: '2026-04-20', endDate: '2026-04-20' };
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    expect(result.displayStartDate).toBe('2026-04-20');
+    expect(result.displayEndDate).toBe('2026-04-20');
+  });
+
+  it('falls back to formData dates for occurrence/exception events', () => {
+    const reservation = { eventType: 'occurrence' };
+    const recurrencePattern = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'] },
+      range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-04-30' }
+    };
+    const formData = { startDate: '2026-04-22', endDate: '2026-04-22' }; // single occurrence
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    // Occurrences show their own date, not the series range
+    expect(result.displayStartDate).toBe('2026-04-22');
+    expect(result.displayEndDate).toBe('2026-04-22');
+  });
+
+  it('falls back to formData when eventType is seriesMaster but recurrence.range is missing', () => {
+    const reservation = { eventType: 'seriesMaster' };
+    const recurrencePattern = null; // legacy/corrupt data
+    const formData = { startDate: '2026-04-15', endDate: '2026-04-15' };
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    expect(result.displayStartDate).toBe('2026-04-15');
+    expect(result.displayEndDate).toBe('2026-04-15');
+  });
+
+  it('falls back to formData when recurrence exists but range.startDate is null', () => {
+    const reservation = { eventType: 'seriesMaster' };
+    const recurrencePattern = {
+      pattern: { type: 'weekly', interval: 1 },
+      range: { type: 'endDate', startDate: null, endDate: '2026-04-30' }
+    };
+    const formData = { startDate: '2026-04-15', endDate: '2026-04-15' };
+
+    const result = getSeriesMasterDisplayDates(reservation, recurrencePattern, formData);
+
+    // range.startDate nullish → fall back to formData on that side only
+    expect(result.displayStartDate).toBe('2026-04-15');
+    expect(result.displayEndDate).toBe('2026-04-30'); // range.endDate still wins
+  });
+
+  it('handles null reservation gracefully', () => {
+    const formData = { startDate: '2026-04-15', endDate: '2026-04-15' };
+    const result = getSeriesMasterDisplayDates(null, null, formData);
+    expect(result.displayStartDate).toBe('2026-04-15');
+    expect(result.displayEndDate).toBe('2026-04-15');
+  });
+
+  it('handles null formData gracefully', () => {
+    const result = getSeriesMasterDisplayDates(null, null, null);
+    expect(result.displayStartDate).toBeUndefined();
+    expect(result.displayEndDate).toBeUndefined();
+  });
+});
+
+describe('getOccurrenceDateKey', () => {
+  it('returns occurrenceDate verbatim when already YYYY-MM-DD (exception document shape)', () => {
+    expect(getOccurrenceDateKey({ occurrenceDate: '2026-04-22' })).toBe('2026-04-22');
+  });
+
+  it('strips T suffix from occurrenceDate when Graph-style datetime is supplied', () => {
+    expect(getOccurrenceDateKey({ occurrenceDate: '2026-04-22T09:00:00' })).toBe('2026-04-22');
+  });
+
+  it('falls back to startDate when occurrenceDate is missing (virtual occurrence)', () => {
+    expect(getOccurrenceDateKey({ startDate: '2026-04-22' })).toBe('2026-04-22');
+  });
+
+  it('strips T suffix from startDate when full datetime is supplied', () => {
+    expect(getOccurrenceDateKey({ startDate: '2026-04-22T00:00:00' })).toBe('2026-04-22');
+  });
+
+  it('falls back to start.dateTime when neither occurrenceDate nor startDate is present', () => {
+    expect(getOccurrenceDateKey({ start: { dateTime: '2026-04-22T09:00:00' } })).toBe('2026-04-22');
+  });
+
+  it('prefers occurrenceDate over startDate when both are present', () => {
+    const result = getOccurrenceDateKey({
+      occurrenceDate: '2026-04-22',
+      startDate: '2026-04-15', // stale master value
+    });
+    expect(result).toBe('2026-04-22');
+  });
+
+  it('prefers startDate over start.dateTime when occurrenceDate is missing', () => {
+    const result = getOccurrenceDateKey({
+      startDate: '2026-04-22',
+      start: { dateTime: '2026-04-15T09:00:00' },
+    });
+    expect(result).toBe('2026-04-22');
+  });
+
+  it('returns null when all candidate fields are missing', () => {
+    expect(getOccurrenceDateKey({})).toBeNull();
+    expect(getOccurrenceDateKey({ start: {} })).toBeNull();
+  });
+
+  it('returns null for null / undefined input', () => {
+    expect(getOccurrenceDateKey(null)).toBeNull();
+    expect(getOccurrenceDateKey(undefined)).toBeNull();
   });
 });

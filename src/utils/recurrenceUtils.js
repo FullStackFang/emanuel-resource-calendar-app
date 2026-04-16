@@ -427,6 +427,24 @@ export function calculateAllSeriesDates(recurrence) {
   return Array.from(dates).sort();
 }
 
+/**
+ * Format a recurrence pattern as a multi-line summary.
+ *
+ * Used by the **editable** recurrence editor tab (`RecurrenceTabContent`) and
+ * the pattern modal (`RecurrencePatternModal`). Returns a two-line string like
+ * "Occurs every M, W\nUntil Mar 4, 2026" — concise single-letter day abbreviations
+ * and "Until" phrasing suited for an editor context where the user is actively
+ * constructing the pattern.
+ *
+ * For the read-only recurrence summary on occurrence views, use
+ * {@link formatRecurrenceSummaryCompact} instead — it returns a single-line
+ * EN-DASH format like "Weekly on Wednesdays, 4/15/2026 – 4/30/2026" that reads
+ * better as standalone descriptive text.
+ *
+ * @param {Object} pattern - Recurrence pattern (type, interval, daysOfWeek)
+ * @param {Object} range - Recurrence range (type, startDate, endDate, numberOfOccurrences)
+ * @returns {string} Multi-line summary suitable for editor contexts
+ */
 export function formatRecurrenceSummary(pattern, range) {
   if (!pattern) return '';
 
@@ -638,4 +656,154 @@ export function extractOccurrenceOverrideFields(occurrenceDate, occurrenceOverri
     if (value !== undefined) fields[key] = value;
   }
   return fields;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// formatRecurrenceSummaryCompact helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DAY_PLURAL_NAMES = {
+  sunday: 'Sundays',
+  monday: 'Mondays',
+  tuesday: 'Tuesdays',
+  wednesday: 'Wednesdays',
+  thursday: 'Thursdays',
+  friday: 'Fridays',
+  saturday: 'Saturdays',
+};
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * Format a list of items as natural English: "A", "A and B", "A, B, and C".
+ */
+function joinListNaturally(items) {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+/**
+ * Parse a YYYY-MM-DD string as local midnight (NOT UTC — avoids timezone shift
+ * that would push the display one day earlier for users west of UTC).
+ */
+function parseLocalDateStr(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Format YYYY-MM-DD as "M/D/YYYY" in en-US locale.
+ */
+function formatCompactDate(dateStr) {
+  const date = parseLocalDateStr(dateStr);
+  if (!date) return '';
+  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Format a recurrence pattern as a single-line compact summary with EN-DASH range.
+ *
+ * Used by the **read-only** recurrence summary on occurrence views (via
+ * `RecurrenceTabContent` when `canEdit === false`). Returns a single-line string
+ * like "Weekly on Wednesdays, 4/15/2026 – 4/30/2026" — full weekday names, full
+ * date tuples, EN-DASH range separator. Suited for descriptive standalone text
+ * where the user is reading the pattern, not constructing it.
+ *
+ * For the editable recurrence editor tab and the pattern modal, use
+ * {@link formatRecurrenceSummary} instead — its multi-line "Occurs every M, W\nUntil …"
+ * format is tuned for editor contexts.
+ *
+ * @param {Object} pattern - Recurrence pattern (type, interval, daysOfWeek, month, dayOfMonth)
+ * @param {Object} range - Recurrence range (type, startDate, endDate, numberOfOccurrences)
+ * @param {string[]} [additions=[]] - Ad-hoc addition dates (YYYY-MM-DD)
+ * @param {string[]} [exclusions=[]] - Excluded dates (YYYY-MM-DD)
+ * @returns {string} Single-line compact summary suitable for read-only display contexts
+ */
+export function formatRecurrenceSummaryCompact(pattern, range, additions = [], exclusions = []) {
+  if (!pattern) return '';
+
+  const interval = pattern.interval || 1;
+  let patternText = '';
+
+  switch (pattern.type) {
+    case 'daily':
+      patternText = interval === 1 ? 'Daily' : `Every ${interval} days`;
+      break;
+
+    case 'weekly': {
+      const hasDays = Array.isArray(pattern.daysOfWeek) && pattern.daysOfWeek.length > 0;
+      if (hasDays) {
+        const dayNames = pattern.daysOfWeek.map(d => DAY_PLURAL_NAMES[d.toLowerCase()] || d);
+        const dayList = joinListNaturally(dayNames);
+        patternText = interval === 1
+          ? `Weekly on ${dayList}`
+          : `Every ${interval} weeks on ${dayList}`;
+      } else {
+        patternText = interval === 1 ? 'Weekly' : `Every ${interval} weeks`;
+      }
+      break;
+    }
+
+    case 'monthly':
+    case 'absoluteMonthly': {
+      const dayOfMonth = pattern.dayOfMonth;
+      const dayPart = dayOfMonth ? ` on day ${dayOfMonth}` : '';
+      patternText = interval === 1
+        ? `Monthly${dayPart}`
+        : `Every ${interval} months${dayPart}`;
+      break;
+    }
+
+    case 'yearly':
+    case 'absoluteYearly': {
+      const month = pattern.month; // 1-12
+      const dayOfMonth = pattern.dayOfMonth;
+      let datePart = '';
+      if (month && dayOfMonth && month >= 1 && month <= 12) {
+        datePart = ` on ${MONTH_NAMES[month - 1]} ${dayOfMonth}`;
+      }
+      patternText = interval === 1
+        ? `Yearly${datePart}`
+        : `Every ${interval} years${datePart}`;
+      break;
+    }
+
+    default:
+      return '';
+  }
+
+  // Range clause
+  let rangeText = '';
+  if (range && range.startDate) {
+    const startFormatted = formatCompactDate(range.startDate);
+    if (range.type === 'endDate' && range.endDate) {
+      const endFormatted = formatCompactDate(range.endDate);
+      rangeText = `, ${startFormatted} \u2013 ${endFormatted}`;
+    } else if (range.type === 'numbered' && range.numberOfOccurrences) {
+      const n = range.numberOfOccurrences;
+      const suffix = n === 1 ? 'occurrence' : 'occurrences';
+      rangeText = `, ${startFormatted}, ${n} ${suffix}`;
+    } else if (range.type === 'noEnd') {
+      rangeText = `, starting ${startFormatted}`;
+    }
+  }
+
+  // Additions/exclusions tail
+  let tail = '';
+  const addCount = Array.isArray(additions) ? additions.length : 0;
+  const excCount = Array.isArray(exclusions) ? exclusions.length : 0;
+  if (addCount > 0 || excCount > 0) {
+    const parts = [];
+    if (addCount > 0) parts.push(`+${addCount} added`);
+    if (excCount > 0) parts.push(`${excCount} excluded`);
+    tail = ` (${parts.join(', ')})`;
+  }
+
+  return patternText + rangeText + tail;
 }

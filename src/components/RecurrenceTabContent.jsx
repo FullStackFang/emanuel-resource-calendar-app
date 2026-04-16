@@ -10,6 +10,7 @@ import {
   calculateAllSeriesDates,
   calculateRecurrenceDates,
   formatRecurrenceSummary,
+  formatRecurrenceSummaryCompact,
 } from '../utils/recurrenceUtils';
 import { useRooms } from '../context/LocationContext';
 import './RecurrenceTabContent.css';
@@ -1386,6 +1387,24 @@ export default function RecurrenceTabContent({
   // ─────────────────────────────────────────────────────────────
   // MAIN RENDER
   // ─────────────────────────────────────────────────────────────
+
+  // Read-only mode for occurrence views: replace the editor with a plain-text
+  // summary. The summary is the ONLY recurrence-tab affordance on 'thisEvent'
+  // scope — edits to the pattern require switching to 'allEvents'.
+  if (!canEdit) {
+    return (
+      <div className="recurrence-tab-management recurrence-tab-management--readonly">
+        <p className="recurrence-readonly-summary">
+          {formatRecurrenceSummaryCompact(
+            recurrencePattern?.pattern,
+            recurrencePattern?.range,
+            recurrencePattern?.additions,
+            recurrencePattern?.exclusions
+          )}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="recurrence-tab-management">

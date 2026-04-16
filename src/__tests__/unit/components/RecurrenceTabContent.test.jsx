@@ -354,4 +354,64 @@ describe('RecurrenceTabContent', () => {
       expect(container.querySelector('.recurrence-detail-fields')).not.toBeInTheDocument();
     });
   });
+
+  describe('readOnly / occurrence view (requirement C)', () => {
+    it('renders plain-text summary and no editable controls when editScope is thisEvent (AC-C1)', () => {
+      const { container, queryByTestId } = render(
+        <RecurrenceTabContent
+          {...defaultProps}
+          recurrencePattern={weeklyPattern}
+          editScope="thisEvent"
+        />
+      );
+      // Summary element is present
+      const summary = container.querySelector('.recurrence-readonly-summary');
+      expect(summary).toBeInTheDocument();
+      // Summary text matches compact formatter output
+      expect(summary.textContent).toContain('Weekly on Mondays and Wednesdays');
+      // Calendar editor is NOT rendered (absence of the mocked DatePicker)
+      expect(queryByTestId('mock-datepicker')).not.toBeInTheDocument();
+      // Occurrence list pane also absent (full editor replaced)
+      expect(container.querySelector('.recurrence-tab-right')).not.toBeInTheDocument();
+    });
+
+    it('renders plain-text summary when readOnly prop is true even without editScope', () => {
+      const { container, queryByTestId } = render(
+        <RecurrenceTabContent
+          {...defaultProps}
+          recurrencePattern={weeklyPattern}
+          readOnly={true}
+        />
+      );
+      expect(container.querySelector('.recurrence-readonly-summary')).toBeInTheDocument();
+      expect(queryByTestId('mock-datepicker')).not.toBeInTheDocument();
+    });
+
+    it('renders full editable editor when editScope is null and readOnly is false (AC-C3 regression)', () => {
+      const { container, queryByTestId } = render(
+        <RecurrenceTabContent
+          {...defaultProps}
+          recurrencePattern={weeklyPattern}
+          editScope={null}
+          readOnly={false}
+        />
+      );
+      expect(container.querySelector('.recurrence-readonly-summary')).not.toBeInTheDocument();
+      expect(queryByTestId('mock-datepicker')).toBeInTheDocument();
+    });
+
+    it('summary includes additions/exclusions tail when either is non-empty', () => {
+      const { container } = render(
+        <RecurrenceTabContent
+          {...defaultProps}
+          recurrencePattern={weeklyPattern}
+          editScope="thisEvent"
+        />
+      );
+      const summary = container.querySelector('.recurrence-readonly-summary');
+      // weeklyPattern has additions=['2026-03-20'], exclusions=['2026-03-23']
+      expect(summary.textContent).toMatch(/\+1 added/);
+      expect(summary.textContent).toMatch(/1 excluded/);
+    });
+  });
 });

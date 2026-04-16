@@ -81,31 +81,31 @@ Users who need to edit the series pattern or range SHALL use the "All Events" sc
 
 ### Requirement: Recurrence summary formatter produces human-readable pattern + range text
 
-A utility function `formatRecurrenceSummary(recurrence)` SHALL convert a `recurrence` object (containing `pattern`, `range`, `additions`, `exclusions`) into a human-readable English string suitable for display in the read-only recurrence tab.
+A utility function `formatRecurrenceSummaryCompact(pattern, range, additions, exclusions)` SHALL convert the recurrence pattern and range (plus optional additions/exclusions arrays) into a human-readable English string suitable for display in the read-only recurrence summary on occurrence views. It coexists with the existing `formatRecurrenceSummary(pattern, range)` in `src/utils/recurrenceUtils.js` (which is used by the editable editor tab and the pattern modal and retains its "Occurs every M, W\nUntil Mar 4, 2026" multi-line format). Both functions SHALL carry JSDoc comments naming their intended consumers.
 
 The formatter SHALL support all pattern types (`daily`, `weekly`, `monthly`, `yearly`) and all range types (`endDate`, `numbered`, `noEnd`). It SHALL append an additions/exclusions tail when either array is non-empty. Date formatting SHALL use `en-US` locale conventions and SHALL NOT apply any explicit timezone conversion (operating in the browser's effective timezone, which for this application is ET).
 
 The function MUST be a pure, synchronous utility with no React or async dependencies — so it can be unit-tested in isolation and composed by other display code in the future.
 
 #### Scenario: Daily pattern with endDate range (AC-C2 - daily)
-- **WHEN** `formatRecurrenceSummary` is called with `{ pattern: { type: 'daily', interval: 1 }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-04-20' } }`
+- **WHEN** `formatRecurrenceSummaryCompact` is called with `{ pattern: { type: 'daily', interval: 1 }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-04-20' } }`
 - **THEN** the returned string contains `"Daily"` and `"4/15/2026 – 4/20/2026"`
 
 #### Scenario: Weekly pattern on multiple days with numbered range (AC-C2 - weekly)
-- **WHEN** `formatRecurrenceSummary` is called with `{ pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] }, range: { type: 'numbered', startDate: '2026-04-15', numberOfOccurrences: 8 } }`
+- **WHEN** `formatRecurrenceSummaryCompact` is called with `{ pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] }, range: { type: 'numbered', startDate: '2026-04-15', numberOfOccurrences: 8 } }`
 - **THEN** the returned string contains `"Weekly"`, references both `"Mondays"` and `"Wednesdays"`, and indicates `"8 occurrences"`
 
 #### Scenario: Monthly pattern with noEnd range (AC-C2 - monthly)
-- **WHEN** `formatRecurrenceSummary` is called with `{ pattern: { type: 'monthly', interval: 1, dayOfMonth: 15 }, range: { type: 'noEnd', startDate: '2026-04-15' } }`
+- **WHEN** `formatRecurrenceSummaryCompact` is called with `{ pattern: { type: 'monthly', interval: 1, dayOfMonth: 15 }, range: { type: 'noEnd', startDate: '2026-04-15' } }`
 - **THEN** the returned string describes `"Monthly"` and `"day 15"` and references `"starting 4/15/2026"`
 - **AND** the string does NOT contain an end-date delimiter (no `"–"` between two dates)
 
 #### Scenario: Yearly pattern (AC-C2 - yearly)
-- **WHEN** `formatRecurrenceSummary` is called with `{ pattern: { type: 'yearly', interval: 1, month: 4, dayOfMonth: 15 }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2030-04-15' } }`
+- **WHEN** `formatRecurrenceSummaryCompact` is called with `{ pattern: { type: 'yearly', interval: 1, month: 4, dayOfMonth: 15 }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2030-04-15' } }`
 - **THEN** the returned string contains `"Yearly"` and references April 15 in a human-readable form
 
 #### Scenario: Interval > 1 produces "Every N units" phrasing
-- **WHEN** `formatRecurrenceSummary` receives `{ pattern: { type: 'weekly', interval: 2, daysOfWeek: ['wednesday'] }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-06-10' } }`
+- **WHEN** `formatRecurrenceSummaryCompact` receives `{ pattern: { type: 'weekly', interval: 2, daysOfWeek: ['wednesday'] }, range: { type: 'endDate', startDate: '2026-04-15', endDate: '2026-06-10' } }`
 - **THEN** the returned string begins with `"Every 2 weeks"` (NOT `"Weekly"`)
 
 #### Scenario: Additions and exclusions appear as a tail annotation
@@ -149,7 +149,7 @@ Rejection SHALL return HTTP `400` with a response body containing `{ code: 'DATE
 
 Requests that modify only time-of-day fields (and leave `startDate` / `endDate` matching `occurrenceDate`) SHALL be accepted and processed normally. Same-value re-sends of `startDate` / `endDate` where the body's value equals `occurrenceDate` SHALL be treated as a no-op diff and accepted — the guard compares values, not presence.
 
-The check SHALL be implemented as a shared helper (`validateOccurrenceDateNotChanged(incomingBody, occurrenceDate)`) exported from `backend/utils/exceptionDocumentService.js`, invoked at all three call sites so the immutability behavior is consistent regardless of entry point. The anchor for comparison SHALL be the request body's `occurrenceDate` parameter (not the persisted exception document), so the rule applies uniformly to both create-new-exception and update-existing-exception paths.
+The check SHALL be enforced **structurally** inside the shared exception-document helpers `createExceptionDocument` and `updateExceptionDocument` (both in `backend/utils/exceptionDocumentService.js`), not at the individual call sites. Because every occurrence/exception-writing endpoint flows through these helpers, any write path — present or future — inherits the guarantee automatically. A module-private function (e.g., `_validateOccurrenceDateNotChanged(overrides, dateKey)`) SHALL factor the comparison so both public helpers share one implementation. The anchor for comparison SHALL be the helpers' `dateKey` argument (= `occurrenceDate` at the call site), not the persisted exception document, so the rule applies uniformly to both create-new-exception and update-existing-exception paths.
 
 The check SHALL apply unconditionally to all callers — including any frontend build, integration script, or direct API client — so the immutability guarantee cannot be bypassed by a misbehaving or outdated UI.
 

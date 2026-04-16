@@ -33,9 +33,15 @@ import { extractTextFromHtml } from './textUtils';
  * @returns {*} The field value from appropriate source or default
  */
 export function getEventField(event, field, defaultValue = undefined) {
-  // For recurring occurrences with overrides, top-level fields ARE the override
-  // and must take priority over calendarData (which has master values)
-  if (event.isRecurringOccurrence && event.hasOccurrenceOverride) {
+  // For ANY virtual recurring occurrence (whether overridden or not), top-level
+  // fields are authoritative — Calendar.jsx expansion sets them to the clicked
+  // day's values (startDate = occurrenceDate, startTime/endTime/etc. from the
+  // occurrence, with any per-occurrence override merged on top). The inherited
+  // calendarData on virtual occurrences still carries MASTER values (via `...event`
+  // spread during expansion), so falling through to calendarData here would leak
+  // the master's first-occurrence date into the form. Top-level therefore wins
+  // for every virtual occurrence, regardless of hasOccurrenceOverride.
+  if (event.isRecurringOccurrence) {
     if (event[field] !== undefined) return event[field];
   }
   // First check calendarData (authoritative for MongoDB documents)
@@ -168,7 +174,12 @@ export function transformEventToFlatStructure(event) {
   // - Falsy but defined (null or '') → clear to '' (user did NOT enter a time;
   //   don't surface the backend's reservation-time/query fallback as event time)
   // - undefined / missing → keep the parsed value (backward compat for older docs)
-  if (event.calendarData) {
+  //
+  // SKIP for virtual recurring occurrences: Calendar.jsx expansion sets top-level
+  // startTime/endTime (and startDateTime) to the occurrence's own values. The
+  // inherited calendarData on those occurrences still carries the MASTER'S times,
+  // so reading from calendarData here would leak master times into the form.
+  if (event.calendarData && !event.isRecurringOccurrence) {
     if (event.calendarData.startTime) {
       startTime = event.calendarData.startTime;
     } else if (event.calendarData.startTime !== undefined) {
@@ -464,4 +475,60 @@ export function sortEventsByStartTime(events) {
 
     return timeA - timeB;
   });
+}
+
+/**
+ * Derive the display values for the read-only "Reservation Start Date" and
+ * "Reservation End Date" inputs on a series master in the review modal.
+ *
+ * On a series master (eventType === 'seriesMaster'), these read-only inputs
+ * should display the **series range** (recurrence.range.startDate through
+ * recurrence.range.endDate), not the first-occurrence date stored in
+ * formData.startDate / formData.endDate. The underlying form state and
+ * database fields are unchanged — this is a display-layer transform only, so
+ * save paths and Graph sync continue to operate on first-occurrence dates.
+ *
+ * Fallback behavior: if `recurrence.range.startDate` / `endDate` are missing
+ * (legacy data, singleInstance events, occurrences), the corresponding
+ * formData value is used unchanged.
+ *
+ * @param {Object|null} reservation - Event being reviewed (only eventType is read)
+ * @param {Object|null} recurrencePattern - Recurrence object: { pattern, range, ... }
+ * @param {Object|null} formData - Form's flat state containing startDate / endDate
+ * @returns {{displayStartDate: (string|undefined), displayEndDate: (string|undefined)}}
+ */
+/**
+ * Extract the canonical occurrence date key (YYYY-MM-DD) from an event / form item.
+ *
+ * Used when constructing `editScope: 'thisEvent'` save / delete / edit payloads.
+ * The backend's occurrence-write endpoints accept either YYYY-MM-DD or
+ * YYYY-MM-DDTHH:MM:SS, but this helper always normalizes to YYYY-MM-DD so all
+ * payload sites produce the same shape and downstream string matches (e.g. to
+ * build exception-document eventIds) don't need to re-normalize.
+ *
+ * Preference order (first defined wins):
+ *   1. `occurrenceDate` — canonical on exception / addition documents and on
+ *      payloads already built for thisEvent scope
+ *   2. `startDate` — flat top-level (virtual occurrences from Calendar.jsx)
+ *   3. `start.dateTime` — Graph-shape (legacy or direct-from-Graph events)
+ *
+ * @param {Object|null|undefined} item - An event, reservation, or currentItem
+ * @returns {string|null} YYYY-MM-DD or null if no date field is present
+ */
+export function getOccurrenceDateKey(item) {
+  if (!item) return null;
+  const pick = item.occurrenceDate || item.startDate || item.start?.dateTime;
+  if (!pick) return null;
+  // Normalize any full datetime (e.g., "2026-04-22T09:00:00") to just the date part.
+  return String(pick).split('T')[0];
+}
+
+export function getSeriesMasterDisplayDates(reservation, recurrencePattern, formData) {
+  const isSeriesMaster = reservation?.eventType === 'seriesMaster';
+  const rangeStart = recurrencePattern?.range?.startDate;
+  const rangeEnd = recurrencePattern?.range?.endDate;
+  return {
+    displayStartDate: (isSeriesMaster && rangeStart) ? rangeStart : formData?.startDate,
+    displayEndDate: (isSeriesMaster && rangeEnd) ? rangeEnd : formData?.endDate,
+  };
 }

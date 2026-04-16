@@ -17,6 +17,7 @@ import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
+import { getSeriesMasterDisplayDates } from '../utils/eventTransformers';
 import {
   clampEventTimesToReservation,
   expandReservationToContainOperationalTimes,
@@ -1150,6 +1151,16 @@ export default function RoomReservationFormBase({
   // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
   const isRecurringDateLocked = !!recurrencePattern;
 
+  // Display-layer transform: on a series master, the read-only "Reservation Start/End Date"
+  // inputs show the series range from recurrence.range, not the first-occurrence date stored
+  // in formData. The underlying formData and DB fields are unchanged — see
+  // `getSeriesMasterDisplayDates` in eventTransformers.js for fallback rules.
+  const { displayStartDate, displayEndDate } = getSeriesMasterDisplayDates(
+    initialData,
+    recurrencePattern,
+    formData
+  );
+
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
   // even on published events. Only respect isViewingEditRequest for non-admin/non-approver users.
   // because department-based editing is a special override for these specific fields.
@@ -1614,7 +1625,7 @@ export default function RoomReservationFormBase({
                 <DatePickerInput
                   id="startDate"
                   name="startDate"
-                  value={formData.startDate}
+                  value={displayStartDate || ''}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || isRecurringDateLocked}
                   required
@@ -1635,9 +1646,9 @@ export default function RoomReservationFormBase({
                 <DatePickerInput
                   id="endDate"
                   name="endDate"
-                  value={formData.endDate}
+                  value={displayEndDate || ''}
                   onChange={handleInputChange}
-                  min={formData.startDate}
+                  min={displayStartDate || formData.startDate}
                   disabled={fieldsDisabled || isRecurringDateLocked}
                   required
                   className={hasFieldChanged('endDate') ? 'input-changed' : ''}
