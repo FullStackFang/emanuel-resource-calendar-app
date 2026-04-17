@@ -393,8 +393,29 @@ import ConflictDialog from './shared/ConflictDialog';
       selectedCalendarId, // Pass current calendar so published events go to correct calendar
       onRefresh: handleReviewRefresh,
       onSuccess: (result) => {
-        // Reload events after successful approval/rejection
-        loadEventsRef.current?.(true);
+        const eventData = result?.event;
+        if (result?.deleted || result?.occurrenceExcluded) {
+          // Actor delete/exclude: remove locally instead of full reload
+          if (eventData?._id) {
+            setAllEvents(allEventsRef.current.filter(e => String(e._id) !== String(eventData._id)));
+          } else {
+            loadEventsRef.current?.(true);
+          }
+        } else if (eventData?._id && eventData.eventType !== 'seriesMaster') {
+          // Non-recurring: patch from PUT response
+          const flat = transformEventToFlatStructure(eventData);
+          const events = allEventsRef.current;
+          const idx = events.findIndex(e => String(e._id) === String(flat._id));
+          if (idx >= 0) {
+            const updated = [...events];
+            updated[idx] = { ...events[idx], ...flat };
+            setAllEvents(updated);
+          } else {
+            loadEventsRef.current?.(true);
+          }
+        } else {
+          loadEventsRef.current?.(true);
+        }
 
         // Show success/warning toast based on action type
         if (result?.conflictDowngradedToPending) {
@@ -2012,9 +2033,48 @@ import ConflictDialog from './shared/ConflictDialog';
     // Poll for updates every 5 min (no spinner, skip while modal is open)
     usePolling(silentCalendarRefresh, 300_000, !!apiToken && !isDemoMode && !initializing);
 
-    // Listen for refresh events from other views (AI chat, reservation requests, etc.)
-    // Bus events signal real data changes (SSE, saves) so force a fresh fetch.
-    useDataRefreshBus('calendar', () => silentCalendarRefresh(true), !!apiToken && !isDemoMode);
+    // Listen for refresh events from other views (SSE, saves, etc.)
+    // When SSE payload is available, patch local state instead of full refetch.
+    const handleCalendarBusEvent = useCallback((detail) => {
+      const payload = detail?.payload;
+      // No payload (polling fallback, old server) — full refetch
+      if (!payload?.event) {
+        silentCalendarRefresh(true);
+        return;
+      }
+
+      const { event, action } = payload;
+      const events = allEventsRef.current;
+
+      // Deleted events: remove from local state
+      if (action === 'deleted' || action === 'cancellation-approved') {
+        setAllEvents(events.filter(e => String(e._id) !== String(event._id)));
+        return;
+      }
+
+      // Recurring series master changes: fall back to full refetch
+      // (re-expansion logic is complex; Phase 4 would handle this)
+      if (event.eventType === 'seriesMaster') {
+        silentCalendarRefresh(true);
+        return;
+      }
+
+      // Non-recurring: transform to flat structure then find and replace, or add if new
+      const flat = transformEventToFlatStructure(event);
+      const idx = events.findIndex(e => String(e._id) === String(flat._id));
+      if (idx >= 0) {
+        const updated = [...events];
+        updated[idx] = { ...events[idx], ...flat };
+        setAllEvents(updated);
+      } else if (action === 'created' || action === 'published') {
+        setAllEvents([...events, flat]);
+      } else {
+        // Event not found and not a create/publish — full refetch as safety net
+        silentCalendarRefresh(true);
+      }
+    }, [silentCalendarRefresh, setAllEvents]);
+
+    useDataRefreshBus('calendar', handleCalendarBusEvent, !!apiToken && !isDemoMode);
 
     // Manual refresh handler for FreshnessIndicator
     const handleManualCalendarRefresh = useCallback(async () => {

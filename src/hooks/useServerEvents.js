@@ -100,16 +100,24 @@ export function useServerEvents({ apiToken, userEmail }) {
             return;
           }
 
+          // Build payload from enriched SSE data for client-side patching
+          const payload = data.event ? {
+            event: data.event,
+            action: data.action,
+            oldStatus: data.oldStatus || null,
+            newStatus: data.newStatus || null,
+          } : null;
+
           // Dispatch refresh to each affected view via the existing bus
           if (data.affectedViews) {
             for (const view of data.affectedViews) {
-              dispatchRefresh('sse', view);
+              dispatchRefresh('sse', view, payload);
             }
           }
 
           // Dispatch counts refresh if badge counts changed
           if (data.countsChanged) {
-            dispatchRefresh('sse', 'navigation-counts');
+            dispatchRefresh('sse', 'navigation-counts', payload);
           }
         } catch (err) {
           logger.warn('[SSE] Failed to parse event:', err);

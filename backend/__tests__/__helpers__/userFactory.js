@@ -35,6 +35,7 @@ function createBaseUser(overrides = {}) {
   return {
     _id: new ObjectId(),
     odataId: userId,
+    userId: userId,
     email: overrides.email || `${userId}@test.com`,
     displayName: overrides.displayName || `Test User ${userId}`,
     role: overrides.role || ROLES.VIEWER,

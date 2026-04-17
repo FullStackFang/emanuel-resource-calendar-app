@@ -1,7 +1,10 @@
 // api-server.js - Express API for MongoDB
 // API server - version info available via /api/build-info
 const express = require('express');
-const Sentry = require('@sentry/node');
+// Sentry loaded lazily — its require() blocks for ~30s on WSL2
+const Sentry = (process.env.SENTRY_DSN)
+  ? require('@sentry/node')
+  : { init() {}, setupExpressErrorHandler() {} };
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
 const compression = require('compression');
@@ -30,7 +33,7 @@ const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
-const graphApiService = require('./services/graphApiService');
+let graphApiService = require('./services/graphApiService');
 const sseService = require('./services/sseService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true (see utils/performanceMetrics.js)
 const crypto = require('crypto');
@@ -321,15 +324,17 @@ app.use((req, res, next) => {
 
 // MongoDB Connection
 const connectionString = process.env.MONGODB_CONNECTION_STRING;
-if (!connectionString) {
+if (!connectionString && require.main === module) {
   console.error('FATAL: MONGODB_CONNECTION_STRING environment variable is not set. Server cannot start.');
   process.exit(1);
 }
-const client = new MongoClient(connectionString, {
-  serverSelectionTimeoutMS: 5000,
-  maxPoolSize: 50,
-  minPoolSize: 5
-});
+const client = connectionString
+  ? new MongoClient(connectionString, {
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 50,
+      minPoolSize: 5
+    })
+  : null;
 let db;
 let usersCollection;
 let unifiedEventsCollection;
@@ -365,6 +370,30 @@ let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
+
+// --- Test injection: allows tests to provide a MongoDB Memory Server db ---
+function setDatabase(injectedDb) {
+  db = injectedDb;
+  usersCollection = injectedDb.collection('templeEvents__Users');
+  unifiedEventsCollection = injectedDb.collection('templeEvents__Events');
+  calendarDeltasCollection = injectedDb.collection('templeEvents__CalendarDeltas');
+  locationsCollection = injectedDb.collection('templeEvents__Locations');
+  reservationTokensCollection = injectedDb.collection('templeEvents__ReservationTokens');
+  roomCapabilityTypesCollection = injectedDb.collection('templeEvents__RoomCapabilityTypes');
+  eventServiceTypesCollection = injectedDb.collection('templeEvents__EventServiceTypes');
+  featureCategoriesCollection = injectedDb.collection('templeEvents__FeatureCategories');
+  categoriesCollection = injectedDb.collection('templeEvents__Categories');
+  departmentsCollection = injectedDb.collection('templeEvents__Departments');
+  eventAuditHistoryCollection = injectedDb.collection('templeEvents__EventAuditHistory');
+  reservationAuditHistoryCollection = injectedDb.collection('templeEvents__ReservationAuditHistory');
+  eventAttachmentsCollection = injectedDb.collection('templeEvents__EventAttachments');
+  reservationAttachmentsCollection = injectedDb.collection('templeEvents__ReservationAttachments');
+  systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
+  filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
+  emailService.setDbConnection(injectedDb);
+  emailTemplates.setDbConnection(injectedDb);
+  errorLoggingService.setDbConnection(injectedDb);
+}
 
 // --- In-memory category cache (small, rarely-changing collection) ---
 // Avoids 3-6 DB round-trips per conflict check. Invalidated on category CRUD.
@@ -3120,11 +3149,17 @@ const msalJwksClient = jwksClient({
   timeout: 30000 // 30 second timeout
 });
 
+// --- Test injection: allows tests to bypass Azure AD token verification ---
+let _testVerifyToken = null;
+function setTestAuthMiddleware(middleware) { _testVerifyToken = middleware; }
+function setGraphApiService(mock) { graphApiService = mock; }
+
 // MSAL Authentication Middleware - Simplified for single app registration
 const verifyToken = async (req, res, next) => {
+  if (_testVerifyToken) return _testVerifyToken(req, res, next);
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       logger.error('No token provided or invalid format');
       return res.status(401).json({ error: 'Authentication required' });
@@ -5492,10 +5527,91 @@ const countsCache = new Map();
 const COUNTS_CACHE_TTL = 30_000;
 
 /**
+ * Project an event document to the subset of fields needed for SSE payloads.
+ * Keeps payloads small (~1-2KB) while providing enough data for client-side patching.
+ */
+function projectEventForSSE(event) {
+  if (!event) return null;
+  const cd = event.calendarData || {};
+  const projected = {
+    _id: event._id,
+    eventId: event.eventId,
+    calendarId: event.calendarId,
+    calendarOwner: event.calendarOwner,
+    status: event.status,
+    isDeleted: event.isDeleted,
+    eventType: event.eventType,
+    seriesMasterId: event.seriesMasterId,
+    seriesMasterEventId: event.seriesMasterEventId,
+    occurrenceDate: event.occurrenceDate,
+    // Display-only calendarData fields (excludes reviewNotes, contact info, etc.)
+    calendarData: {
+      eventTitle: cd.eventTitle,
+      eventDescription: cd.eventDescription,
+      startDate: cd.startDate, startTime: cd.startTime,
+      endDate: cd.endDate, endTime: cd.endTime,
+      startDateTime: cd.startDateTime, endDateTime: cd.endDateTime,
+      setupTime: cd.setupTime, teardownTime: cd.teardownTime,
+      doorOpenTime: cd.doorOpenTime, doorCloseTime: cd.doorCloseTime,
+      locations: cd.locations,
+      locationDisplayNames: cd.locationDisplayNames,
+      categories: cd.categories,
+      services: cd.services,
+      assignedTo: cd.assignedTo,
+      attendeeCount: cd.attendeeCount,
+      isOffsite: cd.isOffsite,
+      offsiteName: cd.offsiteName,
+      offsiteAddress: cd.offsiteAddress,
+    },
+    recurrence: event.recurrence,
+    categories: event.categories,
+    pendingEditRequest: event.pendingEditRequest ? { id: event.pendingEditRequest.id, status: event.pendingEditRequest.status } : null,
+    pendingCancellationRequest: event.pendingCancellationRequest ? { id: event.pendingCancellationRequest.id, status: event.pendingCancellationRequest.status } : null,
+    _version: event._version,
+    lastModifiedDateTime: event.lastModifiedDateTime,
+    isAllowedConcurrent: event.isAllowedConcurrent,
+    createdByEmail: event.createdByEmail,
+    createdAt: event.createdAt,
+  };
+  if (event.roomReservationData?.requestedBy) {
+    projected.roomReservationData = {
+      requestedBy: event.roomReservationData.requestedBy
+    };
+  }
+  if (event.graphData) {
+    projected.graphData = {
+      id: event.graphData.id,
+      iCalUId: event.graphData.iCalUId,
+      type: event.graphData.type,
+      seriesMasterId: event.graphData.seriesMasterId,
+    };
+  }
+  return projected;
+}
+
+/**
+ * Invalidate only the counts cache entries affected by a status change.
+ * Replaces the previous countsCache.clear() which wiped all entries and caused
+ * cache stampedes when N clients simultaneously refetched counts.
+ */
+function invalidateCountsCacheTargeted() {
+  // approval-queue and admin-browse are shared (not per-user) — always invalidate
+  countsCache.delete('approval-queue');
+  countsCache.delete('admin-browse');
+  // my-events entries are per-user (keyed as 'my-events:<email>') — invalidate all
+  for (const key of countsCache.keys()) {
+    if (key.startsWith('my-events:')) countsCache.delete(key);
+  }
+}
+
+/**
  * Broadcast an event change to all SSE-connected clients.
  * Called after every successful write operation. Non-blocking — failures are logged, never thrown.
+ *
+ * The SSE payload includes the changed event document (projected) and status delta
+ * so clients can patch local state without refetching from the database.
  */
-function broadcastEventChange({ eventId, action, actorEmail, requesterEmail }) {
+function broadcastEventChange({ eventId, action, actorEmail, requesterEmail, event, oldStatus, newStatus }) {
   try {
     const VIEW_MAP = {
       created:          ['calendar', 'approval-queue', 'my-reservations', 'event-management'],
@@ -5514,8 +5630,10 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail }) {
     };
     const COUNTS_CHANGING = ['created', 'published', 'rejected', 'deleted', 'restored', 'resubmitted', 'cancellation-approved'];
 
-    // Invalidate counts cache on any mutation
-    countsCache.clear();
+    // Targeted cache invalidation — only affected entries, not the entire cache
+    if (COUNTS_CHANGING.includes(action)) {
+      invalidateCountsCacheTargeted();
+    }
 
     sseService.broadcast({
       eventId: eventId ? String(eventId) : null,
@@ -5524,7 +5642,10 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail }) {
       requesterEmail,
       affectedViews: VIEW_MAP[action] || ['calendar'],
       countsChanged: COUNTS_CHANGING.includes(action),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      event: projectEventForSSE(event),
+      oldStatus: oldStatus || null,
+      newStatus: newStatus || null
     });
   } catch (err) {
     logger.warn('[SSE] broadcastEventChange failed:', err.message);
@@ -7766,7 +7887,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       eventId: actualEventId,
       action: 'created',
       actorEmail: userEmail,
-      requesterEmail: userEmail
+      requesterEmail: userEmail,
+      event: transformedEvent,
+      oldStatus: null,
+      newStatus: transformedEvent.status
     });
 
   } catch (error) {
@@ -14756,7 +14880,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         eventId: draftId,
         action: 'published',
         actorEmail: userEmail,
-        requesterEmail: draft.roomReservationData?.requestedBy?.email
+        requesterEmail: draft.roomReservationData?.requestedBy?.email,
+        event: publishedReservation,
+        oldStatus: 'draft',
+        newStatus: 'published'
       });
     } else {
       // --- Standard requester path: draft → pending ---
@@ -14851,7 +14978,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         eventId: draftId,
         action: 'created',
         actorEmail: userEmail,
-        requesterEmail: draft.roomReservationData?.requestedBy?.email
+        requesterEmail: draft.roomReservationData?.requestedBy?.email,
+        event: submittedReservation,
+        oldStatus: 'draft',
+        newStatus: 'pending'
       });
     }
   } catch (error) {
@@ -15207,7 +15337,10 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       eventId: reservationId,
       action: 'restored',
       actorEmail: userEmail,
-      requesterEmail: reservation.roomReservationData?.requestedBy?.email
+      requesterEmail: reservation.roomReservationData?.requestedBy?.email,
+      event: resultEvent,
+      oldStatus: 'deleted',
+      newStatus: previousStatus
     });
   } catch (error) {
     logger.error('Error restoring reservation:', error);
@@ -15483,7 +15616,10 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
       eventId,
       action: 'restored',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: resultEvent,
+      oldStatus: 'deleted',
+      newStatus: previousStatus
     });
   } catch (error) {
     logger.error('Error restoring event (admin):', error);
@@ -16040,7 +16176,10 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       eventId: reservationId,
       action: 'resubmitted',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: resubmittedEvent,
+      oldStatus: 'rejected',
+      newStatus: 'pending'
     });
 
   } catch (error) {
@@ -16326,7 +16465,10 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       eventId: reservationId,
       action: isResubmitEdit ? 'resubmitted' : 'updated',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: updatedEvent,
+      oldStatus: isResubmitEdit ? 'rejected' : event.status,
+      newStatus: updatedEvent.status
     });
 
   } catch (error) {
@@ -19224,7 +19366,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       eventId: result.insertedId,
       action: 'created',
       actorEmail: userEmail,
-      requesterEmail: requesterEmail || userEmail
+      requesterEmail: requesterEmail || userEmail,
+      event: { ...eventDoc, _id: result.insertedId },
+      oldStatus: null,
+      newStatus: eventDoc.status || 'pending'
     });
 
   } catch (error) {
@@ -19736,7 +19881,10 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       eventId: id,
       action: 'published',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: publishedEvent,
+      oldStatus: 'pending',
+      newStatus: 'published'
     });
 
     // Fire-and-forget: send publish notification email (off critical path)
@@ -19970,7 +20118,10 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       eventId: id,
       action: 'rejected',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: rejectedEvent,
+      oldStatus: 'pending',
+      newStatus: 'rejected'
     });
 
   } catch (error) {
@@ -20433,7 +20584,10 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       eventId: req.params.id,
       action: 'edit-requested',
       actorEmail: userEmail,
-      requesterEmail: originalEvent.roomReservationData?.requestedBy?.email
+      requesterEmail: originalEvent.roomReservationData?.requestedBy?.email,
+      event: updatedEvent,
+      oldStatus: 'published',
+      newStatus: 'published'
     });
 
   } catch (error) {
@@ -21070,7 +21224,10 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         eventId: req.params.id,
         action: 'edit-published',
         actorEmail: userEmail,
-        requesterEmail: pendingEditRequest.requestedBy?.email
+        requesterEmail: pendingEditRequest.requestedBy?.email,
+        event: event,
+        oldStatus: 'published',
+        newStatus: 'published'
       });
 
       return; // Do NOT fall through to series-level apply
@@ -21341,7 +21498,10 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       eventId: req.params.id,
       action: 'edit-published',
       actorEmail: userEmail,
-      requesterEmail: pendingEditRequest.requestedBy?.email
+      requesterEmail: pendingEditRequest.requestedBy?.email,
+      event: publishedEditEvent,
+      oldStatus: 'published',
+      newStatus: 'published'
     });
 
   } catch (error) {
@@ -21494,7 +21654,10 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
       eventId: eventId,
       action: 'edit-rejected',
       actorEmail: userEmail,
-      requesterEmail: pendingEditRequest.requestedBy?.email
+      requesterEmail: pendingEditRequest.requestedBy?.email,
+      event: rejectedEditEvent,
+      oldStatus: 'published',
+      newStatus: 'published'
     });
 
   } catch (error) {
@@ -21790,6 +21953,9 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
       action: 'cancellation-requested',
       actorEmail: userEmail,
       requesterEmail: event.roomReservationData?.requestedBy?.email || userEmail,
+      event: updatedEvent,
+      oldStatus: 'published',
+      newStatus: 'published'
     });
 
     res.status(201).json({
@@ -21933,6 +22099,9 @@ app.put('/api/admin/events/:id/approve-cancellation', verifyToken, async (req, r
       action: 'cancellation-approved',
       actorEmail: userEmail,
       requesterEmail: cancellationRequest.requestedBy?.email || '',
+      event: deletedEvent,
+      oldStatus: 'published',
+      newStatus: 'deleted'
     });
 
     res.json({
@@ -22052,6 +22221,9 @@ app.put('/api/admin/events/:id/reject-cancellation', verifyToken, async (req, re
       action: 'cancellation-rejected',
       actorEmail: userEmail,
       requesterEmail: cancellationRequest.requestedBy?.email || '',
+      event: updatedEvent,
+      oldStatus: 'published',
+      newStatus: 'published'
     });
 
     res.json({
@@ -23599,6 +23771,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     res.json({
       success: true,
+      event: projectEventForSSE(updatedEventDoc),
       changeKey: newChangeKey,
       _version: updatedEventDoc._version,
       graphSynced: !!graphSyncResult,
@@ -23609,7 +23782,10 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       eventId: id,
       action: 'updated',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: updatedEventDoc,
+      oldStatus: event.status,
+      newStatus: updatedEventDoc.status
     });
 
   } catch (error) {
@@ -24308,7 +24484,10 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       eventId: id,
       action: 'deleted',
       actorEmail: userEmail,
-      requesterEmail: event.roomReservationData?.requestedBy?.email
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: deletedEvent,
+      oldStatus: event.status,
+      newStatus: 'deleted'
     });
 
   } catch (error) {
@@ -25485,4 +25664,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { app, connectToDatabase, startServer, setDatabase, setTestAuthMiddleware, setGraphApiService };

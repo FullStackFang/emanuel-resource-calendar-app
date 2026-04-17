@@ -55,8 +55,35 @@ export default function Navigation() {
   // Poll badges every 5 min (safety net — SSE handles real-time updates via navigation-counts bus)
   usePolling(fetchBadgeCounts, 300_000, !!apiToken && (canSubmitReservation || canApproveReservations));
 
-  // SSE push: refresh badge counts immediately when server broadcasts a count-changing event
-  useDataRefreshBus('navigation-counts', fetchBadgeCounts, !!apiToken && (canSubmitReservation || canApproveReservations));
+  // SSE push: update badge counts via delta when payload available, otherwise refetch
+  const handleCountsBusEvent = useCallback((detail) => {
+    const payload = detail?.payload;
+    // No delta data (polling fallback or old server) — full refetch with delay
+    // to let other components warm the server-side cache first
+    if (!payload || (payload.oldStatus == null && payload.newStatus == null)) {
+      setTimeout(fetchBadgeCounts, 2500);
+      return;
+    }
+    const { oldStatus, newStatus } = payload;
+    if (canApproveReservations) {
+      setApprovalCount(prev => {
+        let c = prev;
+        if (oldStatus === 'pending') c--;
+        if (newStatus === 'pending') c++;
+        return Math.max(0, c);
+      });
+    }
+    if (canSubmitReservation) {
+      setPendingCount(prev => {
+        let c = prev;
+        if (oldStatus === 'pending') c--;
+        if (newStatus === 'pending') c++;
+        return Math.max(0, c);
+      });
+    }
+  }, [fetchBadgeCounts, canApproveReservations, canSubmitReservation]);
+
+  useDataRefreshBus('navigation-counts', handleCountsBusEvent, !!apiToken && (canSubmitReservation || canApproveReservations));
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {
