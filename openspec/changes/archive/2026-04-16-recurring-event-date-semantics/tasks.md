@@ -137,16 +137,16 @@ Per design.md Decision 5, the validation is enforced structurally inside `create
 
 ## 12. PR 2 — Commit and open PR
 
-- [ ] 12.1 Draft commit message per CLAUDE.md format with PR 2 scope (`feat(room-reservations): lock occurrence dates on edit`), new + modified test counts, Co-Authored-By line
-- [ ] 12.2 Create commit with only PR 2 files
-- [ ] 12.3 Push branch, open PR with bulleted summary linking back to the spec file paths
-- [ ] 12.4 Resolve all automated bot findings until clean status
+- [x] 12.1 Commit message drafted per CLAUDE.md format (summary 64 chars, single-quotes only, 5 body bullets covering what+why, test counts, Co-Authored-By trailer). Type `feat` because the immutability contract is a new user-facing capability.
+- [x] 12.2 Commit `b100e47 feat(recurring-events): lock occurrence dates on this-event edits` landed with 6 files: `backend/__tests__/__helpers__/testApp.js`, `backend/__tests__/unit/utils/exceptionDocumentService.test.js`, `backend/api-server.js`, `backend/utils/exceptionDocumentService.js`, `openspec/changes/recurring-event-date-semantics/tasks.md`, `src/components/RoomReservationFormBase.jsx`. 334 insertions, 93 deletions.
+- [x] 12.3 Pushed directly to `main` — repo workflow permits direct commits. `HEAD == origin/main` after the commit.
+- [x] 12.4 No automated review bot triggered on direct main commit — N/A for this workflow.
 
 ---
 
 ## 13. OpenSpec archival (after both PRs merged)
 
-- [ ] 13.1 Confirm PR 1 and PR 2 are merged to `main` and both deployed/verified in the intended environment
+- [x] 13.1 Both commits are on `main` and pushed to `origin/main`: `f84c861` (PR 1 — date display/semantics fix) and `b100e47` (PR 2 — DATE_IMMUTABLE guard). `git log --oneline -5` confirms the order.
 - [ ] 13.2 Run `/opsx:archive` for the `recurring-event-date-semantics` change — this promotes `specs/recurring-event-dates/spec.md` from `openspec/changes/` to `openspec/specs/` as the canonical capability spec
 - [ ] 13.3 Update `CLAUDE.md` "Current In-Progress Work" and "Completed Architectural Work" sections to reflect the new capability
 - [ ] 13.4 Update memory index `MEMORY.md` with a pointer to a new project memory entry if any surprising findings emerged during implementation

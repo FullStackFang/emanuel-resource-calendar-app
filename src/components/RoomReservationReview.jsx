@@ -370,10 +370,13 @@ export default function RoomReservationReview({
 
     const effectiveStartTime = formData.startTime || formData.reservationStartTime;
     const effectiveEndTime = formData.endTime || formData.reservationEndTime;
+    // Normalize HH:MM → HH:MM:00 to match the backend's stored format and
+    // prevent false-positive change detection in the save endpoint.
+    const appendSeconds = (t) => t && t.length === 5 ? t + ':00' : t;
     const startDateTime = formData.startDate && effectiveStartTime
-      ? `${formData.startDate}T${effectiveStartTime}` : null;
+      ? `${formData.startDate}T${appendSeconds(effectiveStartTime)}` : null;
     const endDateTime = formData.endDate && effectiveEndTime
-      ? `${formData.endDate}T${effectiveEndTime}` : null;
+      ? `${formData.endDate}T${appendSeconds(effectiveEndTime)}` : null;
 
     // Calculate reservation time buffer minutes
     let reservationStartMinutes = formData.reservationStartMinutes || 0;

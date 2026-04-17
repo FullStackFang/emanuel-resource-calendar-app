@@ -14834,20 +14834,17 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         }
       }
 
-      // Sync exception documents to Graph (new path — 1:1 doc-to-Graph mapping)
-      try {
-        await syncExceptionDocumentsToGraph(
-          calendarOwner, draft.calendarId || null, createdEvent.id, draft.eventId, graphEventData
-        );
-      } catch (exDocSyncError) {
-        logger.warn('Failed to sync exception documents to Graph on draft auto-publish:', exDocSyncError.message);
-      }
+      // Exception doc operations only apply to recurring series masters
+      if (draftRecurrence?.pattern && draftRecurrence?.range) {
+        await cascadeStatusUpdate(unifiedEventsCollection, draft.eventId, 'published', {
+          changedBy: userEmail,
+          reason: 'Series published via draft auto-publish',
+        });
 
-      // Cascade status to exception docs (they were draft, now published)
-      await cascadeStatusUpdate(unifiedEventsCollection, draft.eventId, 'published', {
-        changedBy: userEmail,
-        reason: 'Series published via draft auto-publish',
-      });
+        syncExceptionDocumentsToGraph(
+          calendarOwner, draft.calendarId || null, createdEvent.id, draft.eventId, graphEventData
+        ).catch(err => logger.warn('Failed to sync exception documents to Graph on draft auto-publish:', err.message));
+      }
 
       const now = new Date();
       const draftPublishSet = {
@@ -20040,21 +20037,22 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           }
         }
 
-        // Sync exception documents to Graph (new path — 1:1 doc-to-Graph mapping)
-        try {
-          const exDocSyncResults = await syncExceptionDocumentsToGraph(
-            selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
-          );
-          calendarEventResult.exceptionDocSyncResults = exDocSyncResults;
-        } catch (exDocSyncError) {
-          logger.warn('Failed to sync exception documents to Graph on publish:', exDocSyncError.message);
-        }
+        // Exception doc operations only apply to recurring series masters.
+        // Non-recurring events have no children — skip to avoid wasted DB round trips.
+        if (isRecurringPublish) {
+          // Cascade status synchronously (data consistency: children must show
+          // as 'published' immediately after the parent is published).
+          await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'published', {
+            changedBy: userEmail,
+            reason: 'Series published',
+          });
 
-        // Cascade status to exception docs (they were pending, now published)
-        await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'published', {
-          changedBy: userEmail,
-          reason: 'Series published',
-        });
+          // Sync exception documents to Graph — fire-and-forget.
+          // Non-fatal: graphEventId fallback discovery exists in the occurrence-edit path.
+          syncExceptionDocumentsToGraph(
+            selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
+          ).catch(err => logger.warn('Failed to sync exception documents to Graph on publish:', err.message));
+        }
       } catch (error) {
         logger.error('Graph event creation failed after MongoDB publish, rolling back status:', error);
         // Roll back: revert status to pre-publish state
@@ -23019,14 +23017,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     // DEBUG: Log location processing state
-    logger.info('=== LOCATION DEBUG ===', {
+    logger.debug('Location processing state:', {
       'updates.locations': updates.locations,
-      'updates.location': updates.location,  // CHECK SINGULAR FIELD
       'updates.requestedRooms': updates.requestedRooms,
       'updates.isOffsite': updates.isOffsite,
       'processedLocationsArray': processedLocationsArray,
-      'isLocationsEmptyArray': Array.isArray(updates.locations) && updates.locations.length === 0,
-      'isRequestedRoomsEmptyArray': Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0
     });
 
     // Use graphData.id as the sync gate — it's always stored by the publish endpoint
@@ -23051,13 +23046,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const cd = event.calendarData || {};
     const existingCategories = cd.categories || event.graphData?.categories || [];
 
-    // DEBUG: Log location change detection
-    logger.info('=== LOCATION CHANGE DETECTION ===', {
-      'updates.locations': updates.locations,
-      'cd.locations': cd.locations,
-      'updates.locations type': updates.locations === undefined ? 'undefined' : (Array.isArray(updates.locations) ? 'array' : typeof updates.locations),
-      'cd.locations type': cd.locations === undefined ? 'undefined' : (Array.isArray(cd.locations) ? 'array' : typeof cd.locations),
-      'locationChangeResult': hasFieldChanged('locations', updates.locations, cd.locations)
+    logger.debug('Location change detection:', {
+      locationsChanged: hasFieldChanged('locations', updates.locations, cd.locations)
     });
 
     const graphChanges = {

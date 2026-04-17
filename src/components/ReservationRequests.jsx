@@ -204,10 +204,12 @@ export default function ReservationRequests({ graphToken }) {
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll for new reservations every 5 min (silent — no loading spinner)
+  // Don't refresh while the review modal is open to avoid clobbering in-flight edits
   const silentRefresh = useCallback(() => {
+    if (reviewModal.isOpen) return;
     loadReservations({ silent: true });
     loadCounts();
-  }, [loadReservations, loadCounts]);
+  }, [loadReservations, loadCounts, reviewModal.isOpen]);
   usePolling(silentRefresh, 300_000, !!apiToken);
 
   // Listen for refresh events from other views
@@ -273,7 +275,10 @@ export default function ReservationRequests({ graphToken }) {
     [filteredReservations, sortBy]
   );
 
+  // hasActiveFilters: used to show the "clear" button area (includes sort, which the user can reset)
   const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
+  // hasActiveSearchFilters: used for empty-state messaging (sort alone can't filter out results)
+  const hasActiveSearchFilters = !!(searchTerm || dateFrom || dateTo || statusFilter);
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -820,11 +825,11 @@ export default function ReservationRequests({ graphToken }) {
         {paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
-              {hasActiveFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
+              {hasActiveSearchFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
             </div>
-            <h3>{hasActiveFilters ? 'No matching requests' : activeTab === 'needs_attention' ? 'All caught up!' : 'No requests'}</h3>
+            <h3>{hasActiveSearchFilters ? 'No matching requests' : activeTab === 'needs_attention' ? 'All caught up!' : 'No requests'}</h3>
             <p>
-              {hasActiveFilters
+              {hasActiveSearchFilters
                 ? 'Try adjusting your search or date filters.'
                 : activeTab === 'needs_attention'
                 ? 'No pending requests or edit requests to review.'

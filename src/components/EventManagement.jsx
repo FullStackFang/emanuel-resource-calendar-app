@@ -63,6 +63,7 @@ export default function EventManagement() {
   const [events, setEvents] = useState([]);
   const [counts, setCounts] = useState({ total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 });
   const [loading, setLoading] = useState(true);
+  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
   const [totalPages, setTotalPages] = useState(1);
 
   // Filter state
@@ -103,6 +104,7 @@ export default function EventManagement() {
   // Fetch events (uses authFetch for automatic 401 retry with token refresh)
   const fetchEvents = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
+    else setIsSilentRefreshing(true);
     try {
       if (silent) {
         // Also refresh counts during silent poll
@@ -131,6 +133,7 @@ export default function EventManagement() {
       if (!silent) showError(err, { context: 'EventManagement.fetchEvents' });
     } finally {
       if (!silent) setLoading(false);
+      else setIsSilentRefreshing(false);
     }
   }, [authFetch, page, activeTab, startDate, endDate, showError]);
 
@@ -470,7 +473,7 @@ export default function EventManagement() {
         <div className="em-loading">
           <LoadingSpinner variant="card" size={40} text="Loading events..." />
         </div>
-      ) : events.length === 0 ? (
+      ) : events.length === 0 && !isSilentRefreshing ? (
         <div className="em-empty-state">
           <div className="em-empty-state-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

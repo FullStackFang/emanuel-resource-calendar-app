@@ -557,6 +557,8 @@ Requester info lives in `roomReservationData.requestedBy` (name, email, departme
 - **Email notifications**: Approval/rejection emails with approver change tracking (`reviewChanges`)
 - **graphData isolation**: Frontend reads top-level fields only, `graphData` is raw Graph API cache
 - **Recurring event metadata**: `eventType`, `seriesMasterId`, `recurrence` at top level
+- **Exception-as-Document architecture**: Recurring event overrides stored as separate `exception`/`addition` documents with `resolveSeriesMaster`, `createExceptionDocument`, `updateExceptionDocument` in `exceptionDocumentService.js`; DELETE handler cascades; `recurrence.exclusions` maintained on occurrence delete
+- **Recurring event date semantics**: Series master read-only date inputs display `recurrence.range` (series span) not first-occurrence date; clicking a single occurrence shows the clicked day's date (fixed `getEventField` calendarData leak for non-overridden virtual occurrences); occurrence recurrence tab renders read-only compact summary; `formatRecurrenceSummaryCompact` utility alongside existing `formatRecurrenceSummary`; occurrence dates immutable via structural `DATE_IMMUTABLE` guard inside `createExceptionDocument`/`updateExceptionDocument`; `getOccurrenceDateKey` normalizes extraction across 4 `useReviewModal` sites
 
 ---
 
