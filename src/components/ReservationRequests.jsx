@@ -39,6 +39,7 @@ export default function ReservationRequests({ graphToken }) {
   activeTabRef.current = activeTab; // synchronous render-time assignment — safe to read in async callbacks
   // Tracks the current in-flight AbortController so a new load can cancel the previous one.
   const abortControllerRef = useRef(null);
+  const lastTokenRef = useRef(null); // Prevents re-running initial load on 45-min token refresh (matches useServerEvents pattern)
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
@@ -221,9 +222,14 @@ export default function ReservationRequests({ graphToken }) {
     onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
   });
 
-  // Load calendar settings + reservations + counts on mount
+  // Load calendar settings + reservations + counts on mount.
+  // Guard: only run once when apiToken first becomes available. Token refresh calls
+  // setApiToken with a new JWT string every 45 min — without this guard, each refresh
+  // would trigger a full non-silent reload that unconditionally writes its result (even 0),
+  // causing the approval queue to flash empty. Subsequent refreshes come from SSE/polling.
   useEffect(() => {
-    if (apiToken) {
+    if (apiToken && apiToken !== lastTokenRef.current) {
+      lastTokenRef.current = apiToken;
       loadCalendarSettings();
       loadReservations();
       loadCounts();
