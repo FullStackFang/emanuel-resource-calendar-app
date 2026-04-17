@@ -1,5 +1,5 @@
 /**
- * Exception Document Save Tests (ES-1 to ES-5) — Bug B regression coverage
+ * Exception Document Save Tests (ES-1 to ES-7) — Bug B regression coverage
  *
  * Tests per-occurrence edit via PUT /api/admin/events/:id with editScope='thisEvent'
  * targeting both SERIES MASTERS and already-materialized EXCEPTION DOCUMENTS.
@@ -18,6 +18,8 @@
  * ES-3: PUT thisEvent on exception with missing master → 404 MasterNotFound
  * ES-4: Edit same date twice via different doc ids → exactly 1 exception in collection
  * ES-5: PUT thisEvent on addition document → updates correctly, skips validateOccurrenceDateInRange
+ * ES-6: PUT thisEvent on master with Additional Info fields → stored in overrides + top-level
+ * ES-7: PUT thisEvent on existing exception → Additional Info fields merge into overrides
  */
 
 const request = require('supertest');
@@ -40,7 +42,7 @@ const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers
 const graphApiMock = require('../../__helpers__/graphApiMock');
 const { COLLECTIONS, STATUS, ENDPOINTS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
 
-describe('Exception Document Save Tests (ES-1 to ES-5)', () => {
+describe('Exception Document Save Tests (ES-1 to ES-7)', () => {
   let mongoClient;
   let db;
   let app;
@@ -330,6 +332,94 @@ describe('Exception Document Save Tests (ES-1 to ES-5)', () => {
       expect(additions[0].overrides.eventTitle).toBe('Updated Ad-hoc');
       // Clean seriesMasterEventId
       expect(additions[0].seriesMasterEventId).toBe(master.eventId);
+    });
+  });
+
+  describe('ES-6: PUT thisEvent on master with Additional Info fields → stored in overrides + top-level', () => {
+    it('should persist eventNotes, setupNotes, doorNotes, specialRequirements in exception overrides and top-level fields', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          eventNotes: 'VIP guest arriving at 2pm',
+          setupNotes: 'Extra chairs needed in back row',
+          doorNotes: 'Use side entrance only',
+          specialRequirements: 'Projector and microphone required',
+        });
+
+      expect(res.status).toBe(200);
+
+      const exception = await db.collection(COLLECTIONS.EVENTS).findOne({
+        eventType: 'exception',
+        seriesMasterEventId: master.eventId,
+        occurrenceDate: '2026-03-12',
+      });
+
+      expect(exception).toBeTruthy();
+
+      // Stored in overrides
+      expect(exception.overrides.eventNotes).toBe('VIP guest arriving at 2pm');
+      expect(exception.overrides.setupNotes).toBe('Extra chairs needed in back row');
+      expect(exception.overrides.doorNotes).toBe('Use side entrance only');
+      expect(exception.overrides.specialRequirements).toBe('Projector and microphone required');
+
+      // Also denormalized to top-level effective fields
+      expect(exception.eventNotes).toBe('VIP guest arriving at 2pm');
+      expect(exception.setupNotes).toBe('Extra chairs needed in back row');
+      expect(exception.doorNotes).toBe('Use side entrance only');
+      expect(exception.specialRequirements).toBe('Projector and microphone required');
+    });
+  });
+
+  describe('ES-7: PUT thisEvent on existing exception → Additional Info fields merge into overrides', () => {
+    it('should merge new Additional Info values into existing exception overrides', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      // Pre-existing exception with only setupNotes
+      const existingException = createExceptionDocument(
+        master,
+        '2026-03-12',
+        { startTime: '16:00', setupNotes: 'Original setup note' }
+      );
+      await db.collection(COLLECTIONS.EVENTS).insertOne(existingException);
+
+      // Update with new Additional Info fields — setupNotes updated, others added fresh
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(existingException._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-12',
+          setupNotes: 'Updated setup note',
+          doorNotes: 'New door note',
+          eventNotes: 'New event note',
+          specialRequirements: 'New requirements',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({
+        _id: existingException._id,
+      });
+
+      // Original override (startTime) preserved, new notes merged in
+      expect(updated.overrides.startTime).toBe('16:00');
+      expect(updated.overrides.setupNotes).toBe('Updated setup note');
+      expect(updated.overrides.doorNotes).toBe('New door note');
+      expect(updated.overrides.eventNotes).toBe('New event note');
+      expect(updated.overrides.specialRequirements).toBe('New requirements');
+
+      // Top-level effective fields updated too
+      expect(updated.setupNotes).toBe('Updated setup note');
+      expect(updated.doorNotes).toBe('New door note');
+      expect(updated.eventNotes).toBe('New event note');
+      expect(updated.specialRequirements).toBe('New requirements');
     });
   });
 });

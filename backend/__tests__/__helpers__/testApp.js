@@ -301,9 +301,30 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
       recurringQuery._id = { $ne: excludeId, $nin: foundIds };
     }
     const seriesMasters = await eventsCollection.find(recurringQuery).toArray();
+
+    // Fetch exception/addition dates so master occurrences on those dates are suppressed
+    const masterEventIds = seriesMasters.map(m => m.eventId).filter(Boolean);
+    let exceptionDatesByMaster = {};
+    if (masterEventIds.length > 0) {
+      const exceptionDocs = await eventsCollection.find({
+        seriesMasterEventId: { $in: masterEventIds },
+        eventType: { $in: ['exception', 'addition'] },
+        isDeleted: { $ne: true },
+        status: { $ne: 'deleted' },
+      }).project({ seriesMasterEventId: 1, occurrenceDate: 1 }).toArray();
+      for (const ed of exceptionDocs) {
+        if (!exceptionDatesByMaster[ed.seriesMasterEventId]) {
+          exceptionDatesByMaster[ed.seriesMasterEventId] = new Set();
+        }
+        exceptionDatesByMaster[ed.seriesMasterEventId].add(ed.occurrenceDate);
+      }
+    }
+
     for (const master of seriesMasters) {
+      const masterExceptionDates = exceptionDatesByMaster[master.eventId];
       const occurrences = expandRecurringOccurrencesInWindow(master, startTime, endTime);
       for (const occ of occurrences) {
+        if (masterExceptionDates && masterExceptionDates.has(occ.occurrenceDate)) continue;
         if (occ.startDateTime < endTimeStr && occ.endDateTime > startTimeStr) {
           publishedConflicts.push(master);
           break;
@@ -5676,16 +5697,31 @@ function createTestApp(options = {}) {
       const mainQueryIdSet = new Set(allEventsAndPending.map(e => e._id.toString()));
       const expandedOccurrences = [];
 
+      // Build exception-date suppression map from Q1 results
+      const exceptionDatesByMaster = {};
+      for (const e of allEventsAndPending) {
+        if ((e.eventType === 'exception' || e.eventType === 'addition') && e.seriesMasterEventId && e.occurrenceDate) {
+          if (!exceptionDatesByMaster[e.seriesMasterEventId]) {
+            exceptionDatesByMaster[e.seriesMasterEventId] = new Set();
+          }
+          exceptionDatesByMaster[e.seriesMasterEventId].add(e.occurrenceDate);
+        }
+      }
+
       for (const master of seriesMasters) {
         const masterId = master._id.toString();
         if (excludeId && masterId === excludeId) continue;
         const mainQueryHasMaster = mainQueryIdSet.has(masterId);
+        const masterExceptionDates = exceptionDatesByMaster[master.eventId];
 
         try {
           const occurrences = expandRecurringOccurrencesInWindow(
             master, new Date(start), new Date(end)
           );
           for (const occ of occurrences) {
+            // Skip dates where an exception/addition document replaces this occurrence
+            if (masterExceptionDates && masterExceptionDates.has(occ.occurrenceDate)) continue;
+
             if (mainQueryHasMaster) {
               const masterStartDate = (master.calendarData?.startDateTime || '').split('T')[0];
               if (occ.occurrenceDate === masterStartDate) continue;

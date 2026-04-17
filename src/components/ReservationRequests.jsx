@@ -199,6 +199,7 @@ export default function ReservationRequests({ graphToken }) {
     onRefresh: handleRefresh,
     onSuccess: (result) => {
       loadReservations({ silent: true, postAction: true });
+      loadCounts();
       if (result?.recurringConflicts?.conflictingOccurrences > 0) {
         const rc = result.recurringConflicts;
         showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
@@ -245,11 +246,11 @@ export default function ReservationRequests({ graphToken }) {
   const handleManualRefresh = useCallback(async () => {
     setIsManualRefreshing(true);
     try {
-      await loadReservations();
+      await Promise.all([loadReservations(), loadCounts()]);
     } finally {
       setIsManualRefreshing(false);
     }
-  }, [loadReservations]);
+  }, [loadReservations, loadCounts]);
 
   // Stage 1: Apply search + date filters against all reservations
   const searchFiltered = useMemo(

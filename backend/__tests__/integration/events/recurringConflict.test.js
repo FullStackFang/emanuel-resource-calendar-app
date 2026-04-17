@@ -1,5 +1,5 @@
 /**
- * Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)
+ * Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)
  *
  * Tests that checkRoomConflicts() detects conflicts against recurring
  * series master occurrences, not just stored start/end times.
@@ -19,13 +19,14 @@ const {
   createPendingEvent,
   createPublishedEvent,
   createRecurringSeriesMaster,
+  createExceptionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)', () => {
+describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)', () => {
   let mongoClient, db, app;
   let requesterUser, adminUser;
   let requesterToken, adminToken;
@@ -332,6 +333,69 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-8)', () => {
         eventTitle: 'Early Morning Meeting',
         startDateTime: new Date('2026-04-07T08:00:00'),
         endDateTime: new Date('2026-04-07T09:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const [saved] = await insertEvents(db, [noConflict]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+    });
+  });
+
+  // ─── RCC-9: Exception document suppresses master occurrence in conflict check ───
+  describe('RCC-9: Exception document suppresses master occurrence', () => {
+    it('should not conflict when master occurrence is replaced by a non-overlapping exception', async () => {
+      // Daily series: 10:00-11:00, April 13-17
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Daily Stand-up',
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+        startDateTime: new Date('2026-04-13T10:00:00'),
+        endDateTime: new Date('2026-04-13T11:00:00'),
+        calendarData: {
+          eventTitle: 'Daily Stand-up',
+          startDateTime: '2026-04-13T10:00:00',
+          endDateTime: '2026-04-13T11:00:00',
+          locations: [sharedRoomId],
+          locationDisplayNames: ['Conference Room B'],
+          categories: ['Meeting'],
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+        },
+        recurrence: {
+          pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-04-13', endDate: '2026-04-17' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+
+      // Exception on April 14: moved to 14:00-15:00 (afternoon, no overlap with 10:00-11:00)
+      // Must override startTime/endTime so mergeDefaultsWithOverrides builds the correct startDateTime
+      const exception = createExceptionDocument(master, '2026-04-14', {
+        startTime: '14:00',
+        endTime: '15:00',
+        reservationStartTime: '14:00',
+        reservationEndTime: '15:00',
+      });
+
+      await insertEvents(db, [master, exception]);
+
+      // New event on April 14 at 10:30-11:30 — overlaps the MASTER's 10:00-11:00 slot
+      // but the master's occurrence is replaced by the exception at 14:00-15:00
+      const noConflict = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Should Not Conflict',
+        startDateTime: new Date('2026-04-14T10:30:00'),
+        endDateTime: new Date('2026-04-14T11:30:00'),
         locations: [sharedRoomId],
         locationDisplayNames: ['Conference Room B'],
       });

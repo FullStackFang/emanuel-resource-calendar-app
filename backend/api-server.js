@@ -2268,7 +2268,7 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
  * Excludes graphData blob, statusHistory, roomReservationData details, etc. to reduce RU cost.
  */
 const CONFLICT_PROJECTION = {
-  _id: 1, status: 1, eventType: 1, eventTitle: 1, seriesMasterEventId: 1, occurrenceDate: 1,
+  _id: 1, status: 1, eventType: 1, eventId: 1, eventTitle: 1, seriesMasterEventId: 1, occurrenceDate: 1,
   'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
   'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
   'calendarData.categories': 1, 'calendarData.eventTitle': 1,
@@ -2283,7 +2283,9 @@ const CONFLICT_PROJECTION = {
 // Projection for availability endpoint — only fields used by response builders (lines 13283-13481)
 const AVAILABILITY_PROJECTION = {
   _id: 1, status: 1, isAllowedConcurrent: 1, categories: 1,
+  eventId: 1,                                  // match series masters to their exception documents
   eventType: 1,                                // identify series masters for recurrence expansion
+  seriesMasterEventId: 1, occurrenceDate: 1,   // exception/addition docs: suppress master expansion
   recurrence: 1,                               // expandRecurringOccurrencesInWindow reads top-level
   'calendarData.recurrence': 1,                // expandRecurringOccurrencesInWindow reads nested path
   occurrenceOverrides: 1,                      // per-occurrence time/location overrides
@@ -2475,11 +2477,43 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     // Expand recurring series masters and add overlapping occurrences to conflicts
     // De-duplicate against conflicts already found by the main query
     const conflictIdSet = new Set(conflicts.map(c => c._id.toString()));
+
+    // Fetch exception/addition dates for series masters so their synthetic occurrences
+    // are suppressed (the exception document replaces the master's occurrence).
+    // Unlike the availability endpoint (full-day window), checkRoomConflicts uses a narrow
+    // time window, so exception docs at different times won't be in the main query.
+    let exceptionDatesByMaster = {};
+    const masterEventIds = seriesMasters.map(m => m.eventId).filter(Boolean);
+    if (masterEventIds.length > 0) {
+      try {
+        const exceptionDocs = await withCosmosRetry(() =>
+          unifiedEventsCollection.find({
+            seriesMasterEventId: { $in: masterEventIds },
+            eventType: { $in: ['exception', 'addition'] },
+            isDeleted: { $ne: true },
+            status: { $ne: 'deleted' },
+          }).project({ seriesMasterEventId: 1, occurrenceDate: 1 }).toArray()
+        );
+        for (const ed of exceptionDocs) {
+          if (!exceptionDatesByMaster[ed.seriesMasterEventId]) {
+            exceptionDatesByMaster[ed.seriesMasterEventId] = new Set();
+          }
+          exceptionDatesByMaster[ed.seriesMasterEventId].add(ed.occurrenceDate);
+        }
+      } catch (exErr) {
+        logger.warn('Error fetching exception dates for conflict check (non-fatal):', exErr.message);
+      }
+    }
+
     for (const master of seriesMasters) {
       if (conflictIdSet.has(master._id.toString())) continue; // already in conflicts
+      const masterExceptionDates = exceptionDatesByMaster[master.eventId];
       try {
         const occurrences = expandRecurringOccurrencesInWindow(master, effectiveStart, effectiveEnd);
         for (const occ of occurrences) {
+          // Skip dates where an exception/addition document replaces this occurrence
+          if (masterExceptionDates && masterExceptionDates.has(occ.occurrenceDate)) continue;
+
           if (occ.startDateTime < effectiveEndStr && occ.endDateTime > effectiveStartStr) {
             conflicts.push({
               ...master,
@@ -13733,11 +13767,26 @@ app.get('/api/rooms/availability', async (req, res) => {
     const mainQueryIdSet = new Set(allEventsAndPending.map(e => e._id.toString()));
     const expandedOccurrences = []; // { master, startDateTime, endDateTime, locations }
 
+    // Build exception-date suppression map from Q1 results.
+    // Exception/addition documents replace the master's occurrence on their date,
+    // so the master's synthetic occurrence must be suppressed to avoid double-counting.
+    // Q1 covers the full queried day, so all relevant exception docs are already fetched.
+    const exceptionDatesByMaster = {};
+    for (const e of allEventsAndPending) {
+      if ((e.eventType === 'exception' || e.eventType === 'addition') && e.seriesMasterEventId && e.occurrenceDate) {
+        if (!exceptionDatesByMaster[e.seriesMasterEventId]) {
+          exceptionDatesByMaster[e.seriesMasterEventId] = new Set();
+        }
+        exceptionDatesByMaster[e.seriesMasterEventId].add(e.occurrenceDate);
+      }
+    }
+
     for (const master of seriesMasters) {
       const masterId = master._id.toString();
       if (excludeId && masterId === excludeId) continue;
 
       const mainQueryHasMaster = mainQueryIdSet.has(masterId);
+      const masterExceptionDates = exceptionDatesByMaster[master.eventId];
 
       try {
         const occurrences = expandRecurringOccurrencesInWindow(
@@ -13747,6 +13796,9 @@ app.get('/api/rooms/availability', async (req, res) => {
         );
 
         for (const occ of occurrences) {
+          // Skip dates where an exception/addition document replaces this occurrence
+          if (masterExceptionDates && masterExceptionDates.has(occ.occurrenceDate)) continue;
+
           // Skip if main query already has this master on its first-occurrence date (dedup)
           if (mainQueryHasMaster) {
             const masterStartDate = (master.calendarData?.startDateTime || '').split('T')[0];
