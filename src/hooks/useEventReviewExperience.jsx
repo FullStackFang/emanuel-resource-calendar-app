@@ -198,7 +198,14 @@ export function useEventReviewExperience({
     prevIsOpenRef.current = reviewModal.isOpen;
 
     if (justOpened && reviewModal.currentItem?.status === 'published') {
-      fetchExistingEditRequest(reviewModal.currentItem, reviewModal.editScope).then(setExistingEditRequest);
+      fetchExistingEditRequest(reviewModal.currentItem, reviewModal.editScope).then((editReq) => {
+        setExistingEditRequest(editReq);
+        // Capture baseline data when an edit request exists, so computeApproverChanges
+        // has a non-null baseline even if the approver never clicks 'View Edit Request'
+        if (editReq && reviewModal.editableData) {
+          setOriginalEventData(JSON.parse(JSON.stringify(reviewModal.editableData)));
+        }
+      });
     } else if (justClosed) {
       // Reset ALL satellite state on modal close (single cleanup point)
       setExistingEditRequest(null);

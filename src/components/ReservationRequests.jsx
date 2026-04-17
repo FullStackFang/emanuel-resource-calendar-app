@@ -764,12 +764,14 @@ export default function ReservationRequests({ graphToken }) {
                 <div className="rr-info-block">
                   <span className="rr-info-label">When</span>
                   <div className="rr-info-value rr-datetime">
-                    <span className="rr-date">{new Date(reservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                    <span className="rr-time">
-                      {new Date(reservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                      {' – '}
-                      {new Date(reservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                    </span>
+                    <span className="rr-date">{new Date(reservation.startDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                    {reservation.startTime && reservation.endTime ? (
+                      <span className="rr-time">
+                        {new Date(`2000-01-01T${reservation.startTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        {' – '}
+                        {new Date(`2000-01-01T${reservation.endTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 

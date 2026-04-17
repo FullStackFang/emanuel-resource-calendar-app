@@ -23,7 +23,7 @@ import './MyReservations.css';
 export default function MyReservations() {
   const { apiToken } = useAuth();
   const authFetch = useAuthenticatedFetch();
-  const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
+  const { canSubmitReservation, canEditEvents, canDeleteEvents, canApproveReservations, permissionsLoading } = usePermissions();
   const { showSuccess, showWarning, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -549,16 +549,18 @@ export default function MyReservations() {
                 <div className="mr-info-block">
                   <span className="mr-info-label">When</span>
                   <div className="mr-info-value mr-datetime">
-                    {reservation.startDateTime && reservation.endDateTime ? (
+                    {reservation.startDate ? (
                       <>
                         <span className="mr-date">
-                          {new Date(reservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {new Date(reservation.startDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                         </span>
-                        <span className="mr-time">
-                          {new Date(reservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                          {' – '}
-                          {new Date(reservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                        </span>
+                        {reservation.startTime && reservation.endTime ? (
+                          <span className="mr-time">
+                            {new Date(`2000-01-01T${reservation.startTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {' – '}
+                            {new Date(`2000-01-01T${reservation.endTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        ) : null}
                       </>
                     ) : (
                       <span className="mr-not-set">Not set</span>
@@ -686,7 +688,7 @@ export default function MyReservations() {
         title={getModalTitle()}
         modalMode={getModalMode()}
         isRequesterOnly={isRequesterOnly}
-        permissions={{ canApproveReservations, canEditEvents: !isRequesterOnly, canDeleteEvents: !isRequesterOnly }}
+        permissions={{ canApproveReservations, canEditEvents: !isRequesterOnly, canDeleteEvents }}
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
         canRequestCancellation={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
         readOnly={!canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}

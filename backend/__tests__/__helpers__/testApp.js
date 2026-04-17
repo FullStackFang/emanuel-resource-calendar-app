@@ -24,6 +24,7 @@ const {
 } = require('../../utils/exceptionDocumentService');
 const { extractDatePart } = require('../../utils/dateUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
+const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry } = require('../../utils/eventFieldBuilder');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
 const graphApiMock = require('./graphApiMock');
@@ -741,33 +742,22 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'Permission denied. Requester role required.' });
       }
 
-      const {
-        eventTitle,
-        eventDescription,
-        startDateTime,
-        endDateTime,
-        locations,
-        requesterName,
-        requesterEmail,
-        department,
-        phone,
-        attendees,
-        attendeeCount,
-        categories,
-        services,
-        setupTime,
-        doorOpenTime,
-        reservationStartTime,
-        reservationEndTime,
-      } = req.body;
+      const { eventTitle } = req.body;
 
       // Validate required fields
-      if (!eventTitle || !startDateTime || !endDateTime) {
-        return res.status(400).json({ error: 'Missing required fields: eventTitle, startDateTime, endDateTime' });
+      if (!eventTitle || !req.body.startDateTime && !req.body.startDate) {
+        return res.status(400).json({ error: 'Missing required fields: eventTitle, startDateTime/startDate' });
       }
 
       const now = new Date();
       const eventId = `draft-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Build event fields using shared builder
+      const { calendarDataDoc, topLevelFields } = await buildEventFields(req.body, testDb, { mode: 'create' });
+      const { requestedBy, contactPerson } = buildRequestedByObject(
+        { ...req.body, requesterName: req.body.requesterName || req.user.name },
+        userId, userEmail, req.body.department || userDoc?.department || ''
+      );
 
       const draft = {
         _id: new ObjectId(),
@@ -776,63 +766,20 @@ function createTestApp(options = {}) {
         calendarOwner: TEST_CALENDAR_OWNER,
         status: 'draft',
         isDeleted: false,
-
-        // Calendar fields (top-level for backward compat)
-        eventTitle,
-        eventDescription: eventDescription || '',
-        startDateTime: new Date(startDateTime),
-        endDateTime: new Date(endDateTime),
-        locations: locations || [],
-        locationDisplayNames: [],
-        categories: categories || [],
-        services: services || [],
-        setupTime: setupTime || null,
-        doorOpenTime: doorOpenTime || null,
-        reservationStartTime: reservationStartTime || '',
-        reservationEndTime: reservationEndTime || '',
-
-        // calendarData (nested structure matching production)
-        calendarData: {
-          eventTitle,
-          eventDescription: eventDescription || '',
-          startDateTime: new Date(startDateTime),
-          endDateTime: new Date(endDateTime),
-          locations: locations || [],
-          locationDisplayNames: [],
-          categories: categories || [],
-          setupTime: setupTime || null,
-          doorOpenTime: doorOpenTime || null,
-          reservationStartTime: reservationStartTime || '',
-          reservationEndTime: reservationEndTime || '',
-          attendeeCount: parseInt(attendeeCount) || null,
-          organizerName: req.body.organizerName || '',
-          organizerPhone: req.body.organizerPhone || '',
-          organizerEmail: req.body.organizerEmail || '',
-        },
-
-        // Room reservation data
+        ...topLevelFields,
+        calendarData: calendarDataDoc,
         roomReservationData: {
-          requesterName: requesterName || req.user.name || '',
-          requesterEmail: requesterEmail || userEmail,
-          department: department || '',
-          phone: phone || '',
-          attendees: attendees || 0,
+          requestedBy,
+          contactPerson,
+          submittedAt: now,
         },
-
-        // Status history
-        statusHistory: [{
-          status: 'draft',
-          changedAt: now,
-          changedBy: userId,
-          changedByEmail: userEmail,
-          reason: 'Draft created'
-        }],
-
-        // Metadata
+        statusHistory: [buildStatusHistoryEntry('draft', userId, userEmail, 'Draft created')],
         createdAt: now,
         createdBy: userId,
+        createdByEmail: userEmail,
         lastModifiedDateTime: now,
         lastModifiedBy: userId,
+        _version: 1,
       };
 
       await testCollections.events.insertOne(draft);
@@ -1000,54 +947,19 @@ function createTestApp(options = {}) {
         return res.json(updatedDraft);
       }
 
-      const updateFields = {};
-      // All calendar fields go inside calendarData (source of truth)
-      const calendarDataFields = [
-        'eventTitle',
-        'eventDescription',
-        'startDateTime',
-        'endDateTime',
-        'startDate',
-        'startTime',
-        'endDate',
-        'endTime',
-        'locations',
-        'categories',
-        'services',
-        'recurrence',
-      ];
+      // Build updated fields using shared builder
+      const { calendarDataFields: builderCalendarFields, topLevelFields: builderTopFields } = await buildEventFields(req.body, testDb, { mode: 'update' });
+      const { contactPerson } = buildRequestedByObject(req.body, userId, userEmail, '');
 
-      for (const field of calendarDataFields) {
-        if (req.body[field] !== undefined) {
-          if (field === 'startDateTime' || field === 'endDateTime') {
-            // Store as local-time strings (strip Z suffix), not BSON Dates
-            const val = req.body[field];
-            updateFields[`calendarData.${field}`] = typeof val === 'string' ? val.replace(/Z$/, '') : val;
-          } else {
-            updateFields[`calendarData.${field}`] = req.body[field];
-          }
-        }
-      }
+      const updateFields = {
+        ...builderCalendarFields,
+        ...builderTopFields,
+        'roomReservationData.contactPerson': contactPerson,
+      };
 
       // Update roomReservationData fields
-      const reservationFields = ['requesterName', 'requesterEmail', 'department', 'phone', 'attendees'];
-      for (const field of reservationFields) {
-        if (req.body[field] !== undefined) {
-          updateFields[`roomReservationData.${field}`] = req.body[field];
-        }
-      }
-
-      // Update organizer fields (in calendarData like other form fields)
-      if (req.body.organizerName !== undefined) updateFields['calendarData.organizerName'] = req.body.organizerName;
-      if (req.body.organizerPhone !== undefined) updateFields['calendarData.organizerPhone'] = req.body.organizerPhone;
-      if (req.body.organizerEmail !== undefined) updateFields['calendarData.organizerEmail'] = req.body.organizerEmail;
-
-      // Set eventType based on recurrence
-      if (req.body.recurrence?.pattern && req.body.recurrence?.range) {
-        updateFields.eventType = 'seriesMaster';
-      } else if (req.body.recurrence !== undefined) {
-        updateFields.eventType = 'singleInstance';
-      }
+      if (req.body.department !== undefined) updateFields['roomReservationData.department'] = req.body.department;
+      if (req.body.phone !== undefined) updateFields['roomReservationData.phone'] = req.body.phone;
 
       // Clear per-occurrence overrides only when explicitly requested (recurrence pattern changed)
       if (clearOccurrenceOverrides) {
@@ -3092,22 +3004,7 @@ function createTestApp(options = {}) {
       const now = new Date();
       const newVersion = (event._version || 0) + 1;
 
-      // Build update fields from calendarData
-      const updateFields = {};
-      const calendarDataFields = [
-        'eventTitle', 'eventDescription',
-        'startDate', 'startTime', 'endDate', 'endTime',
-        'attendeeCount', 'specialRequirements',
-        'categories', 'services',
-      ];
-
-      for (const field of calendarDataFields) {
-        if (req.body[field] !== undefined) {
-          updateFields[`calendarData.${field}`] = req.body[field];
-        }
-      }
-
-      // Handle datetime computation
+      // Compute datetimes for conflict check (builder re-computes, but conflict check needs them first)
       const computedStartDateTime = req.body.startDateTime
         ? req.body.startDateTime.replace(/Z$/, '')
         : `${startDate}T${startTime}:00`;
@@ -3117,7 +3014,6 @@ function createTestApp(options = {}) {
 
       // Check for scheduling conflicts (owners cannot force override)
       const rawEditedRoomIds = req.body.requestedRooms || event.calendarData?.locations || [];
-      // Ensure room IDs are ObjectIds (request body sends strings via JSON)
       const editedRoomIds = rawEditedRoomIds.map(r => (r instanceof ObjectId ? r : (ObjectId.isValid(r) ? new ObjectId(r) : r)));
       if (editedRoomIds.length > 0) {
         const conflictEvent = {
@@ -3157,25 +3053,17 @@ function createTestApp(options = {}) {
         }
       }
 
-      updateFields['calendarData.startDateTime'] = computedStartDateTime;
-      updateFields['calendarData.endDateTime'] = computedEndDateTime;
+      // Build updated fields using shared builder
+      const { calendarDataFields: editCalendarFields, topLevelFields: editTopFields } = await buildEventFields(req.body, testDb, { mode: 'update' });
+      const { contactPerson: editContactPerson } = buildRequestedByObject(req.body, userId, userEmail, '');
 
-      // Handle rooms — convert string IDs to ObjectIds (matching production api-server.js)
-      if (req.body.requestedRooms !== undefined) {
-        updateFields['calendarData.locations'] = (req.body.requestedRooms || []).map(id => typeof id === 'string' ? new ObjectId(id) : id);
-      }
-
-      // roomReservationData fields
-      if (req.body.department !== undefined) {
-        updateFields['roomReservationData.department'] = req.body.department;
-      }
-      if (req.body.phone !== undefined) {
-        updateFields['roomReservationData.phone'] = req.body.phone;
-      }
-      // Organizer fields (in calendarData like other form fields)
-      if (req.body.organizerName !== undefined) updateFields['calendarData.organizerName'] = req.body.organizerName;
-      if (req.body.organizerPhone !== undefined) updateFields['calendarData.organizerPhone'] = req.body.organizerPhone;
-      if (req.body.organizerEmail !== undefined) updateFields['calendarData.organizerEmail'] = req.body.organizerEmail;
+      const updateFields = {
+        ...editCalendarFields,
+        ...editTopFields,
+        'roomReservationData.contactPerson': editContactPerson,
+      };
+      if (req.body.department !== undefined) updateFields['roomReservationData.department'] = req.body.department;
+      if (req.body.phone !== undefined) updateFields['roomReservationData.phone'] = req.body.phone;
 
       updateFields.lastModified = now;
       updateFields.lastModifiedBy = userEmail;
@@ -3192,13 +3080,7 @@ function createTestApp(options = {}) {
       const updateOp = { $set: updateFields };
       if (isResubmitEdit) {
         updateOp.$push = {
-          statusHistory: {
-            status: 'pending',
-            changedAt: now,
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Resubmitted with edits after rejection',
-          },
+          statusHistory: buildStatusHistoryEntry('pending', userId, userEmail, 'Resubmitted with edits after rejection'),
         };
       }
       await testCollections.events.updateOne(query, updateOp);

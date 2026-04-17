@@ -445,11 +445,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const isGraphEvent = !!(currentItem.calendarId && (currentItem.calendarOwner || !currentItem.status));
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
 
+      // Read LIVE form data to capture ref-managed fields (categories, services)
+      // that may not have been pushed back via onDataChange (mirrors handleOwnerEdit fix)
+      const liveData = getFormData?.({ skipValidation: true }) || editableData;
+
       // Add graphToken for Graph events
       // Convert requestedRooms to locations for backward compatibility
       const bodyData = {
-        ...editableData,
-        locations: editableData.requestedRooms || editableData.locations,
+        ...liveData,
+        locations: liveData.requestedRooms || liveData.locations,
         graphToken: isGraphEvent ? graphToken : undefined,
         // Include edit scope for recurring events
         editScope: editScope,
