@@ -6,7 +6,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeApproverChanges, decomposeProposedChanges, buildEditRequestViewData } from '../../../utils/editRequestUtils';
+import {
+  computeApproverChanges,
+  decomposeProposedChanges,
+  buildEditRequestViewData,
+  resolveEventDate,
+  isEditForDifferentOccurrence,
+} from '../../../utils/editRequestUtils';
 
 describe('decomposeProposedChanges', () => {
   it('returns empty object for null/undefined input', () => {
@@ -507,5 +513,79 @@ describe('buildEditRequestViewData', () => {
       expect(result.calendarData.organizerName).toBe('New Organizer');
       expect(result.organizerName).toBe('New Organizer');
     });
+  });
+});
+
+// =============================================================================
+// resolveEventDate
+// =============================================================================
+
+describe('resolveEventDate', () => {
+  it('resolves from top-level startDate', () => {
+    expect(resolveEventDate({ startDate: '2026-04-17' })).toBe('2026-04-17');
+  });
+
+  it('resolves from calendarData.startDate', () => {
+    expect(resolveEventDate({ calendarData: { startDate: '2026-04-18' } })).toBe('2026-04-18');
+  });
+
+  it('resolves from top-level startDateTime', () => {
+    expect(resolveEventDate({ startDateTime: '2026-04-19T10:00' })).toBe('2026-04-19');
+  });
+
+  it('resolves from start.dateTime (Graph format)', () => {
+    expect(resolveEventDate({ start: { dateTime: '2026-04-20T14:00:00' } })).toBe('2026-04-20');
+  });
+
+  it('prefers startDate over calendarData.startDate', () => {
+    expect(resolveEventDate({
+      startDate: '2026-04-17',
+      calendarData: { startDate: '2026-04-18' },
+    })).toBe('2026-04-17');
+  });
+
+  it('returns undefined for empty event', () => {
+    expect(resolveEventDate({})).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// isEditForDifferentOccurrence
+// =============================================================================
+
+describe('isEditForDifferentOccurrence', () => {
+  const thisEventEdit = (occDate) => ({
+    editScope: 'thisEvent',
+    occurrenceDate: occDate,
+  });
+
+  it('returns true when occurrence dates do not match', () => {
+    const editReq = thisEventEdit('2026-04-18');
+    const evt = { calendarData: { startDate: '2026-04-17' } };
+    expect(isEditForDifferentOccurrence(editReq, evt)).toBe(true);
+  });
+
+  it('returns false when occurrence dates match', () => {
+    const editReq = thisEventEdit('2026-04-18');
+    const evt = { calendarData: { startDate: '2026-04-18' } };
+    expect(isEditForDifferentOccurrence(editReq, evt)).toBe(false);
+  });
+
+  it('returns false when editScope is not thisEvent', () => {
+    const editReq = { editScope: 'allEvents', occurrenceDate: '2026-04-18' };
+    const evt = { calendarData: { startDate: '2026-04-17' } };
+    expect(isEditForDifferentOccurrence(editReq, evt)).toBe(false);
+  });
+
+  it('returns false when occurrenceDate is missing', () => {
+    const editReq = { editScope: 'thisEvent' };
+    const evt = { calendarData: { startDate: '2026-04-17' } };
+    expect(isEditForDifferentOccurrence(editReq, evt)).toBe(false);
+  });
+
+  it('returns false for null/undefined editReq', () => {
+    const evt = { calendarData: { startDate: '2026-04-17' } };
+    expect(isEditForDifferentOccurrence(null, evt)).toBe(false);
+    expect(isEditForDifferentOccurrence(undefined, evt)).toBe(false);
   });
 });

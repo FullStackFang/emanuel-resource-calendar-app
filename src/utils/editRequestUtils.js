@@ -54,6 +54,31 @@ const ARRAY_FIELDS = ['locations', 'requestedRooms', 'categories'];
 const OBJECT_FIELDS = ['services'];
 
 /**
+ * Resolve start date from an event across all possible field locations.
+ * Events arrive in different shapes depending on source (calendar expansion,
+ * API response, list view), so we check multiple paths.
+ */
+export function resolveEventDate(evt) {
+  return evt.startDate || evt.calendarData?.startDate
+    || evt.startDateTime?.split('T')[0] || evt.start?.dateTime?.split('T')[0];
+}
+
+/**
+ * Check whether an edit request targets a different occurrence than the current event.
+ * Returns true when the edit should be hidden from this view.
+ *
+ * Only meaningful for Calendar-expanded virtual occurrences, where pendingEditRequest
+ * is inherited from the master and needs date-matching. Raw documents (from list views
+ * or API) own their edit requests and should never be filtered — callers should skip
+ * this check for non-expanded events.
+ */
+export function isEditForDifferentOccurrence(editReq, evt) {
+  return editReq?.editScope === 'thisEvent'
+    && !!editReq.occurrenceDate
+    && resolveEventDate(evt) !== editReq.occurrenceDate;
+}
+
+/**
  * Normalize a value for comparison.
  * Treats undefined, null, and empty string as equivalent.
  */

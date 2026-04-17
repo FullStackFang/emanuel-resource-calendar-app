@@ -720,7 +720,11 @@ export default function ReviewModal({
                       onClick={onViewEditRequest}
                       disabled={loadingEditRequest || anyConfirming}
                     >
-                      {loadingEditRequest ? 'Loading...' : '📋 View Edit Request'}
+                      {loadingEditRequest ? 'Loading...' : (
+                        existingEditRequest?.proposedChanges?.startDateTime
+                          ? `📋 View Edit Request (${existingEditRequest.proposedChanges.startDateTime.split('T')[0]})`
+                          : '📋 View Edit Request'
+                      )}
                     </button>
                   )}
 

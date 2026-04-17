@@ -19,6 +19,7 @@ import {
   buildEditRequestViewData,
   computeApproverChanges,
   computeDetectedChanges as computeDetectedChangesUtil,
+  isEditForDifferentOccurrence,
 } from '../utils/editRequestUtils';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
@@ -118,20 +119,6 @@ export function useEventReviewExperience({
   const fetchExistingEditRequest = useCallback(async (event, viewingEditScope) => {
     if (!event) return null;
 
-    // Resolve the event's start date across all possible field locations.
-    // Events arrive in different shapes depending on source (calendar expansion,
-    // API response, list view), so we check multiple paths.
-    const resolveEventDate = (evt) =>
-      evt.startDate || evt.calendarData?.startDate
-      || evt.startDateTime?.split('T')[0] || evt.start?.dateTime?.split('T')[0];
-
-    // Check whether an edit request targets a different occurrence than the current event.
-    // Returns true when the edit should be hidden from this view.
-    const isEditForDifferentOccurrence = (editReq, evt) =>
-      editReq?.editScope === 'thisEvent'
-      && editReq.occurrenceDate
-      && resolveEventDate(evt) !== editReq.occurrenceDate;
-
     // Series-level view ('allEvents') should not show occurrence-scoped edits ('thisEvent').
     // The reverse is fine: viewing one occurrence should show series-wide edits since they affect it.
     const isScopeMismatch = (editReq, viewScope) =>
@@ -142,14 +129,12 @@ export function useEventReviewExperience({
       // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
       const pendingReq = event.pendingEditRequest;
       if (pendingReq?.status === 'pending') {
-        // Skip occurrence-scoped edit requests when viewing the whole series.
-        // The edit's proposedChanges are computed against that occurrence's baseline —
-        // showing them on the master or a different occurrence would display no/wrong diffs.
-        if (isScopeMismatch(pendingReq, viewingEditScope)) {
-          return null;
-        }
-        if (isEditForDifferentOccurrence(pendingReq, event)) {
-          return null;
+        // Scope filters only apply to Calendar-expanded virtual occurrences, where
+        // pendingEditRequest is inherited from the master and needs date-matching.
+        // Raw documents (list views, API) own their edit requests — never filter them out.
+        if (event.isRecurringOccurrence) {
+          if (isScopeMismatch(pendingReq, viewingEditScope)) return null;
+          if (isEditForDifferentOccurrence(pendingReq, event)) return null;
         }
         return {
           _id: event._id,
@@ -183,11 +168,12 @@ export function useEventReviewExperience({
       if (response.ok) {
         const data = await response.json();
         const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
-        if (isScopeMismatch(pendingRequest, viewingEditScope)) {
-          return null;
-        }
-        if (isEditForDifferentOccurrence(pendingRequest, event)) {
-          return null;
+        // Same guard as embedded path: only filter for Calendar-expanded occurrences.
+        // (Unreachable for expanded occurrences due to early return above, but
+        // consistent for defense-in-depth.)
+        if (event.isRecurringOccurrence) {
+          if (isScopeMismatch(pendingRequest, viewingEditScope)) return null;
+          if (isEditForDifferentOccurrence(pendingRequest, event)) return null;
         }
         return pendingRequest || null;
       }
