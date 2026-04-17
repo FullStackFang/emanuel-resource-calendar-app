@@ -13,7 +13,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
-const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
@@ -4397,21 +4397,18 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       // Set locations array (may be empty if no matches found)
       unifiedEvent.locations = assignedLocationIds;
 
-      // Calculate locationDisplayNames and locationCodes from assigned locations
+      // Calculate locationDisplayNames from assigned locations
       if (assignedLocationIds.length > 0) {
         try {
           unifiedEvent.locationDisplayNames = await calculateLocationDisplayNames(assignedLocationIds, db);
-          unifiedEvent.locationCodes = await calculateLocationCodes(assignedLocationIds, db);
         } catch (error) {
-          logger.error('Error calculating location display names/codes:', error);
+          logger.error('Error calculating location display names:', error);
           unifiedEvent.locationDisplayNames = '';
-          unifiedEvent.locationCodes = [];
         }
       } else {
         // No alias matches found - preserve the raw location name from Graph API
         // This ensures events still show their location even without database mapping
         unifiedEvent.locationDisplayNames = locationDisplayName || '';
-        unifiedEvent.locationCodes = [];
       }
     }
 
@@ -4744,16 +4741,6 @@ async function bulkUpsertEvents(userId, events) {
         }
       }
 
-      // Calculate locationCodes from locations array
-      let locationCodes = [];
-      if (locations.length > 0) {
-        try {
-          locationCodes = await calculateLocationCodes(locations, db);
-        } catch {
-          locationCodes = [];
-        }
-      }
-
       // Build event document
       // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
       const startDateTime = event.graphData?.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
@@ -4767,7 +4754,6 @@ async function bulkUpsertEvents(userId, events) {
         sourceCalendars: event.sourceCalendars || [],
         locations: locations,
         locationDisplayNames: locationDisplayNames,
-        locationCodes: locationCodes,
         virtualMeetingUrl: virtualMeetingUrl,
         virtualPlatform: virtualPlatform,
         // Top-level fields - no Z suffix
@@ -7022,81 +7008,65 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     }
 
     if (view === 'my-events') {
-      // Single aggregation instead of 7 parallel countDocuments (avoids Cosmos DB rate limits)
-      const pipeline = [
-        { $match: { $or: [
-          { 'roomReservationData.requestedBy.email': (userEmail || '').toLowerCase() },
-          { createdByEmail: (userEmail || '').toLowerCase(), createdSource: { $in: ['unified-form', 'batch-create'] } }
-        ] } },
-        { $group: {
-          _id: null,
-          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
-          published: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'published'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'rejected'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          draft: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'draft'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          deleted: { $sum: { $cond: [{ $or: [{ $eq: ['$status', 'deleted'] }, { $eq: ['$isDeleted', true] }] }, 1, 0] } }
-        }}
-      ];
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      const normalizedEmail = (userEmail || '').toLowerCase();
+      const baseQuery = { $or: [
+        { 'roomReservationData.requestedBy.email': normalizedEmail },
+        { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+      ] };
 
-      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
-      const counts = result || { pending: 0, published: 0, rejected: 0, draft: 0, deleted: 0 };
-      const all = counts.pending + counts.published + counts.rejected + counts.draft;
-      const responseData = { all, ...counts };
+      const [pending, published, rejected, draft, deleted] = await Promise.all([
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({
+          $and: [{ $or: baseQuery.$or }, { $or: [{ status: 'deleted' }, { isDeleted: true }] }]
+        })),
+      ]);
+
+      const all = pending + published + rejected + draft;
+      const responseData = { all, pending, published, rejected, draft, deleted };
       countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
       res.json(responseData);
 
     } else if (view === 'approval-queue') {
-      // Single aggregation instead of 4 parallel countDocuments (avoids Cosmos DB rate limits)
-      // Include events with roomReservationData OR pending cancellation/edit requests
-      const pipeline = [
-        { $match: {
-          isDeleted: { $ne: true },
-          $or: [
-            { roomReservationData: { $exists: true, $ne: null } },
-            { 'pendingCancellationRequest.status': 'pending' },
-            { 'pendingEditRequest.status': 'pending' }
-          ]
-        }},
-        { $group: {
-          _id: null,
-          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
-          publishedTotal: { $sum: { $cond: [{ $eq: ['$status', 'published'] }, 1, 0] } },
-          published_edit: { $sum: { $cond: [{ $and: [
-            { $eq: ['$status', 'published'] },
-            { $eq: ['$pendingEditRequest.status', 'pending'] }
-          ]}, 1, 0] } },
-          published_cancellation: { $sum: { $cond: [{ $and: [
-            { $eq: ['$status', 'published'] },
-            { $eq: ['$pendingCancellationRequest.status', 'pending'] }
-          ]}, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } }
-        }}
-      ];
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      const baseQuery = {
+        isDeleted: { $ne: true },
+        $or: [
+          { roomReservationData: { $exists: true, $ne: null } },
+          { 'pendingCancellationRequest.status': 'pending' },
+          { 'pendingEditRequest.status': 'pending' }
+        ],
+      };
 
-      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
-      const counts = result || { pending: 0, publishedTotal: 0, published_edit: 0, published_cancellation: 0, rejected: 0 };
-      const all = counts.pending + counts.publishedTotal + counts.rejected;
-      const published = counts.publishedTotal - counts.published_edit - counts.published_cancellation;
-      const responseData = { all, pending: counts.pending, published, published_edit: counts.published_edit, published_cancellation: counts.published_cancellation, rejected: counts.rejected };
+      const [pending, publishedTotal, published_edit, published_cancellation, rejected] = await Promise.all([
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' })),
+      ]);
+
+      const all = pending + publishedTotal + rejected;
+      const published = publishedTotal - published_edit - published_cancellation;
+      const responseData = { all, pending, published, published_edit, published_cancellation, rejected };
       countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
       res.json(responseData);
 
     } else if (view === 'admin-browse') {
-      // Single aggregation instead of 6 parallel countDocuments
-      const pipeline = [
-        { $group: {
-          _id: null,
-          total: { $sum: 1 },
-          pending: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'pending'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          published: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'published'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'rejected'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
-          deleted: { $sum: { $cond: [{ $eq: ['$isDeleted', true] }, 1, 0] } },
-          draft: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'draft'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } }
-        }}
-      ];
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      const [total, pending, published, rejected, deleted, draft] = await Promise.all([
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({})),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'pending', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'published', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'rejected', isDeleted: { $ne: true } })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ isDeleted: true })),
+        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'draft', isDeleted: { $ne: true } })),
+      ]);
 
-      const [result] = await withCosmosRetry(() => unifiedEventsCollection.aggregate(pipeline).toArray());
-      const counts = result || { total: 0, pending: 0, published: 0, rejected: 0, deleted: 0, draft: 0 };
+      const counts = { total, pending, published, rejected, deleted, draft };
       countsCache.set(countsCacheKey, { data: counts, expiresAt: Date.now() + COUNTS_CACHE_TTL });
       res.json(counts);
     }
@@ -17208,9 +17178,8 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
         if (!locations.some(id => id.toString() === locationIdObj.toString())) {
           locations.push(locationIdObj);
 
-          // Recalculate locationDisplayNames and locationCodes
+          // Recalculate locationDisplayNames
           const displayNames = await calculateLocationDisplayNames(locations, db);
-          const locationCodes = await calculateLocationCodes(locations, db);
 
           // Write to calendarData (source of truth)
           await unifiedEventsCollection.updateOne(
@@ -17219,7 +17188,6 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
               $set: {
                 'calendarData.locations': locations,
                 'calendarData.locationDisplayNames': displayNames,
-                'calendarData.locationCodes': locationCodes,
                 updatedAt: new Date()
               }
             }
@@ -17315,9 +17283,8 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
           id => id.toString() !== locationIdObj.toString()
         );
 
-        // Recalculate locationDisplayNames and locationCodes
+        // Recalculate locationDisplayNames
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
-        const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
         // Write to calendarData (source of truth)
         await unifiedEventsCollection.updateOne(
@@ -17326,7 +17293,6 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
             $set: {
               'calendarData.locations': updatedLocations,
               'calendarData.locationDisplayNames': displayNames,
-              'calendarData.locationCodes': locationCodes,
               updatedAt: new Date()
             }
           }
@@ -17711,9 +17677,8 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
           id => id.toString() !== locationId.toString()
         );
 
-        // Recalculate locationDisplayNames and locationCodes
+        // Recalculate locationDisplayNames
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
-        const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
         // Write to calendarData (source of truth)
         bulkOps.push({
@@ -17723,7 +17688,6 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
               $set: {
                 'calendarData.locations': updatedLocations,
                 'calendarData.locationDisplayNames': displayNames,
-                'calendarData.locationCodes': locationCodes,
                 updatedAt: new Date()
               }
             }
@@ -21575,7 +21539,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       'reservationStartTime', 'reservationEndTime', 'reservationStartMinutes', 'reservationEndMinutes',
       'doorOpenTime', 'doorCloseTime',
       'setupNotes', 'doorNotes', 'eventNotes',
-      'locations', 'locationDisplayNames', 'locationCodes',
+      'locations', 'locationDisplayNames',
       'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon',
       'virtualMeetingUrl', 'virtualPlatform',
       'categories', 'mecCategories', 'services', 'assignedTo',

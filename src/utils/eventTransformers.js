@@ -171,25 +171,19 @@ export function transformEventToFlatStructure(event) {
   // For MongoDB documents, prefer explicit startTime/endTime from calendarData
   // over values parsed from startDateTime.
   // - Truthy string (e.g. "14:30") → use it (user entered a time)
-  // - Falsy but defined (null or '') → clear to '' (user did NOT enter a time;
-  //   don't surface the backend's reservation-time/query fallback as event time)
-  // - undefined / missing → keep the parsed value (backward compat for older docs)
+  // - Falsy (null, '', or undefined) → clear to '' (user did NOT enter a time;
+  //   don't surface the backend's reservation-time/query fallback as event time).
+  //   startDateTime is computed from effectiveStartTime (which falls back to
+  //   reservationStartTime), so the parsed value would leak reservation times
+  //   into the event time fields.
   //
   // SKIP for virtual recurring occurrences: Calendar.jsx expansion sets top-level
   // startTime/endTime (and startDateTime) to the occurrence's own values. The
   // inherited calendarData on those occurrences still carries the MASTER'S times,
   // so reading from calendarData here would leak master times into the form.
   if (event.calendarData && !event.isRecurringOccurrence) {
-    if (event.calendarData.startTime) {
-      startTime = event.calendarData.startTime;
-    } else if (event.calendarData.startTime !== undefined) {
-      startTime = '';
-    }
-    if (event.calendarData.endTime) {
-      endTime = event.calendarData.endTime;
-    } else if (event.calendarData.endTime !== undefined) {
-      endTime = '';
-    }
+    startTime = event.calendarData.startTime || '';
+    endTime = event.calendarData.endTime || '';
   }
 
   // Process eventDescription - strip HTML if present

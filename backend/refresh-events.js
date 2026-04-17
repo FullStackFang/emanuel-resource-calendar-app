@@ -335,7 +335,6 @@ async function phaseImport(db) {
     // Location matching
     let locationIds = [];
     let locationDisplayNames = '';
-    let locationCodes = [];
     const rsKey = row.rsKey || row.RsKey || row.locationCode || row.LocationCode;
 
     if (rsKey) {
@@ -353,7 +352,6 @@ async function phaseImport(db) {
       if (matchedLocs.length > 0) {
         locationIds = matchedLocs.map(l => l._id);
         locationDisplayNames = matchedLocs.map(l => l.displayName).join('; ');
-        locationCodes = keys;
         locationMatched++;
       } else {
         locationUnmatched++;
@@ -411,7 +409,6 @@ async function phaseImport(db) {
       // Locations
       locations: locationIds,
       locationDisplayNames,
-      locationCodes,
 
       // Graph data — populated in publish phase
       graphData: null,

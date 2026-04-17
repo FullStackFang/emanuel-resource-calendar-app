@@ -3329,7 +3329,7 @@ import ConflictDialog from './shared/ConflictDialog';
     /**
      * Group events by location for location-based calendar views
      * Groups are keyed by location NAME (to match selectedLocations)
-     * Events are matched to groups using their locationCodes (rsKey values)
+     * Events are matched to groups using their locations ObjectIds
      */
     const getLocationGroups = useCallback(() => {
       if (groupBy !== 'locations') return {};
@@ -3349,11 +3349,10 @@ import ConflictDialog from './shared/ConflictDialog';
         };
       });
 
-      // Group filtered events by matching their locationCodes to group rsKeys
+      // Group filtered events by matching their locations ObjectIds to group rsKeys
       filteredEvents.forEach((event) => {
         // Get location fields from calendarData first, then top-level
         const virtualMeetingUrl = getEventField(event, 'virtualMeetingUrl');
-        const locationCodes = getEventField(event, 'locationCodes', []);
         const locations = getEventField(event, 'locations', []);
 
         // Check for virtual meeting first
@@ -3369,36 +3368,7 @@ import ConflictDialog from './shared/ConflictDialog';
           }
           groups['Virtual Meeting'].events.push(event);
         }
-        // Events with locationCodes (rsKey array)
-        else if (locationCodes && Array.isArray(locationCodes) && locationCodes.length > 0) {
-          let addedToAnyGroup = false;
-
-          locationCodes.forEach(code => {
-            // Find group that has this rsKey
-            const matchingGroupKey = Object.keys(groups).find(groupKey =>
-              groups[groupKey].rsKey === code
-            );
-
-            if (matchingGroupKey) {
-              groups[matchingGroupKey].events.push(event);
-              addedToAnyGroup = true;
-            }
-          });
-
-          // If event has codes but none matched selected groups, add to Unspecified
-          if (!addedToAnyGroup) {
-            if (!groups['Unspecified']) {
-              groups['Unspecified'] = {
-                rsKey: '',
-                locationId: null,
-                displayName: 'Unspecified',
-                events: []
-              };
-            }
-            groups['Unspecified'].events.push(event);
-          }
-        }
-        // Events without locationCodes - try to match by locations ObjectIds
+        // Match by locations ObjectIds
         else if (locations && Array.isArray(locations) && locations.length > 0) {
           let addedToAnyGroup = false;
 

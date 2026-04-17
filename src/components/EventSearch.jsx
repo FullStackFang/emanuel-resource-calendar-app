@@ -242,7 +242,6 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       locationDisplayName: event.locationDisplayName,
       locationDisplayNames: event.locationDisplayNames,
       locations: event.locations,
-      locationCodes: event.locationCodes,
       isAllDayEvent: event.isAllDayEvent
     }));
 
