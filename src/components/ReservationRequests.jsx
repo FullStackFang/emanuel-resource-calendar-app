@@ -100,7 +100,7 @@ export default function ReservationRequests({ graphToken }) {
     }
   };
 
-  const loadReservations = useCallback(async ({ silent = false, tab } = {}) => {
+  const loadReservations = useCallback(async ({ silent = false, tab, postAction = false } = {}) => {
     // Cancel any previous in-flight request. A new AbortController is created
     // for each call so the signal is unique per request.
     abortControllerRef.current?.abort();
@@ -140,7 +140,13 @@ export default function ReservationRequests({ graphToken }) {
         count: transformedEvents.length
       });
 
-      setAllReservations(transformedEvents);
+      // Write rules:
+      //   non-silent        → always writes (tab switch, manual refresh, mount)
+      //   silent+postAction → always writes (post-action refresh must reflect true state)
+      //   silent+background → only writes if non-empty (prevents stale-0 from polling/SSE flash)
+      if (!silent || postAction || transformedEvents.length > 0) {
+        setAllReservations(transformedEvents);
+      }
       setLastFetchedAt(Date.now());
     } catch (err) {
       if (err.name === 'AbortError') return; // Request superseded by a newer one — not an error
@@ -192,7 +198,7 @@ export default function ReservationRequests({ graphToken }) {
     authFetch,
     onRefresh: handleRefresh,
     onSuccess: (result) => {
-      loadReservations();
+      loadReservations({ silent: true, postAction: true });
       if (result?.recurringConflicts?.conflictingOccurrences > 0) {
         const rc = result.recurringConflicts;
         showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
