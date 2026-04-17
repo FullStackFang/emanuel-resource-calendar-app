@@ -220,6 +220,8 @@ export default function ReviewModal({
   const hasRecurrence = hasRecurrenceProp !== null ? hasRecurrenceProp
     : (hasRecurrenceFromReservation || liveHasRecurrence);
   const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp : true;
+  // Show tab (signals series membership) but disable — recurrence is owned by the series master.
+  const isRecurrenceTabDisabled = (reservation?.eventType === 'exception' || reservation?.eventType === 'addition') && !hasRecurrence;
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -266,6 +268,11 @@ export default function ReviewModal({
       // AFTER child effects, so this would clobber FormBase's onDetailsCompleteChange(false)
     }
   }, [isOpen]);
+
+  const recurrenceTabTitle = isRecurrenceTabDisabled
+    ? 'Recurrence pattern is defined on the series master'
+    : !areDetailsComplete ? 'Fill in event dates and times first'
+    : undefined;
 
   // Local confirmation state for buttons without external confirmation management.
   // Tracks which button is in "Confirm?" state: 'submitDraft' | 'pendingEdit' | 'publishedEdit' | 'editRequestModal' | null
@@ -989,9 +996,9 @@ export default function ReviewModal({
             {/* Recurrence tab — visible when recurrence exists OR user can create one */}
             {(hasRecurrence || canEditRecurrence) && (
               <div
-                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
-                onClick={() => areDetailsComplete && setActiveTab('recurrence')}
-                title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''} ${(!areDetailsComplete || isRecurrenceTabDisabled) ? 'disabled' : ''}`}
+                onClick={() => areDetailsComplete && !isRecurrenceTabDisabled && setActiveTab('recurrence')}
+                title={recurrenceTabTitle}
               >
                 Recurrence
                 {hasRecurrence && <span className="tab-active-dot" />}

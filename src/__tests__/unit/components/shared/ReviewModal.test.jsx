@@ -61,6 +61,91 @@ describe('ReviewModal', () => {
     onClose: vi.fn(),
   };
 
+  describe('Recurrence tab visibility', () => {
+    it('should disable the Recurrence tab for exception documents with no recurrence', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{ eventType: 'exception', _id: 'exc-1' }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).toHaveClass('disabled');
+    });
+
+    it('should disable the Recurrence tab for addition documents with no recurrence', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{ eventType: 'addition', _id: 'add-1' }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).toHaveClass('disabled');
+    });
+
+    it('should show enabled Recurrence tab for series masters', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{
+            eventType: 'seriesMaster',
+            _id: 'master-1',
+            recurrence: { pattern: { type: 'daily', interval: 1 }, range: { type: 'endDate', startDate: '2026-04-13', endDate: '2026-04-17' } }
+          }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).not.toHaveClass('disabled');
+    });
+
+    it('should show enabled Recurrence tab for single instances (can create recurrence)', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{ eventType: 'singleInstance', _id: 'single-1' }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).not.toHaveClass('disabled');
+    });
+
+    it('should not disable Recurrence tab for exceptions that have recurrence data', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{
+            eventType: 'exception',
+            _id: 'exc-2',
+            recurrence: { pattern: { type: 'daily', interval: 1 }, range: { type: 'endDate', startDate: '2026-04-13', endDate: '2026-04-17' } }
+          }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).not.toHaveClass('disabled');
+    });
+  });
+
   describe('Submit Request button (draft mode)', () => {
     it('should be disabled when isFormValid is false', () => {
       render(

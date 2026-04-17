@@ -23219,9 +23219,10 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Sync with Graph when graphData.id exists (event was published to Outlook)
     // Uses app-only auth via graphApiService — requires calendarOwner
     if (storedGraphEventId && hasGraphSyncableChanges && event.calendarOwner) {
+      // Declare outside try so catch block can reference them for error logging
+      let targetEventId = storedGraphEventId;
+      let graphUpdate = {};
       try {
-        // Determine target Graph event ID (handle recurring event scopes)
-        let targetEventId = storedGraphEventId;
 
         if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
           // Find the specific occurrence for single-instance edits
@@ -23262,7 +23263,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Prepare Graph API update payload
         // Build Graph API update with ONLY Graph-compatible fields
         // Use calendarData (cd) as fallback source (defined earlier in this function)
-        const graphUpdate = {
+        graphUpdate = {
           subject: buildGraphSubject(
             updates.eventTitle || cd.eventTitle || event.graphData?.subject,
             updates.startTime !== undefined ? updates.startTime : cd.startTime,
