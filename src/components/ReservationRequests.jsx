@@ -1,5 +1,5 @@
 // src/components/ReservationRequests.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -33,6 +33,12 @@ export default function ReservationRequests({ graphToken }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('needs_attention');
+  // Ref always holds the current activeTab so polling/SSE closures read the
+  // latest value even when they captured an old loadReservations closure.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab; // synchronous render-time assignment — safe to read in async callbacks
+  // Tracks the current in-flight AbortController so a new load can cancel the previous one.
+  const abortControllerRef = useRef(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
@@ -95,6 +101,12 @@ export default function ReservationRequests({ graphToken }) {
   };
 
   const loadReservations = useCallback(async ({ silent = false, tab } = {}) => {
+    // Cancel any previous in-flight request. A new AbortController is created
+    // for each call so the signal is unique per request.
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       if (!silent) {
         setLoading(true);
@@ -106,10 +118,13 @@ export default function ReservationRequests({ graphToken }) {
       // Tab-scoped query: 'needs_attention' fetches only actionable events,
       // 'all' fetches every status. Avoids loading hundreds of published events
       // when only pending items are needed.
-      const effectiveTab = tab || activeTab;
+      // Uses activeTabRef (not the closure value) so polling/SSE callers that
+      // hold a stale loadReservations reference always send the correct tab.
+      const effectiveTab = tab ?? activeTabRef.current;
       const statusParam = effectiveTab === 'needs_attention' ? '&status=needs_attention' : '';
       const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000${statusParam}`
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000${statusParam}`,
+        { signal: controller.signal }
       );
 
       if (!response.ok) {
@@ -128,18 +143,23 @@ export default function ReservationRequests({ graphToken }) {
       setAllReservations(transformedEvents);
       setLastFetchedAt(Date.now());
     } catch (err) {
+      if (err.name === 'AbortError') return; // Request superseded by a newer one — not an error
       logger.error('Error loading reservations:', err);
       if (!silent) {
         setError('Failed to load reservation requests');
       }
     } finally {
-      if (!silent) {
-        setLoading(false);
-      } else {
-        setIsSilentRefreshing(false);
+      // Only the current (non-aborted) controller clears the loading flag.
+      // A superseded request must not clobber the live request's loading state.
+      if (!controller.signal.aborted) {
+        if (!silent) {
+          setLoading(false);
+        } else {
+          setIsSilentRefreshing(false);
+        }
       }
     }
-  }, [authFetch, activeTab]);
+  }, [authFetch]); // activeTab deliberately excluded — read via activeTabRef to prevent stale-closure bugs
 
   // Fetch tab badge counts from the server (lightweight aggregation)
   const loadCounts = useCallback(async () => {
