@@ -174,6 +174,13 @@ async function _insertOccurrenceDocument(collection, masterEvent, occurrenceDate
     graphEventId: options.graphEventId || null,
     graphData: null,
     _version: 1,
+    statusHistory: [{
+      status: masterEvent.status,
+      changedAt: now,
+      changedBy: options.createdBy || masterEvent.createdBy || 'system',
+      changedByEmail: options.createdByEmail || masterEvent.createdByEmail || null,
+      reason: `${eventType === EVENT_TYPE.EXCEPTION ? 'Exception' : 'Addition'} document created`,
+    }],
 
     createdAt: now,
     createdBy: options.createdBy || masterEvent.createdBy || 'system',
@@ -282,6 +289,7 @@ async function findExceptionForDate(collection, seriesMasterEventId, occurrenceD
     seriesMasterEventId,
     occurrenceDate,
     eventType: { $in: EXCEPTION_TYPES },
+    isDeleted: { $ne: true },
   });
 }
 
@@ -365,6 +373,18 @@ async function cascadeDeleteExceptions(collection, seriesMasterEventId, options 
  */
 async function cascadeStatusUpdate(collection, seriesMasterEventId, newStatus, options = {}) {
   const now = new Date();
+  const setFields = {
+    status: newStatus,
+    lastModifiedDateTime: now,
+    ...(options.changedBy && { lastModifiedBy: options.changedBy }),
+  };
+  // Propagate reviewer info when publishing (so exception docs show who approved)
+  if (options.reviewedBy) {
+    setFields['roomReservationData.reviewedBy'] = options.reviewedBy;
+  }
+  if (options.reviewNotes !== undefined) {
+    setFields['roomReservationData.reviewNotes'] = options.reviewNotes;
+  }
   const result = await collection.updateMany(
     {
       seriesMasterEventId,
@@ -372,11 +392,7 @@ async function cascadeStatusUpdate(collection, seriesMasterEventId, newStatus, o
       isDeleted: { $ne: true },
     },
     {
-      $set: {
-        status: newStatus,
-        lastModifiedDateTime: now,
-        ...(options.changedBy && { lastModifiedBy: options.changedBy }),
-      },
+      $set: setFields,
       $push: {
         statusHistory: {
           status: newStatus,

@@ -2402,7 +2402,13 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     // Build query to find overlapping reservations
     // Read locations from calendarData (source of truth)
-    const roomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
+    // Normalize to ObjectId to ensure $in matches regardless of input type (string or ObjectId)
+    const rawRoomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
+    const roomIds = (rawRoomIds || []).map(id => {
+      if (id instanceof ObjectId) return id;
+      if (typeof id === 'string' && ObjectId.isValid(id)) return new ObjectId(id);
+      return id;
+    });
     const query = {
       $and: [
         { status: 'published' }, // Only check against published events
@@ -20056,6 +20062,12 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'published', {
             changedBy: userEmail,
             reason: 'Series published',
+            reviewedBy: {
+              userId,
+              name: user?.displayName || userEmail,
+              reviewedAt: new Date()
+            },
+            reviewNotes: notes || '',
           });
 
           // Sync exception documents to Graph — fire-and-forget.

@@ -181,7 +181,11 @@ export function transformEventToFlatStructure(event) {
   // startTime/endTime (and startDateTime) to the occurrence's own values. The
   // inherited calendarData on those occurrences still carries the MASTER'S times,
   // so reading from calendarData here would leak master times into the form.
-  if (event.calendarData && !event.isRecurringOccurrence) {
+  //
+  // INCLUDE exception/addition docs: they have their own calendarData (built by
+  // mergeDefaultsWithOverrides), not the master's inherited calendarData.
+  const isExceptionDoc = event.eventType === 'exception' || event.eventType === 'addition';
+  if (event.calendarData && (!event.isRecurringOccurrence || isExceptionDoc)) {
     startTime = event.calendarData.startTime || '';
     endTime = event.calendarData.endTime || '';
   }

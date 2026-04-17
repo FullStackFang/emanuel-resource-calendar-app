@@ -241,7 +241,80 @@ describe('Clear Event Times Tests (CT-1 to CT-4)', () => {
     });
   });
 
-  describe('CT-4: Clear operational times (setup, teardown, door open, door close)', () => {
+  describe('CT-4: Clear event times on recurring occurrence (editScope=thisEvent)', () => {
+    it('should store empty calendarData.startTime/endTime in exception document', async () => {
+      const dateStr = getTomorrowDateStr();
+
+      // Create a recurring series master with event times
+      const master = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Recurring With Times',
+        eventType: 'seriesMaster',
+        reservationStartTime: '08:00',
+        reservationEndTime: '18:00',
+        calendarData: {
+          eventTitle: 'Recurring With Times',
+          startDateTime: `${dateStr}T09:00:00`,
+          endDateTime: `${dateStr}T17:00:00`,
+          startDate: dateStr,
+          startTime: '09:00',
+          endDate: dateStr,
+          endTime: '17:00',
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          locations: [],
+          categories: ['Meeting'],
+          attendeeCount: 10,
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+          reservationStartMinutes: 0,
+          reservationEndMinutes: 0,
+          recurrence: {
+            pattern: { type: 'daily', interval: 1 },
+            range: { type: 'endDate', startDate: dateStr, endDate: '2026-12-31' },
+          },
+        },
+        recurrence: {
+          pattern: { type: 'daily', interval: 1 },
+          range: { type: 'endDate', startDate: dateStr, endDate: '2026-12-31' },
+        },
+      });
+      const [savedMaster] = await insertEvents(db, [master]);
+
+      // Admin clears event times for a single occurrence
+      const res = await request(app)
+        .put(`/api/admin/events/${savedMaster._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Recurring With Times',
+          startDate: dateStr,
+          endDate: dateStr,
+          startTime: '',
+          endTime: '',
+          reservationStartTime: '08:00',
+          reservationEndTime: '18:00',
+          editScope: 'thisEvent',
+          occurrenceDate: dateStr,
+          _version: savedMaster._version,
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      // Verify the exception document has empty event times
+      const exceptionDoc = res.body.event;
+      expect(exceptionDoc.calendarData.startTime).toBe('');
+      expect(exceptionDoc.calendarData.endTime).toBe('');
+      // Reservation times should be preserved
+      expect(exceptionDoc.calendarData.reservationStartTime).toBe('08:00');
+      expect(exceptionDoc.calendarData.reservationEndTime).toBe('18:00');
+      // startDateTime should use reservation time (for calendar positioning), not event time
+      expect(exceptionDoc.startDateTime).toBe(`${dateStr}T08:00`);
+    });
+  });
+
+  describe('CT-5: Clear operational times (setup, teardown, door open, door close)', () => {
     it('should store empty operational times after admin save', async () => {
       const pending = createPendingEvent(createEventWithTimes());
       const [saved] = await insertEvents(db, [pending]);
