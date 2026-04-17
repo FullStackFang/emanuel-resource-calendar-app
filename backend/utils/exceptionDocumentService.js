@@ -97,6 +97,7 @@ const CALENDAR_DATA_FIELDS = [
   'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime',
   'reservationStartTime', 'reservationEndTime',
   'attendeeCount',
+  'eventNotes', 'setupNotes', 'doorNotes', 'specialRequirements',
 ];
 
 /**

@@ -373,6 +373,12 @@ describe('Exception Document Save Tests (ES-1 to ES-7)', () => {
       expect(exception.setupNotes).toBe('Extra chairs needed in back row');
       expect(exception.doorNotes).toBe('Use side entrance only');
       expect(exception.specialRequirements).toBe('Projector and microphone required');
+
+      // Also in calendarData (so getEventField reads them correctly on reload)
+      expect(exception.calendarData.eventNotes).toBe('VIP guest arriving at 2pm');
+      expect(exception.calendarData.setupNotes).toBe('Extra chairs needed in back row');
+      expect(exception.calendarData.doorNotes).toBe('Use side entrance only');
+      expect(exception.calendarData.specialRequirements).toBe('Projector and microphone required');
     });
   });
 
