@@ -7008,7 +7008,8 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     }
 
     if (view === 'my-events') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
+      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
       const normalizedEmail = (userEmail || '').toLowerCase();
       const baseQuery = { $or: [
         { 'roomReservationData.requestedBy.email': normalizedEmail },
@@ -7016,13 +7017,13 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       ] };
 
       const [pending, published, rejected, draft, deleted] = await Promise.all([
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({
           $and: [{ $or: baseQuery.$or }, { $or: [{ status: 'deleted' }, { isDeleted: true }] }]
-        })),
+        }),
       ]);
 
       const all = pending + published + rejected + draft;
@@ -7031,7 +7032,8 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       res.json(responseData);
 
     } else if (view === 'approval-queue') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
+      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
       const baseQuery = {
         isDeleted: { $ne: true },
         $or: [
@@ -7042,11 +7044,11 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       };
 
       const [pending, publishedTotal, published_edit, published_cancellation, rejected] = await Promise.all([
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' })),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
       ]);
 
       const all = pending + publishedTotal + rejected;
@@ -7056,14 +7058,15 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       res.json(responseData);
 
     } else if (view === 'admin-browse') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos)
+      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
+      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
       const [total, pending, published, rejected, deleted, draft] = await Promise.all([
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({})),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'pending', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'published', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'rejected', isDeleted: { $ne: true } })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ isDeleted: true })),
-        withCosmosRetry(() => unifiedEventsCollection.countDocuments({ status: 'draft', isDeleted: { $ne: true } })),
+        unifiedEventsCollection.countDocuments({}),
+        unifiedEventsCollection.countDocuments({ status: 'pending', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({ status: 'published', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({ status: 'rejected', isDeleted: { $ne: true } }),
+        unifiedEventsCollection.countDocuments({ isDeleted: true }),
+        unifiedEventsCollection.countDocuments({ status: 'draft', isDeleted: { $ne: true } }),
       ]);
 
       const counts = { total, pending, published, rejected, deleted, draft };

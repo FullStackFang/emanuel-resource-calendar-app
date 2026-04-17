@@ -186,4 +186,22 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-6)', () => {
     // all = pending + publishedTotal + rejected = 0 + 3 + 0
     expect(res.body.all).toBe(3);
   });
+
+  it('AQC-7: legacy room-reservation-request status counts as pending', async () => {
+    // The public booking flow creates events with status 'room-reservation-request'
+    // which should be included in the 'pending' bucket
+    await insertEvents(db, [
+      createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Normal Pending' }),
+      createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Legacy Request', status: 'room-reservation-request' }),
+    ]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)
+      .set('Authorization', `Bearer ${approverToken}`)
+      .expect(200);
+
+    // Both statuses collapse into the pending count
+    expect(res.body.pending).toBe(2);
+    expect(res.body.all).toBe(2);
+  });
 });

@@ -5251,6 +5251,18 @@ function createTestApp(options = {}) {
         const all = pending + publishedTotal + rejected;
         const published = publishedTotal - published_edit - published_cancellation;
         res.json({ all, pending, published, published_edit, published_cancellation, rejected });
+
+      } else if (view === 'admin-browse') {
+        const [total, pending, published, rejected, deleted, draft] = await Promise.all([
+          testCollections.events.countDocuments({}),
+          testCollections.events.countDocuments({ status: 'pending', isDeleted: { $ne: true } }),
+          testCollections.events.countDocuments({ status: 'published', isDeleted: { $ne: true } }),
+          testCollections.events.countDocuments({ status: 'rejected', isDeleted: { $ne: true } }),
+          testCollections.events.countDocuments({ isDeleted: true }),
+          testCollections.events.countDocuments({ status: 'draft', isDeleted: { $ne: true } }),
+        ]);
+
+        res.json({ total, pending, published, rejected, deleted, draft });
       }
     } catch (error) {
       console.error('Error in GET /api/events/list/counts:', error);
