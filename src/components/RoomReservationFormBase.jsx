@@ -935,25 +935,30 @@ export default function RoomReservationFormBase({
   }, [onDataChange]); // Removed state dependencies - using refs instead
 
   // Event handlers
-  const handleInputChange = (e) => {
+  // Uses functional setFormData(prev => ...) to guarantee each update sees the latest
+  // state — prevents stale-closure bugs when rapid clears (e.g., clearing startTime then
+  // endTime) or blur/click races cause multiple updates before React commits.
+  const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
-    const updatedData = {
-      ...formData,
-      [name]: value
-    };
+    setFormData(prev => {
+      const updatedData = {
+        ...prev,
+        [name]: value
+      };
 
-    // Auto-fill endDate when startDate is set and endDate is empty or earlier
-    if (name === 'startDate' && value) {
-      if (!formData.endDate || formData.endDate < value) {
-        updatedData.endDate = value;
+      // Auto-fill endDate when startDate is set and endDate is empty or earlier
+      if (name === 'startDate' && value) {
+        if (!prev.endDate || prev.endDate < value) {
+          updatedData.endDate = value;
+        }
       }
-    }
 
-    setFormData(updatedData);
+      // Defer parent notification outside this render cycle (same pattern as handleEventTimeChange)
+      setTimeout(() => notifyDataChange(updatedData), 0);
+      return updatedData;
+    });
     setHasChanges(true);
-
-    notifyDataChange(updatedData);
-  };
+  }, [notifyDataChange]);
 
   const handleRoomSelectionChange = useCallback((newSelectedRooms) => {
     setFormData(prev => {
