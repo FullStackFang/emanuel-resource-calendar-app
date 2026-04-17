@@ -139,7 +139,10 @@ export function RoleSimulationProvider({ children }) {
     };
 
     checkPermissions();
-  }, [instance, accounts, inProgress]);
+    // Use stable account ID rather than the accounts array (MSAL returns a new
+    // array reference on every render, which would re-fire this effect needlessly).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance, accounts[0]?.homeAccountId, inProgress]);
 
   // Load simulation state from localStorage on mount
   useEffect(() => {

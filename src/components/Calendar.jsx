@@ -72,6 +72,16 @@ import ConflictDialog from './shared/ConflictDialog';
    *****************************************************************************/
 
   /*****************************************************************************
+   * PURE UTILITY FUNCTIONS (no component state — safe at module scope)
+   *****************************************************************************/
+  const isPendingEvent = (event) => {
+    const status = event.status;
+    return status === 'pending' || status === 'room-reservation-request';
+  };
+
+  const isDraftEvent = (event) => event.status === 'draft';
+
+  /*****************************************************************************
    * MAIN CALENDAR COMPONENT
    *****************************************************************************/
   function Calendar({ 
@@ -185,6 +195,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const loadInProgressRef = useRef(false);
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
+    const prefSaveTimerRef = useRef(null);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events.
@@ -1247,82 +1258,46 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     // DATA FUNCTIONS
     //---------------------------------------------------------------------------
-    const updateUserProfilePreferences = async (updates) => {
+    // Debounced preference save — updates local state immediately but delays
+    // the HTTP PATCH by 500ms so rapid filter toggles don't fire per-click.
+    const updateUserProfilePreferences = useCallback((updates) => {
       // No User Updates if in Demo Mode
-      if (isDemoMode) {
-        return false;
-      }
-
-      // No User Updates if no API Token
+      if (isDemoMode) return false;
       if (!apiToken) {
         logger.warn("No API token available for updating preferences");
         return false;
       }
 
-      try {
-        
-        const response = await fetch(`${API_BASE_URL}/users/current/preferences`, {
-          method: 'PATCH',  // Or whatever method your API expects
-          headers: {
-            'Authorization': `Bearer ${apiToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(updates)
-        });
-        
-        if (!response.ok) {
-          logger.error("Failed to update user preferences:", response.status);
-          return false;
-        }
-        
-        // Also update local state to match
-        setUserPermissions(prev => ({
-          ...prev,
-          ...updates
-        }));
-        
-        return true;
-      } catch (error) {
-        logger.error("Error updating user preferences:", error);
-        return false;
-      }
-    };
+      // Update local state immediately (UI stays responsive)
+      setUserPermissions(prev => ({ ...prev, ...updates }));
 
-    /**
-     * Load current user information from API
-     */
-    const loadCurrentUser = useCallback(async () => {
-      if (!apiToken) {
-        return;
-      }
-
-      try {
-        
-        const response = await fetch(`${API_BASE_URL}/users/current`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`,
-            'Content-Type': 'application/json'
+      // Debounce the server persist
+      if (prefSaveTimerRef.current) clearTimeout(prefSaveTimerRef.current);
+      prefSaveTimerRef.current = setTimeout(async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/users/current/preferences`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updates)
+          });
+          if (!response.ok) {
+            logger.error("Failed to update user preferences:", response.status);
           }
-        });
-        
-        if (!response.ok) {
-          logger.error("Failed to load current user:", response.status);
-          return;
+        } catch (error) {
+          logger.error("Error updating user preferences:", error);
         }
-        
-        const userData = await response.json();
-        
-        setCurrentUser({
-          name: userData.name || userData.displayName,
-          email: userData.email,
-          id: userData.id || userData._id
-        });
-        
-      } catch (error) {
-        logger.error("Error loading current user:", error);
-      }
-    }, [apiToken]);
+      }, 500);
+
+      return true;
+    }, [apiToken, isDemoMode]);
+
+    // Cleanup debounce timer on unmount
+    useEffect(() => () => {
+      if (prefSaveTimerRef.current) clearTimeout(prefSaveTimerRef.current);
+    }, []);
 
     /**
      * Load schema extensions available for this application
@@ -1419,17 +1394,18 @@ import ConflictDialog from './shared/ConflictDialog';
     // Loads the available calendars using backend proxy (app-only auth)
     // Filters to only show admin-configured allowed calendars
     const loadAvailableCalendars = useCallback(async () => {
-      if (!apiToken) return [];
+      if (!apiToken) return { calendars: [], allowedConfig: null };
 
       try {
-        // Fetch calendars via backend (uses app-only auth)
+        // Fetch calendars and allowed-config in parallel (independent requests)
         const defaultUserId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
         const params = new URLSearchParams({ userId: defaultUserId });
-        const response = await fetch(`${API_BASE_URL}/graph/calendars?${params}`, {
-          headers: {
-            Authorization: `Bearer ${apiToken}`
-          }
-        });
+        const [response, allowedConfig] = await Promise.all([
+          fetch(`${API_BASE_URL}/graph/calendars?${params}`, {
+            headers: { Authorization: `Bearer ${apiToken}` }
+          }),
+          fetchAllowedCalendarsConfig()
+        ]);
 
         if (!response.ok) {
           throw new Error('Failed to fetch calendars');
@@ -1463,9 +1439,6 @@ import ConflictDialog from './shared/ConflictDialog';
             isShared: calendar.owner && calendar.owner.address && !calendar.isDefaultCalendar || false
           }));
 
-        // Fetch allowed calendars configuration from backend
-        const allowedConfig = await fetchAllowedCalendarsConfig();
-
         if (allowedConfig && allowedConfig.allowedDisplayCalendars && allowedConfig.allowedDisplayCalendars.length > 0) {
           // Filter calendars to only include those in the allowed list
           const allowedEmails = allowedConfig.allowedDisplayCalendars.map(e => e.toLowerCase());
@@ -1490,10 +1463,10 @@ import ConflictDialog from './shared/ConflictDialog';
         // Update parent state with calendars
         setAvailableCalendars(calendars);
 
-        return calendars;
+        return { calendars, allowedConfig };
       } catch (error) {
         logger.error('Error fetching calendars:', error);
-        return [];
+        return { calendars: [], allowedConfig: null };
       }
     }, [apiToken, setAvailableCalendars, fetchAllowedCalendarsConfig]);
 
@@ -2214,7 +2187,7 @@ import ConflictDialog from './shared/ConflictDialog';
         if (response.ok) {
           const data = await response.json();
           logger.debug("Full user profile data from API:", data);
-          // Set currentUser for requester info (eliminates duplicate API call from loadCurrentUser)
+          // Set currentUser for requester info
           setCurrentUser({
             name: data.name || data.displayName,
             email: data.email,
@@ -2296,10 +2269,9 @@ import ConflictDialog from './shared/ConflictDialog';
       try {
         // Phase 1: Run independent API calls in parallel
         // - loadUserProfile: fetches /users/current and sets permissions
-        // - loadAvailableCalendars: fetches calendars list
+        // - loadAvailableCalendars: fetches calendars list + allowed config (parallelized internally)
         // - loadSchemaExtensions: fetches Graph schema extensions
-        // Note: loadCurrentUser is redundant with loadUserProfile (both call /users/current)
-        const [userLoaded, calendars] = await Promise.all([
+        const [userLoaded, calendarResult] = await Promise.all([
           loadUserProfile(),
           loadAvailableCalendars(),
           loadSchemaExtensions()
@@ -2309,6 +2281,7 @@ import ConflictDialog from './shared/ConflictDialog';
           logger.warn("Could not load user profile, continuing with defaults");
         }
 
+        const { calendars, allowedConfig } = calendarResult;
         setAvailableCalendars(calendars);
 
         // Check if the currently selected calendar still exists
@@ -2325,7 +2298,7 @@ import ConflictDialog from './shared/ConflictDialog';
           let defaultCalToSelect = null;
 
           // First, try to use the admin-configured default calendar from database
-          const allowedConfig = await fetchAllowedCalendarsConfig();
+          // (allowedConfig already fetched by loadAvailableCalendars — no duplicate call)
           if (allowedConfig?.defaultCalendar) {
             defaultCalToSelect = calendars.find(cal =>
               cal.owner?.address?.toLowerCase() === allowedConfig.defaultCalendar.toLowerCase()
@@ -2397,55 +2370,18 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
 
     /**
-     * Retry loading events after creation to ensure the new event appears
-     * @param {string} eventId - The ID of the newly created event
-     * @param {string} eventSubject - The subject of the newly created event for logging
+     * Refresh events after creation or update.
+     * MongoDB is the source of truth — a single forced reload is sufficient.
      */
     const retryEventLoadAfterCreation = useCallback(async (eventId, eventSubject) => {
-      // For updates (eventId already exists), just refresh once immediately
-      if (eventId) {
-        logger.debug(`Refreshing after update: ${eventSubject}`);
-        try {
-          await loadEvents(true); // Force refresh to show the updated event - this bypasses cache
-          logger.debug(`Refresh complete for updated event: ${eventSubject}`);
-        } catch (error) {
-          logger.error(`Error refreshing after update:`, error);
-          showError(`Event updated but refresh failed. Try manual refresh if needed.`);
-        }
-        return;
+      logger.debug(`Refreshing after ${eventId ? 'update' : 'creation'}: ${eventSubject}`);
+      try {
+        await loadEvents(true);
+      } catch (error) {
+        logger.error('Error refreshing after save:', error);
+        showError('Event saved but refresh failed. Try manual refresh if needed.');
       }
-
-      // For new events (no eventId yet), use retry logic with delays
-      // This handles propagation delays in Graph API for newly created events
-      const maxRetries = 3;
-      const baseDelay = 500; // Start with 500ms delay
-
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          logger.debug(`[retryEventLoadAfterCreation] Attempt ${attempt}/${maxRetries} for new event: ${eventSubject}`);
-
-          // Wait before loading events (exponential backoff: 500ms, 1s, 2s)
-          const delay = baseDelay * Math.pow(2, attempt - 1);
-          await new Promise(resolve => setTimeout(resolve, delay));
-
-          // Reload events from the API
-          await loadEvents(true); // Force refresh to ensure we get the latest data
-
-          // For new events, we just assume success after loading
-          // The stale closure issue prevented proper checking anyway
-          logger.debug(`[retryEventLoadAfterCreation] Loaded events after ${attempt} attempt(s) for: ${eventSubject}`);
-          return;
-
-        } catch (error) {
-          logger.error(`[retryEventLoadAfterCreation] Error in attempt ${attempt}:`, error);
-
-          if (attempt === maxRetries) {
-            logger.warn(`[retryEventLoadAfterCreation] Failed to load event after ${maxRetries} attempts. Event may appear after manual refresh.`);
-            showError(`Event created but may take a moment to appear. Try refreshing if needed.`);
-          }
-        }
-      }
-    }, [loadEvents, showError]); // Removed allEvents from dependencies to avoid stale closure
+    }, [loadEvents, showError]);
 
     /**
      * Get the target calendar name for event creation/editing
@@ -3208,18 +3144,7 @@ import ConflictDialog from './shared/ConflictDialog';
       return false;
     }, [normalizeLocationName]);
 
-    /**
-     * Check if event is pending (needs role-based filtering during simulation)
-     */
-    const isPendingEvent = useCallback((event) => {
-      const status = event.status;
-      return status === 'pending' || status === 'room-reservation-request';
-    }, []);
-
-    /**
-     * Check if event is a draft
-     */
-    const isDraftEvent = useCallback((event) => event.status === 'draft', []);
+    // isPendingEvent and isDraftEvent are defined at module scope (pure functions)
 
     /**
      * Check if current user owns this event (is the requester)
@@ -5266,8 +5191,9 @@ import ConflictDialog from './shared/ConflictDialog';
           setChangingCalendar(false);
         }, 30000); // 30 second timeout
 
-        // Load events with force refresh to get fresh body content
-        loadEvents(true)  // true = forceRefresh to bypass stale cache
+        // Load events — routine navigation uses cached data; force refresh is
+        // reserved for post-save reloads and explicit manual refreshes.
+        loadEvents(false)
           .then((result) => {
             const duration = Date.now() - startTime;
             calendarDebug.logEventLoadingComplete(selectedCalendarId, allEvents.length, duration);

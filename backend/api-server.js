@@ -2767,7 +2767,7 @@ async function checkRecurringRoomConflicts(params) {
 
   const query = {
     status: 'published',
-    eventType: { $ne: 'seriesMaster' },
+    eventType: { $in: ['singleInstance', 'exception', 'addition', null] },
     'calendarData.locations': { $in: roomIds },
     'calendarData.startDateTime': { $lt: spanEffectiveEnd },
     'calendarData.endDateTime': { $gt: spanEffectiveStart },
@@ -6426,7 +6426,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
       const skip = (parseInt(page) - 1) * parseInt(limit);
       const events = await withCosmosRetry(() => unifiedEventsCollection
         .find(query)
-        .sort({ 'graphData.start.dateTime': -1, submittedAt: -1 })
+        .sort({ 'calendarData.startDateTime': -1, submittedAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .toArray());
@@ -7120,12 +7120,14 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
       setOps[`calendarData.${field}`] = value;
     }
 
-    const result = await unifiedEventsCollection.updateOne(
+    // Atomic update + return — eliminates a separate findOne round-trip
+    const updatedEvent = await unifiedEventsCollection.findOneAndUpdate(
       { userId: userId, eventId: eventId },
-      { $set: setOps }
+      { $set: setOps },
+      { returnDocument: 'after' }
     );
 
-    if (result.matchedCount === 0) {
+    if (!updatedEvent) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
@@ -7147,16 +7149,6 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
       } catch (auditError) {
         logger.error('Failed to create audit entry:', auditError);
       }
-    }
-
-    // Return updated event
-    const updatedEvent = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
-
-    if (!updatedEvent) {
-      return res.status(404).json({ error: 'Event not found after update' });
     }
 
     // Transform to frontend format

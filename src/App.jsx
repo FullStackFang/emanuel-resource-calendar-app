@@ -5,9 +5,9 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { apiRequest, loginRequest as loginRequestConfig } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
-import UnifiedEventForm from './components/UnifiedEventForm';
-import ReviewModal from './components/shared/ReviewModal';
-import NewReservationModal from './components/NewReservationModal';
+const UnifiedEventForm = lazy(() => import('./components/UnifiedEventForm'));
+const ReviewModal = lazy(() => import('./components/shared/ReviewModal'));
+const NewReservationModal = lazy(() => import('./components/NewReservationModal'));
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import SessionExpiredDialog from './components/shared/SessionExpiredDialog';
@@ -357,7 +357,8 @@ function App() {
                 apiToken={apiToken}
               />
 
-              {/* AI Chat Reservation Modal */}
+              {/* AI Chat Reservation Modal (lazy-loaded — deferred from initial bundle) */}
+              <Suspense fallback={null}>
               <ReviewModal
                   isOpen={showReservationModal}
                   title="Add Event - AI Assistant"
@@ -419,12 +420,13 @@ function App() {
                   />
                 </ReviewModal>
 
-              {/* New Reservation Modal - triggered from MyReservations */}
+              {/* New Reservation Modal - triggered from MyReservations (lazy-loaded) */}
               <NewReservationModal
                 apiToken={apiToken}
                 selectedCalendarId={selectedCalendarId}
                 availableCalendars={availableCalendars}
               />
+              </Suspense>
 
               </>
               )}
