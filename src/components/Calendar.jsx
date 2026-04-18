@@ -3409,7 +3409,7 @@ import ConflictDialog from './shared/ConflictDialog';
         };
       });
 
-      // Group filtered events by matching their locations ObjectIds to group rsKeys
+      // Group filtered events by matching their locations ObjectIds to group locationIds
       filteredEvents.forEach((event) => {
         // Get location fields from calendarData first, then top-level
         const virtualMeetingUrl = getEventField(event, 'virtualMeetingUrl');
@@ -3435,20 +3435,13 @@ import ConflictDialog from './shared/ConflictDialog';
           locations.forEach(locationId => {
             if (!locationId) return; // Skip null/undefined location IDs
             const locationIdStr = locationId.toString();
-            // Find the location object to get its rsKey
-            const matchingLoc = generalLocations.find(loc =>
-              loc._id?.toString() === locationIdStr
+            // Direct ObjectId match to group's locationId
+            const matchingGroupKey = Object.keys(groups).find(groupKey =>
+              groups[groupKey].locationId === locationIdStr
             );
-            if (matchingLoc?.locationCode || matchingLoc?.rsKey) {
-              // Find the group that has this rsKey/locationCode
-              const locCode = matchingLoc.locationCode || matchingLoc.rsKey;
-              const matchingGroupKey = Object.keys(groups).find(groupKey =>
-                groups[groupKey].rsKey === locCode
-              );
-              if (matchingGroupKey) {
-                groups[matchingGroupKey].events.push(event);
-                addedToAnyGroup = true;
-              }
+            if (matchingGroupKey) {
+              groups[matchingGroupKey].events.push(event);
+              addedToAnyGroup = true;
             }
           });
 
