@@ -4076,20 +4076,6 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
 
-      // Exception/addition docs are already scoped to a single occurrence.
-      // Open directly with editScope='thisEvent' — no scope dialog needed.
-      if (event.eventType === 'exception' || event.eventType === 'addition') {
-        (async () => {
-          try {
-            await reviewModal.openModal(event, { editScope: 'thisEvent' });
-          } catch (error) {
-            logger.error('Error opening review modal:', error);
-            showError(error, { context: 'Calendar.handleEventClick', userMessage: 'Failed to open review modal' });
-          }
-        })();
-        return;
-      }
-
       // Check if this is a recurring event
       if (isRecurringEvent(event)) {
         // Show scope selection dialog for recurring events
@@ -4132,8 +4118,14 @@ import ConflictDialog from './shared/ConflictDialog';
             // Keep dialog open with loading state while fetching master
             setRecurringScopeDialog(prev => ({ ...prev, isLoading: true }));
             try {
-              const fetchId = event.masterDocId || event._id;
-              const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${fetchId}`, {
+              // Prefer fetching by the master's MongoDB _id when known.
+              // Fall back to the dedicated /events/master/:eventId lookup so we
+              // never accidentally fetch the exception doc itself (which happens
+              // when masterDocId is null and we fall back to event._id).
+              const fetchUrl = event.masterDocId
+                ? `${APP_CONFIG.API_BASE_URL}/room-reservations/${event.masterDocId}`
+                : `${APP_CONFIG.API_BASE_URL}/events/master/${encodeURIComponent(event.masterEventId)}`;
+              const res = await fetch(fetchUrl, {
                 headers: { 'Authorization': `Bearer ${apiToken}` }
               });
               const masterEvent = res.ok ? await res.json() : event; // fallback to occurrence

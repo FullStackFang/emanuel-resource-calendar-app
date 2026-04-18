@@ -3157,6 +3157,29 @@ function setGraphApiService(mock) { graphApiService = mock; }
 // MSAL Authentication Middleware - Simplified for single app registration
 const verifyToken = async (req, res, next) => {
   if (_testVerifyToken) return _testVerifyToken(req, res, next);
+
+  // E2E auth bypass: accepts X-Test-User-Email + X-Test-User-Role headers
+  // Only active when TEST_AUTH_BYPASS=true (never set in production)
+  if (process.env.TEST_AUTH_BYPASS === 'true' && req.headers['x-test-user-email']) {
+    const email = req.headers['x-test-user-email'];
+    const role = req.headers['x-test-user-role'] || 'admin';
+    let user = await usersCollection.findOne({ email: email.toLowerCase() });
+    // Auto-create test user if not in DB, with requested role
+    if (!user) {
+      user = { userId: email, odataId: email, email: email.toLowerCase(), displayName: email, role };
+      await usersCollection.insertOne(user);
+    } else if (role && user.role !== role) {
+      await usersCollection.updateOne({ _id: user._id }, { $set: { role } });
+      user.role = role;
+    }
+    req.user = {
+      userId: user.userId || user.odataId || email,
+      email: email.toLowerCase(),
+      name: user.displayName || email,
+    };
+    return next();
+  }
+
   try {
     const authHeader = req.headers.authorization;
 
@@ -6756,6 +6779,85 @@ app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching series events:', error);
     res.status(500).json({ error: 'Failed to fetch series events' });
+  }
+});
+
+/**
+ * Get a series master by its Graph eventId (Authenticated)
+ * GET /api/events/master/:masterEventId
+ *
+ * Used by the frontend scope dialog when the user selects 'All Events' on an
+ * exception/addition occurrence and the master's MongoDB _id is not cached
+ * locally (i.e. masterDocId is null because the master is outside the current
+ * view window).
+ *
+ * NOTE: This route MUST remain registered before GET /api/events/:id so that
+ * Express does not mistake 'master' for a MongoDB ObjectId and 404.
+ */
+app.get('/api/events/master/:masterEventId', verifyToken, async (req, res) => {
+  try {
+    const { masterEventId } = req.params;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const master = await unifiedEventsCollection.findOne({
+      eventId: masterEventId,
+      eventType: 'seriesMaster',
+      isDeleted: { $ne: true },
+    });
+
+    if (!master) {
+      return res.status(404).json({ error: 'Series master not found' });
+    }
+
+    const user = await getCachedUser(userId);
+    const canViewAll = canViewAllReservations(user, userEmail);
+    const isOwner = master.roomReservationData?.requestedBy?.userId === userId;
+    const isPublished = master.status === 'published';
+
+    if (!canViewAll && !isOwner && !isPublished) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const cd = master.calendarData || {};
+    const reservation = {
+      _id: master._id,
+      eventId: master.eventId,
+      eventTitle: cd.eventTitle || master.graphData?.subject || 'Untitled',
+      eventDescription: cd.eventDescription || master.graphData?.bodyPreview || '',
+      startDateTime: cd.startDateTime || master.graphData?.start?.dateTime,
+      endDateTime: cd.endDateTime || master.graphData?.end?.dateTime,
+      status: master.status === 'room-reservation-request' ? 'pending' : master.status,
+      requestedRooms: cd.locations || [],
+      attendeeCount: cd.attendeeCount || null,
+      requesterId: master.roomReservationData?.requestedBy?.userId,
+      requesterName: master.roomReservationData?.requestedBy?.name || cd.requesterName,
+      requesterEmail: master.roomReservationData?.requestedBy?.email || cd.requesterEmail,
+      submittedAt: master.roomReservationData?.submittedAt || master.createdAt,
+      roomReservationData: master.roomReservationData,
+      specialRequirements: cd.specialRequirements,
+      setupTime: cd.setupTime,
+      teardownTime: cd.teardownTime,
+      doorOpenTime: cd.doorOpenTime,
+      doorCloseTime: cd.doorCloseTime,
+      startDate: cd.startDate || null,
+      startTime: cd.startTime || null,
+      endDate: cd.endDate || null,
+      endTime: cd.endTime || null,
+      categories: cd.categories || [],
+      services: cd.services || {},
+      eventType: master.eventType || 'seriesMaster',
+      recurrence: cd.recurrence || master.recurrence || null,
+      _version: master._version || null,
+      statusHistory: master.statusHistory || [],
+      pendingEditRequest: master.pendingEditRequest || null,
+      calendarData: cd,
+    };
+
+    res.json(reservation);
+  } catch (error) {
+    logger.error('Error fetching series master:', error);
+    res.status(500).json({ error: 'Failed to fetch series master' });
   }
 });
 
@@ -20670,6 +20772,7 @@ app.get('/api/events/:id', verifyToken, async (req, res) => {
       pendingEditRequest: 1, pendingCancellationRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
       createdAt: 1, createdBy: 1, createdByEmail: 1,
       lastModifiedDateTime: 1, _version: 1,
+      eventType: 1, seriesMasterEventId: 1,
       'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
       'graphData.location': 1, 'graphData.categories': 1,
       'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
@@ -23743,6 +23846,33 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       finalUpdateOperations['occurrenceOverrides'] = mergedOverrides;
       finalUpdateOperations['calendarData.occurrenceOverrides'] = mergedOverrides;
       logger.info('Merged frontend occurrence overrides:', { count: mergedOverrides.length });
+
+      // Also persist changes to exception documents — the read path builds
+      // occurrenceOverrides from exception docs and overwrites the master's field,
+      // so saving only to the master would cause changes to appear lost on reload.
+      if (event.eventType === 'seriesMaster') {
+        for (const incoming of incomingOccurrenceOverrides) {
+          if (!incoming.occurrenceDate) continue;
+          const dateKey = incoming.occurrenceDate;
+          const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
+          if (!existingException) continue;
+          try {
+            const resolvedLocs = incoming.locations
+              ? await resolveLocationOverride(locationsCollection, incoming.locations)
+              : null;
+            const overrideData = extractOverrideData(incoming, resolvedLocs);
+            await updateExceptionDocument(
+              unifiedEventsCollection, existingException, event, overrideData,
+              { modifiedBy: userEmail }
+            );
+            logger.info('Persisted recurrence tab override to exception doc:', { dateKey });
+          } catch (exErr) {
+            logger.warn('Non-fatal: failed to persist recurrence tab override to exception doc:', {
+              dateKey, error: exErr.message
+            });
+          }
+        }
+      }
     }
 
     // Atomically update with version guard

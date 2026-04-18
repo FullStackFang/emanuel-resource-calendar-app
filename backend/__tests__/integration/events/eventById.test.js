@@ -20,6 +20,8 @@ const {
 const {
   createPendingEvent,
   createPublishedEvent,
+  createRecurringSeriesMaster,
+  createExceptionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -156,5 +158,39 @@ describe('Event By ID Tests (EB-1 to EB-6)', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('Event not found');
+  });
+
+  it('EB-7: response includes eventType for exception documents', async () => {
+    const master = createRecurringSeriesMaster({
+      roomReservationData: {
+        requestedBy: { email: requesterUser.email, userId: requesterUser.userId, name: requesterUser.displayName },
+      },
+    });
+    const exception = createExceptionDocument(master, '2026-04-15', { startTime: '10:00' });
+    await insertEvents(db, [master, exception]);
+
+    const res = await request(app)
+      .get(`/api/events/${exception._id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.event.eventType).toBe('exception');
+  });
+
+  it('EB-8: response includes seriesMasterEventId for exception documents', async () => {
+    const master = createRecurringSeriesMaster({
+      roomReservationData: {
+        requestedBy: { email: requesterUser.email, userId: requesterUser.userId, name: requesterUser.displayName },
+      },
+    });
+    const exception = createExceptionDocument(master, '2026-04-15', { startTime: '10:00' });
+    await insertEvents(db, [master, exception]);
+
+    const res = await request(app)
+      .get(`/api/events/${exception._id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.event.seriesMasterEventId).toBe(master.eventId);
   });
 });

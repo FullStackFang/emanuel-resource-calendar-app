@@ -121,7 +121,7 @@
       "Bash(for comp:*)",
       "Bash(do git:*)",
       "Bash(echo \"UNTRACKED: $f\")",
-      "Bash(openspec --version)"
+      "Bash(2)"
     ],
     "deny": []
   },

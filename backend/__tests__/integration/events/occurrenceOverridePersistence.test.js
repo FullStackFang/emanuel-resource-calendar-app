@@ -1,5 +1,5 @@
 /**
- * Occurrence Override Persistence Tests (OOP-1 to OOP-8)
+ * Occurrence Override Persistence Tests (OOP-1 to OOP-13)
  *
  * Tests bulk occurrence override persistence via the Recurrence tab:
  * - OOP-1: Admin save (allEvents) persists occurrenceOverrides
@@ -10,6 +10,11 @@
  * - OOP-6: Draft save persists occurrenceOverrides
  * - OOP-7: Draft save clearOccurrenceOverrides takes precedence
  * - OOP-8: Draft save writes overrides to both top-level and calendarData
+ * - OOP-9: Empty customize override (date-only) persists via admin save
+ * - OOP-10: Empty customize override persists via draft save
+ * - OOP-11: Admin save with occurrenceOverrides updates existing exception documents
+ * - OOP-12: Exception doc changes are visible on re-load (read path uses exception docs)
+ * - OOP-13: Dates without exception docs are not affected (master array only)
  */
 
 const request = require('supertest');
@@ -25,6 +30,7 @@ const {
 const {
   createDraftEvent,
   createRecurringSeriesMaster,
+  createExceptionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -481,6 +487,128 @@ describe('Occurrence Override Persistence Tests (OOP-1 to OOP-8)', () => {
       expect(updated.occurrenceOverrides).toHaveLength(1);
       expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-13');
       expect(updated.calendarData.occurrenceOverrides).toHaveLength(1);
+    });
+  });
+
+  // ── Exception Document Update Tests ────────────────────────────
+
+  describe('OOP-11: Admin save with occurrenceOverrides updates existing exception documents', () => {
+    it('should persist override changes into the exception doc, not just the master array', async () => {
+      const master = createTestSeriesMaster({ eventId: 'master-oop11' });
+      // Pre-existing exception document for 3/12 with only reservationStartTime set
+      const exDoc = createExceptionDocument(master, '2026-03-12', {
+        reservationStartTime: '09:30',
+        reservationEndTime: '10:30',
+      });
+      await insertEvents(db, [master, exDoc]);
+
+      // Admin saves the master from Recurrence tab with updated data for 3/12
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Daily Standup',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: RECURRENCE,
+          occurrenceOverrides: [
+            {
+              occurrenceDate: '2026-03-12',
+              reservationStartTime: '09:30',
+              reservationEndTime: '10:30',
+              startTime: '09:00',
+              endTime: '10:00',
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      // Exception document should now have the new startTime/endTime
+      const updatedEx = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exDoc._id });
+      expect(updatedEx.overrides.startTime).toBe('09:00');
+      expect(updatedEx.overrides.endTime).toBe('10:00');
+      // Existing fields should still be present
+      expect(updatedEx.overrides.reservationStartTime).toBe('09:30');
+      expect(updatedEx.overrides.reservationEndTime).toBe('10:30');
+    });
+  });
+
+  describe('OOP-12: Exception doc changes are visible after reload (read path uses exception docs)', () => {
+    it('should surface updated exception doc values through the synthetic occurrenceOverrides on reload', async () => {
+      const master = createTestSeriesMaster({ eventId: 'master-oop12' });
+      const exDoc = createExceptionDocument(master, '2026-03-12', {
+        reservationStartTime: '09:30',
+        reservationEndTime: '10:30',
+      });
+      await insertEvents(db, [master, exDoc]);
+
+      // Save updated override via master
+      await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Daily Standup',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: RECURRENCE,
+          occurrenceOverrides: [
+            {
+              occurrenceDate: '2026-03-12',
+              reservationStartTime: '09:30',
+              reservationEndTime: '10:30',
+              startTime: '09:00',
+              endTime: '10:00',
+            },
+          ],
+        });
+
+      // Reload the exception document directly — this is what the calendar
+      // read path uses to build synthetic occurrenceOverrides for the master
+      const reloaded = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exDoc._id });
+      expect(reloaded.overrides.startTime).toBe('09:00');
+      expect(reloaded.overrides.endTime).toBe('10:00');
+      expect(reloaded.overrides.reservationStartTime).toBe('09:30');
+    });
+  });
+
+  describe('OOP-13: Dates without exception docs update only master occurrenceOverrides array', () => {
+    it('should NOT create an exception document for dates that have no existing exception', async () => {
+      const master = createTestSeriesMaster({ eventId: 'master-oop13' });
+      await insertEvents(db, [master]); // No exception docs
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Daily Standup',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: RECURRENCE,
+          occurrenceOverrides: [
+            { occurrenceDate: '2026-03-12', eventTitle: 'Custom title' },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      // No exception document should have been created
+      const exCount = await db.collection(COLLECTIONS.EVENTS).countDocuments({
+        seriesMasterEventId: master.eventId,
+        eventType: 'exception',
+      });
+      expect(exCount).toBe(0);
+
+      // Override should still be in master array
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Custom title');
     });
   });
 });

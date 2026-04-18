@@ -4779,6 +4779,28 @@ function createTestApp(options = {}) {
         const mergedOverrides = Array.from(overrideMap.values());
         mongoUpdate.occurrenceOverrides = mergedOverrides;
         mongoUpdate['calendarData.occurrenceOverrides'] = mergedOverrides;
+
+        // Persist changes to exception documents (mirrors production logic)
+        if (event.eventType === 'seriesMaster') {
+          for (const incoming of incomingOccurrenceOverrides) {
+            if (!incoming.occurrenceDate) continue;
+            const dateKey = incoming.occurrenceDate;
+            const existingException = await svcFindExceptionForDate(testCollections.events, event.eventId, dateKey);
+            if (!existingException) continue;
+            try {
+              const resolvedLocs = incoming.locations
+                ? await resolveLocationOverride(testCollections.locations, incoming.locations)
+                : null;
+              const overrideData = extractOverrideData(incoming, resolvedLocs);
+              await svcUpdateExceptionDocument(
+                testCollections.events, existingException, event, overrideData,
+                { modifiedBy: userId }
+              );
+            } catch (exErr) {
+              // non-fatal in tests
+            }
+          }
+        }
       }
 
       // Route organizer fields to calendarData (same as other form fields)
@@ -5786,6 +5808,64 @@ function createTestApp(options = {}) {
     }
   });
 
+  // GET /api/events/master/:masterEventId — fetch series master by Graph eventId
+  // NOTE: must be registered before GET /api/events/:id to avoid route shadowing
+  app.get('/api/events/master/:masterEventId', verifyToken, async (req, res) => {
+    try {
+      const { masterEventId } = req.params;
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+
+      const master = await testCollections.events.findOne({
+        eventId: masterEventId,
+        eventType: 'seriesMaster',
+        isDeleted: { $ne: true },
+      });
+
+      if (!master) {
+        return res.status(404).json({ error: 'Series master not found' });
+      }
+
+      const user = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+      const canViewAll = canViewAllReservations(user, userEmail);
+      const isOwner = master.roomReservationData?.requestedBy?.userId === userId;
+      const isPublished = master.status === 'published';
+
+      if (!canViewAll && !isOwner && !isPublished) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const cd = master.calendarData || {};
+      res.json({
+        _id: master._id,
+        eventId: master.eventId,
+        eventTitle: cd.eventTitle || master.graphData?.subject || 'Untitled',
+        eventDescription: cd.eventDescription || '',
+        startDateTime: cd.startDateTime || master.graphData?.start?.dateTime,
+        endDateTime: cd.endDateTime || master.graphData?.end?.dateTime,
+        status: master.status === 'room-reservation-request' ? 'pending' : master.status,
+        requestedRooms: cd.locations || [],
+        roomReservationData: master.roomReservationData,
+        startDate: cd.startDate || null,
+        startTime: cd.startTime || null,
+        endDate: cd.endDate || null,
+        endTime: cd.endTime || null,
+        categories: cd.categories || [],
+        services: cd.services || {},
+        eventType: master.eventType || 'seriesMaster',
+        recurrence: cd.recurrence || master.recurrence || null,
+        _version: master._version || null,
+        statusHistory: master.statusHistory || [],
+        pendingEditRequest: master.pendingEditRequest || null,
+        calendarData: cd,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch series master' });
+    }
+  });
+
   // GET /api/events/:id — single event by ID (deep-link from email)
   app.get('/api/events/:id', verifyToken, async (req, res) => {
     try {
@@ -5797,6 +5877,7 @@ function createTestApp(options = {}) {
         pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
         createdAt: 1, createdBy: 1, createdByEmail: 1,
         lastModifiedDateTime: 1, _version: 1,
+        eventType: 1, seriesMasterEventId: 1,
         'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
         'graphData.location': 1, 'graphData.categories': 1,
         'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
