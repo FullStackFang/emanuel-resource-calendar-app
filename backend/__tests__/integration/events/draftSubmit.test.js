@@ -28,6 +28,7 @@ const {
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
+const { createLocation } = require('../../__helpers__/dbHelpers');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
 describe('Draft Submit Tests (DS-1 to DS-13)', () => {
@@ -36,6 +37,7 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
   let app;
   let requesterUser, otherRequesterUser, approverUser, adminUser, viewerUser;
   let requesterToken, otherRequesterToken, approverToken, adminToken, viewerToken;
+  let testLocation;
 
   beforeAll(async () => {
     await initTestKeys();
@@ -53,8 +55,10 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
     await db.collection(COLLECTIONS.USERS).deleteMany({});
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
     await db.collection(COLLECTIONS.AUDIT_HISTORY).deleteMany({});
+    await db.collection(COLLECTIONS.LOCATIONS).deleteMany({});
 
     graphApiMock.resetMocks();
+    testLocation = await createLocation(db, { name: 'Draft Submit Room' });
 
     requesterUser = createRequester();
     otherRequesterUser = createOtherRequester();
@@ -74,11 +78,38 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
    * Helper to create a complete draft (passes validation)
    */
   function createCompleteDraft(overrides = {}) {
-    return createDraftEvent({
-      locations: [{ displayName: 'Room A' }],
+    // Build a draft that passes real-server submit validation.
+    // Times must respect ordering: resStart <= start <= end <= resEnd
+    const event = createDraftEvent({
+      locations: [testLocation._id],
       categories: ['Meeting'],
-      setupTime: '15 minutes',
-      doorOpenTime: '09:00',
+      attendeeCount: 10,
+      ...overrides,
+    });
+    // Patch calendarData to pass submit validation (reservationStart/End, time ordering)
+    const cd = event.calendarData;
+    cd.locations = overrides.locations || [testLocation._id];
+    cd.categories = overrides.categories || cd.categories || ['Meeting'];
+    cd.attendeeCount = overrides.attendeeCount || cd.attendeeCount || 10;
+    // Set reservation times to bracket the event times
+    if (!cd.reservationStartTime) cd.reservationStartTime = cd.startTime || '09:00';
+    if (!cd.reservationEndTime) cd.reservationEndTime = cd.endTime ? cd.endTime.replace(/(\d+):/, (_, h) => `${(parseInt(h)+1).toString().padStart(2,'0')}:`) : '12:00';
+    // Clear timing fields that could violate ordering
+    if (!overrides.setupTime) cd.setupTime = null;
+    if (!overrides.doorOpenTime) cd.doorOpenTime = null;
+    if (!overrides.doorCloseTime) cd.doorCloseTime = null;
+    if (!overrides.teardownTime) cd.teardownTime = null;
+    return event;
+  }
+
+  // Original helper for backward compat
+  function createCompleteDraftOld(overrides = {}) {
+    return createDraftEvent({
+      locations: [testLocation._id],
+      categories: ['Meeting'],
+      attendeeCount: 10,
+      reservationStartTime: '09:00',
+      reservationEndTime: '12:00',
       ...overrides,
     });
   }
@@ -94,13 +125,14 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
 
       const res = await request(app)
         .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(200);
+        .set('Authorization', `Bearer ${requesterToken}`);
+      if (res.status !== 200) console.log('DS-1 fail:', res.status, JSON.stringify(res.body));
+      expect(res.status).toBe(200);
 
       // Real server returns document at top level (no success or event wrapper)
       expect(res.body.status).toBe(STATUS.PENDING);
       expect(res.body.autoPublished).toBeUndefined();
-      expect(res.body.graphData).toBeFalsy();
+      expect(res.body.graphData?.id).toBeFalsy();
     });
   });
 

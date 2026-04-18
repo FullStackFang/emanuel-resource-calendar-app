@@ -23393,19 +23393,23 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Build update operations with field syncing (same as creation flow)
     const updateOperations = { ...safeUpdates };
 
-    // PROTECT eventType: Use the DB value, never trust the frontend.
-    // eventType is only set to 'seriesMaster' by publish/draft-submit endpoints.
-    // If the existing event is a seriesMaster and recurrence is being cleared, downgrade to singleInstance.
+    // Guard eventType: upgrade singleInstance→seriesMaster when recurrence is added;
+    // downgrade seriesMaster→singleInstance when recurrence is removed.
     const incomingRecurrence = updates.recurrence || safeUpdates.recurrence;
     if (event.eventType === 'seriesMaster') {
-      // Only downgrade if recurrence is explicitly being removed
+      // DOWNGRADE: recurrence explicitly removed (empty object with no pattern/range)
       if (incomingRecurrence && !incomingRecurrence.pattern && !incomingRecurrence.range) {
         updateOperations.eventType = 'singleInstance';
       } else {
         updateOperations.eventType = 'seriesMaster';
       }
+    } else {
+      // UPGRADE: recurrence added to a singleInstance (or other non-master type)
+      if (incomingRecurrence?.pattern && incomingRecurrence?.range) {
+        updateOperations.eventType = 'seriesMaster';
+      }
+      // else: no recurrence change — leave eventType as-is in DB
     }
-    // For non-masters, don't touch eventType (leave as-is in DB)
 
     // Sync body.content to eventDescription (deferred from Graph sync block above)
     if (updates.body?.content) {

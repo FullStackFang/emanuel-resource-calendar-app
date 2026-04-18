@@ -143,8 +143,8 @@ function createBaseEvent(options = {}) {
       reservationEndMinutes: options.reservationEndMinutes || 0,
     },
 
-    // Optional nested structures
-    graphData: options.graphData || null,
+    // Optional nested structures — use {} not null so MongoDB can $set nested fields
+    graphData: options.graphData !== undefined ? options.graphData : {},
 
     ...options,
   };

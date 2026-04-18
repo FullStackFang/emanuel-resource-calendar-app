@@ -80,7 +80,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const res = await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -112,7 +112,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
@@ -132,7 +132,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -182,7 +182,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -208,7 +208,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -232,7 +232,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -259,7 +259,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -285,7 +285,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -318,7 +318,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       // Verify deleteCalendarEvent was called for the exclusion
@@ -355,7 +355,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       // createCalendarEvent called twice: once for series, once for addition
@@ -389,7 +389,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const res = await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -572,7 +572,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -593,7 +593,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -618,7 +618,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -758,7 +758,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       // First call is createCalendarEvent (series), then getRecurringEventInstances + updateCalendarEvent for override
@@ -804,7 +804,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       // The addition createCalendarEvent call should have override data baked in
@@ -857,7 +857,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
@@ -892,7 +892,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -935,7 +935,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       await request(app)
         .post(ENDPOINTS.SUBMIT_DRAFT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(200);
 
       const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -1876,7 +1876,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const res = await request(app)
         .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: saved._version })
+        .send({ _version: saved._version, createCalendarEvent: true })
         .expect(400);
 
       expect(res.body.error).toBe('Cannot publish individual occurrences. Publish the series master instead.');

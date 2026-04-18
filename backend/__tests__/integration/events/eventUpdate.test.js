@@ -13,6 +13,7 @@ const { createAdmin, createRequester, insertUsers } = require('../../__helpers__
 const {
   createPublishedEventWithGraph,
   createPublishedEvent,
+  createRecurringSeriesMaster,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -332,6 +333,108 @@ describe('Event Update Tests - Graph Sync Gate', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.graphSynced).toBe(false);
       expect(res.body.event.eventTitle).toBe('Updated Despite Failure');
+    });
+  });
+
+  describe('eventType upgrade/downgrade when recurrence changes (RU)', () => {
+    const dailyRecurrence = {
+      pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+      range: { type: 'endDate', startDate: '2026-04-14', endDate: '2026-04-15' },
+      additions: [],
+      exclusions: [],
+    };
+
+    it('RU-1: upgrades eventType to seriesMaster in response when recurrence added to singleInstance', async () => {
+      const singleInstance = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [singleInstance]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ recurrence: dailyRecurrence })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.eventType).toBe('seriesMaster');
+    });
+
+    it('RU-2: persists upgraded eventType seriesMaster in DB', async () => {
+      const singleInstance = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [singleInstance]);
+
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ recurrence: dailyRecurrence })
+        .expect(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.eventType).toBe('seriesMaster');
+    });
+
+    it('RU-3: persists top-level recurrence in DB when recurrence added to singleInstance', async () => {
+      const singleInstance = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [singleInstance]);
+
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ recurrence: dailyRecurrence })
+        .expect(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.recurrence).toBeDefined();
+      expect(updated.recurrence.pattern.type).toBe('daily');
+      expect(updated.recurrence.range.endDate).toBe('2026-04-15');
+    });
+
+    it('RU-4: does NOT change eventType when payload has no recurrence for a singleInstance', async () => {
+      const singleInstance = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [singleInstance]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ eventTitle: 'Title Only Update' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.eventType).toBe('singleInstance');
+    });
+
+    it('RU-5: downgrades seriesMaster to singleInstance when recurrence cleared', async () => {
+      const seriesMaster = createRecurringSeriesMaster({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+        status: STATUS.PUBLISHED,
+      });
+      const [saved] = await insertEvents(db, [seriesMaster]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ recurrence: {} })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.eventType).toBe('singleInstance');
     });
   });
 
