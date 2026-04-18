@@ -11,7 +11,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -42,8 +42,7 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('draftSubmit'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

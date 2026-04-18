@@ -4076,6 +4076,20 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
 
+      // Exception/addition docs are already scoped to a single occurrence.
+      // Open directly with editScope='thisEvent' — no scope dialog needed.
+      if (event.eventType === 'exception' || event.eventType === 'addition') {
+        (async () => {
+          try {
+            await reviewModal.openModal(event, { editScope: 'thisEvent' });
+          } catch (error) {
+            logger.error('Error opening review modal:', error);
+            showError(error, { context: 'Calendar.handleEventClick', userMessage: 'Failed to open review modal' });
+          }
+        })();
+        return;
+      }
+
       // Check if this is a recurring event
       if (isRecurringEvent(event)) {
         // Show scope selection dialog for recurring events

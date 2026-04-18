@@ -6405,6 +6405,22 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // STEP 3: Return events directly from MongoDB (source of truth)
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
     // All calendar fields are now in calendarData (top-level fields removed)
+
+    // Build synthetic occurrenceOverrides for series masters from exception docs.
+    // RecurrenceTabContent reads reservation.occurrenceOverrides — always [] on the
+    // series master since exceptions are now separate documents. Exception docs are
+    // already in unifiedEvents for the current view window; inject them so the
+    // recurrence tab shows the customized badge for those dates.
+    const exceptionOverridesByMaster = {};
+    for (const e of unifiedEvents) {
+      if ((e.eventType === 'exception' || e.eventType === 'addition')
+          && e.seriesMasterEventId && e.occurrenceDate && e.overrides) {
+        const list = exceptionOverridesByMaster[e.seriesMasterEventId] || [];
+        list.push({ occurrenceDate: e.occurrenceDate, ...e.overrides });
+        exceptionOverridesByMaster[e.seriesMasterEventId] = list;
+      }
+    }
+
     const transformedLoadEvents = unifiedEvents.map(event => {
       // All stored datetimes are local time in America/New_York (no Z suffix).
       // graphData?.start?.timeZone is Outlook format ("Eastern Standard Time")
@@ -6435,7 +6451,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         categories: event.calendarData?.categories || event.graphData?.categories || [],
         // Explicitly include status for frontend styling
         status: event.status || null,
-        source: event.source || null
+        source: event.source || null,
+        // Inject exception overrides into series masters so RecurrenceTabContent
+        // shows the customized badge for dates that have exception documents.
+        ...(event.eventType === 'seriesMaster' && exceptionOverridesByMaster[event.eventId]
+          ? { occurrenceOverrides: exceptionOverridesByMaster[event.eventId] }
+          : {}),
       };
     });
 
@@ -7036,7 +7057,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     // ── Projection (reduce response size) ──
     const projection = {
-      _id: 1, eventId: 1, status: 1, isDeleted: 1,
+      _id: 1, eventId: 1, status: 1, isDeleted: 1, eventType: 1,
+      seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1,
       calendarId: 1, calendarOwner: 1, calendarName: 1,
       calendarData: 1,
       roomReservationData: 1,
@@ -7076,6 +7098,39 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       const dateB = b.calendarData?.startDateTime || b.graphData?.start?.dateTime || '';
       return dateB.localeCompare(dateA);
     });
+
+    // Inject exception overrides into series masters so RecurrenceTabContent
+    // shows the customized badge for dates with exception documents.
+    // Uses a secondary query (not date-range limited) so all exceptions are found
+    // regardless of status or current view window.
+    const masterEventIds = events
+      .filter(e => e.eventType === 'seriesMaster')
+      .map(e => e.eventId)
+      .filter(Boolean);
+    if (masterEventIds.length > 0) {
+      const exceptionDocs = await withCosmosRetry(() =>
+        unifiedEventsCollection.find({
+          seriesMasterEventId: { $in: masterEventIds },
+          eventType: { $in: ['exception', 'addition'] },
+          isDeleted: { $ne: true },
+        }).project({ seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1 }).toArray()
+      );
+      if (exceptionDocs.length > 0) {
+        const exOvByMaster = {};
+        for (const doc of exceptionDocs) {
+          if (doc.seriesMasterEventId && doc.occurrenceDate && doc.overrides) {
+            const list = exOvByMaster[doc.seriesMasterEventId] || [];
+            list.push({ occurrenceDate: doc.occurrenceDate, ...doc.overrides });
+            exOvByMaster[doc.seriesMasterEventId] = list;
+          }
+        }
+        events = events.map(e =>
+          e.eventType === 'seriesMaster' && exOvByMaster[e.eventId]
+            ? { ...e, occurrenceOverrides: exOvByMaster[e.eventId] }
+            : e
+        );
+      }
+    }
 
     const totalPages = limitNum > 0 ? Math.ceil(totalCount / limitNum) : 1;
     const hasMore = limitNum > 0 && (skip + events.length) < totalCount;
@@ -7319,6 +7374,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     let { graphFields } = req.body;
     const { internalFields, calendarId, calendarOwner, graphToken } = req.body;
     const userId = req.user.userId;
+    const userEmail = req.user.email;
 
     logger.debug(`Starting unified audit update for event ${eventId}`, {
       hasGraphFields: !!graphFields,

@@ -10,7 +10,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -41,8 +41,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('ownerRestore'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
