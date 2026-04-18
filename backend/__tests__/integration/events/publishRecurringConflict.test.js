@@ -8,7 +8,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -34,8 +34,7 @@ describe('Publish Recurring Conflict Tests (PRC-1 to PRC-4)', () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('publishRecurringConflict'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

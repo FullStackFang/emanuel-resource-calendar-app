@@ -8,7 +8,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, createViewer, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -33,8 +33,7 @@ describe('Approver Role Access Tests (AP-1 to AP-8)', () => {
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('approverAccess'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
@@ -73,7 +72,8 @@ describe('Approver Role Access Tests (AP-1 to AP-8)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.status).toBe(STATUS.PUBLISHED);
     });
 
     it('AP-2: approver can reject a pending event', async () => {
@@ -91,7 +91,8 @@ describe('Approver Role Access Tests (AP-1 to AP-8)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.REJECTED);
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.status).toBe(STATUS.REJECTED);
     });
 
     it('AP-3: approver can save edits on a pending event', async () => {

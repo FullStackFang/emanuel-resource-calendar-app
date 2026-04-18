@@ -7,7 +7,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -32,8 +32,7 @@ describe('Approver Changes Detection Tests (RC-1 to RC-8)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('approverChanges'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
@@ -211,14 +210,23 @@ describe('Approver Changes Detection Tests (RC-1 to RC-8)', () => {
         .send({});
       expect(publishRes.status).toBe(200);
 
-      // Response should include reviewChanges
-      expect(publishRes.body.reviewChanges).toBeDefined();
-      expect(publishRes.body.reviewChanges).toHaveLength(1);
-      expect(publishRes.body.reviewChanges[0].displayName).toBe('Event Title');
+      // Real server clears reviewChanges from document via fire-and-forget write
+      // Allow a brief delay for the background write to complete
+      await new Promise(r => setTimeout(r, 600));
 
       // Document should have reviewChanges cleared
       const publishedEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: pending._id });
       expect(publishedEvent.roomReservationData?.reviewChanges).toBeUndefined();
+
+      // Verify reviewChanges were recorded in audit log
+      const audit = await db.collection(COLLECTIONS.AUDIT_HISTORY).findOne({
+        eventId: pending.eventId,
+        action: 'published',
+      });
+      expect(audit).toBeDefined();
+      expect(audit.reviewChanges).toBeDefined();
+      expect(audit.reviewChanges).toHaveLength(1);
+      expect(audit.reviewChanges[0].displayName).toBe('Event Title');
     });
   });
 

@@ -97,10 +97,10 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PENDING);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PENDING);
       expect(res.body.autoPublished).toBeUndefined();
-      expect(res.body.event.graphData).toBeNull();
+      expect(res.body.graphData).toBeFalsy();
     });
   });
 
@@ -118,12 +118,11 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
-      expect(res.body.graphEventId).toBeDefined();
-      expect(res.body.event.graphData).toBeDefined();
-      expect(res.body.event.graphData.id).toBeDefined();
+      expect(res.body.graphData).toBeDefined();
+      expect(res.body.graphData.id).toBeDefined();
     });
   });
 
@@ -141,10 +140,10 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
-      expect(res.body.graphEventId).toBeDefined();
+      expect(res.body.graphData?.id).toBeDefined();
     });
   });
 
@@ -162,8 +161,8 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
     });
   });
@@ -290,8 +289,8 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('X-Simulated-Role', 'requester')
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PENDING);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PENDING);
       expect(res.body.autoPublished).toBeUndefined();
       // Graph API should NOT have been called
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
@@ -315,9 +314,8 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('X-Simulated-Role', 'viewer')
         .expect(200);
 
-      expect(res.body.success).toBe(true);
       // Approver's actual role applies — auto-publishes despite simulation header
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
     });
   });
@@ -337,8 +335,8 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('X-Simulated-Role', 'admin')
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
     });
   });
@@ -414,8 +412,8 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PENDING);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PENDING);
       expect(res.body.autoPublished).toBeUndefined();
       expect(res.body.conflictDowngradedToPending).toBe(true);
       expect(res.body.recurringConflicts).toBeDefined();
@@ -465,11 +463,11 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
       expect(res.body.conflictDowngradedToPending).toBeUndefined();
-      expect(res.body.graphEventId).toBeDefined();
+      expect(res.body.graphData?.id).toBeDefined();
     });
   });
 
@@ -500,11 +498,11 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      // Real server returns document at top level (no success or event wrapper)
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.autoPublished).toBe(true);
       expect(res.body.conflictDowngradedToPending).toBeUndefined();
-      expect(res.body.graphEventId).toBeDefined();
+      expect(res.body.graphData?.id).toBeDefined();
     });
   });
 

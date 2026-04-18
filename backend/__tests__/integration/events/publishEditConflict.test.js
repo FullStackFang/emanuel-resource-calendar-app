@@ -8,7 +8,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createApprover, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -36,8 +36,7 @@ describe('Publish-Edit Conflict Tests (PEC-1 to PEC-8)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('publishEditConflict'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

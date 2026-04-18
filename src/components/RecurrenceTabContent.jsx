@@ -927,8 +927,8 @@ export default function RecurrenceTabContent({
         </div>
 
         <div className="recurrence-detail-fields">
-          {/* Title */}
-          <div className="recurrence-detail-field">
+          {/* Row 1: Title (3/5) + Categories (1/5) + Locations (1/5) */}
+          <div className="recurrence-detail-field recurrence-detail-field--main">
             <label>Title</label>
             <input
               type="text"
@@ -938,16 +938,55 @@ export default function RecurrenceTabContent({
               className="recurrence-detail-input"
             />
           </div>
+          <div className="recurrence-detail-field recurrence-detail-field--side-a">
+            <label>Categories</label>
+            <div className="recurrence-detail-chips recurrence-detail-chips--nowrap">
+              {(() => {
+                const cats = getEffectiveValue(selectedOccurrence, 'categories') || [];
+                if (cats.length === 0) return <span className="recurrence-detail-chip-empty">None</span>;
+                const overflow = cats.length - 1;
+                return (
+                  <>
+                    <span className="recurrence-detail-chip recurrence-detail-chip--static recurrence-detail-chip--truncate">
+                      {cats[0]}
+                    </span>
+                    {overflow > 0 && (
+                      <span className="recurrence-detail-chip recurrence-detail-chip--overflow">+{overflow}</span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+          <div className="recurrence-detail-field recurrence-detail-field--side-b">
+            <label>Locations</label>
+            <div className="recurrence-detail-chips recurrence-detail-chips--nowrap">
+              {(() => {
+                const locIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
+                if (locIds.length === 0) return <span className="recurrence-detail-chip-empty">None</span>;
+                const overflow = locIds.length - 1;
+                return (
+                  <>
+                    <span className="recurrence-detail-chip recurrence-detail-chip--static recurrence-detail-chip--truncate">
+                      {getLocationName(locIds[0])}
+                    </span>
+                    {overflow > 0 && (
+                      <span className="recurrence-detail-chip recurrence-detail-chip--overflow">+{overflow}</span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
 
-          {/* Description */}
-          <div className="recurrence-detail-field">
+          {/* Row 2: Description full width */}
+          <div className="recurrence-detail-field recurrence-detail-field--full">
             <label>Description</label>
             <textarea
               value={getEffectiveValue(selectedOccurrence, 'eventDescription')}
               onChange={(e) => handleOccurrenceFieldChange('eventDescription', e.target.value)}
               disabled={!canEdit}
               className="recurrence-detail-input recurrence-detail-textarea"
-              rows={1}
               placeholder="Event description"
             />
           </div>
@@ -965,26 +1004,7 @@ export default function RecurrenceTabContent({
             );
             return (
               <div className="recurrence-detail-times">
-                <div className="recurrence-detail-field">
-                  <label>Start</label>
-                  <input
-                    type="time"
-                    value={getEffectiveValue(selectedOccurrence, 'startTime')}
-                    onChange={(e) => handleOccurrenceFieldChange('startTime', e.target.value)}
-                    disabled={!canEdit}
-                    className="recurrence-detail-input"
-                  />
-                </div>
-                <div className="recurrence-detail-field">
-                  <label>End</label>
-                  <input
-                    type="time"
-                    value={getEffectiveValue(selectedOccurrence, 'endTime')}
-                    onChange={(e) => handleOccurrenceFieldChange('endTime', e.target.value)}
-                    disabled={!canEdit}
-                    className="recurrence-detail-input"
-                  />
-                </div>
+                {/* Reservation times first — primary times for room bookings */}
                 {(canEdit || hasSecondaryTimes) && (
                   <>
                     <div className="recurrence-detail-field">
@@ -1007,6 +1027,30 @@ export default function RecurrenceTabContent({
                         className="recurrence-detail-input"
                       />
                     </div>
+                  </>
+                )}
+                <div className="recurrence-detail-field">
+                  <label>Start</label>
+                  <input
+                    type="time"
+                    value={getEffectiveValue(selectedOccurrence, 'startTime')}
+                    onChange={(e) => handleOccurrenceFieldChange('startTime', e.target.value)}
+                    disabled={!canEdit}
+                    className="recurrence-detail-input"
+                  />
+                </div>
+                <div className="recurrence-detail-field">
+                  <label>End</label>
+                  <input
+                    type="time"
+                    value={getEffectiveValue(selectedOccurrence, 'endTime')}
+                    onChange={(e) => handleOccurrenceFieldChange('endTime', e.target.value)}
+                    disabled={!canEdit}
+                    className="recurrence-detail-input"
+                  />
+                </div>
+                {(canEdit || hasSecondaryTimes) && (
+                  <>
                     <div className="recurrence-detail-field">
                       <label>Setup</label>
                       <input
@@ -1053,147 +1097,6 @@ export default function RecurrenceTabContent({
             );
           })()}
 
-          {/* Categories & Locations side-by-side */}
-          <div className="recurrence-detail-field">
-            <label>Categories</label>
-            <div className="recurrence-detail-chips">
-              {(getEffectiveValue(selectedOccurrence, 'categories') || []).map((cat, i) => (
-                <span key={i} className="recurrence-detail-chip">
-                  {cat}
-                  {canEdit && (
-                    <button
-                      type="button"
-                      className="recurrence-chip-remove"
-                      onClick={() => {
-                        const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
-                        handleOccurrenceFieldChange('categories', current.filter((_, idx) => idx !== i));
-                      }}
-                    >
-                      &times;
-                    </button>
-                  )}
-                </span>
-              ))}
-              {canEdit && (
-                <button
-                  type="button"
-                  className="recurrence-chip-add"
-                  onClick={() => {
-                    setShowCategoryPicker(prev => !prev);
-                    setShowRoomPicker(false);
-                    fetchCategoriesOnce();
-                  }}
-                >
-                  + Add
-                </button>
-              )}
-            </div>
-            <div className={`recurrence-inline-picker-wrap ${showCategoryPicker ? 'open' : ''}`}>
-              <div className="recurrence-category-picker">
-                {availableCategories
-                  .filter(cat => {
-                    const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
-                    return !current.includes(cat.name);
-                  })
-                  .map(cat => (
-                    <button
-                      key={cat._id || cat.name}
-                      type="button"
-                      className="recurrence-category-picker-item"
-                      onClick={() => {
-                        const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
-                        handleOccurrenceFieldChange('categories', [...current, cat.name]);
-                        setShowCategoryPicker(false);
-                      }}
-                    >
-                      <span
-                        className="recurrence-category-dot"
-                        style={{ backgroundColor: cat.color || 'var(--text-tertiary)' }}
-                      />
-                      {cat.name}
-                    </button>
-                  ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Locations */}
-          <div className="recurrence-detail-field">
-            <label>Locations</label>
-            <div className="recurrence-detail-chips">
-              {(() => {
-                const locIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
-                return locIds.map((locId, i) => (
-                  <span key={i} className="recurrence-detail-chip">
-                    {getLocationName(locId)}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        className="recurrence-chip-remove"
-                        onClick={() => {
-                          const currentIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
-                          handleOccurrenceFieldChange('locations', currentIds.filter((_, idx) => idx !== i));
-                          const updatedIds = currentIds.filter((_, idx) => idx !== i);
-                          handleOccurrenceFieldChange('locationDisplayNames',
-                            updatedIds.map(id => getLocationName(id)).join(', ')
-                          );
-                        }}
-                      >
-                        &times;
-                      </button>
-                    )}
-                  </span>
-                ));
-              })()}
-              {canEdit && (
-                <button
-                  type="button"
-                  className="recurrence-chip-add"
-                  onClick={() => {
-                    setShowRoomPicker(prev => !prev);
-                    setShowCategoryPicker(false);
-                  }}
-                >
-                  + Add
-                </button>
-              )}
-            </div>
-            <div className={`recurrence-inline-picker-wrap ${showRoomPicker ? 'open' : ''}`}>
-              <div className="recurrence-category-picker">
-                {reservableRooms
-                  .filter(room => {
-                    const currentIds = (getEffectiveValue(selectedOccurrence, 'locations') || []).map(id => id?.toString?.() || id);
-                    return !currentIds.includes(room._id?.toString?.() || room._id);
-                  })
-                  .map(room => (
-                    <button
-                      key={room._id}
-                      type="button"
-                      className="recurrence-category-picker-item"
-                      onClick={() => {
-                        const currentIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
-                        const updatedIds = [...currentIds, room._id];
-                        handleOccurrenceFieldChange('locations', updatedIds);
-                        handleOccurrenceFieldChange('locationDisplayNames',
-                          updatedIds.map(id => getLocationName(id)).join(', ')
-                        );
-                        setShowRoomPicker(false);
-                      }}
-                    >
-                      <span className="recurrence-category-dot" style={{ backgroundColor: 'var(--color-primary-400)' }} />
-                      {room.name}
-                      {room.capacity && <span className="recurrence-room-capacity">({room.capacity})</span>}
-                    </button>
-                  ))}
-                {reservableRooms.filter(room => {
-                  const currentIds = (getEffectiveValue(selectedOccurrence, 'locations') || []).map(id => id?.toString?.() || id);
-                  return !currentIds.includes(room._id?.toString?.() || room._id);
-                }).length === 0 && (
-                  <div className="recurrence-room-picker-empty">No more rooms available</div>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Conflict info for this date */}

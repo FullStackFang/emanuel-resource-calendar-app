@@ -73,9 +73,12 @@ describe('Event Publishing Tests (A-7)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
-      expect(res.body.event.publishedAt).toBeDefined();
-      expect(res.body.event.publishedBy).toBe(approverUser.email);
+
+      // Real server returns { success, _version, changeKey } — verify status in DB
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPending._id });
+      expect(updated.status).toBe(STATUS.PUBLISHED);
+      expect(updated.roomReservationData.reviewedBy.reviewedAt).toBeDefined();
+      expect(updated.roomReservationData.reviewedBy.name).toBeDefined();
     });
 
     it('should create Graph API event on publishing', async () => {
@@ -89,6 +92,7 @@ describe('Event Publishing Tests (A-7)', () => {
       await request(app)
         .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
+        .send({ createCalendarEvent: true })
         .expect(200);
 
       // Verify Graph API was called
@@ -107,13 +111,18 @@ describe('Event Publishing Tests (A-7)', () => {
       const res = await request(app)
         .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
+        .send({ createCalendarEvent: true })
         .expect(200);
 
-      expect(res.body.event.graphData).toBeDefined();
-      expect(res.body.event.graphData.id).toBeDefined();
-      expect(res.body.event.graphData.iCalUId).toBeDefined();
-      expect(res.body.event.graphData.iCalUId).toMatch(/^ical-/);
-      expect(res.body.event.graphData.webLink).toBeDefined();
+      // Real server stores graphData in DB via fire-and-forget with 500ms setTimeout;
+      // allow enough time for the deferred write to complete
+      await new Promise(r => setTimeout(r, 1500));
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPending._id });
+      expect(updated.graphData).toBeDefined();
+      expect(updated.graphData.id).toBeDefined();
+      expect(updated.graphData.iCalUId).toBeDefined();
+      expect(updated.graphData.iCalUId).toMatch(/^ical-/);
+      expect(updated.graphData.webLink).toBeDefined();
     });
 
     it('should create audit log entry', async () => {
@@ -156,7 +165,7 @@ describe('Event Publishing Tests (A-7)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot publish/i);
+      expect(res.body.error).toMatch(/cannot publish|not a pending/i);
     });
 
     it('should return 400 when trying to publish already published event', async () => {
@@ -171,7 +180,7 @@ describe('Event Publishing Tests (A-7)', () => {
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot publish/i);
+      expect(res.body.error).toMatch(/cannot publish|not a pending/i);
     });
 
     it('should handle Graph API failure gracefully', async () => {
@@ -187,6 +196,7 @@ describe('Event Publishing Tests (A-7)', () => {
       const res = await request(app)
         .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
+        .send({ createCalendarEvent: true })
         .expect(500);
 
       expect(res.body.error).toBeDefined();

@@ -70,10 +70,13 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.REJECTED);
-      expect(res.body.event.rejectedAt).toBeDefined();
-      expect(res.body.event.rejectedBy).toBe(approverUser.email);
-      expect(res.body.event.rejectionReason).toBe('Room not available on requested date');
+
+      // Real server returns { success, _version, changeKey } — verify status in DB
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPending._id });
+      expect(updated.status).toBe(STATUS.REJECTED);
+      expect(updated.roomReservationData.reviewedBy.reviewedAt).toBeDefined();
+      expect(updated.roomReservationData.reviewedBy.name).toBeDefined();
+      expect(updated.roomReservationData.reviewNotes).toBe('Room not available on requested date');
     });
 
     it('should create audit log entry with rejection reason', async () => {
@@ -95,7 +98,10 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
         performedBy: approverUser.odataId,
       });
 
-      expect(audit.changes.reason).toBe('Conflict with existing event');
+      // Real server stores changes as an array of { field, oldValue, newValue }
+      const reviewNotesChange = audit.changes.find(c => c.field === 'reviewNotes');
+      expect(reviewNotesChange).toBeDefined();
+      expect(reviewNotesChange.newValue).toBe('Conflict with existing event');
     });
 
     it('should return 404 for non-existent event', async () => {
@@ -121,7 +127,7 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
         .send({ reason: 'Test rejection' })
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot reject/i);
+      expect(res.body.error).toMatch(/cannot reject|not a pending/i);
     });
 
     it('should return 400 when trying to reject already published event', async () => {
@@ -137,7 +143,7 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
         .send({ reason: 'Test rejection' })
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot reject/i);
+      expect(res.body.error).toMatch(/cannot reject|not a pending/i);
     });
   });
 
@@ -187,7 +193,9 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
         .send({ reason: '  Valid reason with spaces  ' })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.REJECTED);
+      expect(res.body.success).toBe(true);
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPending._id });
+      expect(updated.status).toBe(STATUS.REJECTED);
     });
   });
 });

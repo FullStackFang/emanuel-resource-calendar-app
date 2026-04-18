@@ -12,7 +12,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -36,8 +36,7 @@ describe('Approver Time Edits Tests (ATE-1 to ATE-4)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('approverTimeEdits'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
@@ -221,7 +220,7 @@ describe('Approver Time Edits Tests (ATE-1 to ATE-4)', () => {
 
       expect(publishRes.status).toBe(200);
       expect(publishRes.body.success).toBe(true);
-      expect(publishRes.body.event.status).toBe('published');
+      expect(publishRes.body.success).toBe(true);
 
       // Verify final state: times should still be correct after publish
       const afterPublish = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: pending._id });

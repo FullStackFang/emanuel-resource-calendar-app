@@ -8,7 +8,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -42,8 +42,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('recurringPublish'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
@@ -981,7 +980,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
 
       // eventType must remain seriesMaster (protected by backend)
       expect(updated.eventType).toBe('seriesMaster');
@@ -1034,7 +1035,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
 
       // Both top-level and calendarData.recurrence should have the new value
       expect(updated.recurrence).toEqual(newRecurrence);
@@ -1198,7 +1201,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
 
       // Override inherited from master (same values) — should be cascaded with the new values
       expect(updated.occurrenceOverrides).toHaveLength(1);
@@ -1291,7 +1296,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.occurrenceOverrides).toHaveLength(1);
       const override = updated.occurrenceOverrides[0];
 
@@ -1371,7 +1378,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.occurrenceOverrides).toHaveLength(1);
       const override = updated.occurrenceOverrides[0];
 
@@ -1441,7 +1450,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.eventTitle).toBe('Updated Service Object Test');
       expect(updated.occurrenceOverrides).toHaveLength(1);
 
@@ -1497,7 +1508,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const override = updated.occurrenceOverrides[0];
       expect(override.eventTitle).toBe('Updated Title Only');
       // These should remain unchanged — independent override values, not cascaded
@@ -1549,7 +1562,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.occurrenceOverrides).toHaveLength(1);
 
       const override = updated.occurrenceOverrides[0];
@@ -1627,7 +1642,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.occurrenceOverrides).toHaveLength(1);
       const override = updated.occurrenceOverrides[0];
 
@@ -1701,7 +1718,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const override = updated.occurrenceOverrides[0];
 
       // Override had same location as master (inherited) — should be updated to new location
@@ -1764,7 +1783,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const override = updated.occurrenceOverrides[0];
 
       // Override had independent title — must be preserved
@@ -1828,7 +1849,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      const updated = res.body.event;
+      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
+      // query DB for full document
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const override = updated.occurrenceOverrides[0];
 
       // Override had independent time (14:00-16:00) — must be preserved
