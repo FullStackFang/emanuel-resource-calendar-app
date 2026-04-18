@@ -8,7 +8,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -30,8 +30,7 @@ describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('editRequestApprovalQueue'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

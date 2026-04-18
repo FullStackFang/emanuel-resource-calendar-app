@@ -11,12 +11,7 @@
 
 const request = require('supertest');
 
-const {
-  createTestApp,
-  setTestDatabase,
-  getSentEmailNotifications,
-  clearSentEmailNotifications,
-} = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -42,8 +37,7 @@ describe('Published Event Updated Notification Tests (EU-1 to EU-7)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('eventUpdatedNotification'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
@@ -297,8 +291,7 @@ describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('eventUpdatedNotification2'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

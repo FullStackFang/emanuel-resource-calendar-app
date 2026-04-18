@@ -6,7 +6,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -33,8 +33,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('editRequest'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

@@ -9,7 +9,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase, getTestCollections } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -44,8 +44,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('requesterWorkflow'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

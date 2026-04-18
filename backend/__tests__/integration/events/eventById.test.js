@@ -7,10 +7,7 @@
 
 const request = require('supertest');
 
-const {
-  createTestApp,
-  setTestDatabase,
-} = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createApprover,
@@ -39,8 +36,7 @@ describe('Event By ID Tests (EB-1 to EB-6)', () => {
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('eventById'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

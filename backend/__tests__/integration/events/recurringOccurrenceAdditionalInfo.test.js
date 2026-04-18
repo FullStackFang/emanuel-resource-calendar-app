@@ -15,7 +15,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createAdmin,
@@ -41,8 +41,7 @@ describe('Recurring Occurrence Additional Info Edit Tests (ROA-1 to ROA-4)', () 
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('recurringOccurrenceAdditionalInfo'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

@@ -23395,13 +23395,21 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Guard eventType: upgrade singleInstance→seriesMaster when recurrence is added;
     // downgrade seriesMaster→singleInstance when recurrence is removed.
-    const incomingRecurrence = updates.recurrence || safeUpdates.recurrence;
+    // Use 'recurrence' in updates to distinguish explicit null (removal) from
+    // absent key (unrelated edit). `null || null` collapses both to falsy and
+    // hides explicit removal — so we check key presence first.
+    const recurrenceInPayload = 'recurrence' in updates;
+    const incomingRecurrence = updates.recurrence;
     if (event.eventType === 'seriesMaster') {
-      // DOWNGRADE: recurrence explicitly removed (empty object with no pattern/range)
-      if (incomingRecurrence && !incomingRecurrence.pattern && !incomingRecurrence.range) {
-        updateOperations.eventType = 'singleInstance';
-      } else {
+      if (!recurrenceInPayload) {
+        // Recurrence field absent — unrelated edit, preserve type
         updateOperations.eventType = 'seriesMaster';
+      } else if (incomingRecurrence?.pattern && incomingRecurrence?.range) {
+        // Valid recurrence still present → keep as seriesMaster
+        updateOperations.eventType = 'seriesMaster';
+      } else {
+        // Recurrence explicitly removed (null) or stripped of pattern/range → downgrade
+        updateOperations.eventType = 'singleInstance';
       }
     } else {
       // UPGRADE: recurrence added to a singleInstance (or other non-master type)

@@ -11,7 +11,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -32,8 +32,7 @@ describe('Reservation Times Persistence', () => {
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('reservationTimes'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

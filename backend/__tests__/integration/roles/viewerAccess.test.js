@@ -7,7 +7,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase, getTestCollections } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createViewer, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -36,11 +36,7 @@ describe('Viewer Role Access Tests (V-1 to V-12)', () => {
     // Start in-memory MongoDB (with platform-specific options for Windows ARM64)
     ({ db, client: mongoClient } = await connectToGlobalServer('viewerAccess'));
 
-    // Set test database for the app
-    setTestDatabase(db);
-
-    // Create test app
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

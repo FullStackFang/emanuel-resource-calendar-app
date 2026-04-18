@@ -12,7 +12,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createAdmin,
@@ -34,8 +34,7 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('recurringCalendarLoad'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

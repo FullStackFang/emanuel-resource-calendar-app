@@ -11,7 +11,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createAdmin,
@@ -40,8 +40,7 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('adminOccurrenceEdit'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

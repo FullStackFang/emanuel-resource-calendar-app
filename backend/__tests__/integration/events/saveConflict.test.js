@@ -8,7 +8,7 @@
 const request = require('supertest');
 const { ObjectId } = require('mongodb');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -38,8 +38,7 @@ describe('Save Conflict Tests (SC-1 to SC-6)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('saveConflict'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

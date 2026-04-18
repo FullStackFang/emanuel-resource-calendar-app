@@ -4657,13 +4657,22 @@ function createTestApp(options = {}) {
         }
       }
 
-      // PROTECT eventType: use the DB value, never trust the frontend
+      // PROTECT eventType: use the DB value, never trust the frontend.
+      // Use 'recurrence' in updates to distinguish explicit null (removal) from
+      // absent key (unrelated edit). null || null collapses both to falsy and
+      // hides explicit removal — so we check key presence first.
       if (event.eventType === 'seriesMaster') {
+        const recurrenceInPayload = 'recurrence' in updates;
         const incomingRecurrence = updates.recurrence;
-        if (incomingRecurrence && !incomingRecurrence.pattern && !incomingRecurrence.range) {
-          mongoUpdate.eventType = 'singleInstance';
-        } else {
+        if (!recurrenceInPayload) {
+          // Recurrence not in payload — unrelated edit, preserve type
           mongoUpdate.eventType = 'seriesMaster';
+        } else if (incomingRecurrence?.pattern && incomingRecurrence?.range) {
+          // Valid recurrence still present → keep as seriesMaster
+          mongoUpdate.eventType = 'seriesMaster';
+        } else {
+          // Recurrence explicitly removed (null) or invalid → downgrade
+          mongoUpdate.eventType = 'singleInstance';
         }
       }
       // Do NOT let frontend set eventType or exceptionEventIds

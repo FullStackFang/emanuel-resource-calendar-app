@@ -121,7 +121,10 @@
       "Bash(for comp:*)",
       "Bash(do git:*)",
       "Bash(echo \"UNTRACKED: $f\")",
-      "Bash(2)"
+      "Bash(2)",
+      "Bash(/tmp/migrate_testapp.sh:*)",
+      "Bash(chmod +x /tmp/migrate_testapp.sh)",
+      "Bash(bash /tmp/migrate_testapp.sh)"
     ],
     "deny": []
   },

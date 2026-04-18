@@ -14,7 +14,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -41,8 +41,7 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-7)', () => {
 
     ({ db, client: mongoClient } = await connectToGlobalServer('draftOccurrenceEdit'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

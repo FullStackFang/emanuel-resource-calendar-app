@@ -7,7 +7,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
@@ -35,8 +35,7 @@ describe('Recurring Event Request Tests (RR-1 to RR-4)', () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('recurringRequest'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

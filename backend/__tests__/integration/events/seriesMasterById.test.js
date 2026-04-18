@@ -8,10 +8,7 @@
 
 const request = require('supertest');
 
-const {
-  createTestApp,
-  setTestDatabase,
-} = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createApprover,
@@ -38,8 +35,7 @@ describe('Series Master By EventId Tests (SM-1 to SM-4)', () => {
   beforeAll(async () => {
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('seriesMasterById'));
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {

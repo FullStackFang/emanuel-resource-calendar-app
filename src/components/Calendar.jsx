@@ -1664,8 +1664,12 @@ import ConflictDialog from './shared/ConflictDialog';
             const eventType = event.eventType || event.graphData?.type;
             const seriesMasterId = event.seriesMasterId || event.graphData?.seriesMasterId;
 
-            // Keep series masters (we'll expand them)
-            if (eventType === 'seriesMaster') return true;
+            // Keep series masters (we'll expand them).
+            // Guard: a seriesMaster with null recurrence is a stale/corrupted record
+            // (eventType not downgraded on recurrence removal). Treat it as a
+            // singleInstance so it falls through and renders rather than disappearing.
+            const hasRecurrence = event.recurrence || event.graphData?.recurrence;
+            if (eventType === 'seriesMaster' && hasRecurrence) return true;
 
             // Keep standalone events (no series master)
             if (!seriesMasterId) return true;

@@ -17,7 +17,7 @@
 
 const request = require('supertest');
 
-const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createAdmin,
@@ -59,8 +59,7 @@ describe('Delta Sync Occurrence Overrides Preservation (DS-OO-1 to DS-OO-2)', ()
     await initTestKeys();
     ({ db, client: mongoClient } = await connectToGlobalServer('deltaSyncOverrides'));
 
-    setTestDatabase(db);
-    app = createTestApp();
+    app = await setupTestApp(db);
   });
 
   afterAll(async () => {
