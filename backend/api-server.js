@@ -5548,6 +5548,8 @@ function withRetryCollection(collection) {
 // ── Server-side counts cache (30s TTL) ──
 const countsCache = new Map();
 const COUNTS_CACHE_TTL = 30_000;
+// ── In-flight deduplication: coalesce concurrent requests for the same cache key ──
+const countsInFlight = new Map();
 
 /**
  * Project an event document to the subset of fields needed for SSE payloads.
@@ -7292,71 +7294,78 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       return res.json(cachedCounts.data);
     }
 
-    if (view === 'my-events') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
-      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
-      const normalizedEmail = (userEmail || '').toLowerCase();
-      const baseQuery = { $or: [
-        { 'roomReservationData.requestedBy.email': normalizedEmail },
-        { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
-      ] };
+    // Piggyback on an in-flight query for the same cache key to avoid duplicate DB calls
+    const existingFlight = countsInFlight.get(countsCacheKey);
+    if (existingFlight) {
+      return res.json(await existingFlight);
+    }
 
-      const [pending, published, rejected, draft, deleted] = await Promise.all([
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({
+    // Sequential countDocuments to avoid Cosmos DB RU spikes (vs. previous Promise.all).
+    // Each call is ~30-50ms; total ~200ms on the uncached path. Cached for 30s after.
+    // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
+    // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
+    const flightPromise = (async () => {
+      if (view === 'my-events') {
+        const normalizedEmail = (userEmail || '').toLowerCase();
+        const baseQuery = { $or: [
+          { 'roomReservationData.requestedBy.email': normalizedEmail },
+          { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+        ] };
+
+        const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
+        const published = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } });
+        const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } });
+        const draft = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } });
+        const deleted = await unifiedEventsCollection.countDocuments({
           $and: [{ $or: baseQuery.$or }, { $or: [{ status: 'deleted' }, { isDeleted: true }] }]
-        }),
-      ]);
+        });
 
-      const all = pending + published + rejected + draft;
-      const responseData = { all, pending, published, rejected, draft, deleted };
-      countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
-      res.json(responseData);
+        const all = pending + published + rejected + draft;
+        const responseData = { all, pending, published, rejected, draft, deleted };
+        countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
+        return responseData;
 
-    } else if (view === 'approval-queue') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
-      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
-      const baseQuery = {
-        isDeleted: { $ne: true },
-        $or: [
-          { roomReservationData: { $exists: true, $ne: null } },
-          { 'pendingCancellationRequest.status': 'pending' },
-          { 'pendingEditRequest.status': 'pending' }
-        ],
-      };
+      } else if (view === 'approval-queue') {
+        const baseQuery = {
+          isDeleted: { $ne: true },
+          $or: [
+            { roomReservationData: { $exists: true, $ne: null } },
+            { 'pendingCancellationRequest.status': 'pending' },
+            { 'pendingEditRequest.status': 'pending' }
+          ],
+        };
 
-      const [pending, publishedTotal, published_edit, published_cancellation, rejected] = await Promise.all([
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
-      ]);
+        const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
+        const publishedTotal = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' });
+        const published_edit = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' });
+        const published_cancellation = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' });
+        const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' });
 
-      const all = pending + publishedTotal + rejected;
-      const published = publishedTotal - published_edit - published_cancellation;
-      const responseData = { all, pending, published, published_edit, published_cancellation, rejected };
-      countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
-      res.json(responseData);
+        const all = pending + publishedTotal + rejected;
+        const published = publishedTotal - published_edit - published_cancellation;
+        const responseData = { all, pending, published, published_edit, published_cancellation, rejected };
+        countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
+        return responseData;
 
-    } else if (view === 'admin-browse') {
-      // countDocuments is Cosmos DB-safe (aggregation pipelines with $cond/$in can fail on Cosmos).
-      // No explicit withCosmosRetry — unifiedEventsCollection is already retry-wrapped via withRetryCollection proxy.
-      const [total, pending, published, rejected, deleted, draft] = await Promise.all([
-        unifiedEventsCollection.countDocuments({}),
-        unifiedEventsCollection.countDocuments({ status: 'pending', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({ status: 'published', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({ status: 'rejected', isDeleted: { $ne: true } }),
-        unifiedEventsCollection.countDocuments({ isDeleted: true }),
-        unifiedEventsCollection.countDocuments({ status: 'draft', isDeleted: { $ne: true } }),
-      ]);
+      } else if (view === 'admin-browse') {
+        const total = await unifiedEventsCollection.countDocuments({});
+        const pending = await unifiedEventsCollection.countDocuments({ status: 'pending', isDeleted: { $ne: true } });
+        const published = await unifiedEventsCollection.countDocuments({ status: 'published', isDeleted: { $ne: true } });
+        const rejected = await unifiedEventsCollection.countDocuments({ status: 'rejected', isDeleted: { $ne: true } });
+        const deleted = await unifiedEventsCollection.countDocuments({ isDeleted: true });
+        const draft = await unifiedEventsCollection.countDocuments({ status: 'draft', isDeleted: { $ne: true } });
 
-      const counts = { total, pending, published, rejected, deleted, draft };
-      countsCache.set(countsCacheKey, { data: counts, expiresAt: Date.now() + COUNTS_CACHE_TTL });
-      res.json(counts);
+        const counts = { total, pending, published, rejected, deleted, draft };
+        countsCache.set(countsCacheKey, { data: counts, expiresAt: Date.now() + COUNTS_CACHE_TTL });
+        return counts;
+      }
+    })();
+
+    countsInFlight.set(countsCacheKey, flightPromise);
+    try {
+      res.json(await flightPromise);
+    } finally {
+      countsInFlight.delete(countsCacheKey);
     }
 
   } catch (error) {

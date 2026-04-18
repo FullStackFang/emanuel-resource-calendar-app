@@ -13,6 +13,10 @@ import { usePolling } from '../hooks/usePolling';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
+
+// Statuses that contribute to the approval-queue 'all' count (pending + publishedTotal + rejected).
+// Must stay in sync with the backend counts endpoint's approval-queue branch.
+const APPROVAL_QUEUE_COUNTED_STATUSES = new Set(['pending', 'published', 'rejected']);
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
@@ -245,8 +249,36 @@ export default function ReservationRequests({ graphToken }) {
   }, [loadReservations, loadCounts, reviewModal.isOpen]);
   usePolling(silentRefresh, 300_000, !!apiToken);
 
-  // Listen for refresh events from other views
-  useDataRefreshBus('approval-queue', silentRefresh, !!apiToken);
+  // Listen for refresh events from other views.
+  // Delta-patch counts from SSE payload when a clear main-status transition is available;
+  // fall back to full refetch for sub-status changes (edit/cancellation requests) where
+  // oldStatus === newStatus and the delta can't capture needs_attention shifts.
+  const handleApprovalQueueBus = useCallback((detail) => {
+    const payload = detail?.payload;
+    const { oldStatus, newStatus } = payload || {};
+
+    // No delta data, or sub-status change (main status unchanged) → full refetch
+    if (!payload || (oldStatus == null && newStatus == null) || oldStatus === newStatus) {
+      silentRefresh();
+      return;
+    }
+
+    // Delta patch counts locally (mirrors Navigation.jsx pattern)
+    setServerCounts(prev => {
+      let { needs_attention, all } = prev;
+      if (oldStatus === 'pending') needs_attention--;
+      if (newStatus === 'pending') needs_attention++;
+      if (APPROVAL_QUEUE_COUNTED_STATUSES.has(oldStatus) && !APPROVAL_QUEUE_COUNTED_STATUSES.has(newStatus)) all--;
+      if (!APPROVAL_QUEUE_COUNTED_STATUSES.has(oldStatus) && APPROVAL_QUEUE_COUNTED_STATUSES.has(newStatus)) all++;
+      return { needs_attention: Math.max(0, needs_attention), all: Math.max(0, all) };
+    });
+
+    // Still refresh the event list (but NOT counts — those were patched above)
+    if (!reviewModal.isOpen) {
+      loadReservations({ silent: true });
+    }
+  }, [silentRefresh, loadReservations, reviewModal.isOpen]);
+  useDataRefreshBus('approval-queue', handleApprovalQueueBus, !!apiToken);
 
   // Manual refresh handler for FreshnessIndicator
   const handleManualRefresh = useCallback(async () => {
