@@ -33,4 +33,17 @@ async function setupTestApp(db) {
   return app;
 }
 
-module.exports = { setupTestApp, app };
+// --- Email notification stubs ---
+// The real server sends emails via emailService (not tracked in-memory).
+// These stubs prevent ReferenceErrors in tests migrated from testApp.js.
+// Tests that need to verify emails should check audit logs or mock emailService.
+let _sentEmails = [];
+function getSentEmailNotifications() { return _sentEmails; }
+function clearSentEmailNotifications() { _sentEmails = []; }
+
+module.exports = {
+  setupTestApp,
+  app,
+  getSentEmailNotifications,
+  clearSentEmailNotifications,
+};

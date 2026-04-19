@@ -293,9 +293,8 @@ describe('Time Ordering Validation Tests (TO-1 to TO-8)', () => {
         })
         .expect(200);
 
-      // Should save successfully (response has { success, draft, timeOrderingWarnings })
-      expect(res.body.success).toBe(true);
-      expect(res.body.draft).toBeDefined();
+      // Should save successfully (response is the draft document with optional timeOrderingWarnings)
+      expect(res.body._id).toBeDefined();
       // Should include warnings
       expect(res.body.timeOrderingWarnings).toBeDefined();
       expect(res.body.timeOrderingWarnings.length).toBeGreaterThan(0);

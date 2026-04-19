@@ -74,7 +74,7 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
 
       expect(res.status).toBe(201);
 
-      const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.draft.eventId });
+      const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.eventId });
       expect(draft.calendarData.organizerName).toBe('Rabbi Sarah');
       expect(draft.calendarData.organizerPhone).toBe('212-555-0101');
       expect(draft.calendarData.organizerEmail).toBe('rabbi.sarah@emanuelnyc.org');
@@ -97,7 +97,7 @@ describe('Event Organizer Contact Tests (OC-1 to OC-8)', () => {
 
       expect(res.status).toBe(201);
 
-      const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.draft.eventId });
+      const draft = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: res.body.eventId });
       expect(draft.calendarData.organizerName).toBe('');
       expect(draft.calendarData.organizerPhone).toBe('');
       expect(draft.calendarData.organizerEmail).toBe('');

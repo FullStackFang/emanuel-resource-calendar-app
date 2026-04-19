@@ -10,7 +10,7 @@
 
 const request = require('supertest');
 
-const { setupTestApp } = require('../../__helpers__/createAppForTest');
+const { setupTestApp, getSentEmailNotifications, clearSentEmailNotifications } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createApprover,
@@ -28,9 +28,34 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
+/**
+ * Local helper: query reviewer emails (admins + approvers) from the test DB,
+ * respecting per-user notification opt-out preferences.
+ * Mirrors emailService.getReviewerEmails().
+ */
+async function getTestReviewerEmails(preferenceKey) {
+  const reviewers = await db.collection(COLLECTIONS.USERS).find({
+    $or: [{ role: 'approver' }, { role: 'admin' }, { isAdmin: true }],
+  }).toArray();
+
+  const emails = reviewers
+    .filter(user => {
+      if (!preferenceKey) return true;
+      const prefs = user.notificationPreferences;
+      if (prefs && prefs[preferenceKey] === false) return false;
+      return true;
+    })
+    .map(user => user.email || user.odataId)
+    .filter(email => email && email.includes('@'));
+
+  return [...new Set(emails)];
+}
+
+// Module-level db reference for getTestReviewerEmails
+let db;
+
 describe('Reviewer Notification Tests (RN-1 to RN-20)', () => {
   let mongoClient;
-  let db;
   let app;
   let approverUser;
   let approverToken;

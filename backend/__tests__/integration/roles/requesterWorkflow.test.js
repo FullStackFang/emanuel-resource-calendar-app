@@ -89,14 +89,13 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.draft).toBeDefined();
-      expect(res.body.draft.status).toBe(STATUS.DRAFT);
-      expect(res.body.draft.eventTitle).toBe('My New Event');
-      expect(res.body.draft.userId).toBe(requesterUser.odataId);
+      expect(res.body.status).toBe(STATUS.DRAFT);
+      expect(res.body.calendarData?.eventTitle || res.body.eventTitle).toBe('My New Event');
+      expect(res.body.userId).toBe(requesterUser.odataId);
 
       // Verify in database
       const savedDraft = await db.collection(COLLECTIONS.EVENTS).findOne({
-        eventId: res.body.draft.eventId,
+        eventId: res.body.eventId,
       });
       expect(savedDraft).toBeDefined();
       expect(savedDraft.status).toBe(STATUS.DRAFT);
@@ -114,7 +113,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(201);
 
       await assertAuditEntry(db, {
-        eventId: res.body.draft.eventId,
+        eventId: res.body.eventId,
         action: 'created',
         performedBy: requesterUser.odataId,
       });
@@ -172,9 +171,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         })
         .expect(200);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.draft.calendarData.eventTitle).toBe('Updated Title');
-      expect(res.body.draft.calendarData.eventDescription).toBe('New description');
+      expect(res.body.calendarData.eventTitle).toBe('Updated Title');
+      expect(res.body.calendarData.eventDescription).toBe('New description');
     });
   });
 

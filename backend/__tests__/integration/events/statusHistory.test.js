@@ -522,8 +522,8 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
         })
         .expect(201);
 
-      expect(res.body.draft).toBeDefined();
-      const draftId = res.body.draft._id;
+      expect(res.body._id).toBeDefined();
+      const draftId = res.body._id;
 
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: new (require('mongodb').ObjectId)(draftId) });
       expect(event.statusHistory).toBeDefined();
@@ -554,7 +554,7 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
         })
         .expect(201);
 
-      const draftId = createRes.body.draft._id;
+      const draftId = createRes.body._id;
 
       // Step 2: Submit the draft
       await request(app)

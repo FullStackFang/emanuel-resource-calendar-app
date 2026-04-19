@@ -407,9 +407,18 @@ import ConflictDialog from './shared/ConflictDialog';
           const events = allEventsRef.current;
           const idx = events.findIndex(e => String(e._id) === String(flat._id));
           if (idx >= 0) {
-            const updated = [...events];
-            updated[idx] = { ...events[idx], ...flat };
-            setAllEvents(updated);
+            if (events[idx].eventType === 'occurrence') {
+              // Recurrence was just removed. Virtual occurrences share the master's
+              // _id via the ...event spread during expansion. Remove every entry
+              // with this _id and insert the new singleInstance in its place.
+              const without = events.filter(e => String(e._id) !== String(flat._id));
+              without.splice(idx, 0, flat);
+              setAllEvents(without);
+            } else {
+              const updated = [...events];
+              updated[idx] = { ...events[idx], ...flat };
+              setAllEvents(updated);
+            }
           } else {
             loadEventsRef.current?.(true);
           }

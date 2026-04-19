@@ -11,7 +11,7 @@
 
 const request = require('supertest');
 
-const { setupTestApp } = require('../../__helpers__/createAppForTest');
+const { setupTestApp, getSentEmailNotifications, clearSentEmailNotifications } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
