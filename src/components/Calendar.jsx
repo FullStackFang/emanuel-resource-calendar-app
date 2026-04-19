@@ -193,6 +193,9 @@ import ConflictDialog from './shared/ConflictDialog';
     // Memoization cache for recurring event expansion (prevents redundant calculations)
     const expansionCacheRef = useRef(new Map());
     const loadInProgressRef = useRef(false);
+    // Set to true when a navigation fires while a load is in progress (skipped guard).
+    // The finally block checks this and retries with the latest dateRange.
+    const pendingReloadRef = useRef(false);
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
     const prefSaveTimerRef = useRef(null);
@@ -404,6 +407,11 @@ import ConflictDialog from './shared/ConflictDialog';
         } else if (eventData?._id && eventData.eventType !== 'seriesMaster') {
           // Non-recurring: patch from PUT response
           const flat = transformEventToFlatStructure(eventData);
+          // Calendar rendering expects Graph API shape (.start/.end/.subject);
+          // transformEventToFlatStructure produces flat form fields only.
+          flat.start = { dateTime: flat.startDateTime, timeZone: 'America/New_York' };
+          flat.end = { dateTime: flat.endDateTime, timeZone: 'America/New_York' };
+          flat.subject = flat.eventTitle;
           const events = allEventsRef.current;
           const idx = events.findIndex(e => String(e._id) === String(flat._id));
           if (idx >= 0) {
@@ -1553,7 +1561,8 @@ import ConflictDialog from './shared/ConflictDialog';
       }
 
       if (loadInProgressRef.current) {
-        logger.debug('loadEventsUnified: Load already in progress, skipping');
+        logger.debug('loadEventsUnified: Load already in progress, skipping — marking pending reload');
+        pendingReloadRef.current = true;
         return false;
       }
       loadInProgressRef.current = true;
@@ -2008,6 +2017,12 @@ import ConflictDialog from './shared/ConflictDialog';
         loadInProgressRef.current = false;
         if (!silent) setLoading(false);
         setLastFetchedAt(Date.now());
+        // A navigation fired while this load was in flight — retry now with the
+        // current dateRange so the calendar never shows a blank week.
+        if (pendingReloadRef.current) {
+          pendingReloadRef.current = false;
+          loadEventsRef.current?.();
+        }
       }
     }, [apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
 
@@ -2074,6 +2089,10 @@ import ConflictDialog from './shared/ConflictDialog';
 
       // Non-recurring: transform to flat structure then find and replace, or add if new
       const flat = transformEventToFlatStructure(event);
+      // Calendar rendering expects Graph API shape (.start/.end/.subject)
+      flat.start = { dateTime: flat.startDateTime, timeZone: 'America/New_York' };
+      flat.end = { dateTime: flat.endDateTime, timeZone: 'America/New_York' };
+      flat.subject = flat.eventTitle;
       const idx = events.findIndex(e => String(e._id) === String(flat._id));
       if (idx >= 0) {
         const updated = [...events];
@@ -3350,16 +3369,18 @@ import ConflictDialog from './shared/ConflictDialog';
       });
       
       // Sort the filtered events by start time
+      // Null-safe: fall back to flat fields (.startDateTime/.endDateTime) when
+      // .start/.end are missing (e.g. locally-patched events from onSuccess).
       const sorted = [...filtered].sort((a, b) => {
-        const aStartTime = new Date(a.start.dateTime);
-        const bStartTime = new Date(b.start.dateTime);
+        const aStartTime = new Date(a.start?.dateTime ?? a.startDateTime ?? 0);
+        const bStartTime = new Date(b.start?.dateTime ?? b.startDateTime ?? 0);
 
         if (aStartTime.getTime() !== bStartTime.getTime()) {
           return aStartTime - bStartTime;
         }
 
-        const aEndTime = new Date(a.end.dateTime);
-        const bEndTime = new Date(b.end.dateTime);
+        const aEndTime = new Date(a.end?.dateTime ?? a.endDateTime ?? 0);
+        const bEndTime = new Date(b.end?.dateTime ?? b.endDateTime ?? 0);
         return aEndTime - bEndTime;
       }).map(event => {
         // Add showPendingEditBadge flag: only visible to owner, admins, and approvers
