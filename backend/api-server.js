@@ -23193,13 +23193,22 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           graphUpdate.categories = event.graphData.categories;
         }
 
-        // Handle recurrence pattern updates (only when editing entire series)
-        if (editScope === 'allEvents' && updates.recurrence) {
+        // Handle recurrence pattern updates (only when editing entire series).
+        // Split into two branches so explicit null (removal) is sent to Graph as null —
+        // Graph ignores absent fields in PATCH, so omitting recurrence would silently
+        // leave the series intact instead of converting it to a singleInstance.
+        if (editScope === 'allEvents') {
           const recurrenceTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
-          const recurrenceUpdate = buildGraphRecurrence(updates.recurrence, recurrenceTimezone);
-          if (recurrenceUpdate) {
-            graphUpdate.recurrence = recurrenceUpdate;
-            logger.info('Added recurrence to Graph update:', recurrenceUpdate);
+          if (updates.recurrence?.pattern && updates.recurrence?.range) {
+            const recurrenceUpdate = buildGraphRecurrence(updates.recurrence, recurrenceTimezone);
+            if (recurrenceUpdate) {
+              graphUpdate.recurrence = recurrenceUpdate;
+              logger.info('Added recurrence to Graph update:', recurrenceUpdate);
+            }
+          } else if ('recurrence' in updates && !updates.recurrence) {
+            // Recurrence explicitly removed — null it out so Graph converts series → singleInstance
+            graphUpdate.recurrence = null;
+            logger.info('Removing recurrence from Graph event (series → singleInstance)');
           }
         }
 
@@ -23410,6 +23419,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       } else {
         // Recurrence explicitly removed (null) or stripped of pattern/range → downgrade
         updateOperations.eventType = 'singleInstance';
+        // Clear stale overrides — without a recurrence pattern they are meaningless
+        // and would interfere if recurrence is re-added later with a different pattern.
+        updateOperations.occurrenceOverrides = [];
       }
     } else {
       // UPGRADE: recurrence added to a singleInstance (or other non-master type)
@@ -23894,6 +23906,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         }
       }
+    }
+
+    // When recurrence is removed (eventType downgraded to singleInstance), clear any
+    // stale occurrenceOverrides — both cascade and merge may have re-populated them
+    // using the old event.eventType (seriesMaster) as their guard. Using
+    // updateOperations.eventType as a sentinel here wins over both blocks above.
+    if (updateOperations.eventType === 'singleInstance') {
+      finalUpdateOperations['occurrenceOverrides'] = [];
+      finalUpdateOperations['calendarData.occurrenceOverrides'] = [];
+      logger.info('Cleared occurrenceOverrides: recurrence removed (seriesMaster → singleInstance)');
     }
 
     // Atomically update with version guard

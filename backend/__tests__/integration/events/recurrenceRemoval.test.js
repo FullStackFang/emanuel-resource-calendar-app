@@ -1,18 +1,21 @@
 /**
- * Recurrence Removal Tests (RR-1 to RR-4)
+ * Recurrence Removal Tests (RR-1 to RR-6)
  *
  * Tests that eventType is correctly downgraded from 'seriesMaster' to
  * 'singleInstance' when recurrence is explicitly removed (recurrence: null),
- * and that unrelated edits do not accidentally change eventType.
+ * that stale occurrenceOverrides are cleared on removal, and that the Graph
+ * API receives recurrence: null when editScope is 'allEvents'.
  */
 
 const request = require('supertest');
+const { ObjectId } = require('mongodb');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPublishedEvent,
+  createPublishedEventWithGraph,
   createRecurringSeriesMaster,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
@@ -165,6 +168,78 @@ describe('Recurrence Removal Tests (RR-1 to RR-4)', () => {
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(updated.eventType).toBe('seriesMaster');
       expect(updated.recurrence.pattern.type).toBe('daily');
+    });
+  });
+
+  describe('RR-5: occurrenceOverrides cleared when recurrence is removed', () => {
+    it('should reset occurrenceOverrides to [] when recurrence: null is sent', async () => {
+      const staleOverride = {
+        occurrenceDate: '2026-04-08',
+        eventTitle: 'Override Title',
+        startTime: '11:00',
+        endTime: '12:00',
+      };
+      const event = createRecurringSeriesMaster({
+        status: 'published',
+        calendarOwner: TEST_CALENDAR_OWNER,
+        recurrence: weeklyRecurrence,
+        occurrenceOverrides: [staleOverride],
+      });
+      // Manually set top-level overrides to confirm they're also cleared
+      event.occurrenceOverrides = [staleOverride];
+      const [saved] = await insertEvents(db, [event]);
+
+      expect(saved.occurrenceOverrides).toHaveLength(1);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          recurrence: null,
+          _version: saved._version,
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.eventType).toBe('singleInstance');
+      expect(updated.occurrenceOverrides).toEqual([]);
+      expect(updated.calendarData.occurrenceOverrides).toEqual([]);
+    });
+  });
+
+  describe('RR-6: Graph API receives recurrence: null when editScope is allEvents', () => {
+    it('should pass recurrence: null to Graph when removing recurrence with allEvents scope', async () => {
+      const event = createRecurringSeriesMaster({
+        status: 'published',
+        calendarOwner: TEST_CALENDAR_OWNER,
+        recurrence: weeklyRecurrence,
+        graphData: { id: 'graph-event-id-abc123' },
+        graphEventId: 'graph-event-id-abc123',
+        hasGraphId: true,
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      graphApiMock.resetMocks();
+
+      await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: event.calendarData.eventTitle, // force hasGraphSyncableChanges = true
+          recurrence: null,
+          editScope: 'allEvents',
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(graphCalls.length).toBeGreaterThan(0);
+      const masterCall = graphCalls[0];
+      // recurrence: null must be present in the eventData payload (not just absent)
+      // so Graph explicitly removes the series rather than ignoring the field
+      expect(masterCall.eventData).toHaveProperty('recurrence', null);
     });
   });
 });

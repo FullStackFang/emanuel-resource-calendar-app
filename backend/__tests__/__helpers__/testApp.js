@@ -4492,7 +4492,8 @@ function createTestApp(options = {}) {
         updates.endDate !== undefined ||
         updates.endTime !== undefined ||
         updates.categories !== undefined ||
-        updates.eventDescription !== undefined
+        updates.eventDescription !== undefined ||
+        updates.recurrence !== undefined // recurrence changes also trigger Graph sync
       );
 
       // Check for scheduling conflicts when time/room fields change on active events
@@ -4562,16 +4563,27 @@ function createTestApp(options = {}) {
       let graphSyncResult = null;
       if (storedGraphEventId && hasGraphSyncableChanges && event.calendarOwner) {
         try {
+          const graphCallPayload = {
+            subject: updates.eventTitle || cd.eventTitle || event.eventTitle,
+            startDateTime: resolvedStartDateTime,
+            endDateTime: resolvedEndDateTime,
+            eventDescription: updates.eventDescription || cd.eventDescription || event.eventDescription,
+          };
+          // Mirror production recurrence sync: only for series-wide edits (editScope === 'allEvents')
+          if (editScope === 'allEvents') {
+            if (updates.recurrence?.pattern && updates.recurrence?.range) {
+              const graphRec = buildGraphRecurrence(updates.recurrence);
+              if (graphRec) graphCallPayload.recurrence = graphRec;
+            } else if ('recurrence' in updates && !updates.recurrence) {
+              // Recurrence explicitly removed — null it out so Graph converts series → singleInstance
+              graphCallPayload.recurrence = null;
+            }
+          }
           graphSyncResult = await graphApiMock.updateCalendarEvent(
             event.calendarOwner,
             event.calendarId,
             storedGraphEventId,
-            {
-              subject: updates.eventTitle || cd.eventTitle || event.eventTitle,
-              startDateTime: resolvedStartDateTime,
-              endDateTime: resolvedEndDateTime,
-              eventDescription: updates.eventDescription || cd.eventDescription || event.eventDescription,
-            }
+            graphCallPayload
           );
           graphSynced = true;
 
@@ -4673,6 +4685,10 @@ function createTestApp(options = {}) {
         } else {
           // Recurrence explicitly removed (null) or invalid → downgrade
           mongoUpdate.eventType = 'singleInstance';
+          // Clear stale overrides — without a recurrence pattern they are meaningless
+          // and would interfere if recurrence is re-added with a different pattern.
+          mongoUpdate.occurrenceOverrides = [];
+          mongoUpdate['calendarData.occurrenceOverrides'] = [];
         }
       }
       // Do NOT let frontend set eventType or exceptionEventIds
