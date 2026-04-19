@@ -128,13 +128,15 @@ export function isDateInPattern(date, pattern, startDate) {
  * @param {Object} pattern - Recurrence pattern
  * @param {Object} range - Recurrence range { startDate, endDate, type }
  * @param {Date} viewMonth - Month to calculate for
+ * @param {string[]} [exclusions] - YYYY-MM-DD dates to skip (must also be skipped in pre-window count)
  * @returns {string[]} Array of YYYY-MM-DD date strings
  */
-export function calculateRecurrenceDates(pattern, range, viewMonth) {
+export function calculateRecurrenceDates(pattern, range, viewMonth, exclusions = []) {
   if (!pattern || !range) return [];
 
   const dates = [];
   const month = new Date(viewMonth);
+  const exclusionSet = new Set(exclusions);
 
   // Start from beginning of view month or pattern start, whichever is later
   const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -152,26 +154,32 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
 
   // For numbered ranges, count occurrences from pattern start to enforce the cap.
   // We must count from patternStart (not monthStart) to know which occurrences
-  // in this month are within the limit.
+  // in this month are within the limit. Excluded dates are NOT counted (matches backend).
   const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || Infinity) : Infinity;
   let priorCount = 0;
   if (range.type === 'numbered' && monthStart > patternStart) {
     const counter = new Date(patternStart);
     while (counter < monthStart && priorCount < maxOcc) {
       if (isDateInPattern(counter, pattern, patternStart)) {
-        priorCount++;
+        const dateStr = `${counter.getFullYear()}-${String(counter.getMonth()+1).padStart(2,'0')}-${String(counter.getDate()).padStart(2,'0')}`;
+        if (!exclusionSet.has(dateStr)) {
+          priorCount++;
+        }
       }
       counter.setDate(counter.getDate() + 1);
     }
   }
 
-  // Generate dates
+  // Generate dates — skip excluded dates (don't count toward numbered limit)
   let count = priorCount;
   const current = new Date(start);
   while (current <= end && count < maxOcc) {
     if (isDateInPattern(current, pattern, patternStart)) {
-      count++;
-      dates.push(`${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,'0')}-${String(current.getDate()).padStart(2,'0')}`);
+      const dateStr = `${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,'0')}-${String(current.getDate()).padStart(2,'0')}`;
+      if (!exclusionSet.has(dateStr)) {
+        count++;
+        dates.push(dateStr);
+      }
     }
 
     // Advance by one day
@@ -223,12 +231,15 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
   const masterStartTime = cd.startTime || cd.reservationStartTime || '';
   const masterEndTime = cd.endTime || cd.reservationEndTime || '';
   const masterIsHold = !cd.startTime || !cd.endTime;
+  // Fallback time extraction: prefer calendarData.startDateTime, then graphData start.dateTime
+  const fallbackStartDT = cd.startDateTime || masterEvent.start?.dateTime || '';
+  const fallbackEndDT = cd.endDateTime || masterEvent.end?.dateTime || '';
   const masterStartTimePart = masterStartTime
     ? masterStartTime + ':00.0000000'
-    : masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+    : (fallbackStartDT.includes('T') ? fallbackStartDT.split('T')[1].replace(/Z$/, '').substring(0, 17) : '00:00:00.0000000');
   const masterEndTimePart = masterEndTime
     ? masterEndTime + ':00.0000000'
-    : masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+    : (fallbackEndDT.includes('T') ? fallbackEndDT.split('T')[1].replace(/Z$/, '').substring(0, 17) : '23:59:00.0000000');
 
   // Resolve effective times for an occurrence, accounting for overrides and Hold fallbacks.
   // Uses 'in' operator to distinguish "field explicitly set to empty" from "field absent".
@@ -312,11 +323,11 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
           subject: override?.eventTitle || masterEvent.subject,
           start: {
             dateTime: startDT,
-            timeZone: masterEvent.start.timeZone
+            timeZone: masterEvent.start?.timeZone || 'Eastern Standard Time'
           },
           end: {
             dateTime: endDT,
-            timeZone: masterEvent.end.timeZone
+            timeZone: masterEvent.end?.timeZone || 'Eastern Standard Time'
           },
           location: masterEvent.location,
           isRecurring: true,
@@ -351,11 +362,11 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       subject: addOverride?.eventTitle || masterEvent.subject,
       start: {
         dateTime: startDT,
-        timeZone: masterEvent.start.timeZone
+        timeZone: masterEvent.start?.timeZone || 'Eastern Standard Time'
       },
       end: {
         dateTime: endDT,
-        timeZone: masterEvent.end.timeZone
+        timeZone: masterEvent.end?.timeZone || 'Eastern Standard Time'
       },
       location: masterEvent.location,
       isRecurring: true,

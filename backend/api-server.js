@@ -187,6 +187,18 @@ function buildGraphSubject(title, startTime, endTime) {
   return (startTime && endTime) ? base : `[Hold] ${base}`;
 }
 
+/**
+ * Normalize a datetime string to always include seconds (HH:MM:SS).
+ * Handles: '2026-03-15T10:00' → '2026-03-15T10:00:00'
+ *          '2026-03-15T10:00:00' → '2026-03-15T10:00:00' (no-op)
+ *          '10:00' → '10:00:00'
+ */
+function ensureSeconds(dt) {
+  if (!dt) return dt;
+  // Match HH:MM at end of string (no seconds)
+  if (/\d{2}:\d{2}$/.test(dt)) return dt + ':00';
+  return dt;
+}
 
 // Middleware
 app.use(compression({
@@ -2205,8 +2217,8 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
         // Addition docs become standalone Graph events
         const additionEvent = {
           subject: doc.eventTitle || eventData.subject,
-          start: { dateTime: doc.startDateTime + ':00', timeZone: graphTimezone },
-          end: { dateTime: doc.endDateTime + ':00', timeZone: graphTimezone },
+          start: { dateTime: ensureSeconds(doc.startDateTime), timeZone: graphTimezone },
+          end: { dateTime: ensureSeconds(doc.endDateTime), timeZone: graphTimezone },
           location: eventData.location,
           body: doc.eventDescription !== undefined
             ? { contentType: 'html', content: doc.eventDescription || '' }
@@ -2243,10 +2255,10 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
           patch.body = { contentType: 'html', content: overrides.eventDescription || '' };
         }
         if (doc.startDateTime) {
-          patch.start = { dateTime: doc.startDateTime + ':00', timeZone: graphTimezone };
+          patch.start = { dateTime: ensureSeconds(doc.startDateTime), timeZone: graphTimezone };
         }
         if (doc.endDateTime) {
-          patch.end = { dateTime: doc.endDateTime + ':00', timeZone: graphTimezone };
+          patch.end = { dateTime: ensureSeconds(doc.endDateTime), timeZone: graphTimezone };
         }
         if (overrides.categories !== undefined) patch.categories = overrides.categories;
         if (overrides.locationDisplayNames !== undefined) {
@@ -23864,6 +23876,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Merge frontend occurrence overrides (from Recurrence tab) with cascade result.
     // Cascade runs first (propagates master changes to inherited overrides), then
     // frontend overrides merge on top — frontend fields win for explicit user edits.
+    // Dates that have exception documents are persisted there ONLY (not duplicated
+    // on the master's occurrenceOverrides array) to avoid a divergence loop.
     if (Array.isArray(incomingOccurrenceOverrides) && incomingOccurrenceOverrides.length > 0) {
       const cascadedOverrides = finalUpdateOperations['occurrenceOverrides'] || event.occurrenceOverrides || [];
       const overrideMap = new Map();
@@ -23875,20 +23889,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         const existing = overrideMap.get(incoming.occurrenceDate);
         overrideMap.set(incoming.occurrenceDate, existing ? { ...existing, ...incoming } : incoming);
       }
-      const mergedOverrides = Array.from(overrideMap.values());
-      finalUpdateOperations['occurrenceOverrides'] = mergedOverrides;
-      finalUpdateOperations['calendarData.occurrenceOverrides'] = mergedOverrides;
-      logger.info('Merged frontend occurrence overrides:', { count: mergedOverrides.length });
 
-      // Also persist changes to exception documents — the read path builds
-      // occurrenceOverrides from exception docs and overwrites the master's field,
-      // so saving only to the master would cause changes to appear lost on reload.
+      // Persist to exception docs where they exist; track which dates were handled
+      const exceptionDocDates = new Set();
       if (event.eventType === 'seriesMaster') {
         for (const incoming of incomingOccurrenceOverrides) {
           if (!incoming.occurrenceDate) continue;
           const dateKey = incoming.occurrenceDate;
           const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
           if (!existingException) continue;
+          exceptionDocDates.add(dateKey);
           try {
             const resolvedLocs = incoming.locations
               ? await resolveLocationOverride(locationsCollection, incoming.locations)
@@ -23906,6 +23916,19 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         }
       }
+
+      // Only write to occurrenceOverrides for dates WITHOUT exception docs
+      // to break the dual-write loop that causes data divergence
+      for (const dateKey of exceptionDocDates) {
+        overrideMap.delete(dateKey);
+      }
+      const mergedOverrides = Array.from(overrideMap.values());
+      finalUpdateOperations['occurrenceOverrides'] = mergedOverrides;
+      finalUpdateOperations['calendarData.occurrenceOverrides'] = mergedOverrides;
+      logger.info('Merged frontend occurrence overrides:', {
+        count: mergedOverrides.length,
+        exceptionDocCount: exceptionDocDates.size,
+      });
     }
 
     // When recurrence is removed (eventType downgraded to singleInstance), clear any

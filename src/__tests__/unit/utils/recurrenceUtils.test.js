@@ -7,6 +7,7 @@ import {
   transformRecurrenceForGraphAPI,
   isDateInPattern,
   calculateRecurrenceDates,
+  expandRecurringSeries,
   formatRecurrenceSummary,
   datesToStrings,
   stringsToDates
@@ -332,5 +333,108 @@ describe('stringsToDates', () => {
 
   it('handles empty array', () => {
     expect(stringsToDates([])).toEqual([]);
+  });
+});
+
+// ─── expandRecurringSeries ──────────────────────────────────────────────
+describe('expandRecurringSeries', () => {
+  // P0-A: Draft series masters have no graphData, so masterEvent.start is undefined.
+  // expandRecurringSeries must not crash when start/end are missing.
+  it('does not crash when masterEvent.start and .end are undefined (draft without graphData)', () => {
+    const draftMaster = {
+      eventId: 'draft-master-1',
+      eventType: 'seriesMaster',
+      calendarData: {
+        startTime: '10:00',
+        endTime: '11:00',
+        startDateTime: '2026-04-01T10:00:00',
+        endDateTime: '2026-04-01T11:00:00',
+      },
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-01', endDate: '2026-04-30' },
+        exclusions: [],
+        additions: [],
+      },
+      // NO start/end properties — this is a draft without graphData
+    };
+
+    // Should not throw
+    const occurrences = expandRecurringSeries(draftMaster, '2026-04-01', '2026-04-30');
+    expect(occurrences.length).toBeGreaterThan(0);
+    // Verify each occurrence has valid datetime strings
+    for (const occ of occurrences) {
+      expect(occ.start.dateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+      expect(occ.end.dateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    }
+  });
+
+  it('does not crash when calendarData times are empty (Hold pattern) and start/end are undefined', () => {
+    const holdMaster = {
+      eventId: 'hold-master-1',
+      eventType: 'seriesMaster',
+      calendarData: {
+        startTime: '',
+        endTime: '',
+        startDateTime: '2026-04-01T00:00:00',
+        endDateTime: '2026-04-01T23:59:00',
+        reservationStartTime: '08:00',
+        reservationEndTime: '17:00',
+      },
+      recurrence: {
+        pattern: { type: 'daily', interval: 1 },
+        range: { type: 'endDate', startDate: '2026-04-01', endDate: '2026-04-03' },
+        exclusions: [],
+        additions: [],
+      },
+      // NO start/end — Hold-pattern draft
+    };
+
+    const occurrences = expandRecurringSeries(holdMaster, '2026-04-01', '2026-04-03');
+    expect(occurrences.length).toBe(3);
+  });
+
+  it('uses calendarData.startTime/endTime when present (normal draft path)', () => {
+    const master = {
+      eventId: 'normal-draft-1',
+      eventType: 'seriesMaster',
+      calendarData: {
+        startTime: '14:00',
+        endTime: '15:30',
+        startDateTime: '2026-04-07T14:00:00',
+        endDateTime: '2026-04-07T15:30:00',
+      },
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-07', endDate: '2026-04-14' },
+        exclusions: [],
+        additions: [],
+      },
+    };
+
+    const occurrences = expandRecurringSeries(master, '2026-04-07', '2026-04-14');
+    expect(occurrences).toHaveLength(2);
+    expect(occurrences[0].start.dateTime).toContain('T14:00:');
+    expect(occurrences[0].end.dateTime).toContain('T15:30:');
+  });
+
+  // P1-C: calculateRecurrenceDates must skip exclusions in pre-window count (like backend does)
+  it('numbered range respects exclusions in pre-window count', () => {
+    const month = new Date(2026, 3, 1); // April 2026
+    const dates = calculateRecurrenceDates(
+      { type: 'daily', interval: 1 },
+      {
+        type: 'numbered',
+        startDate: '2026-03-01', // March — before view window
+        numberOfOccurrences: 35,
+      },
+      month,
+      ['2026-03-05', '2026-03-10', '2026-03-15'] // 3 excluded dates in March
+    );
+    // With 3 exclusions in March, 3 more occurrences should appear in April
+    // Backend expands the same way — frontend must match
+    // March has 31 days. Pattern dates: Mar 1-31 = 31 matches.
+    // Minus 3 exclusions = 28 counted in March. 35 - 28 = 7 remaining in April.
+    expect(dates.length).toBe(7);
   });
 });

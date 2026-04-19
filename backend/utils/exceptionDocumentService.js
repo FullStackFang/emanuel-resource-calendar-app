@@ -126,8 +126,11 @@ function mergeDefaultsWithOverrides(masterEvent, overrides, occurrenceDate) {
 
   const startTime = effective.startTime || effective.reservationStartTime || '00:00';
   const endTime = effective.endTime || effective.reservationEndTime || '23:59';
-  effective.startDateTime = `${occurrenceDate}T${startTime}`;
-  effective.endDateTime = `${occurrenceDate}T${endTime}`;
+  // Always include seconds for consistent string comparison in conflict detection
+  const startTimeFull = startTime.length === 5 ? startTime + ':00' : startTime;
+  const endTimeFull = endTime.length === 5 ? endTime + ':00' : endTime;
+  effective.startDateTime = `${occurrenceDate}T${startTimeFull}`;
+  effective.endDateTime = `${occurrenceDate}T${endTimeFull}`;
   effective.startDate = occurrenceDate;
   effective.endDate = occurrenceDate;
 

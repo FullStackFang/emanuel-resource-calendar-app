@@ -85,8 +85,8 @@ describe('mergeDefaultsWithOverrides', () => {
     const { effectiveFields } = mergeDefaultsWithOverrides(master, {}, '2026-03-17');
 
     expect(effectiveFields.eventTitle).toBe('Weekly Staff Meeting');
-    expect(effectiveFields.startDateTime).toBe('2026-03-17T10:00');
-    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:00');
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T10:00:00');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:00:00');
     expect(effectiveFields.categories).toEqual(['Meeting']);
   });
 
@@ -95,8 +95,8 @@ describe('mergeDefaultsWithOverrides', () => {
     const { effectiveFields } = mergeDefaultsWithOverrides(master, overrides, '2026-03-17');
 
     expect(effectiveFields.eventTitle).toBe('Special Session');
-    expect(effectiveFields.startDateTime).toBe('2026-03-17T14:00');
-    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:00'); // inherited
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T14:00:00');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:00:00'); // inherited
     expect(effectiveFields.categories).toEqual(['Meeting']); // inherited
   });
 
@@ -112,27 +112,34 @@ describe('mergeDefaultsWithOverrides', () => {
     const overrides = { startTime: '', endTime: '', reservationStartTime: '10:30', reservationEndTime: '11:30' };
     const { effectiveFields, effectiveCalendarData } = mergeDefaultsWithOverrides(master, overrides, '2026-03-17');
 
-    expect(effectiveFields.startDateTime).toBe('2026-03-17T10:30');
-    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:30');
-    expect(effectiveCalendarData.startDateTime).toBe('2026-03-17T10:30');
-    expect(effectiveCalendarData.endDateTime).toBe('2026-03-17T11:30');
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T10:30:00');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T11:30:00');
+    expect(effectiveCalendarData.startDateTime).toBe('2026-03-17T10:30:00');
+    expect(effectiveCalendarData.endDateTime).toBe('2026-03-17T11:30:00');
   });
 
   it('EDS-24: should cascade to reservationStartTime when startTime is null', () => {
     const overrides = { startTime: null, endTime: null, reservationStartTime: '14:00', reservationEndTime: '15:00' };
     const { effectiveFields } = mergeDefaultsWithOverrides(master, overrides, '2026-03-17');
 
-    expect(effectiveFields.startDateTime).toBe('2026-03-17T14:00');
-    expect(effectiveFields.endDateTime).toBe('2026-03-17T15:00');
+    expect(effectiveFields.startDateTime).toBe('2026-03-17T14:00:00');
+    expect(effectiveFields.endDateTime).toBe('2026-03-17T15:00:00');
   });
 
   it('EDS-4: should produce correct calendarData mirror', () => {
     const overrides = { startTime: '15:00', endTime: '16:30' };
     const { effectiveCalendarData } = mergeDefaultsWithOverrides(master, overrides, '2026-03-24');
 
-    expect(effectiveCalendarData.startDateTime).toBe('2026-03-24T15:00');
-    expect(effectiveCalendarData.endDateTime).toBe('2026-03-24T16:30');
+    expect(effectiveCalendarData.startDateTime).toBe('2026-03-24T15:00:00');
+    expect(effectiveCalendarData.endDateTime).toBe('2026-03-24T16:30:00');
     expect(effectiveCalendarData.eventTitle).toBe('Weekly Staff Meeting');
+  });
+
+  it('EDS-25: startDateTime always includes seconds for consistent string comparison', () => {
+    const { effectiveFields } = mergeDefaultsWithOverrides(master, {}, '2026-03-17');
+    // Must end with :SS, not just HH:MM — conflict detection compares these lexicographically
+    expect(effectiveFields.startDateTime).toMatch(/T\d{2}:\d{2}:\d{2}$/);
+    expect(effectiveFields.endDateTime).toMatch(/T\d{2}:\d{2}:\d{2}$/);
   });
 });
 
@@ -157,8 +164,8 @@ describe('createExceptionDocument', () => {
     expect(doc.overrides).toEqual({ startTime: '14:00' });
     // effective values include inherited fields
     expect(doc.eventTitle).toBe('Weekly Staff Meeting');
-    expect(doc.startDateTime).toBe('2026-03-17T14:00');
-    expect(doc.endDateTime).toBe('2026-03-17T11:00');
+    expect(doc.startDateTime).toBe('2026-03-17T14:00:00');
+    expect(doc.endDateTime).toBe('2026-03-17T11:00:00');
   });
 
   it('EDS-7: should inherit status and ownership from master', async () => {
@@ -201,7 +208,7 @@ describe('createAdditionDocument', () => {
     expect(doc.occurrenceDate).toBe('2026-05-01');
     expect(doc.eventId).toBe(`${master.eventId}-add-2026-05-01`);
     expect(doc.eventTitle).toBe('Makeup Session');
-    expect(doc.startDateTime).toBe('2026-05-01T13:00');
+    expect(doc.startDateTime).toBe('2026-05-01T13:00:00');
   });
 
   it('EDS-11: should inherit master defaults for non-specified fields', async () => {
@@ -226,7 +233,7 @@ describe('updateExceptionDocument', () => {
 
     expect(updated.overrides).toEqual({ startTime: '14:00', eventTitle: 'Updated Title' });
     expect(updated.eventTitle).toBe('Updated Title');
-    expect(updated.startDateTime).toBe('2026-03-17T14:00'); // still from first override
+    expect(updated.startDateTime).toBe('2026-03-17T14:00:00'); // still from first override
     expect(updated._version).toBe(2);
   });
 
@@ -252,8 +259,8 @@ describe('updateExceptionDocument', () => {
       endTime: '16:30',
     });
 
-    expect(updated.calendarData.startDateTime).toBe('2026-03-17T14:00');
-    expect(updated.calendarData.endDateTime).toBe('2026-03-17T16:30');
+    expect(updated.calendarData.startDateTime).toBe('2026-03-17T14:00:00');
+    expect(updated.calendarData.endDateTime).toBe('2026-03-17T16:30:00');
   });
 });
 
