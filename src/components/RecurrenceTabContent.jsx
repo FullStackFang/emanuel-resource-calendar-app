@@ -212,6 +212,7 @@ export default function RecurrenceTabContent({
 
   // ── Propagate editor changes to parent ────────────────────────
   const applyPatternChanges = useCallback(() => {
+    if (!onRecurrencePatternChange) return;
     const built = buildPatternObject();
     if (!built) return;
 
@@ -478,6 +479,7 @@ export default function RecurrenceTabContent({
 
   // ── Remove recurrence (two-click) ────────────────────────────
   const handleRemoveRecurrence = useCallback(() => {
+    if (!onRecurrencePatternChange) return;
     if (!confirmRemove) {
       setConfirmRemove(true);
       return;

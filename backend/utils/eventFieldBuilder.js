@@ -24,7 +24,7 @@ const CALENDAR_DATA_FIELDS = [
   'attendeeCount', 'specialRequirements',
   'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
   'organizerName', 'organizerPhone', 'organizerEmail',
-  'recurrence', 'occurrenceOverrides',
+  'occurrenceOverrides',
   'requiredFeatures'
 ];
 
@@ -234,7 +234,6 @@ async function buildEventFields(body, db, options = {}) {
     assignedTo: body.assignedTo || '',
     virtualMeetingUrl: body.virtualMeetingUrl || null,
     virtualPlatform: body.virtualPlatform || null,
-    recurrence: body.recurrence || null,
     occurrenceOverrides: body.occurrenceOverrides || [],
     requiredFeatures: body.requiredFeatures || [],
     isOnBehalfOf,

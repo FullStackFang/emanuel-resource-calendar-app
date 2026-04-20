@@ -1000,18 +1000,17 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(updated.exceptionEventIds).toHaveLength(1);
       expect(updated.exceptionEventIds[0].date).toBe('2026-03-21');
 
-      // recurrence must be preserved (additions + exclusions)
-      const savedRecurrence = updated.calendarData?.recurrence || updated.recurrence;
-      expect(savedRecurrence.additions).toEqual(['2026-03-21']);
-      expect(savedRecurrence.exclusions).toEqual(['2026-03-19']);
+      // recurrence must be preserved at top-level (additions + exclusions)
+      expect(updated.recurrence.additions).toEqual(['2026-03-21']);
+      expect(updated.recurrence.exclusions).toEqual(['2026-03-19']);
 
       // Title should actually update
       expect(updated.calendarData?.eventTitle || updated.eventTitle).toBe('Updated Title');
     });
   });
 
-  describe('RP-24: Admin save syncs recurrence to calendarData', () => {
-    it('should write recurrence to both top-level and calendarData when updated', async () => {
+  describe('RP-24: Admin save writes recurrence to top-level only', () => {
+    it('should write recurrence to top-level and $unset calendarData.recurrence', async () => {
       const master = createRecurringSeriesMaster({
         status: 'published',
         graphData: { id: 'graph-master-rp24', subject: 'Recurrence Sync Test' },
@@ -1035,13 +1034,11 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         })
         .expect(200);
 
-      // Real server projects res.body.event via projectEventForSSE (no occurrenceOverrides/exceptionEventIds);
-      // query DB for full document
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
 
-      // Both top-level and calendarData.recurrence should have the new value
+      // Recurrence lives at top-level only (calendarData.recurrence is $unset)
       expect(updated.recurrence).toEqual(newRecurrence);
-      expect(updated.calendarData.recurrence).toEqual(newRecurrence);
+      expect(updated.calendarData.recurrence).toBeUndefined();
 
       // eventType should remain seriesMaster
       expect(updated.eventType).toBe('seriesMaster');

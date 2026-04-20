@@ -5485,24 +5485,34 @@ function projectEventForSSE(event) {
     seriesMasterId: event.seriesMasterId,
     seriesMasterEventId: event.seriesMasterEventId,
     occurrenceDate: event.occurrenceDate,
-    // Display-only calendarData fields (excludes reviewNotes, contact info, etc.)
+    // Display-only calendarData fields (excludes reviewNotes, contact info, organizer fields)
     calendarData: {
       eventTitle: cd.eventTitle,
       eventDescription: cd.eventDescription,
       startDate: cd.startDate, startTime: cd.startTime,
       endDate: cd.endDate, endTime: cd.endTime,
       startDateTime: cd.startDateTime, endDateTime: cd.endDateTime,
+      isAllDayEvent: cd.isAllDayEvent,
       setupTime: cd.setupTime, teardownTime: cd.teardownTime,
+      setupTimeMinutes: cd.setupTimeMinutes, teardownTimeMinutes: cd.teardownTimeMinutes,
       doorOpenTime: cd.doorOpenTime, doorCloseTime: cd.doorCloseTime,
+      reservationStartTime: cd.reservationStartTime, reservationEndTime: cd.reservationEndTime,
+      reservationStartMinutes: cd.reservationStartMinutes, reservationEndMinutes: cd.reservationEndMinutes,
+      setupNotes: cd.setupNotes, doorNotes: cd.doorNotes, eventNotes: cd.eventNotes,
       locations: cd.locations,
       locationDisplayNames: cd.locationDisplayNames,
       categories: cd.categories,
       services: cd.services,
       assignedTo: cd.assignedTo,
       attendeeCount: cd.attendeeCount,
+      specialRequirements: cd.specialRequirements,
       isOffsite: cd.isOffsite,
       offsiteName: cd.offsiteName,
       offsiteAddress: cd.offsiteAddress,
+      offsiteLat: cd.offsiteLat,
+      offsiteLon: cd.offsiteLon,
+      virtualMeetingUrl: cd.virtualMeetingUrl,
+      virtualPlatform: cd.virtualPlatform,
     },
     recurrence: event.recurrence,
     categories: event.categories,
@@ -14583,7 +14593,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
 
     await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(draftId) },
-      { $set: updateData }
+      {
+        $set: updateData,
+        $unset: { 'calendarData.recurrence': '' }
+      }
     );
 
     const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
@@ -23378,13 +23391,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Remap calendar fields to calendarData.* using shared builder
     const finalUpdateOperations = remapToCalendarData(updateOperations);
 
-    // Recurrence must be kept in sync: top-level (used by Calendar expansion,
-    // conflict detection) AND calendarData (authoritative read source via getEventField).
-    // Copy to top level but keep calendarData.recurrence in the $set so both are updated atomically.
-    if (finalUpdateOperations['calendarData.recurrence'] !== undefined) {
-      finalUpdateOperations['recurrence'] = finalUpdateOperations['calendarData.recurrence'];
-    }
-
     // Track approver modifications on pending events for publish notification emails.
     // Compare original calendarData with incoming updates to capture what changed.
     if (event.status === 'pending') {
@@ -23530,7 +23536,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           $set: {
             ...finalUpdateOperations,
             changeKey: newChangeKey,
-          }
+          },
+          $unset: { 'calendarData.recurrence': '' }
         },
         {
           expectedVersion: updates._version || null,
