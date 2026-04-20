@@ -82,6 +82,12 @@ export default function RecurrenceTabContent({
   const occurrenceEditsRef = useRef({});
   const selectedOccurrenceRef = useRef(null);
 
+  // Refs for conflict fetching — avoids object-reference churn in useCallback deps
+  const formDataRef = useRef(formData);
+  const reservationRef = useRef(reservation);
+  useEffect(() => { formDataRef.current = formData; }, [formData]);
+  useEffect(() => { reservationRef.current = reservation; }, [reservation]);
+
   // ── Calendar popover state (Customize / Exclude on pattern dates) ──
   const [calendarPopover, setCalendarPopover] = useState(null); // { dateStr, left, top } or null
   const popoverRef = useRef(null);
@@ -337,18 +343,22 @@ export default function RecurrenceTabContent({
   }, [recurrencePattern, hasPattern, viewMonth, frequency, interval, daysOfWeek, patternStartDate, endType, endDate]);
 
   // ── Conflict fetching ─────────────────────────────────────────
+  // Reads formData/reservation from refs to avoid object-reference churn in deps.
+  // Triggered by conflictTriggerKey (content-based) rather than callback identity.
   const fetchConflicts = useCallback(async () => {
     if (!hasPattern || !apiToken) return;
+    const fd = formDataRef.current;
+    const res = reservationRef.current;
 
-    const effectiveStartTime = formData?.startTime || formData?.reservationStartTime;
-    const effectiveEndTime = formData?.endTime || formData?.reservationEndTime;
-    const startDateTime = formData?.startDate && effectiveStartTime
-      ? `${formData.startDate}T${effectiveStartTime}:00`
-      : reservation?.calendarData?.startDateTime || reservation?.startDateTime;
-    const endDateTime = formData?.endDate && effectiveEndTime
-      ? `${formData.endDate}T${effectiveEndTime}:00`
-      : reservation?.calendarData?.endDateTime || reservation?.endDateTime;
-    const roomIds = (formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [])
+    const effectiveStartTime = fd?.startTime || fd?.reservationStartTime;
+    const effectiveEndTime = fd?.endTime || fd?.reservationEndTime;
+    const startDateTime = fd?.startDate && effectiveStartTime
+      ? `${fd.startDate}T${effectiveStartTime}:00`
+      : res?.calendarData?.startDateTime || res?.startDateTime;
+    const endDateTime = fd?.endDate && effectiveEndTime
+      ? `${fd.endDate}T${effectiveEndTime}:00`
+      : res?.calendarData?.endDateTime || res?.endDateTime;
+    const roomIds = (fd?.requestedRooms || res?.calendarData?.locations || res?.locations || [])
       .map(id => id?.toString?.() || id);
 
     if (!startDateTime || !endDateTime || !roomIds.length) {
@@ -373,14 +383,14 @@ export default function RecurrenceTabContent({
           endDateTime,
           recurrence: recurrencePattern,
           roomIds,
-          setupTimeMinutes: formData?.setupTimeMinutes || reservation?.calendarData?.setupTimeMinutes || 0,
-          teardownTimeMinutes: formData?.teardownTimeMinutes || reservation?.calendarData?.teardownTimeMinutes || 0,
-          reservationStartMinutes: formData?.reservationStartMinutes || reservation?.calendarData?.reservationStartMinutes || 0,
-          reservationEndMinutes: formData?.reservationEndMinutes || reservation?.calendarData?.reservationEndMinutes || 0,
-          excludeEventId: reservation?._id?.toString?.() || reservation?.id || null,
-          excludeMasterEventId: reservation?.eventId || null,
-          isAllowedConcurrent: formData?.isAllowedConcurrent || reservation?.isAllowedConcurrent || false,
-          categories: formData?.categories || reservation?.calendarData?.categories || [],
+          setupTimeMinutes: fd?.setupTimeMinutes || res?.calendarData?.setupTimeMinutes || 0,
+          teardownTimeMinutes: fd?.teardownTimeMinutes || res?.calendarData?.teardownTimeMinutes || 0,
+          reservationStartMinutes: fd?.reservationStartMinutes || res?.calendarData?.reservationStartMinutes || 0,
+          reservationEndMinutes: fd?.reservationEndMinutes || res?.calendarData?.reservationEndMinutes || 0,
+          excludeEventId: res?._id?.toString?.() || res?.id || null,
+          excludeMasterEventId: res?.eventId || null,
+          isAllowedConcurrent: fd?.isAllowedConcurrent || res?.isAllowedConcurrent || false,
+          categories: fd?.categories || res?.calendarData?.categories || [],
         }),
         signal: controller.signal,
       });
@@ -392,12 +402,36 @@ export default function RecurrenceTabContent({
     } finally {
       setConflictLoading(false);
     }
-  }, [hasPattern, recurrencePattern, formData, reservation, apiToken]);
+  }, [hasPattern, recurrencePattern, apiToken]); // formData/reservation read from refs
 
+  // Content-based trigger: only re-fetch when values that affect conflict results change.
+  // Using JSON.stringify of the recurrence pattern (small, bounded object) as the primary key,
+  // plus form fields that feed into the conflict check body.
+  const conflictTriggerKey = useMemo(() => {
+    if (!hasPattern || !recurrencePattern) return null;
+    const fd = formDataRef.current || {};
+    return JSON.stringify({
+      pattern: recurrencePattern,
+      startTime: fd.startTime || fd.reservationStartTime,
+      endTime: fd.endTime || fd.reservationEndTime,
+      rooms: fd.requestedRooms,
+      setupTimeMinutes: fd.setupTimeMinutes,
+      teardownTimeMinutes: fd.teardownTimeMinutes,
+      isAllowedConcurrent: fd.isAllowedConcurrent,
+      categories: fd.categories,
+    });
+  }, [hasPattern, recurrencePattern]); // eslint-disable-line react-hooks/exhaustive-deps -- formData read from ref
+
+  // Debounced conflict fetch — 400ms delay prevents rapid-fire requests during pattern editing.
+  // AbortController still cancels in-flight requests on unmount/re-trigger.
   useEffect(() => {
-    if (hasPattern) fetchConflicts();
-    return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
-  }, [hasPattern, fetchConflicts]);
+    if (!conflictTriggerKey) return;
+    const timer = setTimeout(() => { fetchConflicts(); }, 400);
+    return () => {
+      clearTimeout(timer);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, [conflictTriggerKey, fetchConflicts]);
 
   const conflictsByDate = useMemo(() => {
     if (!conflictData?.conflicts) return {};

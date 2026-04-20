@@ -99,13 +99,16 @@ export default function RoomReservationReview({
 
   // Handle recurrence pattern changes from form or recurrence tab
   const handleRecurrencePatternChange = useCallback((pattern) => {
-    // Detect actual changes (skip auto-apply rebuild on mount which produces the same pattern)
+    // Skip no-op updates: the auto-apply effect in RecurrenceTabContent rebuilds the pattern
+    // on mount, producing a new object reference with identical content. Without this guard,
+    // the new ref cascades: setRecurrencePattern → new prop → new fetchConflicts → effect fires → loop.
     const isActualChange = JSON.stringify(pattern) !== JSON.stringify(recurrencePatternRef.current);
+    if (!isActualChange) return;
     setRecurrencePattern(pattern);
     recurrencePatternRef.current = pattern;
     onRecurrenceExists?.(!!pattern);
     // Signal to parent so Save button enables in ReviewModal
-    if (isActualChange && onDataChange) {
+    if (onDataChange) {
       onDataChange({ recurrence: pattern });
     }
   }, [onRecurrenceExists, onDataChange]);
