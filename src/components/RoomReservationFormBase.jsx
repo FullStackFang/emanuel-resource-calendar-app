@@ -437,10 +437,14 @@ export default function RoomReservationFormBase({
     }
   }, [timeErrors, onTimeErrorsRef]);
 
-  // Keep validateTimes ref current so onValidateRef always returns the latest version
-  // (prevents stale closure bug where mount-time formData is used for validation)
-  const validateTimesRef = useRef(validateTimes);
-  useEffect(() => { validateTimesRef.current = validateTimes; }, [validateTimes]);
+  // Keep validateTimes ref current so onValidateRef always returns the latest version.
+  // Initialized to null — validateTimes is declared further down in the component body,
+  // so referencing it here (in useRef or a dependency array) would hit the const TDZ.
+  // The effect callback captures the binding (not the value), so it reads validateTimes
+  // after render when the declaration has been reached. No dep array needed: the ref
+  // assignment is cheap and must stay current on every render anyway.
+  const validateTimesRef = useRef(null);
+  useEffect(() => { validateTimesRef.current = validateTimes; });
 
   useEffect(() => {
     if (onValidateRef) {

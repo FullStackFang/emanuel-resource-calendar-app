@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "description": "Skill activation triggers for Emanuel Resource Calendar App",
+  "skills": {
+    "emanu-backend": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Backend patterns: Express/Cosmos DB, Graph API app-only auth, SSE, OCC, migration scripts, email service",
+      "promptTriggers": {
+        "keywords": [
+          "backend", "api", "endpoint", "route", "express", "mongodb", "cosmos",
+          "graph api", "graphApiService", "sse", "server-sent", "email", "notification",
+          "audit", "migration", "conditionalUpdate", "concurrency", "delta sync",
+          "calendarOwner", "reservation workflow", "batch processing"
+        ],
+        "intentPatterns": [
+          "(create|add|fix|update|delete).*?(endpoint|route|api|service|middleware)",
+          "(query|find|update|delete|insert).*?(event|reservation|user|location|category)",
+          "(send|trigger|emit).*?(email|notification|sse|event)",
+          "(sync|delta|graph|publish).*?(calendar|event|occurrence)",
+          "(migrate|backfill|batch).*?(data|field|document|collection)",
+          "(check|detect|resolve).*?(conflict|version|concurrency)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "backend/**/*.js",
+          "backend/**/*.test.js"
+        ],
+        "pathExclusions": [
+          "backend/node_modules/**"
+        ],
+        "contentPatterns": [
+          "router\\.",
+          "app\\.(get|post|put|delete)",
+          "graphApiService",
+          "conditionalUpdate",
+          "checkRoomConflicts"
+        ]
+      }
+    },
+    "emanu-frontend": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Frontend patterns: React event transforms, Fluent UI, MSAL auth, review modals, permission gates, in-button confirmation",
+      "promptTriggers": {
+        "keywords": [
+          "frontend", "component", "react", "form", "modal", "calendar view",
+          "fluent ui", "review modal", "reservation form", "scheduling assistant",
+          "transform", "eventTransformers", "permission", "usePermissions",
+          "context", "msal", "authentication", "in-button confirmation",
+          "toast", "notification ui", "week view", "day view"
+        ],
+        "intentPatterns": [
+          "(create|add|fix|update).*?(component|form|modal|view|page|tab)",
+          "(style|layout|design).*?(button|card|tab|panel|badge|dialog)",
+          "(transform|flatten|convert|extract).*?(event|reservation|data|field)",
+          "(gate|check|guard).*?(permission|role|access)",
+          "(open|close|show|hide).*?(modal|dialog|panel|review)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "src/**/*.jsx",
+          "src/**/*.js",
+          "src/**/*.css"
+        ],
+        "pathExclusions": [
+          "src/**/*.test.*"
+        ],
+        "contentPatterns": [
+          "transformEventToFlatStructure",
+          "useReviewModal",
+          "EventReviewExperience",
+          "usePermissions",
+          "FluentProvider"
+        ]
+      }
+    }
+  }
+}

@@ -28,6 +28,9 @@ dist-ssr
 
 # Distribution files
 dist.zip
+
+# Claude Code hook cache (session-scoped, auto-generated)
+.claude/.cache/
 backend.zip
 build-info.json
 
