@@ -164,12 +164,6 @@ export default function ReviewModal({
   showDiscardDialog = false,
   onDiscardDialogDiscard = null,
   onDiscardDialogCancel = null,
-  // Edit request modal props (for requesting edits on published events)
-  onSubmitEditRequestModal = null,
-  submittingEditRequestModal = false,
-  // Published edit props (for admins/approvers editing published events directly)
-  onSavePublishedEdit = null,
-  savingPublishedEdit = false,
   // Duplicate mode props (from NewReservationModal)
   onDuplicate = null, // Opens the duplicate date dialog
   showDuplicateDialog = false,
@@ -584,22 +578,6 @@ export default function ReviewModal({
                     </div>
                   )}
 
-                  {/* Submit Edit Request — modal submission */}
-                  {onSubmitEditRequestModal && (
-                    <div className="confirm-button-group">
-                      <button
-                        type="button"
-                        className={`action-btn publish-btn ${localConfirming === 'editRequestModal' ? 'confirming' : ''}`}
-                        onClick={() => handleLocalConfirmClick('editRequestModal', onSubmitEditRequestModal)}
-                        disabled={!hasChanges || !isFormValid || submittingEditRequestModal || (anyConfirming && localConfirming !== 'editRequestModal')}
-                      >
-                        {submittingEditRequestModal ? 'Submitting...' : (localConfirming === 'editRequestModal' ? 'Confirm Submit?' : 'Submit Edit Request')}
-                      </button>
-                      {localConfirming === 'editRequestModal' && (
-                        <button type="button" className="confirm-cancel-x submit-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
-                      )}
-                    </div>
-                  )}
 
                   {/* Approve Edit Request — admin viewing edit request */}
                   {isViewingEditRequest && !isRequesterOnly && onApproveEditRequest && (
@@ -654,22 +632,6 @@ export default function ReviewModal({
                     </div>
                   )}
 
-                  {/* Save Published Edit — admin editing published */}
-                  {onSavePublishedEdit && (
-                    <div className="confirm-button-group">
-                      <button
-                        type="button"
-                        className={`action-btn publish-btn ${localConfirming === 'publishedEdit' ? 'confirming' : ''}`}
-                        onClick={() => handleLocalConfirmClick('publishedEdit', onSavePublishedEdit)}
-                        disabled={!hasChanges || !isFormValid || savingPublishedEdit || hardConflictBlocks || (anyConfirming && localConfirming !== 'publishedEdit')}
-                      >
-                        {savingPublishedEdit ? 'Saving...' : (localConfirming === 'publishedEdit' ? 'Confirm Save?' : 'Save Changes')}
-                      </button>
-                      {localConfirming === 'publishedEdit' && (
-                        <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>
-                      )}
-                    </div>
-                  )}
 
                   {/* Save Pending Edit — owner editing pending */}
                   {onSavePendingEdit && (

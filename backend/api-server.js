@@ -18,6 +18,7 @@ const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remapToCalendarData } = require('./utils/eventFieldBuilder');
+const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
@@ -1670,29 +1671,7 @@ async function logEventAudit({
   metadata = {}
 }) {
   try {
-    const auditEntry = {
-      eventId,
-      userId,
-      changeType,
-      source,
-      timestamp: new Date(),
-      metadata: {
-        userAgent: metadata.userAgent || 'API',
-        ipAddress: metadata.ipAddress || 'Unknown',
-        reason: metadata.reason || null,
-        importSessionId: metadata.importSessionId || null,
-        ...metadata
-      }
-    };
-
-    // Add change details if provided
-    if (changes) {
-      auditEntry.changes = changes;
-    }
-
-    if (changeSet && Array.isArray(changeSet)) {
-      auditEntry.changeSet = changeSet;
-    }
+    const auditEntry = buildEventAuditEntry({ eventId, userId, changeType, source, changes, changeSet, metadata });
 
     await eventAuditHistoryCollection.insertOne(auditEntry);
 
@@ -1723,30 +1702,7 @@ async function logReservationAudit({
   metadata = {}
 }) {
   try {
-    const auditEntry = {
-      reservationId,
-      userId,
-      userEmail,
-      changeType,
-      source,
-      timestamp: new Date(),
-      metadata: {
-        userAgent: metadata.userAgent || 'API',
-        ipAddress: metadata.ipAddress || 'Unknown',
-        reason: metadata.reason || null,
-        previousRevision: metadata.previousRevision || null,
-        ...metadata
-      }
-    };
-
-    // Add change details if provided
-    if (changes) {
-      auditEntry.changes = changes;
-    }
-
-    if (changeSet && Array.isArray(changeSet)) {
-      auditEntry.changeSet = changeSet;
-    }
+    const auditEntry = buildReservationAuditEntry({ reservationId, userId, userEmail, changeType, source, changes, changeSet, metadata });
 
     await reservationAuditHistoryCollection.insertOne(auditEntry);
 

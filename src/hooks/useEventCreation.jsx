@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { usePermissions } from './usePermissions';
+import { useAuthenticatedFetch } from './useAuthenticatedFetch';
 import { useNotification } from '../context/NotificationContext';
 import { dispatchRefresh } from './useDataRefreshBus';
 import {
@@ -32,7 +33,7 @@ function addDays(dateStr, days) {
 
 /**
  * @param {Object} config
- * @param {string} config.apiToken - JWT for API calls
+ * @param {string} config.apiToken - Deprecated: auth is handled internally via useAuthenticatedFetch
  * @param {string} config.selectedCalendarId - Currently selected calendar ID
  * @param {Array}  config.availableCalendars - User's calendar list
  * @param {Function} config.onSuccess - Called after successful creation (no args)
@@ -49,6 +50,7 @@ export function useEventCreation({
 }) {
   const { accounts } = useMsal();
   const { canCreateEvents, canSubmitReservation } = usePermissions();
+  const authFetch = useAuthenticatedFetch();
   const { showSuccess, showError: defaultShowError } = useNotification();
   const showError = onError || defaultShowError;
 
@@ -219,9 +221,9 @@ export function useEventCreation({
   const _postAdminEvent = useCallback(async (dayData, extraInternalFields = {}) => {
     const graphFields = buildGraphFields(dayData);
     const internalFields = { ...buildInternalFields(dayData), ...extraInternalFields };
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+    const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         graphFields,
         internalFields,
@@ -230,20 +232,20 @@ export function useEventCreation({
       }),
     });
     if (!response.ok) throw new Error('Failed to create event');
-  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+  }, [authFetch, selectedCalendarId, getCalendarOwner]);
 
   const _postRequesterEvent = useCallback(async (dayData) => {
     const payload = buildRequesterPayload(dayData, {
       calendarId: selectedCalendarId,
       calendarOwner: getCalendarOwner(),
     });
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+    const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error('Failed to submit reservation');
-  }, [apiToken, selectedCalendarId, getCalendarOwner]);
+  }, [authFetch, selectedCalendarId, getCalendarOwner]);
 
   // ══════════════════════════════════════════════
   //  ADMIN PUBLISH  (POST /api/events/new/audit-update)
@@ -317,11 +319,10 @@ export function useEventCreation({
       const graphFields = buildGraphFields(data);
       const internalFields = buildInternalFields(data);
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify({
           graphFields,
@@ -344,7 +345,7 @@ export function useEventCreation({
     } finally {
       setIsSaving(false);
     }
-  }, [getFormData, isConfirming, pendingMultiDayConfirmation, apiToken, selectedCalendarId, getCalendarOwner, showError]);
+  }, [getFormData, isConfirming, pendingMultiDayConfirmation, authFetch, selectedCalendarId, getCalendarOwner, showError]);
 
   // ══════════════════════════════════════════════
   //  MULTI-DAY BATCH CREATION
@@ -420,11 +421,10 @@ export function useEventCreation({
         calendarOwner: getCalendarOwner(),
       });
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -442,7 +442,7 @@ export function useEventCreation({
     } finally {
       setIsSaving(false);
     }
-  }, [getFormData, isConfirming, apiToken, selectedCalendarId, getCalendarOwner, showError]);
+  }, [getFormData, isConfirming, authFetch, selectedCalendarId, getCalendarOwner, showError]);
 
   // ── Route handleSave to the correct path based on mode ──
   const handleSave = useCallback(() => {
@@ -472,18 +472,17 @@ export function useEventCreation({
       ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
       : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
 
-    const response = await fetch(endpoint, {
+    const response = await authFetch(endpoint, {
       method: draftId ? 'PUT' : 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiToken}`,
       },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) throw new Error('Failed to save draft');
     return true;
-  }, [getFormData, draftId, apiToken]);
+  }, [getFormData, draftId, authFetch]);
 
   const handleSaveDraft = useCallback(async () => {
     const data = formData;

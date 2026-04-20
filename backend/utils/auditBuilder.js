@@ -37,11 +37,11 @@ function buildEventAuditEntry({
     source,
     timestamp: new Date(),
     metadata: {
+      userAgent: 'API',
+      ipAddress: 'Unknown',
+      reason: null,
+      importSessionId: null,
       ...metadata,
-      userAgent: metadata.userAgent || 'API',
-      ipAddress: metadata.ipAddress || 'Unknown',
-      reason: metadata.reason || null,
-      importSessionId: metadata.importSessionId || null,
     },
   };
 
@@ -88,11 +88,11 @@ function buildReservationAuditEntry({
     source,
     timestamp: new Date(),
     metadata: {
+      userAgent: 'API',
+      ipAddress: 'Unknown',
+      reason: null,
+      previousRevision: null,
       ...metadata,
-      userAgent: metadata.userAgent || 'API',
-      ipAddress: metadata.ipAddress || 'Unknown',
-      reason: metadata.reason || null,
-      previousRevision: metadata.previousRevision || null,
     },
   };
 

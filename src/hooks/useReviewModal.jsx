@@ -8,6 +8,7 @@ import {
 } from '../utils/eventPayloadBuilder';
 import { transformEventToDuplicatePrefill, transformEventToFlatStructure, getOccurrenceDateKey } from '../utils/eventTransformers';
 import { usePermissions } from './usePermissions';
+import { useAuthenticatedFetch } from './useAuthenticatedFetch';
 import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
 
@@ -21,13 +22,14 @@ import APP_CONFIG from '../config/config';
  * - API calls for approve/reject/save
  * - Soft hold management (for preventing concurrent edits)
  *
- * @param {string} apiToken - JWT token for API authentication
+ * @param {string} apiToken - Deprecated: auth is handled internally via useAuthenticatedFetch
  * @param {string} graphToken - Graph API token (optional, for calendar operations)
  * @param {Function} onSuccess - Callback after successful action
  * @param {Function} onError - Callback after error
  */
 export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
   const { canCreateEvents, canSubmitReservation } = usePermissions();
+  const authFetch = useAuthenticatedFetch();
   const [isOpen, setIsOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -151,11 +153,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Returns true if fresh (or check fails gracefully), false if stale (resets confirmation).
    */
   const checkVersionFreshness = useCallback(async (itemId) => {
-    if (!itemId || !apiToken) return true; // No ID or token — skip check
+    if (!itemId) return true; // No ID — skip check
     try {
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`);
       if (!res.ok) return true; // Endpoint error — proceed anyway, OCC catches conflicts
       const data = await res.json();
       if (data._version != null && eventVersion != null && data._version !== eventVersion) {
@@ -167,7 +167,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } catch {
       return true; // Network error — proceed anyway, OCC catches conflicts
     }
-  }, [apiToken, eventVersion, onError]);
+  }, [authFetch, eventVersion, onError]);
 
   /**
    * Fetch the latest _version from the server and update local state.
@@ -176,11 +176,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Returns the fresh version number, or falls back to the current eventVersion.
    */
   const fetchFreshVersion = useCallback(async (itemId) => {
-    if (!itemId || !apiToken) return eventVersion;
+    if (!itemId) return eventVersion;
     try {
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`);
       if (!res.ok) return eventVersion;
       const data = await res.json();
       if (data._version != null) {
@@ -196,7 +194,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } catch {
       return eventVersion; // Network error — use existing version, OCC catches real conflicts
     }
-  }, [apiToken, eventVersion]);
+  }, [authFetch, eventVersion]);
 
   /**
    * Open modal with a reservation or event
@@ -293,11 +291,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       if (hasSeriesId) {
         const seriesPromise = (async () => {
           try {
-            const headers = { 'Content-Type': 'application/json' };
-            if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
-            const response = await fetch(
+            const response = await authFetch(
               `${APP_CONFIG.API_BASE_URL}/events/series/${item.eventSeriesId}`,
-              { headers }
+              { headers: { 'Content-Type': 'application/json' } }
             );
             if (response.ok) {
               const data = await response.json();
@@ -326,7 +322,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Rooms but no dates — nothing to prefetch, but open the gate
       setPrefetchedAvailability([]);
     }
-  }, [apiToken]);
+  }, [authFetch]);
 
   /**
    * Close modal
@@ -499,11 +495,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         }
       }
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           ...bodyData,
@@ -533,9 +528,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                 setSoftConflictConfirmation(null);
                 setIsSaving(true);
                 try {
-                  const retryResponse = await fetch(endpoint, {
+                  const retryResponse = await authFetch(endpoint, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ...bodyData, _version: eventVersion, acknowledgeSoftConflicts: true })
                   });
                   if (retryResponse.ok) {
@@ -590,7 +585,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, notifySuccess, onError, pendingSaveConfirmation, checkVersionFreshness]);
+  }, [hasChanges, currentItem, editableData, eventVersion, authFetch, graphToken, editScope, notifySuccess, onError, pendingSaveConfirmation, checkVersionFreshness]);
 
   /**
    * Approve the reservation/event
@@ -658,11 +653,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           const saveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
           logger.log('[handleApprove] Step 1: Saving form data to existing record:', currentItem._id);
 
-          const saveResponse = await fetch(saveEndpoint, {
+          const saveResponse = await authFetch(saveEndpoint, {
             method: 'PUT',
             headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify({
               ...formData,
@@ -731,11 +725,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/publish`;
       logger.log('[handleApprove] Step 2: Calling approve endpoint');
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           graphToken,
@@ -777,9 +770,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                 setSoftConflictConfirmation(null);
                 setIsApproving(true);
                 try {
-                  const retryResponse = await fetch(endpoint, {
+                  const retryResponse = await authFetch(endpoint, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       graphToken,
                       notes: safeApprovalData.notes || '',
@@ -834,7 +827,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, notifySuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
+  }, [currentItem, editableData, eventVersion, authFetch, graphToken, selectedCalendarId, notifySuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
 
   /**
    * Reject the reservation/event
@@ -876,11 +869,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Use the unified events endpoint for all rejections
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/reject`;
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ reason: reason.trim(), _version: eventVersion })
       });
@@ -921,7 +913,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRejecting(false);
     }
-  }, [currentItem, apiToken, eventVersion, rejectionReason, notifySuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
+  }, [currentItem, authFetch, eventVersion, rejectionReason, notifySuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
 
   /**
    * Cancel the pending reject confirmation
@@ -958,10 +950,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Use the unified events endpoint for all deletions
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1014,7 +1005,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, editScope, eventVersion, notifySuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
+  }, [currentItem, authFetch, graphToken, editScope, eventVersion, notifySuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
 
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
@@ -1041,10 +1032,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsRestoring(true);
     try {
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/restore`;
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1088,7 +1078,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRestoring(false);
     }
-  }, [currentItem, apiToken, eventVersion, notifySuccess, onError, closeModal]);
+  }, [currentItem, authFetch, eventVersion, notifySuccess, onError, closeModal]);
 
   /**
    * Owner edit handler for pending/rejected events.
@@ -1124,13 +1114,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const payload = buildOwnerEditPayload(formData, { eventVersion });
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/room-reservations/${currentItem._id}/edit`,
         {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(payload)
         }
@@ -1171,7 +1160,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSavingOwnerEdit(false);
     }
-  }, [currentItem, apiToken, eventVersion, editableData, notifySuccess, onError, closeModal, getFormData]);
+  }, [currentItem, authFetch, eventVersion, editableData, notifySuccess, onError, closeModal, getFormData]);
 
   /**
    * Submit an edit request for a published event (owner-only).
@@ -1227,13 +1216,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           : undefined,
       });
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(payload)
         }
@@ -1255,7 +1243,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSubmittingEditRequest(false);
     }
-  }, [currentItem, apiToken, eventVersion, editScope, notifySuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
+  }, [currentItem, authFetch, eventVersion, editScope, notifySuccess, onError, closeModal, getFormData, pendingEditRequestConfirmation]);
 
   const cancelEditRequestConfirmation = useCallback(() => {
     setPendingEditRequestConfirmation(false);
@@ -1285,13 +1273,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Refresh version to avoid false VERSION_CONFLICT from stale modal data
       const freshVersion = await fetchFreshVersion(eventId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
         {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             notes: '',
@@ -1337,7 +1324,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingEditRequest(false);
       setPendingEditRequestApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, fetchFreshVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+  }, [currentItem, authFetch, fetchFreshVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setPendingEditRequestApproveConfirmation(false);
@@ -1371,13 +1358,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Refresh version to avoid false VERSION_CONFLICT from stale modal data
       const freshVersion = await fetchFreshVersion(eventId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
         {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             reason: editRequestRejectionReason.trim(),
@@ -1418,7 +1404,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingEditRequest(false);
       setPendingEditRequestRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, fetchFreshVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+  }, [currentItem, authFetch, fetchFreshVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
 
   const cancelEditRequestRejectConfirmation = useCallback(() => {
     setPendingEditRequestRejectConfirmation(false);
@@ -1446,13 +1432,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Refresh version to avoid false VERSION_CONFLICT from stale modal data
       const freshVersion = await fetchFreshVersion(eventId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-cancellation`,
         {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             notes: '',
@@ -1492,7 +1477,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingCancellation(false);
       setPendingCancellationApproveConfirmation(false);
     }
-  }, [currentItem, apiToken, fetchFreshVersion, notifySuccess, onError, closeModal, pendingCancellationApproveConfirmation]);
+  }, [currentItem, authFetch, fetchFreshVersion, notifySuccess, onError, closeModal, pendingCancellationApproveConfirmation]);
 
   const cancelCancellationApproveConfirmation = useCallback(() => {
     setPendingCancellationApproveConfirmation(false);
@@ -1521,13 +1506,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Refresh version to avoid false VERSION_CONFLICT from stale modal data
       const freshVersion = await fetchFreshVersion(eventId);
 
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-cancellation`,
         {
           method: 'PUT',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             reason: cancellationRejectionReason.trim(),
@@ -1568,7 +1552,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingCancellation(false);
       setPendingCancellationRejectConfirmation(false);
     }
-  }, [currentItem, apiToken, fetchFreshVersion, cancellationRejectionReason, notifySuccess, onError, closeModal, pendingCancellationRejectConfirmation]);
+  }, [currentItem, authFetch, fetchFreshVersion, cancellationRejectionReason, notifySuccess, onError, closeModal, pendingCancellationRejectConfirmation]);
 
   const cancelCancellationRejectConfirmation = useCallback(() => {
     setPendingCancellationRejectConfirmation(false);
@@ -1651,11 +1635,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const method = draftId ? 'PUT' : 'POST';
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       });
@@ -1679,7 +1662,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setSavingDraft(false);
     }
-  }, [apiToken, draftId, onError, editScope, currentItem]);
+  }, [authFetch, draftId, onError, editScope, currentItem]);
 
   /**
    * Save form data as a draft (two-click confirmation pattern)
@@ -1748,21 +1731,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsSaving(true);
 
     try {
-      const submitHeaders = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiToken}`
-      };
-      // Pass simulated role to backend when role simulation is active
-      const simSession = localStorage.getItem('role_simulation_session');
-      if (simSession) {
-        try { submitHeaders['X-Simulated-Role'] = JSON.parse(simSession).roleKey; } catch (e) { /* ignore */ }
-      }
-
-      const response = await fetch(
+      const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}/submit`,
         {
           method: 'POST',
-          headers: submitHeaders
+          headers: { 'Content-Type': 'application/json' }
         }
       );
 
@@ -1792,7 +1765,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [draftId, apiToken, hasChanges, _executeDraftSave, closeModal, notifySuccess, onError]);
+  }, [draftId, hasChanges, _executeDraftSave, closeModal, notifySuccess, onError]);
 
   /**
    * Handlers for draft save dialog
@@ -1920,9 +1893,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             continue;
           }
           const internalFields = buildInternalFields(formData);
-          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+          const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ graphFields, internalFields, calendarId, calendarOwner }),
           });
           if (!response.ok) {
@@ -1931,9 +1904,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           }
         } else {
           const payload = buildRequesterPayload(formData, { calendarId, calendarOwner });
-          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+          const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
           if (!response.ok) {
@@ -1965,7 +1938,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     if (failCount > 0 && successCount === 0 && onError) {
       onError('Failed to create reservations');
     }
-  }, [editableData, currentItem, canCreateEvents, apiToken, selectedCalendarId, notifySuccess, onError, getFormData, closeModal]);
+  }, [editableData, currentItem, canCreateEvents, authFetch, selectedCalendarId, notifySuccess, onError, getFormData, closeModal]);
 
   return {
     // State
