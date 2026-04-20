@@ -1468,8 +1468,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      notifySuccess({ cancellationApproved: true });
+      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
       await closeModal(true);
+      notifySuccess({ cancellationApproved: true, eventId });
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error approving cancellation request:', error);
@@ -1543,8 +1544,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       setCancellationRejectionReason('');
-      notifySuccess({ cancellationRejected: true });
+      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
       await closeModal(true);
+      notifySuccess({ cancellationRejected: true, eventId });
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error rejecting cancellation request:', error);
