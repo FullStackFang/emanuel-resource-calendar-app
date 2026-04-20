@@ -1291,7 +1291,46 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       if (response.status === 409) {
         const errorData = await response.json();
         if (errorData.error === 'SchedulingConflict') {
-          if (onError) onError(errorData.message || 'Scheduling conflict detected');
+          if (errorData.conflictTier === 'soft') {
+            // Soft conflicts: show confirmation dialog with retry
+            const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`;
+            setSoftConflictConfirmation({
+              message: `This time slot has ${errorData.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
+              conflicts: errorData.softConflicts || errorData.conflicts || [],
+              retryFn: async () => {
+                setSoftConflictConfirmation(null);
+                setIsApprovingEditRequest(true);
+                try {
+                  const retryResponse = await authFetch(endpoint, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      notes: '',
+                      _version: freshVersion ?? null,
+                      ...(approverChanges && { approverChanges }),
+                      acknowledgeSoftConflicts: true,
+                    })
+                  });
+                  if (retryResponse.ok) {
+                    const retryResult = await retryResponse.json();
+                    await closeModal(true);
+                    notifySuccess({ editRequestApproved: true, eventId });
+                    return { success: true, data: retryResult };
+                  }
+                  const retryData = await retryResponse.json().catch(() => ({}));
+                  const retryMsg = retryData.message || 'Cannot approve edit: scheduling conflict(s) detected';
+                  if (onError) onError(retryMsg);
+                  return { success: false, error: retryMsg };
+                } finally {
+                  setIsApprovingEditRequest(false);
+                }
+              }
+            });
+            return { success: false, error: 'SoftConflictPending' };
+          }
+          // Hard conflicts
+          const message = `Cannot approve edit: ${errorData.hardConflicts?.length || errorData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+          if (onError) onError(message);
           return { success: false, error: 'SchedulingConflict', conflictData: errorData };
         }
         // OCC version conflict

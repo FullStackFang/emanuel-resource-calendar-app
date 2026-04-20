@@ -44,6 +44,9 @@ const DAYS_OPTIONS = [
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+/** Debounce delay (ms) for recurring conflict checks. Exported for test use. */
+export const CONFLICT_DEBOUNCE_MS = 400;
+
 /**
  * RecurrenceTabContent — Dedicated tab for managing recurring event patterns.
  *
@@ -426,7 +429,7 @@ export default function RecurrenceTabContent({
   // AbortController still cancels in-flight requests on unmount/re-trigger.
   useEffect(() => {
     if (!conflictTriggerKey) return;
-    const timer = setTimeout(() => { fetchConflicts(); }, 400);
+    const timer = setTimeout(() => { fetchConflicts(); }, CONFLICT_DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
       if (abortControllerRef.current) abortControllerRef.current.abort();

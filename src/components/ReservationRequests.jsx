@@ -487,6 +487,14 @@ export default function ReservationRequests({ graphToken }) {
         }
       );
 
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === 'SchedulingConflict') {
+          throw new Error(errorData.message || 'Scheduling conflict detected — please resolve conflicts before approving');
+        }
+        throw new Error(errorData.error || errorData.details?.message || 'Event was modified by another user — please close and try again');
+      }
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to approve edit request');
@@ -494,11 +502,12 @@ export default function ReservationRequests({ graphToken }) {
 
       logger.info('Edit request approved:', selectedEditRequest._id);
 
-      // Refresh edit requests
-      await loadEditRequests();
-
-      // Close modal
+      // Close modal FIRST so the user sees immediate feedback
       closeEditRequestModal();
+      showSuccess('Edit request approved and changes applied');
+
+      // Refresh edit requests (non-blocking)
+      loadEditRequests();
 
       // Notify MyReservations and nav badge to refresh
       dispatchRefresh('reservation-requests');
@@ -543,11 +552,12 @@ export default function ReservationRequests({ graphToken }) {
 
       logger.info('Edit request rejected:', selectedEditRequest._id);
 
-      // Refresh edit requests
-      await loadEditRequests();
-
-      // Close modal
+      // Close modal FIRST so the user sees immediate feedback
       closeEditRequestModal();
+      showSuccess('Edit request rejected');
+
+      // Refresh edit requests (non-blocking)
+      loadEditRequests();
 
       // Notify MyReservations and nav badge to refresh
       dispatchRefresh('reservation-requests');
