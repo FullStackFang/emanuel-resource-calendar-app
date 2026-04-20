@@ -28,6 +28,8 @@ const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
+const { batchDelete } = require('./utils/batchDelete');
+const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { extractDatePart } = require('./utils/dateUtils');
@@ -5393,34 +5395,15 @@ function combineNotes(existingNotes, newNotes) {
 }
 
 /**
- * Retry wrapper for Cosmos DB operations that may hit rate limits (429)
- * Implements exponential backoff based on RetryAfterMs from error
+ * Retry wrapper for Cosmos DB operations that may hit rate limits (429).
+ * Delegates to the shared retryWithBackoff utility which provides jitter,
+ * Cosmos RetryAfterMs parsing, and process-level circuit breaker.
  * @param {Function} operation - Async function to execute
  * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
  * @returns {Promise} - Result of the operation
  */
 async function withCosmosRetry(operation, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      // Cosmos DB rate limit error code is 16500
-      if (error.code === 16500 && attempt < maxRetries) {
-        // Parse RetryAfterMs from Cosmos DB error (embedded in errmsg string)
-        let retryAfterMs = attempt * 1000;
-        if (error.retryAfterMs) {
-          retryAfterMs = error.retryAfterMs;
-        } else if (error.errmsg || error.message) {
-          const match = (error.errmsg || error.message).match(/RetryAfterMs=(\d+)/);
-          if (match) retryAfterMs = parseInt(match[1], 10);
-        }
-        logger.warn(`Cosmos DB rate limit hit (attempt ${attempt}/${maxRetries}), retrying in ${retryAfterMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retryAfterMs));
-      } else {
-        throw error;
-      }
-    }
-  }
+  return retryWithBackoff(operation, { maxAttempts: maxRetries });
 }
 
 /**
@@ -10764,44 +10747,30 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
           timestamp: new Date().toISOString()
         }) + '\n\n');
         
-        let processed = 0;
-        while (processed < counts.unifiedEvents) {
-          try {
-            const batchEvents = await unifiedEventsCollection.find(
-              { userId: userId, isCSVImport: true },
-              { projection: { _id: 1, eventId: 1 } }
-            ).limit(BATCH_SIZE).toArray();
-            
-            if (batchEvents.length === 0) break;
-            
-            const batchIds = batchEvents.map(event => event._id);
-            const deleteResult = await unifiedEventsCollection.deleteMany({
-              _id: { $in: batchIds }
-            });
-            
-            totalDeleted.unifiedEvents += deleteResult.deletedCount;
-            totalDeleted.total += deleteResult.deletedCount;
-            processed += batchEvents.length;
-            processedTotal += batchEvents.length;
-            
-            const progress = Math.round((processedTotal / counts.total) * 100);
-            res.write('data: ' + JSON.stringify({
-              type: 'progress',
-              collection: 'unifiedEvents',
-              message: `Deleted ${deleteResult.deletedCount} main events`,
-              processed: processedTotal,
-              totalCount: counts.total,
-              progress: progress,
-              deleted: totalDeleted,
-              timestamp: new Date().toISOString()
-            }) + '\n\n');
-            
-            await new Promise(resolve => setTimeout(resolve, 50));
-          } catch (error) {
-            errors.push({ collection: 'unifiedEvents', error: error.message });
-            logger.error('Error deleting unified events batch:', error);
+        const unifiedResult = await batchDelete(
+          unifiedEventsCollection,
+          { userId: userId, isCSVImport: true },
+          {
+            batchSize: BATCH_SIZE,
+            onProgress: ({ totalDeleted: batchTotal, batchDeleted }) => {
+              totalDeleted.unifiedEvents = batchTotal;
+              totalDeleted.total += batchDeleted;
+              processedTotal += batchDeleted;
+              const progress = counts.total > 0 ? Math.round((processedTotal / counts.total) * 100) : 0;
+              res.write('data: ' + JSON.stringify({
+                type: 'progress',
+                collection: 'unifiedEvents',
+                message: `Deleted ${batchDeleted} main events`,
+                processed: processedTotal,
+                totalCount: counts.total,
+                progress: progress,
+                deleted: totalDeleted,
+                timestamp: new Date().toISOString()
+              }) + '\n\n');
+            },
           }
-        }
+        );
+        errors.push(...unifiedResult.errors.map(e => ({ collection: 'unifiedEvents', ...e })));
       }
       
       // 2. Delete registration events
@@ -10813,44 +10782,30 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
           timestamp: new Date().toISOString()
         }) + '\n\n');
         
-        let processed = 0;
-        while (processed < counts.registrationEvents) {
-          try {
-            const batchEvents = await unifiedEventsCollection.find(
-              { userId: userId, calendarId: 'csv_import_templeregistration' },
-              { projection: { _id: 1 } }
-            ).limit(BATCH_SIZE).toArray();
-            
-            if (batchEvents.length === 0) break;
-            
-            const batchIds = batchEvents.map(event => event._id);
-            const deleteResult = await unifiedEventsCollection.deleteMany({
-              _id: { $in: batchIds }
-            });
-            
-            totalDeleted.registrationEvents += deleteResult.deletedCount;
-            totalDeleted.total += deleteResult.deletedCount;
-            processed += batchEvents.length;
-            processedTotal += batchEvents.length;
-            
-            const progress = Math.round((processedTotal / counts.total) * 100);
-            res.write('data: ' + JSON.stringify({
-              type: 'progress',
-              collection: 'registrationEvents',
-              message: `Deleted ${deleteResult.deletedCount} registration events`,
-              processed: processedTotal,
-              totalCount: counts.total,
-              progress: progress,
-              deleted: totalDeleted,
-              timestamp: new Date().toISOString()
-            }) + '\n\n');
-            
-            await new Promise(resolve => setTimeout(resolve, 50));
-          } catch (error) {
-            errors.push({ collection: 'registrationEvents', error: error.message });
-            logger.error('Error deleting registration events batch:', error);
+        const registrationResult = await batchDelete(
+          unifiedEventsCollection,
+          { userId: userId, calendarId: 'csv_import_templeregistration' },
+          {
+            batchSize: BATCH_SIZE,
+            onProgress: ({ totalDeleted: batchTotal, batchDeleted }) => {
+              totalDeleted.registrationEvents = batchTotal;
+              totalDeleted.total += batchDeleted;
+              processedTotal += batchDeleted;
+              const progress = counts.total > 0 ? Math.round((processedTotal / counts.total) * 100) : 0;
+              res.write('data: ' + JSON.stringify({
+                type: 'progress',
+                collection: 'registrationEvents',
+                message: `Deleted ${batchDeleted} registration events`,
+                processed: processedTotal,
+                totalCount: counts.total,
+                progress: progress,
+                deleted: totalDeleted,
+                timestamp: new Date().toISOString()
+              }) + '\n\n');
+            },
           }
-        }
+        );
+        errors.push(...registrationResult.errors.map(e => ({ collection: 'registrationEvents', ...e })));
       }
       
       // Internal events collection removed - using unifiedEvents instead

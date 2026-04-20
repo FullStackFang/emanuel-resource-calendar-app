@@ -437,9 +437,14 @@ export default function RoomReservationFormBase({
     }
   }, [timeErrors, onTimeErrorsRef]);
 
+  // Keep validateTimes ref current so onValidateRef always returns the latest version
+  // (prevents stale closure bug where mount-time formData is used for validation)
+  const validateTimesRef = useRef(validateTimes);
+  useEffect(() => { validateTimesRef.current = validateTimes; }, [validateTimes]);
+
   useEffect(() => {
     if (onValidateRef) {
-      onValidateRef(() => validateTimes);
+      onValidateRef(() => (...args) => validateTimesRef.current(...args));
     }
   }, [onValidateRef]);
 

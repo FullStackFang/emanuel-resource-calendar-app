@@ -31,6 +31,7 @@ export function useServerEvents({ apiToken, userEmail }) {
   const esRef = useRef(null);           // EventSource instance
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef(null);
+  const stableConnectionTimerRef = useRef(null); // Delays counter reset until connection is stable
   const lastEventIdRef = useRef(null);
   const disabledRef = useRef(false);
   const connectingRef = useRef(false);   // Prevent concurrent connect attempts
@@ -89,7 +90,13 @@ export function useServerEvents({ apiToken, userEmail }) {
         if (!mountedRef.current) return;
         logger.log('[SSE] Connected');
         setIsConnected(true);
-        reconnectAttemptRef.current = 0;
+        // Don't reset reconnect counter immediately — only after connection is
+        // stable for 60s. Prevents reconnect storms when the stream drops
+        // immediately after the connected event (e.g., Azure idle timeout).
+        if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current);
+        stableConnectionTimerRef.current = setTimeout(() => {
+          reconnectAttemptRef.current = 0;
+        }, 60_000);
       });
 
       es.addEventListener('event-changed', (e) => {
@@ -169,6 +176,10 @@ export function useServerEvents({ apiToken, userEmail }) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+    if (stableConnectionTimerRef.current) {
+      clearTimeout(stableConnectionTimerRef.current);
+      stableConnectionTimerRef.current = null;
+    }
   }, []);
 
   const scheduleReconnect = useCallback(() => {
@@ -203,7 +214,15 @@ export function useServerEvents({ apiToken, userEmail }) {
     if (apiToken === lastTokenRef.current) return;
     lastTokenRef.current = apiToken;
 
-    if (apiToken && !disabledRef.current) {
+    // New token = fresh authentication. Reset disabled state so SSE can
+    // recover after transient outages (fixes permanent SSE death after 10 failures).
+    if (apiToken && disabledRef.current) {
+      logger.log('[SSE] New token received — resetting disabled state');
+      disabledRef.current = false;
+      reconnectAttemptRef.current = 0;
+    }
+
+    if (apiToken) {
       connect();
     }
 

@@ -364,6 +364,32 @@ Keep the summary line under 72 chars. Body bullets should cover what changed and
 - Pass data directly to avoid race conditions with async state updates
 - Minimize re-renders with proper useCallback/useMemo usage
 
+### Retry Loop Safety
+
+Any loop that retries on failure must use `retryWithBackoff` from `backend/utils/retryWithBackoff.js` or have an explicit max iteration cap. Error paths in loops must advance the loop state or exit.
+
+```javascript
+// Bad: retries forever on persistent failure
+while (processed < total) {
+  try { await db.deleteMany(...); processed += batch.length; }
+  catch (e) { errors.push(e); } // processed never advances — infinite loop
+}
+
+// Good: shared retry utility with bounded attempts
+const { batchDelete } = require('./utils/batchDelete');
+await batchDelete(collection, query, { batchSize: 100 });
+```
+
+For batch operations, use `batchDelete` from `backend/utils/batchDelete.js` which handles retry, progress callbacks, and bounded failure.
+
+### Common React Mistakes in This Codebase
+
+**Unstable useCallback dependencies**: If a `useCallback` depends on a prop passed as an inline arrow from the parent, it recreates every render. Use a ref to break the chain (see `SchedulingAssistant` `onConflictChange` pattern with `useLayoutEffect` + ref).
+
+**Ref-stored closures go stale**: A function stored in a `useRef` at mount time captures mount-time state in its closure. If the underlying state changes (e.g., `formData`), the ref still holds the old function. Keep refs in sync: `useEffect(() => { ref.current = latestFn }, [latestFn])`.
+
+**setState bailout semantics**: `setState(0)` when state is already `0` bails out (Object.is for primitives). `setState(() => fn)` when storing a function NEVER bails out — function references are never Object.is equal. Know which you are dealing with before classifying a re-render bug.
+
 ### UI Patterns
 
 #### Button Action Standard (ALL Significant Actions)
