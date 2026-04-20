@@ -77,6 +77,14 @@ export function useServerEvents({ apiToken, userEmail }) {
       const es = new EventSource(sseUrl);
       esRef.current = es;
 
+      // Guard: if component unmounted during the async ticket fetch above,
+      // close immediately to prevent an orphaned EventSource holding a TCP socket.
+      if (!mountedRef.current) {
+        es.close();
+        esRef.current = null;
+        return;
+      }
+
       es.addEventListener('connected', () => {
         if (!mountedRef.current) return;
         logger.log('[SSE] Connected');
@@ -144,6 +152,11 @@ export function useServerEvents({ apiToken, userEmail }) {
       scheduleReconnect();
     } finally {
       connectingRef.current = false;
+      // Belt-and-suspenders: if unmounted while connecting, ensure EventSource is closed
+      if (!mountedRef.current && esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
     }
   }, [apiToken, userEmail]); // authFetch removed — accessed via ref
 

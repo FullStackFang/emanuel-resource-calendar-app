@@ -358,9 +358,17 @@ let roomCapabilityTypesCollection; // Configurable room capability definitions
 
 // In-memory progress tracking for location deletion operations
 const locationDeletionProgress = new Map();
+const DELETION_PROGRESS_MAX_SIZE = 100;
+const DELETION_PROGRESS_STALE_MS = 10 * 60 * 1000; // 10 min
 
 // Helper function to track deletion progress
 function setDeletionProgress(locationId, progress) {
+  // Evict oldest entry if at capacity (Map preserves insertion order)
+  if (locationDeletionProgress.size >= DELETION_PROGRESS_MAX_SIZE && !locationDeletionProgress.has(locationId)) {
+    const oldestKey = locationDeletionProgress.keys().next().value;
+    locationDeletionProgress.delete(oldestKey);
+  }
+
   locationDeletionProgress.set(locationId, {
     ...progress,
     lastUpdated: new Date()
@@ -373,6 +381,18 @@ function setDeletionProgress(locationId, progress) {
     }, 5 * 60 * 1000);
   }
 }
+
+// Periodic sweep: evict stalled entries (never reached terminal status) older than 10 min.
+// .unref() allows the process to exit cleanly without waiting for this timer.
+const _deletionProgressSweep = setInterval(() => {
+  const cutoff = Date.now() - DELETION_PROGRESS_STALE_MS;
+  for (const [key, entry] of locationDeletionProgress) {
+    if (entry.lastUpdated && entry.lastUpdated.getTime() < cutoff) {
+      locationDeletionProgress.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+_deletionProgressSweep.unref();
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let categoriesCollection; // Event categories (base + dynamic)
@@ -436,8 +456,10 @@ function invalidateCategoryCache() {
 // ── User cache: 5-min TTL, keyed by userId ──
 // Industry standard (Azure AD/Auth0 accept up to 1 hour).
 // Invalidated immediately on admin write paths for zero-staleness on known mutations.
+// Capped at 500 entries to prevent unbounded memory growth with many distinct users.
 const _userCache = new Map();
 const USER_CACHE_TTL = 5 * 60 * 1000;
+const USER_CACHE_MAX_SIZE = 500;
 
 async function getCachedUser(userId) {
   const now = Date.now();
@@ -447,6 +469,17 @@ async function getCachedUser(userId) {
     _userCache.delete(userId); // evict expired entry
   }
   const user = await usersCollection.findOne({ userId });
+
+  // Evict oldest entries if at capacity (Map preserves insertion order)
+  if (_userCache.size >= USER_CACHE_MAX_SIZE) {
+    const keysToDelete = [];
+    for (const key of _userCache.keys()) {
+      keysToDelete.push(key);
+      if (_userCache.size - keysToDelete.length < USER_CACHE_MAX_SIZE) break;
+    }
+    for (const key of keysToDelete) _userCache.delete(key);
+  }
+
   _userCache.set(userId, { user, expiry: now + USER_CACHE_TTL });
   return user;
 }
@@ -734,6 +767,39 @@ async function createCalendarDeltaIndexes() {
     logger.log('Calendar delta indexes created successfully');
   } catch (error) {
     logger.error('Error creating calendar delta indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for users collection.
+ * Prevents full collection scans on auth lookups (findUserByIdentity).
+ * Test setup already has these (testSetup.js:67-79) but production was missing them.
+ */
+async function createUserIndexes() {
+  try {
+    logger.log('Creating user indexes...');
+
+    // Primary lookup: findOne({ userId }) in auth middleware
+    await usersCollection.createIndex(
+      { userId: 1 },
+      { name: "userId_unique", unique: true, background: true }
+    );
+
+    // Email lookup: findOne({ email }) in user resolution & batch department lookup
+    await usersCollection.createIndex(
+      { email: 1 },
+      { name: "email_lookup", background: true }
+    );
+
+    // Legacy ID lookup: findOne({ odataId }) in identity reconciliation
+    await usersCollection.createIndex(
+      { odataId: 1 },
+      { name: "odataId_lookup", sparse: true, background: true }
+    );
+
+    logger.log('User indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating user indexes:', error);
   }
 }
 
@@ -2962,6 +3028,7 @@ async function connectToDatabase() {
     await Promise.all([
       createUnifiedEventIndexes(),
       createCalendarDeltaIndexes(),
+      createUserIndexes(),
       createEventAuditHistoryIndexes(),
       createEventAttachmentsIndexes(),
       // Room reservation system indexes
@@ -18664,6 +18731,9 @@ app.get('/api/sse/events', (req, res) => {
     return res.status(401).json({ error: 'Invalid or expired ticket' });
   }
 
+  // SSE connections are intentionally long-lived — exempt from server.setTimeout()
+  req.setTimeout(0);
+
   // Set SSE headers — disable compression to avoid buffering
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -18694,8 +18764,11 @@ app.get('/api/sse/events', (req, res) => {
   // Register client
   const client = sseService.addClient(res, user.userId, user.email);
 
-  // Clean up on disconnect
+  // Clean up on disconnect or error (network errors fire 'error' before 'close' on some platforms)
   req.on('close', () => {
+    sseService.removeClient(client);
+  });
+  req.on('error', () => {
     sseService.removeClient(client);
   });
 });
@@ -25383,6 +25456,14 @@ async function startServer() {
     logger.log(`Tenant ID: ${TENANT_ID}`);
     sseService.start();
   });
+
+  // Prevent hung requests from accumulating connections under load.
+  // 2 min covers the slowest legitimate operations (CSV import, Graph API publish).
+  // keepAliveTimeout must exceed Azure Load Balancer idle timeout (60s) to avoid
+  // 502 errors from the LB closing a connection the server still considers alive.
+  server.setTimeout(120_000);
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 }
 
 if (require.main === module) {
