@@ -23378,10 +23378,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Remap calendar fields to calendarData.* using shared builder
     const finalUpdateOperations = remapToCalendarData(updateOperations);
 
-    // Recurrence lives at top level only (not in calendarData)
+    // Recurrence must be kept in sync: top-level (used by Calendar expansion,
+    // conflict detection) AND calendarData (authoritative read source via getEventField).
+    // Copy to top level but keep calendarData.recurrence in the $set so both are updated atomically.
     if (finalUpdateOperations['calendarData.recurrence'] !== undefined) {
       finalUpdateOperations['recurrence'] = finalUpdateOperations['calendarData.recurrence'];
-      delete finalUpdateOperations['calendarData.recurrence'];
     }
 
     // Track approver modifications on pending events for publish notification emails.
