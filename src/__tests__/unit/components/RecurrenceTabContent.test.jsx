@@ -375,7 +375,7 @@ describe('RecurrenceTabContent', () => {
       expect(container.querySelector('.recurrence-tab-right')).not.toBeInTheDocument();
     });
 
-    it('renders plain-text summary when readOnly prop is true even without editScope', () => {
+    it('renders full disabled UI (not compact summary) when readOnly=true and editScope is not thisEvent', () => {
       const { container, queryByTestId } = render(
         <RecurrenceTabContent
           {...defaultProps}
@@ -383,8 +383,62 @@ describe('RecurrenceTabContent', () => {
           readOnly={true}
         />
       );
-      expect(container.querySelector('.recurrence-readonly-summary')).toBeInTheDocument();
-      expect(queryByTestId('mock-datepicker')).not.toBeInTheDocument();
+      // Full UI should be rendered (calendar, occurrence list) — NOT the compact summary
+      expect(container.querySelector('.recurrence-readonly-summary')).not.toBeInTheDocument();
+      expect(queryByTestId('mock-datepicker')).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-tab-management')).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-tab-left')).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-tab-right')).toBeInTheDocument();
+    });
+
+    it('disables all form controls when readOnly=true', () => {
+      const { container } = render(
+        <RecurrenceTabContent
+          {...defaultProps}
+          recurrencePattern={weeklyPattern}
+          readOnly={true}
+        />
+      );
+      // Frequency selector should be disabled
+      const frequencySelect = container.querySelector('.recurrence-editor-frequency');
+      expect(frequencySelect).toBeDisabled();
+      // Interval input should be disabled
+      const intervalInput = container.querySelector('.recurrence-editor-interval');
+      expect(intervalInput).toBeDisabled();
+      // Day-of-week buttons should be disabled
+      const dayButtons = container.querySelectorAll('.recurrence-day-circle');
+      dayButtons.forEach(btn => expect(btn).toBeDisabled());
+    });
+
+    it('hides Create/Remove Recurrence buttons when readOnly=true', () => {
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} readOnly={true} />);
+      expect(screen.queryByRole('button', { name: /remove recurrence/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /create recurrence/i })).not.toBeInTheDocument();
+    });
+
+    it('hides edit pencil icon on occurrence rows when readOnly=true', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} readOnly={true} />
+      );
+      expect(container.querySelector('.recurrence-occ-edit-hint')).not.toBeInTheDocument();
+    });
+
+    it('hides action buttons (Remove/Restore) on occurrence rows when readOnly=true', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} readOnly={true} />
+      );
+      expect(container.querySelector('.recurrence-occ-action--remove')).not.toBeInTheDocument();
+      expect(container.querySelector('.recurrence-occ-action--restore')).not.toBeInTheDocument();
+    });
+
+    it('shows occurrence list with exceptions visible when readOnly=true', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} readOnly={true} />
+      );
+      // Exception rows should be visible
+      expect(container.querySelectorAll('.recurrence-occ-row--added').length).toBe(1);
+      expect(container.querySelectorAll('.recurrence-occ-row--excluded').length).toBe(1);
+      expect(screen.getByText(/Exceptions \(2\)/)).toBeInTheDocument();
     });
 
     it('renders full editable editor when editScope is null and readOnly is false (AC-C3 regression)', () => {
@@ -400,7 +454,7 @@ describe('RecurrenceTabContent', () => {
       expect(queryByTestId('mock-datepicker')).toBeInTheDocument();
     });
 
-    it('summary includes additions/exclusions tail when either is non-empty', () => {
+    it('summary includes additions/exclusions tail when editScope=thisEvent', () => {
       const { container } = render(
         <RecurrenceTabContent
           {...defaultProps}
@@ -412,6 +466,12 @@ describe('RecurrenceTabContent', () => {
       // weeklyPattern has additions=['2026-03-20'], exclusions=['2026-03-23']
       expect(summary.textContent).toMatch(/\+1 added/);
       expect(summary.textContent).toMatch(/1 excluded/);
+    });
+
+    it('shows no-pattern message for readOnly users viewing non-recurring events', () => {
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={null} readOnly={true} />);
+      expect(screen.getByText('This event does not have a recurrence pattern.')).toBeInTheDocument();
+      expect(screen.queryByText(/configure a recurrence pattern/i)).not.toBeInTheDocument();
     });
   });
 });

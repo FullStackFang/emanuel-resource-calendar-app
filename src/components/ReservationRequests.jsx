@@ -208,6 +208,29 @@ export default function ReservationRequests({ graphToken }) {
       if (result?.recurringConflicts?.conflictingOccurrences > 0) {
         const rc = result.recurringConflicts;
         showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+      } else if (result?.editRequestApproved) {
+        showSuccess('Edit request approved and changes applied');
+        // Local patch: prevent stale-reopen showing old pending badge before loadReservations completes
+        if (result.eventId) {
+          setAllReservations(prev => prev.map(r =>
+            String(r._id) === String(result.eventId)
+              ? { ...r, pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'approved' } }
+              : r
+          ));
+        }
+      } else if (result?.editRequestRejected) {
+        showSuccess('Edit request rejected');
+        if (result.eventId) {
+          setAllReservations(prev => prev.map(r =>
+            String(r._id) === String(result.eventId)
+              ? { ...r, pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'rejected' } }
+              : r
+          ));
+        }
+      } else if (result?.cancellationApproved) {
+        showSuccess('Cancellation approved — event deleted');
+      } else if (result?.cancellationRejected) {
+        showSuccess('Cancellation request rejected');
       } else if (result?.duplicated) {
         if (result.failCount > 0) {
           showWarning(`${result.count} of ${result.count + result.failCount} duplicate(s) created — some failed`);

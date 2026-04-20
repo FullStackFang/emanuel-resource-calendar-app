@@ -1313,8 +1313,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      notifySuccess({ editRequestApproved: true });
+      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
       await closeModal(true);
+      notifySuccess({ editRequestApproved: true, eventId });
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error approving edit request:', error);
@@ -1393,8 +1394,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       setEditRequestRejectionReason('');
-      notifySuccess({ editRequestRejected: true });
+      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
       await closeModal(true);
+      notifySuccess({ editRequestRejected: true, eventId });
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error rejecting edit request:', error);

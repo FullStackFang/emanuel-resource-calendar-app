@@ -1164,7 +1164,7 @@ export default function RecurrenceTabContent({
                   {occ.type === 'pattern' && '\u2713'}
                 </span>
 
-                {occ.type !== 'excluded' && (
+                {canEdit && occ.type !== 'excluded' && (
                   <span className="recurrence-occ-edit-hint" title="Edit this occurrence">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -1293,10 +1293,12 @@ export default function RecurrenceTabContent({
   // MAIN RENDER
   // ─────────────────────────────────────────────────────────────
 
-  // Read-only mode for occurrence views: replace the editor with a plain-text
-  // summary. The summary is the ONLY recurrence-tab affordance on 'thisEvent'
-  // scope — edits to the pattern require switching to 'allEvents'.
-  if (!canEdit) {
+  // Occurrence-level view: replace the editor with a plain-text summary.
+  // The summary is the ONLY recurrence-tab affordance on 'thisEvent' scope —
+  // edits to the pattern require switching to 'allEvents'.
+  // NOTE: read-only users (viewer/requester) viewing a series master get the
+  // full disabled UI below, NOT this summary.
+  if (editScope === 'thisEvent') {
     return (
       <div className="recurrence-tab-management recurrence-tab-management--readonly">
         <p className="recurrence-readonly-summary">
@@ -1320,7 +1322,10 @@ export default function RecurrenceTabContent({
           <div className="recurrence-tab-right recurrence-tab-right--empty">
             <div className="recurrence-tab-empty-hint">
               <RecurringIcon size={28} className="recurrence-tab-empty-icon" />
-              <p>Configure a recurrence pattern on the left to get started. Changes save automatically when you click <strong>Save Draft</strong>.</p>
+              <p>{canEdit
+                ? <>Configure a recurrence pattern on the left to get started. Changes save automatically when you click <strong>Save Draft</strong>.</>
+                : 'This event does not have a recurrence pattern.'
+              }</p>
             </div>
           </div>
         )
