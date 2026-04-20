@@ -123,7 +123,12 @@ export default function RecurrencePatternModal({
     // Calculate pattern dates for this check
     const currentPatternDates = startDate ? calculateRecurrenceDates(
       { type: frequency, interval, daysOfWeek },
-      { startDate, endDate: endType === 'endDate' ? endDate : null, type: endType },
+      {
+        startDate,
+        endDate: endType === 'endDate' ? endDate : null,
+        type: endType,
+        numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined,
+      },
       viewMonth
     ) : [];
 
@@ -162,7 +167,12 @@ export default function RecurrencePatternModal({
 
     return calculateRecurrenceDates(
       { type: frequency, interval, daysOfWeek },
-      { startDate, endDate: endType === 'endDate' ? endDate : null, type: endType },
+      {
+        startDate,
+        endDate: endType === 'endDate' ? endDate : null,
+        type: endType,
+        numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined,
+      },
       viewMonth
     );
   };

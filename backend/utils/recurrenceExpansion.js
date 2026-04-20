@@ -82,20 +82,11 @@ function isDateInPattern(date, pattern, startDate) {
  * @returns {Array<{startDateTime: string, endDateTime: string}>} Array of occurrence time windows
  */
 function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd) {
-  const recurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
+  const recurrence = masterEvent.recurrence;
   if (!recurrence?.pattern || !recurrence?.range) return [];
 
   const { pattern, range, exclusions = [] } = recurrence;
   const occurrences = [];
-
-  // Build override lookup from top-level occurrenceOverrides array
-  const overrides = masterEvent.occurrenceOverrides || [];
-  const overrideMap = {};
-  if (Array.isArray(overrides)) {
-    for (const o of overrides) {
-      if (o.occurrenceDate) overrideMap[o.occurrenceDate] = o;
-    }
-  }
 
   const patternStart = new Date(range.startDate + 'T00:00:00');
   const rangeStart = windowStart > patternStart ? windowStart : patternStart;
@@ -146,23 +137,13 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
 
       // Skip excluded dates — don't count them toward numbered limit
       if (!exclusions.includes(dateStr)) {
-        // Apply per-occurrence override times and locations if present.
-        // Use 'in' operator (not ||) to distinguish null (intentionally empty) from absent.
-        // When event time is null (intentionally empty), fall back to reservation time for conflict window.
-        const override = overrideMap[dateStr];
-        const defaultStart = `${dateStr}T${startTimePart}`;
-        const resStart = override?.reservationStartTime ? `${dateStr}T${override.reservationStartTime}` : null;
-        const resEnd = override?.reservationEndTime ? `${dateStr}T${override.reservationEndTime}` : null;
-        const occStartDT = (override && 'startDateTime' in override)
-          ? (override.startDateTime || resStart || defaultStart)
-          : defaultStart;
+        // Per-occurrence overrides are now stored as exception documents (separate DB records).
+        // Dates with exception docs are excluded from expansion by the caller (exceptionDatesByMaster).
+        // Only un-overridden occurrences reach here — use master times directly.
         occurrences.push({
           occurrenceDate: dateStr,
-          startDateTime: occStartDT,
-          endDateTime: (override && 'endDateTime' in override)
-            ? (override.endDateTime || resEnd || occStartDT)
-            : `${dateStr}T${endTimePart}`,
-          ...(override?.locations !== undefined && { locations: override.locations }),
+          startDateTime: `${dateStr}T${startTimePart}`,
+          endDateTime: `${dateStr}T${endTimePart}`,
         });
         count++;
       }

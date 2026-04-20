@@ -158,7 +158,14 @@ async function applyOccurrenceOverride(collection, eventId, existingOverrides, o
 function validateOccurrenceDateInRange(dateKey, recurrence) {
   const recRange = recurrence?.range;
   const additions = recurrence?.additions || [];
-  if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
+  // Addition dates are always valid regardless of range
+  if (additions.includes(dateKey)) return { valid: true };
+  // All range types: reject dates before startDate
+  if (recRange?.startDate && dateKey < recRange.startDate) {
+    return { valid: false, error: 'Occurrence date is before series start date' };
+  }
+  // endDate range: reject dates after endDate
+  if (recRange?.type === 'endDate' && recRange.endDate && dateKey > recRange.endDate) {
     return { valid: false, error: 'Occurrence date is outside series range' };
   }
   return { valid: true };
