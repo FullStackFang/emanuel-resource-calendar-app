@@ -2962,6 +2962,77 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
       }
 
+      // --- thisEvent scope: write per-occurrence exception document and return early ---
+      const editScope = req.body.editScope;
+      const occurrenceDate = req.body.occurrenceDate;
+
+      if (editScope === 'thisEvent') {
+        if (!occurrenceDate) {
+          return res.status(400).json({
+            error: 'MissingOccurrenceDate',
+            message: 'occurrenceDate is required when editScope is thisEvent'
+          });
+        }
+
+        const dateKey = occurrenceDate.split('T')[0];
+
+        let masterDoc;
+        try {
+          masterDoc = await svcResolveSeriesMaster(testCollections.events, event);
+        } catch (err) {
+          if (err.statusCode) {
+            return res.status(err.statusCode).json({ error: err.code, message: err.message });
+          }
+          throw err;
+        }
+
+        // Validate dateKey falls within series range (skip for addition docs)
+        if (event.eventType !== SVC_EVENT_TYPE.ADDITION) {
+          const recurrence = masterDoc.calendarData?.recurrence || masterDoc.recurrence;
+          const recRange = recurrence?.range;
+          const additions = recurrence?.additions || [];
+          if (recRange?.endDate
+            && (dateKey < recRange.startDate || dateKey > recRange.endDate)
+            && !additions.includes(dateKey)) {
+            return res.status(400).json({ error: 'Occurrence date is outside series range' });
+          }
+        }
+
+        const resolvedLocations = await resolveLocationOverride(
+          testCollections.locations, req.body.requestedRooms || req.body.locations
+        );
+        const overrideData = extractOverrideData(req.body, resolvedLocations);
+
+        const existingException = await svcFindExceptionForDate(
+          testCollections.events, masterDoc.eventId, dateKey
+        );
+        let exceptionDoc;
+        try {
+          if (existingException) {
+            exceptionDoc = await svcUpdateExceptionDocument(
+              testCollections.events, existingException, masterDoc, overrideData,
+              { modifiedBy: userEmail }
+            );
+          } else {
+            exceptionDoc = await svcCreateExceptionDocument(
+              testCollections.events, masterDoc, dateKey, overrideData,
+              { createdBy: userEmail, createdByEmail: userEmail }
+            );
+          }
+        } catch (err) {
+          if (err.statusCode) {
+            return res.status(err.statusCode).json({ error: err.code, message: err.message });
+          }
+          throw err;
+        }
+
+        return res.json({
+          message: 'Occurrence updated successfully',
+          reservation: exceptionDoc,
+          _version: exceptionDoc._version,
+        });
+      }
+
       const isResubmitEdit = event.status === 'rejected';
 
       const { _version, eventTitle, startDate, startTime, endDate, endTime, attendeeCount } = req.body;

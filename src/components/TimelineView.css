@@ -1,0 +1,521 @@
+/* ============================================================================
+   TIMELINE VIEW - Emanuel Modern Design System
+   ============================================================================
+   Inline all-locations timeline for "Group by Time" mode.
+   Shows events color-coded by location across responsive day columns.
+   ============================================================================ */
+
+/* ==========================================================================
+   CONTAINER
+   ========================================================================== */
+
+.timeline-view-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+/* ==========================================================================
+   SCROLLABLE GRID
+   ========================================================================== */
+
+.timeline-grid {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+/* ==========================================================================
+   TIME LABELS COLUMN (sticky left)
+   ========================================================================== */
+
+.timeline-time-column {
+  width: 80px;
+  flex-shrink: 0;
+  border-right: 2px solid var(--border-default);
+  background: var(--bg-secondary);
+  position: sticky;
+  left: 0;
+  z-index: 4;
+}
+
+.timeline-time-header {
+  height: 50px;
+  border-bottom: 2px solid var(--border-default);
+  background: var(--bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 11;
+}
+
+.timeline-hour-label {
+  height: 50px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-2) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
+  position: relative;
+  top: -8px;
+}
+
+/* ==========================================================================
+   DAY COLUMNS
+   ========================================================================== */
+
+.timeline-day-column {
+  flex: 1;
+  min-width: 0;
+  border-right: 1px solid var(--border-default);
+  position: relative;
+}
+
+.timeline-day-column:last-child {
+  border-right: none;
+}
+
+/* ==========================================================================
+   DAY HEADERS (sticky top)
+   ========================================================================== */
+
+.timeline-day-header {
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-default);
+  background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+/* ==========================================================================
+   HOUR GRID
+   ========================================================================== */
+
+.timeline-hour-grid {
+  position: relative;
+  /* Height set dynamically via inline style based on visible hour range */
+}
+
+.timeline-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.timeline-hour-line.even {
+  background-color: var(--bg-secondary);
+}
+
+/* Hour line positions set via inline style (dynamic range) */
+
+/* ==========================================================================
+   EVENT BLOCKS
+   ========================================================================== */
+
+.timeline-event-block {
+  position: absolute;
+  border-left: 4px solid;
+  border-radius: 8px;
+  padding: 6px 10px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.15s, transform 0.15s;
+  min-height: 24px;
+  /* Fallback for browsers without color-mix (inline backgroundColor overrides) */
+  background-color: var(--color-primary-500);
+}
+
+.timeline-event-block:hover {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.timeline-event-block:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   EVENT BLOCK TEXT
+   ========================================================================== */
+
+.timeline-event-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+
+.timeline-event-location {
+  font-size: var(--text-xs);
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+  margin-top: 1px;
+}
+
+.timeline-event-time {
+  font-size: var(--text-2xs);
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+.timeline-event-multi-loc {
+  font-size: 8px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0 4px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-top: 1px;
+  line-height: 1.4;
+}
+
+.timeline-event-recurring {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* ==========================================================================
+   COMPACT MODE (short events < 40px)
+   ========================================================================== */
+
+.timeline-event-block.compact {
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timeline-event-block.compact .timeline-event-title {
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+.timeline-event-block.compact .timeline-event-location,
+.timeline-event-block.compact .timeline-event-time,
+.timeline-event-block.compact .timeline-event-multi-loc {
+  display: none;
+}
+
+.timeline-event-block.compact .timeline-event-recurring {
+  position: static;
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   STATUS VARIANTS
+   ========================================================================== */
+
+.timeline-event-block.draft {
+  opacity: 0.75;
+  border-style: dashed;
+  border-color: #9E9E9E;
+}
+
+.timeline-event-block.pending {
+  opacity: 0.9;
+  border-style: dashed;
+  border-color: #F59E0B;
+}
+
+/* ==========================================================================
+   SIDE-BY-SIDE COLUMN LAYOUT
+   ========================================================================== */
+
+.timeline-event-block.has-overlap {
+  /* Tighter padding when sharing column space */
+  padding: 4px 6px;
+}
+
+/* In narrow columns (many overlapping events), hide secondary text */
+.timeline-event-block.has-overlap .timeline-event-time {
+  display: none;
+}
+
+.timeline-event-block.has-overlap .timeline-event-multi-loc {
+  display: none;
+}
+
+/* ==========================================================================
+   CURRENT TIME INDICATOR
+   ========================================================================== */
+
+.timeline-current-time {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--color-error-400);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.timeline-current-time-badge {
+  position: absolute;
+  right: 0;
+  top: -10px;
+  background: var(--color-error-400);
+  color: white;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.3;
+}
+
+/* ==========================================================================
+   ALL-DAY EVENT OVERLAY & BADGE
+   ========================================================================== */
+
+.timeline-all-day-overlay {
+  position: absolute;
+  top: 0;
+  left: var(--space-1);
+  right: var(--space-1);
+  height: 100%;
+  background: rgba(147, 197, 253, 0.1);
+  border: 2px dashed rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-md);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.timeline-all-day-badge {
+  position: absolute;
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: var(--text-inverse);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-xl);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+  transition: var(--transition-all);
+  white-space: nowrap;
+}
+
+.timeline-all-day-badge:hover {
+  background: rgba(59, 130, 246, 1);
+  box-shadow: var(--shadow-md);
+  transform: translateX(-50%) scale(1.05);
+}
+
+/* ==========================================================================
+   ALL-DAY EVENT LIST MODAL
+   ========================================================================== */
+
+.timeline-all-day-list-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: calc(var(--z-max) + 2);
+  padding: var(--space-5);
+}
+
+.timeline-all-day-list {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 500px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.timeline-all-day-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.timeline-all-day-list-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.timeline-all-day-list-close {
+  background: none;
+  border: none;
+  font-size: var(--text-2xl);
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+.timeline-all-day-list-close:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.timeline-all-day-list-content {
+  padding: var(--space-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.timeline-all-day-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.timeline-all-day-list-item:hover {
+  background-color: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.timeline-all-day-list-item:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+.timeline-all-day-list-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.timeline-all-day-list-item-title {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.timeline-all-day-list-item-location {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   TOOLTIP (cursor-following)
+   ========================================================================== */
+
+.timeline-tooltip {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 160px;
+  max-width: 300px;
+  font-size: var(--text-sm);
+}
+
+.timeline-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.timeline-tooltip-time {
+  opacity: 0.8;
+  font-size: var(--text-xs);
+}
+
+.timeline-tooltip-location {
+  opacity: 0.7;
+  font-size: var(--text-xs);
+  margin-top: 2px;
+}
+
+.timeline-tooltip-multi {
+  opacity: 0.6;
+  font-size: var(--text-2xs);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .timeline-time-column {
+    width: 60px;
+  }
+
+  .timeline-day-column {
+    min-width: 0;
+  }
+
+  .timeline-day-header {
+    height: 40px;
+    font-size: var(--text-xs);
+  }
+
+  .timeline-time-header {
+    height: 40px;
+  }
+
+  .timeline-event-title {
+    font-size: var(--text-xs);
+  }
+
+  .timeline-event-location {
+    font-size: var(--text-2xs);
+  }
+}

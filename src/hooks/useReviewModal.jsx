@@ -1112,7 +1112,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
     setIsSavingOwnerEdit(true);
     try {
-      const payload = buildOwnerEditPayload(formData, { eventVersion });
+      const payload = buildOwnerEditPayload(formData, {
+        eventVersion,
+        editScope,
+        occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : undefined,
+        seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : undefined,
+      });
 
       const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/room-reservations/${currentItem._id}/edit`,
@@ -1160,7 +1165,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSavingOwnerEdit(false);
     }
-  }, [currentItem, authFetch, eventVersion, editableData, notifySuccess, onError, closeModal, getFormData]);
+  }, [currentItem, authFetch, eventVersion, editableData, editScope, notifySuccess, onError, closeModal, getFormData]);
 
   /**
    * Submit an edit request for a published event (owner-only).

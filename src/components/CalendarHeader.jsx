@@ -113,6 +113,7 @@ const CalendarHeader = ({
   onViewChange,
   onDateChange,
   onNavigate,
+  hideViewSelector = false,
 
   // Settings
   timezone,
@@ -215,26 +216,28 @@ const CalendarHeader = ({
             />
           </div>
 
-          <div className="view-selector">
-            <button
-              className={viewType === 'day' ? 'active' : ''}
-              onClick={() => onViewChange('day')}
-            >
-              Day
-            </button>
-            <button
-              className={viewType === 'week' ? 'active' : ''}
-              onClick={() => onViewChange('week')}
-            >
-              Week
-            </button>
-            <button
-              className={viewType === 'month' ? 'active' : ''}
-              onClick={() => onViewChange('month')}
-            >
-              Month
-            </button>
-          </div>
+          {!hideViewSelector && (
+            <div className="view-selector">
+              <button
+                className={viewType === 'day' ? 'active' : ''}
+                onClick={() => onViewChange('day')}
+              >
+                Day
+              </button>
+              <button
+                className={viewType === 'week' ? 'active' : ''}
+                onClick={() => onViewChange('week')}
+              >
+                Week
+              </button>
+              <button
+                className={viewType === 'month' ? 'active' : ''}
+                onClick={() => onViewChange('month')}
+              >
+                Month
+              </button>
+            </div>
+          )}
         </div>
 
         {/* BOTTOM ROW - Settings and Grouping (Admin only) */}

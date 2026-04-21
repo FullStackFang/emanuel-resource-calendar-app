@@ -12,6 +12,7 @@
   import MonthView from './MonthView';
   import WeekView from './WeekView';
   import DayView from './DayView';
+  import TimelineView from './TimelineView';
   import RegistrationTimesToggle from './RegistrationTimesToggle';
   import WeekTimelineModal from './WeekTimelineModal';
   import DayTimelineModal from './DayTimelineModal';
@@ -319,7 +320,12 @@ import ConflictDialog from './shared/ConflictDialog';
       let start = new Date(currentDate);
       let end;
 
-      if (viewType === 'week') {
+      if (groupBy === 'time') {
+        // Timeline mode: fixed 3-day view
+        end = new Date(start);
+        end.setDate(end.getDate() + 2);
+        end.setHours(23, 59, 59, 999);
+      } else if (viewType === 'week') {
         start = snapToStartOfWeek(currentDate, userPermissions.startOfWeek);
         end = calculateEndDate(start, 'week');
       } else if (viewType === 'month') {
@@ -350,7 +356,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
 
       return { start, end };
-    }, [currentDate, viewType, userPermissions.startOfWeek]);
+    }, [currentDate, viewType, groupBy, userPermissions.startOfWeek]);
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1020,18 +1026,29 @@ import ConflictDialog from './shared/ConflictDialog';
                     >
                       Group by Location
                     </button>
+                    <button
+                      className={`group-by-btn ${groupBy === 'time' ? 'active' : ''}`}
+                      onClick={() => {
+                        setGroupBy('time');
+                        updateUserProfilePreferences({ defaultGroupBy: 'time' });
+                      }}
+                    >
+                      Group by Time
+                    </button>
                   </div>
-                  <button
-                    className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
-                    title="Hides groups without events (pinned groups always stay visible)"
-                    onClick={() => {
-                      const next = !hideEmptyGroups;
-                      setHideEmptyGroups(next);
-                      updateUserProfilePreferences({ hideEmptyGroups: next });
-                    }}
-                  >
-                    Hide Empty
-                  </button>
+                  {groupBy !== 'time' && (
+                    <button
+                      className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
+                      title="Hides groups without events (pinned groups always stay visible)"
+                      onClick={() => {
+                        const next = !hideEmptyGroups;
+                        setHideEmptyGroups(next);
+                        updateUserProfilePreferences({ hideEmptyGroups: next });
+                      }}
+                    >
+                      Hide Empty
+                    </button>
+                  )}
                 </>
               )}
               {renderFilterControls()}
@@ -3784,7 +3801,12 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleToday = useCallback(() => {
       const today = new Date();
       // Check if already showing today based on view type
-      if (viewType === 'month') {
+      if (groupBy === 'time') {
+        // Timeline mode: skip if today is within the 3-day window
+        if (today >= dateRange.start && today <= dateRange.end) {
+          return;
+        }
+      } else if (viewType === 'month') {
         // Month view: skip if already on current month
         if (currentDate.getMonth() === today.getMonth() &&
             currentDate.getFullYear() === today.getFullYear()) {
@@ -3805,7 +3827,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
       startNavigation();
       setCurrentDate(today);
-    }, [startNavigation, currentDate, viewType, dateRange]);
+    }, [startNavigation, currentDate, viewType, groupBy, dateRange]);
 
     /**
      * Navigate to the next time period
@@ -3814,20 +3836,24 @@ import ConflictDialog from './shared/ConflictDialog';
       startNavigation();
       let newDate = new Date(currentDate);
 
-      switch(viewType) {
-        case 'day':
-          newDate.setDate(newDate.getDate() + 1);
-          break;
-        case 'week':
-          newDate.setDate(newDate.getDate() + 7);
-          break;
-        case 'month':
-          newDate.setMonth(newDate.getMonth() + 1);
-          break;
+      if (groupBy === 'time') {
+        newDate.setDate(newDate.getDate() + 1); // Advance 1 day for context preservation
+      } else {
+        switch(viewType) {
+          case 'day':
+            newDate.setDate(newDate.getDate() + 1);
+            break;
+          case 'week':
+            newDate.setDate(newDate.getDate() + 7);
+            break;
+          case 'month':
+            newDate.setMonth(newDate.getMonth() + 1);
+            break;
+        }
       }
 
       setCurrentDate(newDate);
-    }, [viewType, currentDate, startNavigation]);
+    }, [viewType, groupBy, currentDate, startNavigation]);
 
     /**
      * Navigate to the previous time period
@@ -3836,20 +3862,24 @@ import ConflictDialog from './shared/ConflictDialog';
       startNavigation();
       let newDate = new Date(currentDate);
 
-      switch(viewType) {
-        case 'day':
-          newDate.setDate(newDate.getDate() - 1);
-          break;
-        case 'week':
-          newDate.setDate(newDate.getDate() - 7);
-          break;
-        case 'month':
-          newDate.setMonth(newDate.getMonth() - 1);
-          break;
+      if (groupBy === 'time') {
+        newDate.setDate(newDate.getDate() - 1); // Retreat 1 day for context preservation
+      } else {
+        switch(viewType) {
+          case 'day':
+            newDate.setDate(newDate.getDate() - 1);
+            break;
+          case 'week':
+            newDate.setDate(newDate.getDate() - 7);
+            break;
+          case 'month':
+            newDate.setMonth(newDate.getMonth() - 1);
+            break;
+        }
       }
 
       setCurrentDate(newDate);
-    }, [viewType, currentDate, startNavigation]);
+    }, [viewType, groupBy, currentDate, startNavigation]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) return;
@@ -5246,6 +5276,7 @@ import ConflictDialog from './shared/ConflictDialog';
           viewType={viewType}
           currentDate={currentDate}
           dateRange={dateRange}
+          hideViewSelector={groupBy === 'time'}
           onViewChange={(newView) => {
             handleViewChange(newView);
             updateUserProfilePreferences({ defaultView: newView });
@@ -5374,7 +5405,17 @@ import ConflictDialog from './shared/ConflictDialog';
                         width: '100%'
                       }}
                     >
-                      {viewType === 'week' ? (
+                      {groupBy === 'time' ? (
+                        <TimelineView
+                          days={getDaysInRange()}
+                          events={filteredEvents}
+                          getLocationColor={getLocationColor}
+                          generalLocations={generalLocations}
+                          handleEventClick={handleEventClick}
+                          isUnspecifiedLocation={isUnspecifiedLocation}
+                          formatDateHeader={formatDateHeader}
+                        />
+                      ) : viewType === 'week' ? (
                         <WeekView
                           groupBy={groupBy}
                           outlookCategories={outlookCategories}

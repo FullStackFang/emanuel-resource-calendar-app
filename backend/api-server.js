@@ -15507,6 +15507,78 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
     }
 
+    // --- thisEvent scope: write per-occurrence exception document and return early ---
+    // This mirrors the admin save endpoint (PUT /api/admin/events/:id) logic so that
+    // requester edits on a single occurrence create an exception document instead of
+    // modifying the series master (which would affect all occurrences).
+    const editScope = req.body.editScope;
+    const occurrenceDate = req.body.occurrenceDate;
+
+    if (editScope === 'thisEvent') {
+      if (!occurrenceDate) {
+        return res.status(400).json({
+          error: 'MissingOccurrenceDate',
+          message: 'occurrenceDate is required when editScope is thisEvent'
+        });
+      }
+
+      const dateKey = occurrenceDate.split('T')[0];
+
+      // Resolve to master: if loaded event is itself an exception/addition, fetch
+      // its parent master so createExceptionDocument/updateExceptionDocument always
+      // receive the real master (prevents seriesMasterEventId corruption on re-edit).
+      let masterDoc;
+      try {
+        masterDoc = await resolveSeriesMaster(unifiedEventsCollection, event);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      // Validate dateKey falls within series range — skip for addition docs.
+      if (event.eventType !== EVENT_TYPE.ADDITION) {
+        const recurrence = masterDoc.calendarData?.recurrence || masterDoc.recurrence;
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
+      }
+
+      // Resolve locations and build override data via shared helpers
+      const resolvedLocations = await resolveLocationOverride(locationsCollection, req.body.requestedRooms || req.body.locations);
+      const overrideData = extractOverrideData(req.body, resolvedLocations);
+
+      // Create or update exception document. Key off masterDoc.eventId, never event.eventId.
+      const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
+      let exceptionDoc;
+      try {
+        if (existingException) {
+          exceptionDoc = await updateExceptionDocument(
+            unifiedEventsCollection, existingException, masterDoc, overrideData,
+            { modifiedBy: userEmail }
+          );
+        } else {
+          exceptionDoc = await createExceptionDocument(
+            unifiedEventsCollection, masterDoc, dateKey, overrideData,
+            { createdBy: userId, createdByEmail: userEmail }
+          );
+        }
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      return res.json({
+        message: 'Occurrence updated successfully',
+        reservation: exceptionDoc,
+        _version: exceptionDoc._version
+      });
+    }
+
     const isResubmitEdit = event.status === 'rejected';
 
     const {

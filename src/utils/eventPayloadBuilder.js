@@ -206,9 +206,12 @@ export function buildDraftPayload(data) {
  * @param {Object} data - Form data (from getFormData or editableData)
  * @param {Object} options
  * @param {number|null} options.eventVersion - OCC version for conditionalUpdate
+ * @param {string} [options.editScope] - 'thisEvent' | 'allEvents' (for recurring occurrence edits)
+ * @param {string} [options.occurrenceDate] - ISO date (YYYY-MM-DD) of the targeted occurrence
+ * @param {string} [options.seriesMasterId] - Series master ID for recurring events
  * @returns {Object} owner edit API payload
  */
-export function buildOwnerEditPayload(data, { eventVersion } = {}) {
+export function buildOwnerEditPayload(data, { eventVersion, editScope, occurrenceDate, seriesMasterId } = {}) {
   const effectiveStartTime = data.startTime || data.reservationStartTime;
   const effectiveEndTime = data.endTime || data.reservationEndTime;
 
@@ -270,6 +273,10 @@ export function buildOwnerEditPayload(data, { eventVersion } = {}) {
     offsiteAddress: data.offsiteAddress || '',
     offsiteLat: data.offsiteLat || null,
     offsiteLon: data.offsiteLon || null,
+    // Recurring event occurrence scope (for exception-as-document architecture)
+    editScope: editScope || undefined,
+    occurrenceDate: occurrenceDate || undefined,
+    seriesMasterId: seriesMasterId || undefined,
   };
 }
 
