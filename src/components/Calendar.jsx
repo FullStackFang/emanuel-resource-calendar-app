@@ -221,7 +221,7 @@ import ConflictDialog from './shared/ConflictDialog';
           newEvents.forEach(event => {
             const cats = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
               ? event.categories
-              : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
+              : (event.calendarData?.categories || event.categories || (event.category ? [event.category] : ['Uncategorized']));
             const primaryCategory = (cats && cats[0]) || 'Uncategorized';
             const location = event.location?.displayName || 'Unspecified';
             categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
@@ -1194,10 +1194,7 @@ import ConflictDialog from './shared/ConflictDialog';
         if (event.categories && Array.isArray(event.categories) && event.categories.length > 0) {
           return event.categories;
         }
-        // Check graphData.categories (legacy fallback)
-        if (event.graphData?.categories && Array.isArray(event.graphData.categories) && event.graphData.categories.length > 0) {
-          return event.graphData.categories;
-        }
+        // graphData.categories fallback removed — frontend reads top-level fields only
         // Check legacy singular category field
         if (event.category && event.category.trim() !== '' && event.category !== 'Uncategorized') {
           return [event.category];
@@ -4044,7 +4041,7 @@ import ConflictDialog from './shared/ConflictDialog';
       const matchesCategory = (event) => {
         const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
           ? event.categories
-          : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
+          : (event.calendarData?.categories || event.categories || (event.category ? [event.category] : ['Uncategorized']));
         return (categories[0] || 'Uncategorized') === categoryName;
       };
 
@@ -4646,166 +4643,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     };
 
-    /**
-     * Batch create multiple events efficiently using the batch API endpoint
-     * @param {Array} eventsData - Array of event data objects (same format as handleSaveApiEvent)
-     * @param {Function} onProgress - Optional callback for progress updates (current, total)
-     * @returns {Object} { successCount, failCount, results }
-     */
-    const handleBatchCreateEvents = async (eventsData, onProgress = null) => {
-      try {
-        if (!eventsData || eventsData.length === 0) {
-          return { successCount: 0, failCount: 0, results: [] };
-        }
-
-        logger.debug(`[handleBatchCreateEvents] Creating ${eventsData.length} events in batches of 5`);
-
-        // Validate that API token is available
-        if (!apiToken) {
-          throw new Error('API token not available');
-        }
-
-        // Get target calendar ID (same logic as handleSaveApiEvent)
-        let targetCalendarId = selectedCalendarId;
-        if (!targetCalendarId) {
-          const writableCalendars = availableCalendars.filter(cal =>
-            cal.canEdit !== false &&
-            !cal.name?.toLowerCase().includes('birthday') &&
-            !cal.name?.toLowerCase().includes('holiday') &&
-            !cal.name?.toLowerCase().includes('vacation')
-          );
-
-          const preferredCalendar = writableCalendars.find(cal =>
-            cal.name?.toLowerCase().includes('temple events') ||
-            cal.name?.toLowerCase() === 'calendar'
-          ) || writableCalendars[0];
-
-          targetCalendarId = preferredCalendar?.id;
-        }
-
-        if (!targetCalendarId) {
-          throw new Error('No writable calendar available for event creation');
-        }
-
-        // Split events into batches of 5
-        const batchSize = 5;
-        const batches = [];
-        for (let i = 0; i < eventsData.length; i += batchSize) {
-          batches.push(eventsData.slice(i, i + batchSize));
-        }
-
-        logger.debug(`[handleBatchCreateEvents] Split into ${batches.length} batches`);
-
-        let allResults = [];
-        let totalSuccessCount = 0;
-        let totalFailCount = 0;
-
-        // Process each batch
-        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-          const batch = batches[batchIndex];
-
-          logger.debug(`[handleBatchCreateEvents] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} events`);
-
-          // Format events for batch API
-          const formattedEvents = batch.map(data => {
-            // Prepare graph fields
-            const graphFields = {
-              subject: data.subject,
-              start: data.start,
-              end: data.end,
-              location: data.location,
-              locations: data.locations, // Array of separate location objects for Graph API
-              categories: data.categories || [],
-              isAllDay: data.isAllDay || false,
-              body: data.body || { contentType: 'text', content: '' }
-            };
-
-            // Prepare internal fields
-            const internalFields = {
-              locations: data.locationIds || [], // Room IDs for internal storage
-              setupMinutes: data.setupMinutes || 0,
-              teardownMinutes: data.teardownMinutes || 0,
-              setupTime: data.setupTime || '',
-              teardownTime: data.teardownTime || '',
-              reservationStartTime: data.reservationStartTime || '',
-              reservationEndTime: data.reservationEndTime || '',
-              doorOpenTime: data.doorOpenTime || '',
-              doorCloseTime: data.doorCloseTime || '',
-              setupNotes: data.setupNotes || '',
-              doorNotes: data.doorNotes || '',
-              eventNotes: data.eventNotes || '',
-              registrationNotes: data.registrationNotes || '',
-              assignedTo: data.assignedTo || '',
-              eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
-              seriesLength: data.seriesLength || null,
-              seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null,
-              // Offsite location fields
-              isOffsite: data.isOffsite || false,
-              offsiteName: data.offsiteName || '',
-              offsiteAddress: data.offsiteAddress || '',
-              offsiteLat: data.offsiteLat || null,
-              offsiteLon: data.offsiteLon || null
-            };
-
-            return {
-              graphFields,
-              internalFields,
-              calendarId: targetCalendarId
-            };
-          });
-
-          // Call batch API
-          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/batch`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiToken}`,
-              'x-graph-token': graphToken,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ events: formattedEvents })
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(`Batch ${batchIndex + 1} failed:`, errorText);
-            // Mark all events in this batch as failed
-            totalFailCount += batch.length;
-            allResults.push(...batch.map((_, idx) => ({
-              index: batchIndex * batchSize + idx,
-              success: false,
-              error: `Batch API call failed: ${response.status}`
-            })));
-            continue;
-          }
-
-          const result = await response.json();
-          logger.debug(`Batch ${batchIndex + 1} result:`, result);
-
-          totalSuccessCount += result.successCount || 0;
-          totalFailCount += result.failCount || 0;
-          allResults.push(...result.results);
-
-          // Report progress
-          if (onProgress) {
-            const currentProgress = Math.min((batchIndex + 1) * batchSize, eventsData.length);
-            onProgress(currentProgress, eventsData.length);
-          }
-        }
-
-        logger.debug(`[handleBatchCreateEvents] Complete: ${totalSuccessCount} succeeded, ${totalFailCount} failed`);
-
-        return {
-          successCount: totalSuccessCount,
-          failCount: totalFailCount,
-          results: allResults
-        };
-
-      } catch (error) {
-        logger.error('[handleBatchCreateEvents] Error:', error);
-        throw error;
-      }
-    };
-
+    // REMOVED: handleBatchCreateEvents — dead code, never called (architecture review 2026-04-20)
     /**
      * Called by EventForm or EventSearch when the user hits "Save"
      * @param {Object} data - The payload from EventForm.handleSubmit
