@@ -143,6 +143,7 @@
 /* Inline tab layout: 3 columns when space allows */
 .services-content-inline .services-sections {
   grid-template-columns: repeat(3, 1fr);
+  align-items: start;
 }
 
 @media (max-width: 1100px) {
@@ -716,6 +717,54 @@
   .services-section-content {
     padding: var(--space-3);
   }
+}
+
+/* ==========================================================================
+   INLINE TAB — COMPACT SPACING OVERRIDES
+   Tighter padding/gaps for the always-expanded tab layout so cards are
+   shorter and the height differential between rows is less dramatic.
+   Modal layout is unaffected (these are scoped to .services-content-inline).
+   ========================================================================== */
+
+.services-content-inline .services-section-content {
+  padding: var(--space-3);          /* 16px -> 12px */
+  gap: var(--space-3);              /* 16px -> 12px */
+}
+
+.services-content-inline .services-section-header {
+  padding: var(--space-2) var(--space-3);  /* 12px 16px -> 8px 12px */
+}
+
+.services-content-inline .services-checkbox-item {
+  padding: var(--space-2);          /* 12px -> 8px */
+  gap: var(--space-2);              /* 12px -> 8px */
+}
+
+.services-content-inline .services-field {
+  gap: var(--space-1);              /* 8px -> 4px */
+}
+
+.services-content-inline .services-checkbox {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+}
+
+.services-content-inline .services-checkbox-label {
+  font-size: var(--text-xs);        /* 14px -> 12px */
+}
+
+.services-content-inline .services-options-grid {
+  gap: var(--space-1);              /* 8px -> 4px */
+}
+
+.services-content-inline .services-options-row {
+  gap: var(--space-1);              /* 8px -> 4px */
+}
+
+.services-content-inline .services-option-btn {
+  padding: var(--space-1) var(--space-3);  /* 8px 16px -> 4px 12px */
+  font-size: var(--text-xs);               /* 14px -> 12px */
 }
 
 /* ==========================================================================

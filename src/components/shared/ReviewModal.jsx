@@ -252,21 +252,14 @@ export default function ReviewModal({
   };
   // Tab state - reset to 'details' whenever modal opens
   const [activeTab, setActiveTab] = useState('details');
-  // Track whether Event Details date/time fields are complete (gates other tabs)
-  // Default true to avoid flash on existing events; FormBase is the sole authority
-  // and will override via onDetailsCompleteChange callback after mount
-  const [areDetailsComplete, setAreDetailsComplete] = useState(true);
   useEffect(() => {
     if (isOpen) {
       setActiveTab('details');
-      // Note: do NOT reset areDetailsComplete here — React runs parent effects
-      // AFTER child effects, so this would clobber FormBase's onDetailsCompleteChange(false)
     }
   }, [isOpen]);
 
   const recurrenceTabTitle = isRecurrenceTabDisabled
     ? 'Recurrence pattern is defined on the series master'
-    : !areDetailsComplete ? 'Fill in event dates and times first'
     : undefined;
 
   // Local confirmation state for buttons without external confirmation management.
@@ -950,16 +943,14 @@ export default function ReviewModal({
               Event Details
             </div>
             <div
-              className={`event-type-tab ${activeTab === 'additional' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
-              onClick={() => areDetailsComplete && setActiveTab('additional')}
-              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+              className={`event-type-tab ${activeTab === 'additional' ? 'active' : ''}`}
+              onClick={() => setActiveTab('additional')}
             >
               Additional Info
             </div>
             <div
-              className={`event-type-tab ${activeTab === 'services' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
-              onClick={() => areDetailsComplete && setActiveTab('services')}
-              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+              className={`event-type-tab ${activeTab === 'services' ? 'active' : ''}`}
+              onClick={() => setActiveTab('services')}
             >
               Services
               {hasServices && <span className="tab-active-dot" />}
@@ -967,8 +958,8 @@ export default function ReviewModal({
             {/* Recurrence tab — visible when recurrence exists OR user can create one */}
             {(hasRecurrence || canEditRecurrence) && (
               <div
-                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''} ${(!areDetailsComplete || isRecurrenceTabDisabled) ? 'disabled' : ''}`}
-                onClick={() => areDetailsComplete && !isRecurrenceTabDisabled && setActiveTab('recurrence')}
+                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''} ${isRecurrenceTabDisabled ? 'disabled' : ''}`}
+                onClick={() => !isRecurrenceTabDisabled && setActiveTab('recurrence')}
                 title={recurrenceTabTitle}
               >
                 Recurrence
@@ -976,17 +967,15 @@ export default function ReviewModal({
               </div>
             )}
             <div
-              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
-              onClick={() => areDetailsComplete && setActiveTab('attachments')}
-              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
+              onClick={() => setActiveTab('attachments')}
             >
               {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
             </div>
             {!isRequesterOnly && (
               <div
-                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
-                onClick={() => areDetailsComplete && setActiveTab('history')}
-                title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
+                onClick={() => setActiveTab('history')}
               >
                 {historyCount > 0 ? `History (${historyCount})` : 'History'}
               </div>
@@ -1021,7 +1010,7 @@ export default function ReviewModal({
               )}
 
               {React.isValidElement(children)
-                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onServicesExist: setHasServices, onHasUncommittedRecurrence, createRecurrenceRef, onDetailsCompleteChange: setAreDetailsComplete })
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onServicesExist: setHasServices, onHasUncommittedRecurrence, createRecurrenceRef })
                 : children
               }
             </div>

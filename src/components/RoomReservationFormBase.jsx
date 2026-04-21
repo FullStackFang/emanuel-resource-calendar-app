@@ -1441,13 +1441,8 @@ export default function RoomReservationFormBase({
               )}
             </div>
 
-            {/* Categories & Services Summaries - Stacked */}
-            {(selectedCategories.length > 0 || haveCategoriesChanged() || (Object.keys(selectedServices).length > 0 &&
-             Object.values(selectedServices).some(v =>
-               (Array.isArray(v) && v.length > 0) ||
-               (typeof v === 'string' && v !== '') ||
-               (typeof v === 'boolean')
-             )) || haveServicesChanged()) && (
+            {/* Categories Summary */}
+            {(selectedCategories.length > 0 || haveCategoriesChanged()) && (
               <div className="categories-services-summary-container">
                 {/* Category Summary with Diff - inline format like locations */}
                 {(selectedCategories.length > 0 || haveCategoriesChanged()) && (
@@ -1483,99 +1478,6 @@ export default function RoomReservationFormBase({
                   </div>
                 )}
 
-                {/* Services Summary with Diff - inline format like locations */}
-                {((Object.keys(selectedServices).length > 0 &&
-                 Object.values(selectedServices).some(v =>
-                   (Array.isArray(v) && v.length > 0) ||
-                   (typeof v === 'string' && v !== '') ||
-                   (typeof v === 'boolean')
-                 )) || haveServicesChanged()) && (
-                  <div className={`services-summary-display ${haveServicesChanged() ? 'summary-changed' : ''}`}>
-                    <div className="services-summary-content">
-                      <span className="services-summary-icon">🛎️</span>
-                      {haveServicesChanged() ? (
-                        <div className="inline-diff">
-                          <span className="diff-label">Services:</span>
-                          <span className="diff-old">Modified</span>
-                          <span className="diff-arrow">→</span>
-                          <span className="diff-new">
-                            {(() => {
-                              const summaryParts = [];
-                              if (selectedServices.seatingArrangement) {
-                                summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
-                              }
-                              if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
-                                summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
-                              }
-                              if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
-                                const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
-                                summaryParts.push(`Beverages: ${beverageCount}`);
-                              }
-                              if (selectedServices.avEquipment?.length > 0) {
-                                summaryParts.push(`A/V: ${selectedServices.avEquipment.length}`);
-                              }
-                              if (selectedServices.photographer === true || selectedServices.videographer === true) {
-                                const photoVideo = [];
-                                if (selectedServices.photographer === true) photoVideo.push('Photo');
-                                if (selectedServices.videographer === true) photoVideo.push('Video');
-                                summaryParts.push(photoVideo.join('+'));
-                              }
-                              return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Configured';
-                            })()}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="services-summary-text">
-                          {(() => {
-                            const summaryParts = [];
-                            if (selectedServices.seatingArrangement) {
-                              summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
-                            }
-                            if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
-                              summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
-                            }
-                            if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
-                              const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
-                              summaryParts.push(`Beverages: ${beverageCount} selected`);
-                            }
-                            if (selectedServices.avEquipment?.length > 0) {
-                              summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
-                            }
-                            if (selectedServices.photographer === true || selectedServices.videographer === true) {
-                              const photoVideo = [];
-                              if (selectedServices.photographer === true) photoVideo.push('Photo');
-                              if (selectedServices.videographer === true) photoVideo.push('Video');
-                              summaryParts.push(photoVideo.join(' + '));
-                            }
-                            return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
-                          })()}
-                        </span>
-                      )}
-                    </div>
-                    <div className="services-summary-actions">
-                      {setActiveTab && !showAllTabs && (
-                        <button
-                          type="button"
-                          className="services-clear-btn"
-                          onClick={() => setActiveTab('services')}
-                        >
-                          View
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="services-clear-btn"
-                        onClick={() => {
-                          setSelectedServices({});
-                          setHasChanges(true);
-                        }}
-                        disabled={fieldsDisabled}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
