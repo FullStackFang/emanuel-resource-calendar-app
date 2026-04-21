@@ -4,4 +4,4 @@
 # Creates a session-scoped cache in .claude/.cache/<session_id>/.
 set -e
 cd "$CLAUDE_PROJECT_DIR/.claude/hooks"
-cat | node post-tool-use-tracker.js
+cat | node post-tool-use-tracker.cjs

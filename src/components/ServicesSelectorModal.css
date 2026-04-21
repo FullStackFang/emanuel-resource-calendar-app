@@ -671,3 +671,21 @@
     padding: var(--space-3);
   }
 }
+
+/* ==========================================================================
+   READ-ONLY STATE
+   ========================================================================== */
+
+.services-modal--readonly .services-option-btn,
+.services-modal--readonly .services-checkbox-item,
+.services-modal--readonly .services-yn-btn,
+.services-modal--readonly .services-none-btn {
+  cursor: default;
+  pointer-events: none;
+}
+
+.services-modal--readonly .services-text-input,
+.services-modal--readonly .services-notes-textarea {
+  cursor: default;
+  background: var(--bg-secondary);
+}

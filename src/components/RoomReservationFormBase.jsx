@@ -1383,7 +1383,7 @@ export default function RoomReservationFormBase({
                   type="button"
                   className={`all-day-toggle ${Object.keys(selectedServices).length > 0 ? 'active' : ''}`}
                   onClick={() => setShowServicesModal(true)}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled && Object.keys(selectedServices).length === 0}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
                   {Object.keys(selectedServices).length > 0 ? '🛎️ Services' : '🛎️ Services'}
@@ -2385,6 +2385,7 @@ export default function RoomReservationFormBase({
           }
         }}
         initialServices={selectedServices}
+        readOnly={fieldsDisabled}
       />
     </div>
   );

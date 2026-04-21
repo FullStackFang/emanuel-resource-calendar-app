@@ -140,7 +140,8 @@ export default function ServicesSelectorModal({
   isOpen,
   onClose,
   onSave,
-  initialServices = {}
+  initialServices = {},
+  readOnly = false
 }) {
   const [services, setServices] = useState({});
   const [expandedSections, setExpandedSections] = useState({
@@ -195,6 +196,7 @@ export default function ServicesSelectorModal({
 
   // Handle single-select change
   const handleSingleSelect = (fieldName, value) => {
+    if (readOnly) return;
     setServices(prev => ({
       ...prev,
       [fieldName]: prev[fieldName] === value ? '' : value
@@ -203,6 +205,7 @@ export default function ServicesSelectorModal({
 
   // Handle multi-select toggle
   const handleMultiSelect = (fieldName, value) => {
+    if (readOnly) return;
     setServices(prev => {
       const currentValues = prev[fieldName] || [];
       const newValues = currentValues.includes(value)
@@ -217,6 +220,7 @@ export default function ServicesSelectorModal({
 
   // Handle "None" option for multi-select with allowNone
   const handleNoneToggle = (fieldName) => {
+    if (readOnly) return;
     setServices(prev => ({
       ...prev,
       [fieldName]: prev[`${fieldName}_none`] ? [] : [],
@@ -226,6 +230,7 @@ export default function ServicesSelectorModal({
 
   // Handle yes/no toggle
   const handleYesNo = (fieldName, value) => {
+    if (readOnly) return;
     setServices(prev => ({
       ...prev,
       [fieldName]: value
@@ -234,6 +239,7 @@ export default function ServicesSelectorModal({
 
   // Handle text input change
   const handleTextChange = (fieldName, value) => {
+    if (readOnly) return;
     setServices(prev => ({
       ...prev,
       [fieldName]: value
@@ -428,10 +434,10 @@ export default function ServicesSelectorModal({
 
   return (
     <div className="services-modal-overlay" onClick={handleOverlayClick}>
-      <div className="services-modal">
+      <div className={`services-modal ${readOnly ? 'services-modal--readonly' : ''}`}>
         {/* Header */}
         <div className="services-modal-header">
-          <h3 className="services-modal-title">Select Services</h3>
+          <h3 className="services-modal-title">{readOnly ? 'Services' : 'Select Services'}</h3>
           <button
             className="services-modal-close"
             onClick={onClose}
@@ -445,13 +451,15 @@ export default function ServicesSelectorModal({
         <div className="services-modal-content">
           {/* Quick actions */}
           <div className="services-quick-actions">
-            <button
-              type="button"
-              className="services-quick-btn"
-              onClick={handleClearAll}
-            >
-              Clear All
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="services-quick-btn"
+                onClick={handleClearAll}
+              >
+                Clear All
+              </button>
+            )}
             <span className="services-count">
               {selectedCount} service{selectedCount !== 1 ? 's' : ''} selected
             </span>
@@ -476,28 +484,41 @@ export default function ServicesSelectorModal({
               className="services-notes-textarea"
               value={services.serviceNotes || ''}
               onChange={(e) => handleTextChange('serviceNotes', e.target.value)}
-              placeholder="List any other needs not covered above — e.g., special lighting, additional furniture, accessibility requirements..."
+              placeholder={readOnly ? '' : 'List any other needs not covered above — e.g., special lighting, additional furniture, accessibility requirements...'}
               rows={3}
+              readOnly={readOnly}
             />
           </div>
         </div>
 
         {/* Footer */}
         <div className="services-modal-footer">
-          <button
-            type="button"
-            className="services-btn services-btn-cancel"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="services-btn services-btn-save"
-            onClick={handleSave}
-          >
-            Save {selectedCount > 0 && `(${selectedCount})`}
-          </button>
+          {readOnly ? (
+            <button
+              type="button"
+              className="services-btn services-btn-cancel"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="services-btn services-btn-cancel"
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="services-btn services-btn-save"
+                onClick={handleSave}
+              >
+                Save {selectedCount > 0 && `(${selectedCount})`}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
