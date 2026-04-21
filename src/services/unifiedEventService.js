@@ -201,39 +201,7 @@ class UnifiedEventService {
     }
   }
 
-  /**
-   * Update internal fields for an event
-   * @param {string} eventId - Event ID
-   * @param {Object} internalData - Internal data to update
-   * @returns {Object} Updated event
-   */
-  async updateEventInternalData(eventId, internalData) {
-    try {
-      // This endpoint will need to be implemented to update internal data in unified collection
-      const response = await this._fetchWithRetry(`${API_BASE_URL}/events/${eventId}/internal`, {
-        method: 'PATCH',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({ internalData: internalData })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('UnifiedEventService: Update internal data HTTP error', { 
-          status: response.status, 
-          statusText: response.statusText,
-          errorText: errorText
-        });
-        throw new Error(`Update internal data failed: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      return data;
-    } catch (error) {
-      logger.error('UnifiedEventService: Error updating internal data:', error);
-      throw error;
-    }
-  }
+  // REMOVED: updateEventInternalData() — backend PATCH /internal endpoint deleted (architecture review 2026-04-20)
 
   /**
    * Get sync statistics

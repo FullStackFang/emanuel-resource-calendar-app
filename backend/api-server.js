@@ -4669,6 +4669,22 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       unifiedEvent.recurrence = existingEvent.recurrence;
     }
 
+    // Preserve workflow fields that replaceOne would otherwise stomp.
+    // Delta sync builds a fresh document from Graph data — it knows nothing about
+    // status, version, reservation workflow, or pending requests. Without this
+    // preservation, a delta sync racing with an in-flight publish would reset
+    // status: 'published' to undefined and wipe _version/statusHistory.
+    if (existingDoc) {
+      if (existingDoc.status) unifiedEvent.status = existingDoc.status;
+      if (existingDoc._version != null) unifiedEvent._version = existingDoc._version;
+      if (existingDoc.statusHistory) unifiedEvent.statusHistory = existingDoc.statusHistory;
+      if (existingDoc.roomReservationData) unifiedEvent.roomReservationData = existingDoc.roomReservationData;
+      if (existingDoc.pendingEditRequest) unifiedEvent.pendingEditRequest = existingDoc.pendingEditRequest;
+      if (existingDoc.pendingCancellationRequest) unifiedEvent.pendingCancellationRequest = existingDoc.pendingCancellationRequest;
+      if (existingDoc.calendarOwner) unifiedEvent.calendarOwner = existingDoc.calendarOwner;
+      if (existingDoc.isAllowedConcurrent != null) unifiedEvent.isAllowedConcurrent = existingDoc.isAllowedConcurrent;
+    }
+
     // Use upsert to handle updates while preserving internal data
     // Query using $or to match either unique index constraint:
     // 1. userId + calendarId + eventId (if event exists with this combo)
@@ -7385,106 +7401,8 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Update enrichment data for an event (stored in calendarData)
- * Accepts { internalData: {...} } in body for backward compatibility
- */
-app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
-  try {
-    const { eventId } = req.params;
-    const enrichmentData = req.body.internalData || req.body.calendarData;
-    const userId = req.user.userId;
 
-    if (!enrichmentData) {
-      return res.status(400).json({ error: 'calendarData or internalData required' });
-    }
-
-    logger.debug(`Updating enrichment data for event ${eventId}`, { userId, enrichmentData });
-
-    // Fetch current event data before updating for change detection
-    const currentEvent = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
-
-    if (!currentEvent) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    // Detect changes between old and new data
-    const oldData = currentEvent.calendarData || {};
-    const changeSet = [];
-
-    for (const [field, newValue] of Object.entries(enrichmentData)) {
-      const oldValue = oldData[field];
-      if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
-        changeSet.push({
-          field: `calendarData.${field}`,
-          oldValue: oldValue,
-          newValue: newValue
-        });
-      }
-    }
-
-    // Build $set for calendarData fields
-    const setOps = { lastAccessedAt: new Date() };
-    for (const [field, value] of Object.entries(enrichmentData)) {
-      setOps[`calendarData.${field}`] = value;
-    }
-
-    // Atomic update + return — eliminates a separate findOne round-trip
-    const updatedEvent = await unifiedEventsCollection.findOneAndUpdate(
-      { userId: userId, eventId: eventId },
-      { $set: setOps },
-      { returnDocument: 'after' }
-    );
-
-    if (!updatedEvent) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    // Log audit entry if there were changes
-    if (changeSet.length > 0) {
-      try {
-        await logEventAudit({
-          eventId: eventId,
-          userId: userId,
-          changeType: 'update',
-          source: 'Manual Edit',
-          changeSet: changeSet,
-          metadata: {
-            userAgent: req.headers['user-agent'] || 'Unknown',
-            ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
-            reason: 'Event enrichment data updated via UI'
-          }
-        });
-      } catch (auditError) {
-        logger.error('Failed to create audit entry:', auditError);
-      }
-    }
-
-    // Transform to frontend format
-    const cd = updatedEvent.calendarData || {};
-    const transformedEvent = {
-      ...updatedEvent.graphData,
-      ...cd,
-      calendarId: updatedEvent.calendarId,
-      sourceCalendars: updatedEvent.sourceCalendars,
-      _lastSyncedAt: updatedEvent.lastSyncedAt
-    };
-
-    logger.debug(`Successfully updated internal data for event ${eventId}`);
-
-    res.status(200).json({
-      event: transformedEvent,
-      message: 'Internal data updated successfully'
-    });
-
-  } catch (error) {
-    logger.error('Error updating event internal data:', error);
-    res.status(500).json({ error: 'Failed to update internal data' });
-  }
-});
+// REMOVED: PATCH /api/events/:eventId/internal — dead code, zero frontend callers (architecture review 2026-04-20)
 
 /**
  * Unified audit update endpoint - handles both Graph API and internal field updates with comprehensive audit logging
@@ -7494,7 +7412,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     const { eventId } = req.params;
     // Use let for graphFields since we may need to create it when clearing locations
     let { graphFields } = req.body;
-    const { internalFields, calendarId, calendarOwner, graphToken } = req.body;
+    const { internalFields, calendarId, calendarOwner } = req.body;
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
@@ -7502,8 +7420,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       hasGraphFields: !!graphFields,
       hasInternalFields: !!internalFields,
       calendarId,
-      calendarOwner,
-      hasGraphToken: !!graphToken
+      calendarOwner
     });
 
     if (!graphFields && !internalFields) {
@@ -8075,247 +7992,8 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Batch create multiple events
- * Accepts an array of events and creates them all efficiently
- */
-app.post('/api/events/batch', verifyToken, async (req, res) => {
-  try {
-    const { events } = req.body;
-    const graphToken = req.headers['x-graph-token'];
-    const userId = req.user.userId;
 
-    // Validation
-    if (!events || !Array.isArray(events)) {
-      return res.status(400).json({ error: 'events array is required' });
-    }
-
-    if (events.length === 0) {
-      return res.status(400).json({ error: 'events array cannot be empty' });
-    }
-
-    if (events.length > 5) {
-      return res.status(400).json({ error: 'Cannot create more than 5 events in a single batch' });
-    }
-
-    if (!graphToken) {
-      return res.status(400).json({ error: 'Graph API token required (x-graph-token header)' });
-    }
-
-    logger.debug(`Batch create: Creating ${events.length} events for user ${userId}`);
-
-    // Validate all events have calendarId
-    const eventsWithoutCalendarId = events.filter((event, index) => !event.calendarId);
-    if (eventsWithoutCalendarId.length > 0) {
-      return res.status(400).json({
-        error: 'calendarId is required for all events in batch create',
-        eventsWithoutCalendarId: eventsWithoutCalendarId.map((_, i) => i)
-      });
-    }
-
-    // Build batch requests for Graph API
-    const batchRequests = events.map((event, index) => {
-      const { graphFields, calendarId, internalFields } = event;
-
-      // Handle offsite location - set Graph location if offsite
-      if (internalFields?.isOffsite && internalFields?.offsiteName && internalFields?.offsiteAddress) {
-        graphFields.location = buildOffsiteGraphLocation(
-          internalFields.offsiteName,
-          internalFields.offsiteAddress,
-          internalFields.offsiteLat,
-          internalFields.offsiteLon
-        );
-        logger.debug(`Batch create: Event ${index + 1} is offsite, setting location:`, graphFields.location);
-      }
-
-      // Include $select to ensure response contains locations and other needed fields
-      const selectParams = '$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
-
-      return {
-        id: String(index + 1),
-        method: 'POST',
-        url: `/me/calendars/${calendarId}/events?${selectParams}`,
-        body: graphFields,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      };
-    });
-
-    // Call Graph API batch endpoint
-    const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${graphToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ requests: batchRequests })
-    });
-
-    if (!graphResponse.ok) {
-      const errorText = await graphResponse.text();
-      logger.error('Graph API batch request failed:', {
-        status: graphResponse.status,
-        error: errorText
-      });
-      return res.status(502).json({ error: `Graph API batch failed: ${graphResponse.status}` });
-    }
-
-    const batchResult = await graphResponse.json();
-    const results = [];
-
-    // Process each response and save to MongoDB
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i];
-      const graphResp = batchResult.responses.find(r => r.id === String(i + 1));
-
-      if (!graphResp || graphResp.status < 200 || graphResp.status >= 300) {
-        // Graph API failed for this event
-        results.push({
-          index: i,
-          success: false,
-          error: graphResp ? `Graph API error: ${graphResp.status}` : 'No response from Graph API'
-        });
-        continue;
-      }
-
-      const graphData = graphResp.body;
-      const internalFields = event.internalFields || {};
-      const calendarId = event.calendarId;
-
-      try {
-        // Generate internal UUID
-        const actualEventId = crypto.randomUUID();
-
-        // Prepare location display names
-        let processedLocationDisplayName = '';
-        if (internalFields.locations && Array.isArray(internalFields.locations)) {
-          processedLocationDisplayName = internalFields.locations
-            .map(loc => loc.displayName || loc.name || '')
-            .filter(Boolean)
-            .join('; ');
-        }
-
-        // Create new event document
-        const batchCalendarOwner = getCalendarOwnerFromConfig(calendarId);
-        const newEventDoc = {
-          userId: userId,
-          eventId: actualEventId,
-          calendarId: calendarId,
-          calendarOwner: (batchCalendarOwner || '').toLowerCase(), // Email of calendar owner for filtering
-          graphData: graphData,
-          createdAt: new Date(),
-          createdBy: req.user.userId,
-          createdByEmail: (req.user.email || '').toLowerCase(),
-          createdByName: req.user.name || req.user.email,
-          createdSource: 'batch-create',
-          status: 'published',
-          statusHistory: [buildStatusHistoryEntry('published', req.user.userId, req.user.email, 'Event created via batch create')],
-          lastAccessedAt: new Date(),
-          syncedAt: new Date()
-        };
-
-        // CALENDAR DATA (consolidated event/calendar fields)
-        // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
-        const startDateTime = graphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
-        const endDateTime = graphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
-
-        // Compute location display name
-        let locationDisplayNames = processedLocationDisplayName || graphData.location?.displayName || '';
-        if (internalFields.isOffsite && internalFields.offsiteName) {
-          locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
-        }
-
-        newEventDoc.calendarData = {
-          eventTitle: graphData.subject || 'Untitled Event',
-          eventDescription: extractTextFromHtml(graphData.body?.content) || graphData.bodyPreview || '',
-          // Store datetime as local time (no Z suffix) - consistent with sync behavior
-          startDateTime,
-          endDateTime,
-          // Extract date and time components directly from the string (not via Date parsing)
-          startDate: startDateTime ? startDateTime.split('T')[0] : '',
-          startTime: startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '',
-          endDate: endDateTime ? endDateTime.split('T')[0] : '',
-          endTime: endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '',
-          isAllDayEvent: graphData.isAllDay || false,
-          // Timing fields
-          setupTime: internalFields.setupTime || '',
-          teardownTime: internalFields.teardownTime || '',
-          doorOpenTime: internalFields.doorOpenTime || '',
-          doorCloseTime: internalFields.doorCloseTime || '',
-          setupTimeMinutes: internalFields.setupMinutes || 0,
-          teardownTimeMinutes: internalFields.teardownMinutes || 0,
-          // Notes fields
-          setupNotes: internalFields.setupNotes || '',
-          doorNotes: internalFields.doorNotes || '',
-          eventNotes: internalFields.eventNotes || '',
-          // Location fields
-          locations: internalFields.locations || [],
-          locationDisplayNames,
-          // Category and assignment fields
-          categories: graphData.categories || [],
-          assignedTo: internalFields.assignedTo || '',
-          // Event series fields (for multi-day events)
-          eventSeriesId: internalFields.eventSeriesId || null,
-          seriesLength: internalFields.seriesLength || null,
-          seriesIndex: internalFields.seriesIndex !== undefined ? internalFields.seriesIndex : null,
-          // Virtual meeting fields
-          virtualMeetingUrl: graphData.onlineMeetingUrl || graphData.onlineMeeting?.joinUrl || null,
-          virtualPlatform: null,
-          // Offsite location fields
-          isOffsite: internalFields.isOffsite || false,
-          offsiteName: internalFields.isOffsite ? (internalFields.offsiteName || '') : '',
-          offsiteAddress: internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '',
-          offsiteLat: internalFields.isOffsite ? (internalFields.offsiteLat || null) : null,
-          offsiteLon: internalFields.isOffsite ? (internalFields.offsiteLon || null) : null,
-          // Services (internal use only)
-          services: internalFields.services || {}
-        };
-
-        // Insert into MongoDB
-        const dbResult = await unifiedEventsCollection.insertOne(newEventDoc);
-
-        logger.debug(`Batch create: Event ${i + 1}/${events.length} created successfully`, {
-          eventId: actualEventId,
-          graphId: graphData.id
-        });
-
-        results.push({
-          index: i,
-          success: true,
-          eventId: actualEventId,
-          graphId: graphData.id,
-          subject: graphData.subject
-        });
-
-      } catch (dbError) {
-        logger.error(`Batch create: Failed to save event ${i + 1} to database:`, dbError);
-        results.push({
-          index: i,
-          success: false,
-          error: `Database error: ${dbError.message}`
-        });
-      }
-    }
-
-    // Count successes and failures
-    const successCount = results.filter(r => r.success).length;
-    const failCount = results.filter(r => !r.success).length;
-
-    logger.debug(`Batch create complete: ${successCount} succeeded, ${failCount} failed`);
-
-    res.status(200).json({
-      message: `Batch create complete: ${successCount}/${events.length} events created`,
-      successCount,
-      failCount,
-      results
-    });
-
-  } catch (error) {
-    logger.error('Error in batch event creation:', error);
-    res.status(500).json({ error: 'Failed to create events in batch' });
-  }
-});
+// REMOVED: POST /api/events/batch — dead code, zero frontend callers (architecture review 2026-04-20)
 
 /**
  * Upload file attachment to an event
@@ -9286,179 +8964,8 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Admin endpoint - Clean up CSV-imported events by linking them to Graph API
- * or deleting orphaned records that don't exist in Outlook
- */
-app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
-  try {
-    const graphToken = req.headers['x-graph-token'];
-    if (!graphToken) {
-      return res.status(400).json({ error: 'Graph token required in X-Graph-Token header' });
-    }
 
-    const { calendarId, dryRun = true, startDate, endDate, limit } = req.body;
-
-    if (!unifiedEventsCollection) {
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-
-    // Find all events without graphData.id (CSV imports)
-    const query = {
-      'graphData.id': { $exists: false }
-    };
-    if (calendarId) {
-      query.calendarId = calendarId;
-    }
-
-    // Filter by date range — calendarData.startDateTime is stored as local-time strings
-    if (startDate || endDate) {
-      query['calendarData.startDateTime'] = {};
-      if (startDate) {
-        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
-      }
-      if (endDate) {
-        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
-      }
-    }
-
-    // Build the query with optional limit
-    let csvEventsQuery = unifiedEventsCollection.find(query).sort({ 'calendarData.startDateTime': 1 });
-    if (limit && typeof limit === 'number' && limit > 0) {
-      csvEventsQuery = csvEventsQuery.limit(limit);
-    }
-
-    const csvEvents = await csvEventsQuery.toArray();
-    logger.log(`[CSV Cleanup] Found ${csvEvents.length} events without graphData.id`);
-
-    const results = {
-      total: csvEvents.length,
-      matched: 0,
-      updated: 0,
-      deleted: 0,
-      errors: [],
-      details: []
-    };
-
-    for (const event of csvEvents) {
-      try {
-        // Search Graph API for matching event by title + datetime
-        const startISO = event.calendarData?.startDateTime || event.graphData?.start?.dateTime;
-        const endISO = event.calendarData?.endDateTime || event.graphData?.end?.dateTime;
-        const title = event.calendarData?.eventTitle || event.graphData?.subject;
-
-        if (!startISO || !title) {
-          results.errors.push({ eventId: event.eventId, title: title || '(no title)', error: 'Missing title or startDateTime' });
-          continue;
-        }
-
-        // Query Graph API calendarView for the specific time range (with 1 minute buffer)
-        const searchStart = new Date(startISO);
-        const searchEnd = new Date(endISO || startISO);
-        searchStart.setMinutes(searchStart.getMinutes() - 1);
-        searchEnd.setMinutes(searchEnd.getMinutes() + 1);
-
-        const eventCalendarId = event.calendarId;
-        if (!eventCalendarId || eventCalendarId === 'primary') {
-          results.errors.push({ eventId: event.eventId, title: title, error: 'calendarId is required (personal calendar not supported)' });
-          continue;
-        }
-        const calendarPath = `/me/calendars/${eventCalendarId}/calendarView`;
-
-        // Note: $filter with 'eq' on subject requires exact match
-        const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-          `startDateTime=${encodeURIComponent(searchStart.toISOString())}` +
-          `&endDateTime=${encodeURIComponent(searchEnd.toISOString())}` +
-          `&$select=id,iCalUId,subject,start,end,location,locations,categories`;
-
-        const graphResponse = await fetch(graphUrl, {
-          headers: { 'Authorization': `Bearer ${graphToken}` }
-        });
-
-        if (!graphResponse.ok) {
-          const errorText = await graphResponse.text();
-          results.errors.push({
-            eventId: event.eventId,
-            title: title,
-            error: `Graph API error: ${graphResponse.status} - ${errorText.substring(0, 100)}`
-          });
-          continue;
-        }
-
-        const graphData = await graphResponse.json();
-        const allEvents = graphData.value || [];
-
-        // Filter by title match (case-insensitive)
-        const matchingEvents = allEvents.filter(ge =>
-          ge.subject && ge.subject.toLowerCase() === title.toLowerCase()
-        );
-
-        if (matchingEvents.length > 0) {
-          // Found matching Graph event - update the record
-          const graphEvent = matchingEvents[0];
-          results.matched++;
-
-          if (!dryRun) {
-            await unifiedEventsCollection.updateOne(
-              { _id: event._id },
-              {
-                $set: {
-                  'graphData.id': graphEvent.id,
-                  'graphData.subject': graphEvent.subject,
-                  'graphData.start': graphEvent.start,
-                  'graphData.end': graphEvent.end,
-                  'graphData.location': graphEvent.location,
-                  'graphData.categories': graphEvent.categories || [],
-                  updatedAt: new Date()
-                }
-              }
-            );
-            results.updated++;
-          }
-
-          results.details.push({
-            eventId: event.eventId,
-            title: title,
-            startDateTime: startISO,
-            action: dryRun ? 'would_update' : 'updated',
-            graphId: graphEvent.id
-          });
-        } else {
-          // No match found - delete orphaned record
-          if (!dryRun) {
-            await unifiedEventsCollection.deleteOne({ _id: event._id });
-            results.deleted++;
-          }
-
-          results.details.push({
-            eventId: event.eventId,
-            title: title,
-            startDateTime: startISO,
-            action: dryRun ? 'would_delete' : 'deleted',
-            reason: `No matching Graph event found (searched ${allEvents.length} events in time window)`
-          });
-        }
-      } catch (eventError) {
-        results.errors.push({ eventId: event.eventId, error: eventError.message });
-      }
-    }
-
-    logger.log(`[CSV Cleanup] Complete - Matched: ${results.matched}, Updated: ${results.updated}, Deleted: ${results.deleted}, Errors: ${results.errors.length}`);
-
-    res.json({
-      success: true,
-      dryRun: dryRun,
-      message: dryRun ? 'Dry run complete - no changes made' : 'Cleanup complete',
-      results
-    });
-
-  } catch (error) {
-    logger.error('Error in CSV cleanup:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ============================================
+// REMOVED: /api/admin/cleanup-csv-imports — dead code, zero frontend callers (architecture review 2026-04-20)
 // EVENT AUDIT HISTORY ENDPOINTS
 // ============================================
 
@@ -9633,81 +9140,8 @@ app.get('/api/audit/recent', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Filter events by source
- */
-app.get('/api/events/by-source', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { source, startDate, endDate, limit = 100, offset = 0 } = req.query;
 
-    if (!source) {
-      return res.status(400).json({ error: 'Source parameter is required' });
-    }
-
-    // Build query filter
-    const escapedSource = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const query = {
-      userId: userId,
-      source: { $regex: escapedSource, $options: 'i' },
-      isDeleted: { $ne: true }
-    };
-
-    // Add date range filter if provided
-    if (startDate || endDate) {
-      query['graphData.start.dateTime'] = {};
-      if (startDate) {
-        query['graphData.start.dateTime'].$gte = startDate;
-      }
-      if (endDate) {
-        query['graphData.start.dateTime'].$lte = endDate;
-      }
-    }
-
-    // Get events
-    const events = await unifiedEventsCollection
-      .find(query)
-      .sort({ 'graphData.start.dateTime': 1 })
-      .skip(parseInt(offset))
-      .limit(parseInt(limit))
-      .toArray();
-
-    // Get total count
-    const totalCount = await unifiedEventsCollection.countDocuments(query);
-
-    // Transform events to frontend format
-    const transformedSourceEvents = events.map(event => ({
-      ...event.graphData,
-      ...(event.calendarData || {}),
-      // Explicitly include ID fields
-      eventId: event.eventId,                          // Internal unique ID (UUID)
-      id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
-      graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
-      source: event.source,
-      sourceMetadata: event.sourceMetadata,
-      calendarId: event.calendarId,
-      sourceCalendars: event.sourceCalendars,
-      _lastSyncedAt: event.lastSyncedAt
-    }));
-
-    res.status(200).json({
-      events: transformedSourceEvents,
-      pagination: {
-        total: totalCount,
-        offset: parseInt(offset),
-        limit: parseInt(limit),
-        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
-      },
-      source: source
-    });
-
-  } catch (error) {
-    logger.error('Error fetching events by source:', error);
-    res.status(500).json({ error: 'Failed to fetch events by source' });
-  }
-});
-
-// ============================================
+// REMOVED: /api/events/by-source — dead code, zero frontend callers (architecture review 2026-04-20)
 // MIGRATION ENDPOINTS
 // ============================================
 
@@ -9743,8 +9177,17 @@ function determineAccessLevel(calendarData) {
 app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Admin-only endpoint — viewers/requesters must not trigger migrations
+    const user = await getCachedUser(userId);
+    const isAdminUser = isAdmin(user, userEmail);
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { startDate, endDate, calendarIds, options = {}, includeEvents = false } = req.body;
-    
+
     // Validate input
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required' });
@@ -9765,16 +9208,16 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
     const startDateTime = new Date(startDate);
     const endDateTime = new Date(endDate);
     
-    // Debug: Log the working statistics query
+    // Query using top-level startDateTime (local-time strings, no Z suffix)
     const statsQuery = {
       userId: userId,
-      'graphData.start.dateTime': { 
-        $gte: startDateTime.toISOString(), 
-        $lte: endDateTime.toISOString() 
+      startDateTime: {
+        $gte: `${startDate}T00:00:00`,
+        $lte: `${endDate}T23:59:59`
       },
       isDeleted: { $ne: true }
     };
-    logger.debug('Statistics query (working):', statsQuery);
+    logger.debug('Statistics query:', statsQuery);
     
     const existingEvents = await unifiedEventsCollection.countDocuments(statsQuery);
     
@@ -9965,9 +9408,9 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
         // Get existing events from database
         const existingEventsList = await unifiedEventsCollection.find({
           userId: userId,
-          'graphData.start.dateTime': { 
-            $gte: startDateTime.toISOString(), 
-            $lte: endDateTime.toISOString() 
+          startDateTime: {
+            $gte: `${startDate}T00:00:00`,
+            $lte: `${endDate}T23:59:59`
           },
           isDeleted: { $ne: true }
         }).toArray();
@@ -10035,14 +9478,14 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
                          'Untitled Event';
 
           eventDetails.alreadyImported.push({
-            id: event.graphData.id || event._id,
+            id: event.graphData?.id || event._id,
             subject: subject,
-            startDateTime: event.graphData.start.dateTime || event.graphData.start.date,
-            endDateTime: event.graphData.end.dateTime || event.graphData.end.date,
+            startDateTime: event.startDateTime || event.calendarData?.startDateTime || event.graphData?.start?.dateTime || '',
+            endDateTime: event.endDateTime || event.calendarData?.endDateTime || event.graphData?.end?.dateTime || '',
             calendarId: event.calendarId || 'unknown',
-            location: event.graphData.location?.displayName || '',
-            organizer: event.graphData.organizer?.emailAddress?.name || '',
-            categories: event.graphData.categories?.join(', ') || '',
+            location: event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '',
+            organizer: event.graphData?.organizer?.emailAddress?.name || '',
+            categories: (event.calendarData?.categories || event.graphData?.categories || []).join(', '),
             bodyPreview: event.graphData.bodyPreview?.substring(0, 100) || ''
           });
         });
@@ -10137,8 +9580,17 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
 app.post('/api/admin/migration/start', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Admin-only endpoint — viewers/requesters must not trigger migrations
+    const user = await getCachedUser(userId);
+    const isAdminUser = isAdmin(user, userEmail);
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { startDate, endDate, calendarIds, options = {} } = req.body;
-    
+
     // Validate input
     if (!startDate || !endDate || !calendarIds || !calendarIds.length) {
       return res.status(400).json({ error: 'Invalid migration parameters' });
@@ -10207,15 +9659,24 @@ app.post('/api/admin/migration/start', verifyToken, async (req, res) => {
  */
 app.get('/api/admin/migration/status/:sessionId', verifyToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const user = await getCachedUser(userId);
+    const isAdminUser = isAdmin(user, userEmail);
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { sessionId } = req.params;
     const session = migrationSessions.get(sessionId);
-    
+
     if (!session) {
       return res.status(404).json({ error: 'Migration session not found' });
     }
-    
+
     // Only return session if it belongs to the requesting user
-    if (session.userId !== req.user.userId) {
+    if (session.userId !== userId) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
@@ -10240,14 +9701,23 @@ app.get('/api/admin/migration/status/:sessionId', verifyToken, async (req, res) 
  */
 app.post('/api/admin/migration/cancel/:sessionId', verifyToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const user = await getCachedUser(userId);
+    const isAdminUser = isAdmin(user, userEmail);
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { sessionId } = req.params;
     const session = migrationSessions.get(sessionId);
-    
+
     if (!session) {
       return res.status(404).json({ error: 'Migration session not found' });
     }
-    
-    if (session.userId !== req.user.userId) {
+
+    if (session.userId !== userId) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
@@ -11000,269 +10470,8 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
   }
 });
 
-/**
- * Admin endpoint - Stream CSV import with Server-Sent Events for large files
- */
-app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), async (req, res) => {
-  // DISABLED: Event creation via CSV import is disabled
-  // Only the main calendar form can create events
-  return res.status(403).json({ error: 'CSV import is disabled. Events can only be created through the calendar form.' });
 
-  try {
-    const userId = req.user.userId;
-    const targetCalendarId = req.body.targetCalendarId;
-
-    if (!unifiedEventsCollection) {
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ error: 'No CSV file uploaded' });
-    }
-
-    if (!targetCalendarId) {
-      return res.status(400).json({ error: 'Target calendar ID is required' });
-    }
-    
-    // Set headers for Server-Sent Events
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
-    });
-    
-    // Send initial status
-    res.write('data: ' + JSON.stringify({
-      type: 'start',
-      message: 'Starting CSV import...',
-      timestamp: new Date().toISOString()
-    }) + '\n\n');
-    
-    // Configuration for chunked processing
-    const CHUNK_SIZE = 50; // Process 50 rows at a time
-    let totalRows = 0;
-    let processedRows = 0;
-    let successfulInserts = 0;
-    let duplicateCount = 0;
-    let errorCount = 0;
-    let registrationEventsCreated = 0;
-    const errors = [];
-    
-    try {
-      // Parse CSV headers first
-      const csvData = [];
-      const csvHeaders = [];
-      
-      // Create readable stream from buffer
-      const stream = Readable.from(req.file.buffer.toString());
-      
-      // Parse CSV
-      await new Promise((resolve, reject) => {
-        stream
-          .pipe(csv())
-          .on('headers', (headers) => {
-            csvHeaders.push(...headers);
-          })
-          .on('data', (row) => {
-            csvData.push(row);
-          })
-          .on('end', resolve)
-          .on('error', reject);
-      });
-      
-      totalRows = csvData.length;
-      
-      // Send header validation status
-      res.write('data: ' + JSON.stringify({
-        type: 'headers',
-        message: `CSV parsed: ${totalRows} rows found`,
-        headers: csvHeaders,
-        totalRows: totalRows,
-        timestamp: new Date().toISOString()
-      }) + '\n\n');
-      
-      // Validate CSV headers
-      const validation = csvUtils.validateCSVHeaders(csvHeaders);
-      if (!validation.isValid) {
-        res.write('data: ' + JSON.stringify({
-          type: 'error',
-          message: 'Invalid CSV format',
-          error: {
-            missing: validation.missing,
-            missingRecommended: validation.missingRecommended,
-            headers: validation.headers
-          },
-          timestamp: new Date().toISOString()
-        }) + '\n\n');
-        res.end();
-        return;
-      }
-      
-      // Process CSV in chunks
-      for (let i = 0; i < csvData.length; i += CHUNK_SIZE) {
-        const chunk = csvData.slice(i, i + CHUNK_SIZE);
-        const chunkStart = i + 1;
-        const chunkEnd = Math.min(i + CHUNK_SIZE, csvData.length);
-        
-        // Send chunk processing status
-        res.write('data: ' + JSON.stringify({
-          type: 'progress',
-          message: `Processing rows ${chunkStart} to ${chunkEnd}...`,
-          processed: processedRows,
-          total: totalRows,
-          progress: Math.round((processedRows / totalRows) * 100),
-          timestamp: new Date().toISOString()
-        }) + '\n\n');
-        
-        // Transform chunk rows to unified events
-        const chunkEvents = [];
-        const chunkErrors = [];
-        
-        for (let j = 0; j < chunk.length; j++) {
-          const rowIndex = i + j;
-          try {
-            const row = chunk[j];
-            const unifiedEvent = csvUtils.csvRowToUnifiedEvent(row, userId, targetCalendarId);
-            chunkEvents.push(unifiedEvent);
-          } catch (error) {
-            chunkErrors.push({
-              row: rowIndex + 1,
-              data: chunk[j],
-              error: error.message
-            });
-            errorCount++;
-          }
-        }
-        
-        // Insert chunk events into database
-        if (chunkEvents.length > 0) {
-          try {
-            // Check for existing events
-            const existingEventIds = await unifiedEventsCollection.find(
-              { 
-                userId: userId,
-                eventId: { $in: chunkEvents.map(e => e.eventId) }
-              },
-              { projection: { eventId: 1 } }
-            ).toArray();
-            
-            const existingIds = new Set(existingEventIds.map(e => e.eventId));
-            
-            // Filter out duplicates
-            const newEvents = chunkEvents.filter(event => !existingIds.has(event.eventId));
-            const chunkDuplicates = chunkEvents.length - newEvents.length;
-            duplicateCount += chunkDuplicates;
-            
-            // Prepare events for insertion (main events + registration events)
-            const allEventsToInsert = [];
-            
-            for (const event of newEvents) {
-              // Add main event
-              allEventsToInsert.push(event);
-              
-              // Create TempleRegistration event if setup/teardown is enabled
-              if ((event.calendarData || event.internalData)?.createRegistrationEvent) {
-                const registrationEvent = createRegistrationEventFromMain(event, userId);
-                allEventsToInsert.push(registrationEvent);
-                registrationEventsCreated++;
-              }
-            }
-            
-            if (allEventsToInsert.length > 0) {
-              const result = await unifiedEventsCollection.insertMany(allEventsToInsert, { ordered: false });
-              successfulInserts += result.insertedCount;
-            }
-            
-            // Send chunk completion status
-            res.write('data: ' + JSON.stringify({
-              type: 'chunk',
-              message: `Chunk completed: ${newEvents.length} new events, ${chunkDuplicates} duplicates, ${chunkErrors.length} errors`,
-              chunkStart: chunkStart,
-              chunkEnd: chunkEnd,
-              newEvents: newEvents.length,
-              duplicates: chunkDuplicates,
-              errors: chunkErrors.length,
-              timestamp: new Date().toISOString()
-            }) + '\n\n');
-            
-          } catch (insertError) {
-            logger.error('Error inserting chunk:', insertError);
-            chunkErrors.push({
-              row: 'chunk',
-              error: `Insert error: ${insertError.message}`
-            });
-            errorCount++;
-          }
-        }
-        
-        // Store errors for final report
-        errors.push(...chunkErrors);
-        processedRows += chunk.length;
-        
-        // Send progress update
-        res.write('data: ' + JSON.stringify({
-          type: 'progress',
-          message: `Processed ${processedRows} of ${totalRows} rows`,
-          processed: processedRows,
-          total: totalRows,
-          progress: Math.round((processedRows / totalRows) * 100),
-          successful: successfulInserts,
-          duplicates: duplicateCount,
-          errors: errorCount,
-          timestamp: new Date().toISOString()
-        }) + '\n\n');
-        
-        // Small delay to prevent overwhelming the client
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      // Send final completion status
-      res.write('data: ' + JSON.stringify({
-        type: 'complete',
-        message: 'CSV import completed successfully',
-        summary: {
-          totalRows: totalRows,
-          successfulInserts: successfulInserts,
-          duplicates: duplicateCount,
-          errors: errorCount,
-          registrationEventsCreated: registrationEventsCreated
-        },
-        errors: errors.slice(0, 10), // First 10 errors
-        timestamp: new Date().toISOString()
-      }) + '\n\n');
-      
-      logger.log('Streaming CSV import completed:', {
-        userId,
-        totalRows,
-        successfulInserts,
-        duplicates: duplicateCount,
-        errors: errorCount,
-        registrationEventsCreated
-      });
-      
-    } catch (error) {
-      logger.error('Error in streaming CSV import:', error);
-      res.write('data: ' + JSON.stringify({
-        type: 'error',
-        message: 'Import failed',
-        error: error.message,
-        timestamp: new Date().toISOString()
-      }) + '\n\n');
-    }
-    
-    res.end();
-    
-  } catch (error) {
-    logger.error('Error in streaming CSV import endpoint:', error);
-    res.status(500).json({ error: 'Failed to process CSV file' });
-  }
-});
-
-/**
- * Debug endpoint - Inspect raw CSV file buffer
- */
+// REMOVED: /api/admin/csv-import/stream — dead code, zero frontend callers (architecture review 2026-04-20)
 app.post('/api/admin/csv-import/debug', verifyToken, upload.single('csvFile'), async (req, res) => {
   try {
     if (!req.file) {
@@ -21270,6 +20479,9 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
     }
 
+    // Declare cd early — both the occurrence and series branches reference it
+    const cd = event.calendarData || {};
+
     // --- Occurrence-scoped edit: write to exception document, not calendarData ---
     if (pendingEditRequest.editScope === 'thisEvent' && pendingEditRequest.occurrenceDate) {
       const dateKey = pendingEditRequest.occurrenceDate.split('T')[0];
@@ -21303,22 +20515,36 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
       // Update pendingEditRequest status to approved on the document the request
       // was filed against (event._id — may be master or exception, intentional).
-      await unifiedEventsCollection.updateOne(
-        { _id: event._id },
-        {
-          $set: {
-            'pendingEditRequest.status': 'approved',
-            'pendingEditRequest.reviewedAt': now,
-            'pendingEditRequest.reviewedBy': {
-              userId,
-              name: user?.displayName || userEmail,
-              email: userEmail
-            },
-            'pendingEditRequest.reviewNotes': notes || '',
+      // Uses conditionalUpdate for OCC — mirrors the series-level branch below.
+      let updatedMasterAfterApproval;
+      try {
+        updatedMasterAfterApproval = await conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: event._id },
+          {
+            $set: {
+              'pendingEditRequest.status': 'approved',
+              'pendingEditRequest.reviewedAt': now,
+              'pendingEditRequest.reviewedBy': {
+                userId,
+                name: user?.displayName || userEmail,
+                email: userEmail
+              },
+              'pendingEditRequest.reviewNotes': notes || '',
+            }
           },
-          $inc: { _version: 1 }
+          {
+            expectedVersion: _version || null,
+            modifiedBy: userEmail,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+          }
+        );
+      } catch (err) {
+        if (err.statusCode === 409) {
+          return res.status(409).json(err.toJSON());
         }
-      );
+        throw err;
+      }
 
       // Create or update exception document. Key off masterDoc.eventId.
       // The helpers enforce DATE_IMMUTABLE internally — catch their 400 throws.
@@ -21460,7 +20686,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         success: true,
         message: 'Edit request published for single occurrence',
         eventId: event.eventId,
-        _version: exceptionDoc?._version,
+        _version: updatedMasterAfterApproval._version,
+        exceptionVersion: exceptionDoc?._version,
         occurrenceDate: dateKey,
         changesApplied: finalChanges,
         graphSynced
@@ -21471,7 +20698,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         action: 'edit-published',
         actorEmail: userEmail,
         requesterEmail: pendingEditRequest.requestedBy?.email,
-        event: event,
+        event: updatedMasterAfterApproval,
         oldStatus: 'published',
         newStatus: 'published'
       });
@@ -21520,7 +20747,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     // Sync changes to Graph API via app-only auth (graphApiService)
-    const cd = event.calendarData || {};
+    // (cd already declared above, before occurrence branch)
     const graphEventId = event.graphData?.id;
     let graphSyncResult = null;
     if (graphEventId && event.calendarOwner) {
@@ -22514,18 +21741,33 @@ app.put('/api/events/cancellation-requests/:id/cancel', verifyToken, async (req,
 
     const now = new Date();
 
-    // Update
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(eventId) },
+    // Atomic update: embed status guard in filter to prevent race with concurrent approval.
+    // If an approver approves between our findOne and this updateOne, the result is null.
+    const updatedEvent = await unifiedEventsCollection.findOneAndUpdate(
+      {
+        _id: new ObjectId(eventId),
+        'pendingCancellationRequest.status': 'pending'
+      },
       {
         $set: {
           'pendingCancellationRequest.status': 'cancelled',
           'pendingCancellationRequest.reviewNotes': 'Cancelled by requester',
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
-        }
-      }
+        },
+        $inc: { _version: 1 }
+      },
+      { returnDocument: 'after' }
     );
+
+    // findOneAndUpdate returns null (or { value: null }) when the filter doesn't match
+    const updated = updatedEvent?.value !== undefined ? updatedEvent.value : updatedEvent;
+    if (!updated) {
+      return res.status(409).json({
+        error: 'Cancellation request is no longer pending — it may have been approved or rejected while you were viewing it.',
+        code: 'CANCELLATION_ALREADY_PROCESSED'
+      });
+    }
 
     // Audit log
     try {
@@ -22549,6 +21791,7 @@ app.put('/api/events/cancellation-requests/:id/cancel', verifyToken, async (req,
       success: true,
       message: 'Cancellation request withdrawn',
       eventId: event.eventId,
+      _version: updated._version,
     });
 
   } catch (error) {
@@ -22561,120 +21804,9 @@ app.put('/api/events/cancellation-requests/:id/cancel', verifyToken, async (req,
 // END CANCELLATION REQUEST ENDPOINTS
 // ============================================================================
 
-// ============================================================================
-// DEPARTMENT-SPECIFIC FIELD EDIT ENDPOINT
-// ============================================================================
-
-/**
- * Edit specific fields for department users (security/maintenance)
- * PUT /api/events/:id/department-fields
- *
- * Allows users with a department assignment to edit only their permitted fields.
- * - Security: doorOpenTime, doorCloseTime, doorNotes
- * - Maintenance: setupTime, teardownTime, setupNotes, eventNotes, setupTimeMinutes, teardownTimeMinutes
- *
- * Approvers and admins can still use the regular PUT /api/admin/events/:id endpoint.
- */
-app.put('/api/events/:id/department-fields', verifyToken, async (req, res) => {
-  try {
-    const eventId = req.params.id;
-    const updates = req.body;
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-
-    // Get user and their department permissions
-    const user = await getCachedUser(userId);
-    const allowedFields = getDepartmentEditableFields(user);
-
-    if (allowedFields.length === 0) {
-      return res.status(403).json({
-        error: 'No department edit permissions',
-        message: 'Your account is not assigned to a department that can edit events'
-      });
-    }
-
-    // Get event to verify it exists
-    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    // Filter updates to only allowed fields
-    const filteredUpdates = {};
-    const rejectedFields = [];
-
-    for (const [field, value] of Object.entries(updates)) {
-      if (allowedFields.includes(field)) {
-        filteredUpdates[field] = value;
-      } else {
-        rejectedFields.push(field);
-      }
-    }
-
-    if (Object.keys(filteredUpdates).length === 0) {
-      return res.status(400).json({
-        error: 'No valid fields to update',
-        message: 'None of the provided fields are allowed for your department',
-        rejectedFields,
-        allowedFields
-      });
-    }
-
-    // Apply the filtered updates - all department-editable fields go to calendarData
-    // Fields: doorOpenTime, doorCloseTime, doorNotes, setupTime, teardownTime, setupNotes, eventNotes, setupTimeMinutes, teardownTimeMinutes
-    const calendarDataUpdates = {};
-    for (const [field, value] of Object.entries(filteredUpdates)) {
-      calendarDataUpdates[`calendarData.${field}`] = value;
-    }
-
-    const result = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(eventId) },
-      {
-        $set: {
-          ...calendarDataUpdates,
-          updatedAt: new Date(),
-          lastModifiedBy: userEmail,
-          lastModifiedByDepartment: user.department
-        }
-      }
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    // Log to audit history
-    await eventAuditHistoryCollection.insertOne({
-      eventId: event.eventId || eventId,
-      documentId: new ObjectId(eventId),
-      action: 'department_edit',
-      department: user.department,
-      changedFields: Object.keys(filteredUpdates),
-      changedValues: filteredUpdates,
-      changedBy: userEmail,
-      userId: userId,
-      timestamp: new Date()
-    });
-
-    logger.log(`Department edit by ${user.department} user (${userEmail}):`, {
-      eventId,
-      changedFields: Object.keys(filteredUpdates)
-    });
-
-    res.json({
-      success: true,
-      updatedFields: Object.keys(filteredUpdates),
-      rejectedFields: rejectedFields.length > 0 ? rejectedFields : undefined
-    });
-  } catch (error) {
-    logger.error('Error updating department fields:', error);
-    res.status(500).json({ error: 'Failed to update event' });
-  }
-});
-
-// ============================================================================
-// END DEPARTMENT-SPECIFIC FIELD EDIT ENDPOINT
-// ============================================================================
+// REMOVED: PUT /api/events/:id/department-fields
+// Dead code — zero frontend callers. Removed in 2026-04-20 architecture review.
+// getDepartmentEditableFields() is still used by admin save endpoint below.
 
 /**
  * Update an event (Approver+)

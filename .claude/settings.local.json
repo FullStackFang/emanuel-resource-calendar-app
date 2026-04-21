@@ -124,12 +124,7 @@
       "Bash(openspec --version)",
       "Bash(node_modules/.bin/jest recurrenceRemoval --verbose)",
       "Bash(node_modules/.bin/jest recurrenceRemoval --testNamePattern=\"RR-6\" --verbose)",
-      "Bash(chmod:*)",
-      "Bash(mkdir -p /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/.claude/skills/emanu-backend)",
-      "Bash(mkdir -p /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/.claude/skills/emanu-frontend)",
-      "Bash(node -e \"const r = require\\(''''/mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/.claude/skills/skill-rules.json''''\\); console.log\\(''''Valid JSON. Skills:'''', Object.keys\\(r.skills\\).join\\('''', ''''\\)\\);\")",
-      "Bash(mv skill-activation-prompt.js skill-activation-prompt.cjs)",
-      "Bash(mv post-tool-use-tracker.js post-tool-use-tracker.cjs)"
+      "Bash(claude --version)"
     ],
     "deny": []
   },
