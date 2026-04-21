@@ -320,6 +320,10 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
           ...(override || {}),
           eventId: `${masterEvent.eventId}-${occurrenceDate}`,
           seriesMasterId: masterEvent.eventId,
+          // Override master's startDate/endDate so getOccurrenceDateKey and other
+          // date-dependent logic resolve to THIS occurrence, not the master's date.
+          startDate: occurrenceDate,
+          endDate: occurrenceDate,
           subject: override?.eventTitle || masterEvent.subject,
           start: {
             dateTime: startDT,

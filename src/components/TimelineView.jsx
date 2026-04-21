@@ -385,15 +385,15 @@ export default function TimelineView({
                       role="button"
                       tabIndex={0}
                       aria-label={`${eventTitle}, ${locInfo.primary}, ${formatTimelineEventTime(event)}`}
-                      onClick={() => {
+                      onClick={(e) => {
                         lastFocusedRef.current = document.activeElement;
-                        handleEventClick(event);
+                        handleEventClick(event, e);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           lastFocusedRef.current = e.currentTarget;
-                          handleEventClick(event);
+                          handleEventClick(event, e);
                         }
                       }}
                       onMouseEnter={(e) => setTooltipInfo({
@@ -491,11 +491,11 @@ export default function TimelineView({
                     className="timeline-all-day-list-item"
                     role="button"
                     tabIndex={0}
-                    onClick={() => handleEventClick(event)}
+                    onClick={(e) => handleEventClick(event, e)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        handleEventClick(event);
+                        handleEventClick(event, e);
                       }
                     }}
                   >
