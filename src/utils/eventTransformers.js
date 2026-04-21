@@ -345,6 +345,10 @@ export function transformEventToFlatStructure(event) {
     virtualMeetingUrl: getEventField(event, 'virtualMeetingUrl') || event.graphData?.onlineMeetingUrl || null,
     virtualPlatform: getEventField(event, 'virtualPlatform', null),
 
+    // Clergy assignments
+    assignedRabbi: getEventField(event, 'assignedRabbi', null),
+    assignedCantor: getEventField(event, 'assignedCantor', null),
+
     // Calendar-specific enrichments
     assignedTo: getEventField(event, 'assignedTo', ''),
     location: isCalendarEvent ? event.location?.displayName : (event.graphData?.location?.displayName || ''),
@@ -443,6 +447,9 @@ export function transformEventToDuplicatePrefill(event) {
     organizerName: get('organizerName', ''),
     organizerPhone: get('organizerPhone', ''),
     organizerEmail: get('organizerEmail', ''),
+    // Clergy assignments
+    assignedRabbi: get('assignedRabbi', null),
+    assignedCantor: get('assignedCantor', null),
     // Dates cleared — user must pick new dates via multi-date picker
     startDate: '',
     endDate: '',

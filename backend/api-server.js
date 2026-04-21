@@ -5611,6 +5611,8 @@ function projectEventForSSE(event) {
       offsiteLon: cd.offsiteLon,
       virtualMeetingUrl: cd.virtualMeetingUrl,
       virtualPlatform: cd.virtualPlatform,
+      assignedRabbi: cd.assignedRabbi,
+      assignedCantor: cd.assignedCantor,
     },
     recurrence: event.recurrence,
     categories: event.categories,
@@ -13380,6 +13382,25 @@ app.get('/api/users', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error getting users:', error);
     res.status(500).json({ error: 'Failed to retrieve users' });
+  }
+});
+
+// Get clergy users (rabbi + cantor) for assignment dropdowns
+// Any authenticated user can fetch this — clergy names are not sensitive
+app.get('/api/users/clergy', verifyToken, async (req, res) => {
+  try {
+    const users = await usersCollection.find(
+      { roleType: { $in: ['rabbi', 'cantor'] } },
+      { projection: { _id: 1, displayName: 1, title: 1, roleType: 1 } }
+    ).toArray();
+
+    const rabbis = users.filter(u => u.roleType === 'rabbi');
+    const cantors = users.filter(u => u.roleType === 'cantor');
+
+    res.status(200).json({ rabbis, cantors });
+  } catch (error) {
+    logger.error('Error getting clergy users:', error);
+    res.status(500).json({ error: 'Failed to retrieve clergy users' });
   }
 });
 

@@ -25,6 +25,7 @@ import {
   validateTimeOrdering,
 } from '../utils/timeClampUtils';
 import { usePermissions } from '../hooks/usePermissions';
+import ClergySelectorModal from './ClergySelectorModal';
 import './RoomReservationForm.css';
 
 // Time field groups for bidirectional enforcement logic
@@ -107,7 +108,6 @@ export default function RoomReservationFormBase({
   onTimeErrorsRef = null,       // Callback to expose timeErrors getter
   onValidateRef = null,         // Callback to expose validation function
   onFormValidChange = null,     // Callback when form validity changes
-  onDetailsCompleteChange = null, // Callback when date/time completeness changes (for tab gating)
 
   // Pre-fetched data
   prefetchedAvailability = null, // Pre-fetched room availability data from parent
@@ -170,6 +170,9 @@ export default function RoomReservationFormBase({
     isAllowedConcurrent: false,
     // Allowed categories for concurrent events (only applies when isAllowedConcurrent is true)
     allowedConcurrentCategories: [],
+    // Clergy assignments
+    assignedRabbi: null,
+    assignedCantor: null,
     ...initialData
   });
 
@@ -354,6 +357,9 @@ export default function RoomReservationFormBase({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showVirtualPopover]);
+
+  // Clergy modal state
+  const [showClergyModal, setShowClergyModal] = useState(false);
 
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
@@ -910,16 +916,6 @@ export default function RoomReservationFormBase({
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
   }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
-  // Check if core date/time fields are complete (for tab gating — separate from full isFormValid)
-  const areDetailsComplete = useMemo(() => {
-    if (formData.isAllDayEvent) {
-      return isFieldValid('startDate') && isFieldValid('endDate');
-    }
-    return isFieldValid('startDate') && isFieldValid('endDate') &&
-           isFieldValid('reservationStartTime') && isFieldValid('reservationEndTime') &&
-           timeErrors.length === 0;
-  }, [isFieldValid, timeErrors, formData.isAllDayEvent]);
-
   // Notify parent when form validity changes
   // Note: onFormValidChange intentionally excluded from deps to prevent render loop
   // (parent creates new callback reference each render)
@@ -929,14 +925,6 @@ export default function RoomReservationFormBase({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormValid]);
-
-  // Notify parent when date/time completeness changes (for tab gating)
-  useEffect(() => {
-    if (onDetailsCompleteChange) {
-      onDetailsCompleteChange(areDetailsComplete);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [areDetailsComplete]);
 
   // Helper function to notify parent of data changes
   // Uses refs to always get latest categories/services (prevents stale closure issues)
@@ -1393,9 +1381,10 @@ export default function RoomReservationFormBase({
               <div className="form-group">
                 <button
                   type="button"
-                  className="all-day-toggle"
-                  disabled
-                  style={{ width: '100%', justifyContent: 'center', opacity: 0.5 }}
+                  className={`all-day-toggle ${(formData.assignedRabbi || formData.assignedCantor) ? 'active' : ''}`}
+                  onClick={() => setShowClergyModal(true)}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
                 >
                   {'\u26EA'} Clergy
                 </button>
@@ -1585,6 +1574,36 @@ export default function RoomReservationFormBase({
                         Clear
                       </button>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Clergy Summary */}
+            {(formData.assignedRabbi || formData.assignedCantor) && (
+              <div className="category-summary-display" style={{ marginTop: 'var(--space-2)' }}>
+                <div className="category-summary-content">
+                  <span className="category-summary-icon">{'\u26EA'}</span>
+                  <span className="category-summary-text">
+                    {[
+                      formData.assignedRabbi && `Rabbi: ${formData.assignedRabbi.displayName}`,
+                      formData.assignedCantor && `Cantor: ${formData.assignedCantor.displayName}`
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                {!fieldsDisabled && (
+                  <div className="category-summary-actions">
+                    <button
+                      type="button"
+                      className="category-clear-btn"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, assignedRabbi: null, assignedCantor: null }));
+                        setHasChanges(true);
+                        setTimeout(() => notifyDataChange({ ...formData, assignedRabbi: null, assignedCantor: null }), 0);
+                      }}
+                    >
+                      Clear
+                    </button>
                   </div>
                 )}
               </div>
@@ -2413,6 +2432,19 @@ export default function RoomReservationFormBase({
           }
         }}
         initialCategories={selectedCategories}
+      />
+
+      <ClergySelectorModal
+        isOpen={showClergyModal}
+        onClose={() => setShowClergyModal(false)}
+        onSave={({ assignedRabbi, assignedCantor }) => {
+          setFormData(prev => ({ ...prev, assignedRabbi, assignedCantor }));
+          setHasChanges(true);
+          setTimeout(() => notifyDataChange({ ...formData, assignedRabbi, assignedCantor }), 0);
+        }}
+        initialRabbi={formData.assignedRabbi}
+        initialCantor={formData.assignedCantor}
+        apiToken={apiToken}
       />
 
     </div>

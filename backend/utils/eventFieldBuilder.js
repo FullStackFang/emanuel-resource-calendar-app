@@ -25,7 +25,8 @@ const CALENDAR_DATA_FIELDS = [
   'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
   'organizerName', 'organizerPhone', 'organizerEmail',
   'occurrenceOverrides',
-  'requiredFeatures'
+  'requiredFeatures',
+  'assignedRabbi', 'assignedCantor'
 ];
 
 // O(1) membership test — used by remapToCalendarData
