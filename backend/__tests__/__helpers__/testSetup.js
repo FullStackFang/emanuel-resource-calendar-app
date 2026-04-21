@@ -60,6 +60,7 @@ async function createCollections(database) {
   await database.createCollection(COLLECTIONS.AUDIT_HISTORY);
   await database.createCollection(COLLECTIONS.CATEGORIES);
   await database.createCollection(COLLECTIONS.DEPARTMENTS);
+  await database.createCollection(COLLECTIONS.ROLE_TYPES);
 
   // Create indexes for events collection
   const eventsCollection = database.collection(COLLECTIONS.EVENTS);

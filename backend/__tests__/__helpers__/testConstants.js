@@ -50,6 +50,7 @@ const COLLECTIONS = {
   RESERVATION_TOKENS: 'templeEvents__ReservationTokens',
   AUDIT_HISTORY: 'templeEvents__EventAuditHistory',
   DEPARTMENTS: 'templeEvents__Departments',
+  ROLE_TYPES: 'templeEvents__RoleTypes',
   CATEGORIES: 'templeEvents__Categories',
 };
 

@@ -10,7 +10,7 @@ import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
-import ServicesSelectorModal from './ServicesSelectorModal';
+import { ServicesContent } from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { RecurringIcon } from './shared/CalendarIcons';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
@@ -96,9 +96,11 @@ export default function RoomReservationFormBase({
 
   // Rendering control
   activeTab = 'details',        // Which tab is active (for Review mode)
+  setActiveTab = null,          // Callback to switch ReviewModal tab (injected via cloneElement → RoomReservationReview)
   showAllTabs = false,          // If true, render all content inline (for Creation mode)
   renderAdditionalContent = null, // Function to render additional content after form
   editScope = null,             // For recurring events: 'thisEvent' | 'allEvents' | null
+  onServicesExist = null,       // Callback when services exist/change: (hasServices) => void (injected by ReviewModal via cloneElement)
 
   // Data exposure
   onFormDataRef = null,         // Callback to expose formData getter
@@ -357,7 +359,6 @@ export default function RoomReservationFormBase({
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
 
   // Services state
-  const [showServicesModal, setShowServicesModal] = useState(false);
   const [selectedServices, setSelectedServices] = useState(
     initialData?.services || {}
   );
@@ -377,6 +378,17 @@ export default function RoomReservationFormBase({
   useEffect(() => {
     selectedServicesRef.current = selectedServices;
   }, [selectedServices]);
+
+  // Notify parent (ReviewModal) when services exist for tab dot indicator
+  useEffect(() => {
+    const hasAny = Object.keys(selectedServices).length > 0 &&
+      Object.values(selectedServices).some(v =>
+        (Array.isArray(v) && v.length > 0) ||
+        (typeof v === 'string' && v !== '') ||
+        (typeof v === 'boolean')
+      );
+    onServicesExist?.(hasAny);
+  }, [selectedServices, onServicesExist]);
 
   // Sync recurrencePattern when initialData changes (e.g., when loading a saved draft)
   // Mirrors the categories/services sync pattern above — only when using internal state
@@ -1381,12 +1393,11 @@ export default function RoomReservationFormBase({
               <div className="form-group">
                 <button
                   type="button"
-                  className={`all-day-toggle ${Object.keys(selectedServices).length > 0 ? 'active' : ''}`}
-                  onClick={() => setShowServicesModal(true)}
-                  disabled={fieldsDisabled && Object.keys(selectedServices).length === 0}
-                  style={{ width: '100%', justifyContent: 'center' }}
+                  className="all-day-toggle"
+                  disabled
+                  style={{ width: '100%', justifyContent: 'center', opacity: 0.5 }}
                 >
-                  {Object.keys(selectedServices).length > 0 ? '🛎️ Services' : '🛎️ Services'}
+                  {'\u26EA'} Clergy
                 </button>
               </div>
               <div className="form-group">
@@ -1553,6 +1564,15 @@ export default function RoomReservationFormBase({
                       )}
                     </div>
                     <div className="services-summary-actions">
+                      {setActiveTab && !showAllTabs && (
+                        <button
+                          type="button"
+                          className="services-clear-btn"
+                          onClick={() => setActiveTab('services')}
+                        >
+                          View
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="services-clear-btn"
@@ -2307,6 +2327,35 @@ export default function RoomReservationFormBase({
         </div>
       )}
 
+      {/* Services Tab */}
+      {(showAllTabs || activeTab === 'services') && (
+        <div className="tab-content-pad">
+          <section className="form-section">
+            <h2>Services</h2>
+            <ServicesContent
+              services={selectedServices}
+              onServicesChange={(updaterOrValue) => {
+                const newServices = typeof updaterOrValue === 'function'
+                  ? updaterOrValue(selectedServices)
+                  : updaterOrValue;
+                setSelectedServices(newServices);
+                selectedServicesRef.current = newServices;
+                setHasChanges(true);
+                if (onDataChange) {
+                  onDataChange({
+                    ...formData,
+                    categories: selectedCategoriesRef.current,
+                    services: newServices
+                  });
+                }
+              }}
+              readOnly={fieldsDisabled}
+              collapsible={false}
+            />
+          </section>
+        </div>
+      )}
+
       {/* Render additional content (tabs, attachments, history, etc.) */}
       {renderAdditionalContent && renderAdditionalContent(formData)}
 
@@ -2366,27 +2415,6 @@ export default function RoomReservationFormBase({
         initialCategories={selectedCategories}
       />
 
-      {/* Services Selector Modal */}
-      <ServicesSelectorModal
-        isOpen={showServicesModal}
-        onClose={() => setShowServicesModal(false)}
-        onSave={(services) => {
-          setSelectedServices(services);
-          selectedServicesRef.current = services; // Update ref immediately
-          setHasChanges(true);
-          // Notify parent component of services change
-          // Use 'categories' field (mecCategories is deprecated)
-          if (onDataChange) {
-            onDataChange({
-              ...formData,
-              categories: selectedCategoriesRef.current,
-              services
-            });
-          }
-        }}
-        initialServices={selectedServices}
-        readOnly={fieldsDisabled}
-      />
     </div>
   );
 }

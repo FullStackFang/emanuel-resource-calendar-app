@@ -9,7 +9,7 @@ import './ServicesSelectorModal.css';
 const SERVICE_SECTIONS = {
   seating: {
     title: '1. Seating & Setup',
-    icon: '🪑',
+    icon: '\u{1FA91}',
     fields: [
       {
         name: 'seatingArrangement',
@@ -27,7 +27,7 @@ const SERVICE_SECTIONS = {
   },
   catering: {
     title: '2. Catering',
-    icon: '🍽️',
+    icon: '\u{1F37D}\uFE0F',
     fields: [
       {
         name: 'cateringApproach',
@@ -52,7 +52,7 @@ const SERVICE_SECTIONS = {
   },
   beverages: {
     title: '3. Beverages',
-    icon: '🥤',
+    icon: '\u{1F964}',
     fields: [
       {
         name: 'nonAlcoholicBeverages',
@@ -70,7 +70,7 @@ const SERVICE_SECTIONS = {
   },
   tableSettings: {
     title: '4. Table Settings',
-    icon: '🍴',
+    icon: '\u{1F374}',
     fields: [
       {
         name: 'linens',
@@ -94,7 +94,7 @@ const SERVICE_SECTIONS = {
   },
   avSupport: {
     title: '5. A/V Support',
-    icon: '🎤',
+    icon: '\u{1F3A4}',
     fields: [
       {
         name: 'avEquipment',
@@ -106,7 +106,7 @@ const SERVICE_SECTIONS = {
   },
   photography: {
     title: '6. Photography/Video',
-    icon: '📷',
+    icon: '\u{1F4F7}',
     fields: [
       {
         name: 'photographer',
@@ -123,27 +123,16 @@ const SERVICE_SECTIONS = {
 };
 
 /**
- * ServicesSelectorModal - Modal for selecting event services
+ * ServicesContent - Inline content for selecting event services
  *
- * Features:
- * - Sectioned layout for different service categories
- * - Single-select, multi-select, yes/no, and text inputs
- * - Conditional fields (e.g., meal type only shows when catering is selected)
- * - ESC key and overlay click to close
+ * Controlled component: receives services data and a change callback.
+ * Used both inside ServicesSelectorModal (as a modal) and inline in the Services tab.
  *
- * @param {boolean} isOpen - Whether the modal is open
- * @param {Function} onClose - Called when modal is closed/cancelled
- * @param {Function} onSave - Called with selected services object when saved
- * @param {object} initialServices - Initially selected services
+ * @param {object} services - Current services selections
+ * @param {Function} onServicesChange - Called with updater function: (prev => next)
+ * @param {boolean} readOnly - Whether fields are read-only
  */
-export default function ServicesSelectorModal({
-  isOpen,
-  onClose,
-  onSave,
-  initialServices = {},
-  readOnly = false
-}) {
-  const [services, setServices] = useState({});
+export function ServicesContent({ services, onServicesChange, readOnly = false, collapsible = true }) {
   const [expandedSections, setExpandedSections] = useState({
     seating: true,
     catering: true,
@@ -153,41 +142,9 @@ export default function ServicesSelectorModal({
     photography: true
   });
 
-  // Reset selection when modal opens with new initial services
-  useEffect(() => {
-    if (isOpen) {
-      setServices({ ...initialServices });
-    }
-  }, [isOpen, initialServices]);
-
-  // Lock body scroll when modal is open (runs before paint to prevent jitter)
-  useScrollLock(isOpen);
-
-  // Handle ESC key to close
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Escape' && isOpen) {
-      onClose();
-    }
-  }, [isOpen, onClose]);
-
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, handleKeyDown]);
-
-  // Handle overlay click to close
-  const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
-  // Toggle section expansion
+  // Toggle section expansion (only used when collapsible=true)
   const toggleSection = (sectionKey) => {
+    if (!collapsible) return;
     setExpandedSections(prev => ({
       ...prev,
       [sectionKey]: !prev[sectionKey]
@@ -197,7 +154,7 @@ export default function ServicesSelectorModal({
   // Handle single-select change
   const handleSingleSelect = (fieldName, value) => {
     if (readOnly) return;
-    setServices(prev => ({
+    onServicesChange(prev => ({
       ...prev,
       [fieldName]: prev[fieldName] === value ? '' : value
     }));
@@ -206,7 +163,7 @@ export default function ServicesSelectorModal({
   // Handle multi-select toggle
   const handleMultiSelect = (fieldName, value) => {
     if (readOnly) return;
-    setServices(prev => {
+    onServicesChange(prev => {
       const currentValues = prev[fieldName] || [];
       const newValues = currentValues.includes(value)
         ? currentValues.filter(v => v !== value)
@@ -221,7 +178,7 @@ export default function ServicesSelectorModal({
   // Handle "None" option for multi-select with allowNone
   const handleNoneToggle = (fieldName) => {
     if (readOnly) return;
-    setServices(prev => ({
+    onServicesChange(prev => ({
       ...prev,
       [fieldName]: prev[`${fieldName}_none`] ? [] : [],
       [`${fieldName}_none`]: !prev[`${fieldName}_none`]
@@ -231,7 +188,7 @@ export default function ServicesSelectorModal({
   // Handle yes/no toggle
   const handleYesNo = (fieldName, value) => {
     if (readOnly) return;
-    setServices(prev => ({
+    onServicesChange(prev => ({
       ...prev,
       [fieldName]: value
     }));
@@ -240,7 +197,7 @@ export default function ServicesSelectorModal({
   // Handle text input change
   const handleTextChange = (fieldName, value) => {
     if (readOnly) return;
-    setServices(prev => ({
+    onServicesChange(prev => ({
       ...prev,
       [fieldName]: value
     }));
@@ -251,17 +208,6 @@ export default function ServicesSelectorModal({
     if (!field.conditional) return true;
     const { field: condField, values } = field.conditional;
     return values.includes(services[condField]);
-  };
-
-  // Handle save
-  const handleSave = () => {
-    onSave(services);
-    onClose();
-  };
-
-  // Clear all selections
-  const handleClearAll = () => {
-    setServices({});
   };
 
   // Count total selected services
@@ -276,6 +222,24 @@ export default function ServicesSelectorModal({
       }
     });
     return count;
+  };
+
+  // Check if a section has any selected values
+  const sectionHasSelections = (section) => {
+    const { fields } = section;
+    return fields.some(field => {
+      const value = services[field.name];
+      if (Array.isArray(value)) {
+        return value.length > 0;
+      }
+      if (typeof value === 'boolean') {
+        return value === true; // Only count "Yes" as a selection
+      }
+      if (typeof value === 'string') {
+        return value !== '';
+      }
+      return false;
+    });
   };
 
   // Render a single field based on type
@@ -382,42 +346,26 @@ export default function ServicesSelectorModal({
     }
   };
 
-  // Check if a section has any selected values
-  const sectionHasSelections = (section) => {
-    const { fields } = section;
-    return fields.some(field => {
-      const value = services[field.name];
-      if (Array.isArray(value)) {
-        return value.length > 0;
-      }
-      if (typeof value === 'boolean') {
-        return value === true; // Only count "Yes" as a selection
-      }
-      if (typeof value === 'string') {
-        return value !== '';
-      }
-      return false;
-    });
-  };
-
   // Render a section
   const renderSection = (sectionKey, section) => {
     const { title, icon, fields } = section;
-    const isExpanded = expandedSections[sectionKey];
+    const isExpanded = collapsible ? expandedSections[sectionKey] : true;
     const hasSelections = sectionHasSelections(section);
 
     return (
-      <div key={sectionKey} className={`services-section ${isExpanded ? 'expanded' : 'collapsed'} ${hasSelections ? 'has-selections' : ''}`}>
+      <div key={sectionKey} className={`services-section ${isExpanded ? 'expanded' : 'collapsed'} ${hasSelections ? 'has-selections' : ''} ${!collapsible ? 'services-section--flat' : ''}`}>
         <div
-          className={`services-section-header ${hasSelections ? 'has-selections' : ''}`}
-          onClick={() => toggleSection(sectionKey)}
+          className={`services-section-header ${hasSelections ? 'has-selections' : ''} ${!collapsible ? 'services-section-header--flat' : ''}`}
+          onClick={collapsible ? () => toggleSection(sectionKey) : undefined}
         >
           <span className="services-section-icon">{icon}</span>
           <h4 className="services-section-title">{title}</h4>
-          {hasSelections && <span className="services-section-check">✓</span>}
-          <span className="services-section-toggle">
-            {isExpanded ? '▼' : '▶'}
-          </span>
+          {collapsible && hasSelections && <span className="services-section-check">✓</span>}
+          {collapsible && (
+            <span className="services-section-toggle">
+              {isExpanded ? '\u25BC' : '\u25B6'}
+            </span>
+          )}
         </div>
         {isExpanded && (
           <div className="services-section-content">
@@ -426,6 +374,128 @@ export default function ServicesSelectorModal({
         )}
       </div>
     );
+  };
+
+  const selectedCount = countSelectedServices();
+
+  return (
+    <div className={`services-content-inline ${readOnly ? 'services-content--readonly' : ''}`}>
+      {/* Quick actions */}
+      <div className="services-quick-actions">
+        {!readOnly && (
+          <button
+            type="button"
+            className="services-quick-btn"
+            onClick={() => onServicesChange(() => ({}))}
+          >
+            Clear All
+          </button>
+        )}
+        <span className="services-count">
+          {selectedCount} service{selectedCount !== 1 ? 's' : ''} selected
+        </span>
+      </div>
+
+      {/* Service sections */}
+      <div className="services-sections">
+        {Object.entries(SERVICE_SECTIONS).map(([key, section]) =>
+          renderSection(key, section)
+        )}
+      </div>
+
+      {/* Additional needs */}
+      <div className={`services-notes-section ${services.serviceNotes ? 'has-content' : ''}`}>
+        <div className="services-notes-header">
+          <span className="services-section-icon">{'\u{1F4DD}'}</span>
+          <label className="services-notes-label" htmlFor="serviceNotes">Additional Needs</label>
+          {services.serviceNotes && <span className="services-section-check">✓</span>}
+        </div>
+        <textarea
+          id="serviceNotes"
+          className="services-notes-textarea"
+          value={services.serviceNotes || ''}
+          onChange={(e) => handleTextChange('serviceNotes', e.target.value)}
+          placeholder={readOnly ? '' : 'List any other needs not covered above \u2014 e.g., special lighting, additional furniture, accessibility requirements...'}
+          rows={3}
+          readOnly={readOnly}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ServicesSelectorModal - Modal wrapper for ServicesContent
+ *
+ * Thin wrapper that adds modal chrome (overlay, header, footer, ESC/click-outside).
+ * The actual content is rendered by ServicesContent.
+ *
+ * @param {boolean} isOpen - Whether the modal is open
+ * @param {Function} onClose - Called when modal is closed/cancelled
+ * @param {Function} onSave - Called with selected services object when saved
+ * @param {object} initialServices - Initially selected services
+ * @param {boolean} readOnly - Whether fields are read-only
+ */
+export default function ServicesSelectorModal({
+  isOpen,
+  onClose,
+  onSave,
+  initialServices = {},
+  readOnly = false
+}) {
+  const [services, setServices] = useState({});
+
+  // Reset selection when modal opens with new initial services
+  useEffect(() => {
+    if (isOpen) {
+      setServices({ ...initialServices });
+    }
+  }, [isOpen, initialServices]);
+
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
+  // Handle ESC key to close
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Escape' && isOpen) {
+      onClose();
+    }
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, handleKeyDown]);
+
+  // Handle overlay click to close
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  // Handle save
+  const handleSave = () => {
+    onSave(services);
+    onClose();
+  };
+
+  // Count total selected services (for footer button label)
+  const countSelectedServices = () => {
+    let count = 0;
+    Object.entries(services).forEach(([key, value]) => {
+      if (key.endsWith('_none')) return;
+      if (Array.isArray(value)) {
+        count += value.length;
+      } else if (value && value !== '' && value !== false) {
+        count += 1;
+      }
+    });
+    return count;
   };
 
   if (!isOpen) return null;
@@ -447,48 +517,13 @@ export default function ServicesSelectorModal({
           </button>
         </div>
 
-        {/* Content */}
+        {/* Content — delegates to ServicesContent */}
         <div className="services-modal-content">
-          {/* Quick actions */}
-          <div className="services-quick-actions">
-            {!readOnly && (
-              <button
-                type="button"
-                className="services-quick-btn"
-                onClick={handleClearAll}
-              >
-                Clear All
-              </button>
-            )}
-            <span className="services-count">
-              {selectedCount} service{selectedCount !== 1 ? 's' : ''} selected
-            </span>
-          </div>
-
-          {/* Service sections */}
-          <div className="services-sections">
-            {Object.entries(SERVICE_SECTIONS).map(([key, section]) =>
-              renderSection(key, section)
-            )}
-          </div>
-
-          {/* Additional needs */}
-          <div className={`services-notes-section ${services.serviceNotes ? 'has-content' : ''}`}>
-            <div className="services-notes-header">
-              <span className="services-section-icon">📝</span>
-              <label className="services-notes-label" htmlFor="serviceNotes">Additional Needs</label>
-              {services.serviceNotes && <span className="services-section-check">✓</span>}
-            </div>
-            <textarea
-              id="serviceNotes"
-              className="services-notes-textarea"
-              value={services.serviceNotes || ''}
-              onChange={(e) => handleTextChange('serviceNotes', e.target.value)}
-              placeholder={readOnly ? '' : 'List any other needs not covered above — e.g., special lighting, additional furniture, accessibility requirements...'}
-              rows={3}
-              readOnly={readOnly}
-            />
-          </div>
+          <ServicesContent
+            services={services}
+            onServicesChange={setServices}
+            readOnly={readOnly}
+          />
         </div>
 
         {/* Footer */}

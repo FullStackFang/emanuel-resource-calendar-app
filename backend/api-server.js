@@ -399,6 +399,7 @@ let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let categoriesCollection; // Event categories (base + dynamic)
 let departmentsCollection; // Departments for user assignment and reservation forms
+let roleTypesCollection; // Organizational role types (rabbi, cantor, etc.)
 let eventAuditHistoryCollection; // Audit trail for event changes
 let reservationAuditHistoryCollection; // Audit trail for room reservation changes
 let filesBucket; // GridFS bucket for file storage
@@ -419,6 +420,7 @@ function setDatabase(injectedDb) {
   featureCategoriesCollection = injectedDb.collection('templeEvents__FeatureCategories');
   categoriesCollection = injectedDb.collection('templeEvents__Categories');
   departmentsCollection = injectedDb.collection('templeEvents__Departments');
+  roleTypesCollection = injectedDb.collection('templeEvents__RoleTypes');
   eventAuditHistoryCollection = injectedDb.collection('templeEvents__EventAuditHistory');
   reservationAuditHistoryCollection = injectedDb.collection('templeEvents__ReservationAuditHistory');
   eventAttachmentsCollection = injectedDb.collection('templeEvents__EventAttachments');
@@ -788,10 +790,20 @@ async function createUserIndexes() {
     );
 
     // Email lookup: findOne({ email }) in user resolution & batch department lookup
-    await usersCollection.createIndex(
-      { email: 1 },
-      { name: "email_lookup", background: true }
-    );
+    // Cosmos DB may report IndexOptionsConflict (85) if the index already exists with
+    // different options — the index is still functional for queries, so just log and continue.
+    try {
+      await usersCollection.createIndex(
+        { email: 1 },
+        { name: "email_lookup", background: true }
+      );
+    } catch (indexErr) {
+      if (indexErr.code === 85) {
+        logger.log('email_lookup index already exists with different options (Cosmos DB) — skipping');
+      } else {
+        throw indexErr;
+      }
+    }
 
     // Legacy ID lookup: findOne({ odataId }) in identity reconciliation
     await usersCollection.createIndex(
@@ -1044,6 +1056,26 @@ async function createDepartmentsIndexes() {
     logger.log('Departments indexes created successfully');
   } catch (error) {
     logger.error('Error creating departments indexes:', error);
+  }
+}
+
+async function createRoleTypesIndexes() {
+  try {
+    logger.log('Creating role types indexes...');
+
+    await roleTypesCollection.createIndex(
+      { key: 1 },
+      { name: "unique_role_type_key", unique: true, background: true }
+    );
+
+    await roleTypesCollection.createIndex(
+      { displayOrder: 1, active: 1 },
+      { name: "role_type_display_order", background: true }
+    );
+
+    logger.log('Role types indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating role types indexes:', error);
   }
 }
 
@@ -1410,6 +1442,86 @@ async function seedInitialDepartments() {
     }
   } catch (error) {
     logger.error('Error seeding initial departments:', error);
+  }
+}
+
+async function seedInitialRoleTypes() {
+  try {
+    const count = await roleTypesCollection.countDocuments();
+    if (count === 0) {
+      logger.log('Seeding initial role types...');
+
+      const initialRoleTypes = [
+        {
+          name: 'None',
+          key: '',
+          description: 'No organizational role',
+          displayOrder: 1,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Rabbi',
+          key: 'rabbi',
+          description: 'Rabbinical staff',
+          displayOrder: 2,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Cantor',
+          key: 'cantor',
+          description: 'Cantorial staff',
+          displayOrder: 3,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Clergy',
+          key: 'clergy',
+          description: 'Other clergy members',
+          displayOrder: 4,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Staff',
+          key: 'staff',
+          description: 'Temple staff',
+          displayOrder: 5,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Lay Leader',
+          key: 'lay-leader',
+          description: 'Lay leadership',
+          displayOrder: 6,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'External',
+          key: 'external',
+          description: 'External user',
+          displayOrder: 7,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+
+      await roleTypesCollection.insertMany(initialRoleTypes);
+      logger.log(`Seeded ${initialRoleTypes.length} initial role types`);
+    }
+  } catch (error) {
+    logger.error('Error seeding initial role types:', error);
   }
 }
 
@@ -3009,6 +3121,7 @@ async function connectToDatabase() {
     featureCategoriesCollection = withRetryCollection(db.collection('templeEvents__FeatureCategories'));
     categoriesCollection = withRetryCollection(db.collection('templeEvents__Categories'));
     departmentsCollection = withRetryCollection(db.collection('templeEvents__Departments'));
+    roleTypesCollection = withRetryCollection(db.collection('templeEvents__RoleTypes'));
     eventAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__EventAuditHistory'));
     reservationAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__ReservationAuditHistory'));
 
@@ -3043,7 +3156,8 @@ async function connectToDatabase() {
       createEventServiceTypesIndexes(),
       createFeatureCategoriesIndexes(),
       createCategoriesIndexes(),
-      createDepartmentsIndexes()
+      createDepartmentsIndexes(),
+      createRoleTypesIndexes()
     ]);
     
     // Event cache indexes removed - using unifiedEventsCollection instead
@@ -3055,6 +3169,7 @@ async function connectToDatabase() {
       seedInitialFeatureCategories(),
       seedInitialCategories(),
       seedInitialDepartments(),
+      seedInitialRoleTypes(),
       seedInitialRoomCapabilityTypes(),
       seedInitialEventServiceTypes()
     ]);
@@ -18062,6 +18177,219 @@ app.post('/api/admin/departments/resequence', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error resequencing departments:', error);
     res.status(500).json({ error: 'Failed to resequence departments' });
+  }
+});
+
+// =====================================================================
+// ROLE TYPES ENDPOINTS
+// =====================================================================
+
+/**
+ * Get all active role types
+ * Supports optional ?active=false to include inactive role types
+ */
+app.get('/api/role-types', async (req, res) => {
+  try {
+    const filter = req.query.active === 'false' ? {} : { active: true };
+    const roleTypes = await roleTypesCollection.find(filter)
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    res.json(roleTypes);
+  } catch (error) {
+    logger.error('Error fetching role types:', error);
+    res.status(500).json({ error: 'Failed to fetch role types' });
+  }
+});
+
+/**
+ * Shifts display orders to make room for a new/moved role type.
+ */
+async function shiftRoleTypeDisplayOrders(collection, targetOrder, excludeId = null) {
+  const baseFilter = { active: true };
+  if (excludeId) {
+    baseFilter._id = { $ne: excludeId };
+  }
+
+  const targetOccupied = await collection.findOne({
+    ...baseFilter,
+    displayOrder: targetOrder
+  });
+
+  if (!targetOccupied) {
+    return;
+  }
+
+  const itemsToCheck = await collection
+    .find({ ...baseFilter, displayOrder: { $gte: targetOrder } })
+    .sort({ displayOrder: 1 })
+    .toArray();
+
+  const idsToShift = [];
+  let expectedOrder = targetOrder;
+
+  for (const item of itemsToCheck) {
+    if (item.displayOrder === expectedOrder) {
+      idsToShift.push(item._id);
+      expectedOrder++;
+    } else {
+      break;
+    }
+  }
+
+  if (idsToShift.length > 0) {
+    await collection.updateMany(
+      { _id: { $in: idsToShift } },
+      { $inc: { displayOrder: 1 } }
+    );
+  }
+}
+
+/**
+ * Create a new role type
+ */
+app.post('/api/role-types', verifyToken, async (req, res) => {
+  try {
+    const { name, key, description, displayOrder } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Role type name is required' });
+    }
+
+    if (!key && key !== '') {
+      return res.status(400).json({ error: 'Role type key is required' });
+    }
+
+    const existing = await roleTypesCollection.findOne({ key: key });
+    if (existing) {
+      return res.status(400).json({ error: 'Role type with this key already exists' });
+    }
+
+    let orderToUse = displayOrder;
+    if (orderToUse !== undefined) {
+      await shiftRoleTypeDisplayOrders(roleTypesCollection, orderToUse, null);
+    } else {
+      const maxOrderDoc = await roleTypesCollection.findOne(
+        { active: true },
+        { sort: { displayOrder: -1 } }
+      );
+      orderToUse = (maxOrderDoc?.displayOrder || 0) + 1;
+    }
+
+    const newRoleType = {
+      name: name.trim(),
+      key,
+      description: description || '',
+      displayOrder: orderToUse,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await roleTypesCollection.insertOne(newRoleType);
+    const created = await roleTypesCollection.findOne({ _id: result.insertedId });
+    res.status(201).json(created);
+  } catch (error) {
+    logger.error('Error creating role type:', error);
+    res.status(500).json({ error: 'Failed to create role type' });
+  }
+});
+
+app.put('/api/role-types/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, key, description, displayOrder, active } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid role type ID' });
+    }
+
+    const updateData = { updatedAt: new Date() };
+
+    if (name !== undefined) updateData.name = name.trim();
+    if (key !== undefined) updateData.key = key;
+    if (description !== undefined) updateData.description = description;
+    if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
+    if (active !== undefined) updateData.active = active;
+
+    if (key !== undefined) {
+      const existing = await roleTypesCollection.findOne({
+        key: key,
+        _id: { $ne: new ObjectId(id) }
+      });
+      if (existing) {
+        return res.status(400).json({ error: 'Role type with this key already exists' });
+      }
+    }
+
+    if (displayOrder !== undefined) {
+      const current = await roleTypesCollection.findOne({ _id: new ObjectId(id) });
+      if (current && current.displayOrder !== displayOrder) {
+        await shiftRoleTypeDisplayOrders(roleTypesCollection, displayOrder, new ObjectId(id));
+      }
+    }
+
+    const result = await roleTypesCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Role type not found' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Error updating role type:', error);
+    res.status(500).json({ error: 'Failed to update role type' });
+  }
+});
+
+app.delete('/api/role-types/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid role type ID' });
+    }
+
+    const roleType = await roleTypesCollection.findOne({ _id: new ObjectId(id) });
+    if (!roleType) {
+      return res.status(404).json({ error: 'Role type not found' });
+    }
+
+    // Don't allow deleting the 'None' entry
+    if (roleType.key === '') {
+      return res.status(400).json({ error: 'Cannot delete the default role type' });
+    }
+
+    await roleTypesCollection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ message: 'Role type deleted successfully' });
+  } catch (error) {
+    logger.error('Error deleting role type:', error);
+    res.status(500).json({ error: 'Failed to delete role type' });
+  }
+});
+
+app.post('/api/admin/role-types/resequence', verifyToken, async (req, res) => {
+  try {
+    const roleTypes = await roleTypesCollection
+      .find({ active: true })
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    for (let i = 0; i < roleTypes.length; i++) {
+      await roleTypesCollection.updateOne(
+        { _id: roleTypes[i]._id },
+        { $set: { displayOrder: i + 1, updatedAt: new Date() } }
+      );
+    }
+
+    res.json({ message: 'Role types resequenced successfully', count: roleTypes.length });
+  } catch (error) {
+    logger.error('Error resequencing role types:', error);
+    res.status(500).json({ error: 'Failed to resequence role types' });
   }
 });
 

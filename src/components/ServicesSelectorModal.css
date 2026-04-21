@@ -140,8 +140,22 @@
   gap: var(--space-3);
 }
 
+/* Inline tab layout: 3 columns when space allows */
+.services-content-inline .services-sections {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .services-content-inline .services-sections {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 900px) {
   .services-sections {
+    grid-template-columns: 1fr;
+  }
+  .services-content-inline .services-sections {
     grid-template-columns: 1fr;
   }
 }
@@ -180,6 +194,29 @@
 
 .services-section-header:hover {
   background: var(--bg-tertiary);
+}
+
+/* Flat (non-collapsible) section headers — always-open tab layout */
+.services-section-header--flat {
+  cursor: default;
+}
+
+.services-section-header--flat:hover {
+  background: var(--bg-secondary);
+}
+
+.services-section-header--flat.has-selections {
+  background: var(--bg-secondary);
+}
+
+.services-section-header--flat.has-selections:hover {
+  background: var(--bg-secondary);
+}
+
+/* Flat sections: no green border highlight — the tab dot handles that */
+.services-section--flat.has-selections {
+  border-color: var(--border-strong);
+  border-left-width: 1px;
 }
 
 .services-section-header.has-selections {
@@ -489,6 +526,15 @@
   min-height: 72px;
 }
 
+/* Inline tab: fixed-height scrollable textarea */
+.services-content-inline .services-notes-textarea {
+  height: 96px;
+  min-height: 96px;
+  max-height: 96px;
+  resize: none;
+  overflow-y: auto;
+}
+
 .services-notes-textarea:focus {
   background: var(--color-primary-50);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
@@ -679,13 +725,19 @@
 .services-modal--readonly .services-option-btn,
 .services-modal--readonly .services-checkbox-item,
 .services-modal--readonly .services-yn-btn,
-.services-modal--readonly .services-none-btn {
+.services-modal--readonly .services-none-btn,
+.services-content--readonly .services-option-btn,
+.services-content--readonly .services-checkbox-item,
+.services-content--readonly .services-yn-btn,
+.services-content--readonly .services-none-btn {
   cursor: default;
   pointer-events: none;
 }
 
 .services-modal--readonly .services-text-input,
-.services-modal--readonly .services-notes-textarea {
+.services-modal--readonly .services-notes-textarea,
+.services-content--readonly .services-text-input,
+.services-content--readonly .services-notes-textarea {
   cursor: default;
   background: var(--bg-secondary);
 }

@@ -205,6 +205,7 @@ export default function ReviewModal({
   // Auto-detect recurrence from reservation if not explicitly provided
   const hasRecurrenceFromReservation = Boolean(reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.eventType === 'seriesMaster');
   const [liveHasRecurrence, setLiveHasRecurrence] = useState(false);
+  const [hasServices, setHasServices] = useState(false);
 
   // Re-initialize from reservation when it changes
   useEffect(() => {
@@ -955,6 +956,14 @@ export default function ReviewModal({
             >
               Additional Info
             </div>
+            <div
+              className={`event-type-tab ${activeTab === 'services' ? 'active' : ''} ${!areDetailsComplete ? 'disabled' : ''}`}
+              onClick={() => areDetailsComplete && setActiveTab('services')}
+              title={!areDetailsComplete ? 'Fill in event dates and times first' : undefined}
+            >
+              Services
+              {hasServices && <span className="tab-active-dot" />}
+            </div>
             {/* Recurrence tab — visible when recurrence exists OR user can create one */}
             {(hasRecurrence || canEditRecurrence) && (
               <div
@@ -1012,7 +1021,7 @@ export default function ReviewModal({
               )}
 
               {React.isValidElement(children)
-                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef, onDetailsCompleteChange: setAreDetailsComplete })
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onServicesExist: setHasServices, onHasUncommittedRecurrence, createRecurrenceRef, onDetailsCompleteChange: setAreDetailsComplete })
                 : children
               }
             </div>

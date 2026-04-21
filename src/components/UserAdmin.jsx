@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import useDepartments from '../hooks/useDepartments';
+import useRoleTypes from '../hooks/useRoleTypes';
 import { logger } from '../utils/logger';
 import './UserAdmin.css';
 
@@ -41,6 +42,7 @@ const getInitials = (name) => {
 export default function UserAdmin({ apiToken }) {
   const { accounts } = useMsal();
   const { departments: departmentsList } = useDepartments();
+  const { roleTypes: roleTypesList } = useRoleTypes();
 
   // Build a lookup map keyed by department key for easy access
   const DEPARTMENTS = useMemo(() => {
@@ -50,6 +52,15 @@ export default function UserAdmin({ apiToken }) {
     }
     return map;
   }, [departmentsList]);
+
+  // Build a lookup map keyed by role type key
+  const ROLE_TYPES = useMemo(() => {
+    const map = {};
+    for (const rt of roleTypesList) {
+      map[rt.key] = { name: rt.name, description: rt.description };
+    }
+    return map;
+  }, [roleTypesList]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -63,6 +74,8 @@ export default function UserAdmin({ apiToken }) {
     email: '',
     role: 'viewer',
     department: '',
+    roleType: '',
+    title: '',
     preferences: {
       startOfWeek: 'Sunday',
       defaultView: 'week',
@@ -188,6 +201,8 @@ export default function UserAdmin({ apiToken }) {
           email: userToUpdate.email,
           role: userToUpdate.role || deriveRole(userToUpdate),
           department: userToUpdate.department || null,
+          roleType: userToUpdate.roleType || null,
+          title: userToUpdate.title || null,
           preferences: userToUpdate.preferences
         })
       });
@@ -235,6 +250,8 @@ export default function UserAdmin({ apiToken }) {
         userId: newUser.email.split('@')[0] + Date.now(),
         role: newUser.role || 'viewer',
         department: newUser.department || null,
+        roleType: newUser.roleType || null,
+        title: newUser.title || null,
         preferences: {
           startOfWeek: newUser.preferences.startOfWeek || 'Sunday',
           defaultView: newUser.preferences.defaultView || 'week',
@@ -272,6 +289,8 @@ export default function UserAdmin({ apiToken }) {
         email: '',
         role: 'viewer',
         department: '',
+        roleType: '',
+        title: '',
         preferences: {
           startOfWeek: 'Sunday',
           defaultView: 'week',
@@ -565,6 +584,55 @@ export default function UserAdmin({ apiToken }) {
                   )}
                 </div>
 
+                <div className="user-role-type">
+                  <span className="permissions-label">Role Type</span>
+                  {isEditing ? (
+                    <div className="role-type-selector">
+                      <select
+                        value={user.roleType || ''}
+                        onChange={(e) => handleInputChange(user._id, 'roleType', e.target.value || null)}
+                        className="role-type-select"
+                      >
+                        {Object.entries(ROLE_TYPES).map(([key, { name, description }]) => (
+                          <option key={key} value={key} title={description}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="role-type-description">
+                        {ROLE_TYPES[user.roleType || '']?.description}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="permissions-badges">
+                      {user.roleType ? (
+                        <span className={`permission-badge role-type-${user.roleType}`}>
+                          {ROLE_TYPES[user.roleType]?.name || user.roleType}
+                        </span>
+                      ) : (
+                        <span className="permission-badge no-role-type">None</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="user-title">
+                  <span className="permissions-label">Title</span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={user.title || ''}
+                      onChange={(e) => handleInputChange(user._id, 'title', e.target.value)}
+                      className="inline-edit-input"
+                      placeholder="e.g., Senior Rabbi"
+                    />
+                  ) : (
+                    <span className="user-title-value">
+                      {user.title || <span className="no-title">None</span>}
+                    </span>
+                  )}
+                </div>
+
                 <div className="user-last-login">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="12" cy="12" r="10" />
@@ -808,6 +876,39 @@ export default function UserAdmin({ apiToken }) {
                       </ul>
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h4 className="form-section-title">Organizational Role (Optional)</h4>
+                <div className="role-type-selection">
+                  <select
+                    value={newUser.roleType || ''}
+                    onChange={(e) => handleNewUserInputChange('roleType', e.target.value || null)}
+                    className="role-type-select-modal"
+                  >
+                    {Object.entries(ROLE_TYPES).map(([key, { name }]) => (
+                      <option key={key} value={key}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="role-type-description-text">
+                    {ROLE_TYPES[newUser.roleType || '']?.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h4 className="form-section-title">Title (Optional)</h4>
+                <div className="form-group full-width">
+                  <input
+                    type="text"
+                    value={newUser.title || ''}
+                    onChange={(e) => handleNewUserInputChange('title', e.target.value)}
+                    placeholder="e.g., Senior Rabbi, Associate Cantor"
+                  />
+                  <p className="title-description-text">
+                    Free-text display title for this user
+                  </p>
                 </div>
               </div>
             </div>

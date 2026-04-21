@@ -1292,3 +1292,152 @@
 .department-capabilities li:last-child {
   margin-bottom: 0;
 }
+
+/* ==========================================================================
+   ROLE TYPE SECTION STYLES
+   ========================================================================== */
+
+.user-role-type {
+  margin-bottom: var(--space-4);
+}
+
+.role-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.role-type-select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.role-type-select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.role-type-description {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Role type badges */
+.permission-badge.role-type-rabbi {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+
+.permission-badge.role-type-cantor {
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #1e40af;
+}
+
+.permission-badge.role-type-clergy {
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  color: #5b21b6;
+}
+
+.permission-badge.role-type-staff {
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #065f46;
+}
+
+.permission-badge.role-type-lay-leader {
+  background: linear-gradient(135deg, #fce7f3, #fbcfe8);
+  color: #9d174d;
+}
+
+.permission-badge.role-type-external {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-600);
+}
+
+.permission-badge.no-role-type {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  font-style: italic;
+}
+
+/* Modal role type selection styles */
+.role-type-selection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.role-type-select-modal {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.role-type-select-modal:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.role-type-description-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ==========================================================================
+   TITLE SECTION STYLES
+   ========================================================================== */
+
+.user-title {
+  margin-bottom: var(--space-4);
+}
+
+.user-title-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.user-title .no-title {
+  color: var(--color-neutral-500);
+  font-style: italic;
+  font-weight: var(--font-normal);
+}
+
+.user-title .inline-edit-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  transition: var(--transition-all);
+}
+
+.user-title .inline-edit-input:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.title-description-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}

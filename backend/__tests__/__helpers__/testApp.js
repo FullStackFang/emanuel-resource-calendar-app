@@ -140,6 +140,7 @@ function setTestDatabase(db) {
     reservationTokens: db.collection(COLLECTIONS.RESERVATION_TOKENS),
     auditHistory: db.collection(COLLECTIONS.AUDIT_HISTORY),
     departments: db.collection(COLLECTIONS.DEPARTMENTS),
+    roleTypes: db.collection(COLLECTIONS.ROLE_TYPES),
     categories: db.collection(COLLECTIONS.CATEGORIES),
   };
 }

@@ -59,6 +59,7 @@ export default function RoomReservationReview({
   onSchedulingConflictsChange = null, // Callback when scheduling conflicts change: (hasConflicts) => void
   onHoldChange = null, // Callback when hold status changes: (isHold) => void
   onRecurrenceExists = null, // Callback when recurrence pattern exists/changes: (hasRecurrence) => void (injected by ReviewModal via cloneElement)
+  onServicesExist = null, // Callback when services exist/change: (hasServices) => void (injected by ReviewModal via cloneElement)
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
   createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
 }) {
@@ -525,6 +526,8 @@ export default function RoomReservationReview({
           originalData={originalData}
           onConflictChange={handleConflictChange}
           onHoldChange={onHoldChange}
+          setActiveTab={setActiveTab}
+          onServicesExist={onServicesExist}
           externalRecurrencePattern={recurrencePattern}
           onRecurrencePatternChange={handleRecurrencePatternChange}
           renderAdditionalContent={(liveFormData) => (

@@ -40,6 +40,8 @@ function createBaseUser(overrides = {}) {
     displayName: overrides.displayName || `Test User ${userId}`,
     role: overrides.role || ROLES.VIEWER,
     department: overrides.department || null,
+    roleType: overrides.roleType || null,
+    title: overrides.title || null,
     createdAt: new Date(),
     lastLoginAt: new Date(),
     ...overrides,

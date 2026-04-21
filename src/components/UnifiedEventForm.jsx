@@ -58,7 +58,9 @@ export default function UnifiedEventForm({
   // UI customization
   headerContent,
   hideActionBar = false, // Hide internal action bar when wrapped in ReviewModal
-  activeTab = 'details' // Tab control from ReviewModal
+  activeTab = 'details', // Tab control from ReviewModal
+  setActiveTab = null, // Callback to switch ReviewModal tab (injected via cloneElement)
+  onServicesExist = null // Callback when services exist/change (injected via cloneElement)
 }) {
   // Mode-specific state
   const [success, setSuccess] = useState(false);
@@ -648,7 +650,9 @@ export default function UnifiedEventForm({
         currentReservationId={mode === 'reservation' ? reservation?._id : null}
         onLockedEventClick={onLockedEventClick}
         activeTab={activeTab}
+        setActiveTab={setActiveTab}
         showAllTabs={!hideActionBar}
+        onServicesExist={onServicesExist}
         onFormDataRef={(getter) => { formDataRef.current = getter; }}
         onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
         onValidateRef={(getter) => { validateRef.current = getter; }}

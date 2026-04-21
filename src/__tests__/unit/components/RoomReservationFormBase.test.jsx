@@ -30,6 +30,7 @@ vi.mock('../../../components/CategorySelectorModal', () => ({
 }));
 vi.mock('../../../components/ServicesSelectorModal', () => ({
   default: () => null,
+  ServicesContent: () => null,
 }));
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
   default: () => <div data-testid="loading-spinner" />,
