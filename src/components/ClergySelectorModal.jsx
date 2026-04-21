@@ -10,35 +10,35 @@ import './ClergySelectorModal.css';
  *
  * Follows the CategorySelectorModal pattern:
  * - Overlay + centered modal with header/content/footer
- * - Two sections (Rabbi, Cantor) with single-select items
+ * - Two sections (Rabbi, Cantor) with multi-select items
  * - Clear All quick action + selection count
  * - ESC key and overlay click to close
  * - Cancel / Save footer
  *
  * @param {boolean}  isOpen          - Whether the modal is open
  * @param {Function} onClose         - Called when modal is closed/cancelled
- * @param {Function} onSave          - Called with { assignedRabbi, assignedCantor } when saved
- * @param {Object|null} initialRabbi  - Currently assigned rabbi { userId, displayName }
- * @param {Object|null} initialCantor - Currently assigned cantor { userId, displayName }
+ * @param {Function} onSave          - Called with { assignedRabbi, assignedCantor } arrays when saved
+ * @param {Array<{userId,displayName}>} initialRabbi  - Currently assigned rabbis
+ * @param {Array<{userId,displayName}>} initialCantor - Currently assigned cantors
  * @param {string}   apiToken        - Auth token for fetching clergy users
  */
 export default function ClergySelectorModal({
   isOpen,
   onClose,
   onSave,
-  initialRabbi = null,
-  initialCantor = null,
+  initialRabbi = [],
+  initialCantor = [],
   apiToken = null,
 }) {
-  const [selectedRabbi, setSelectedRabbi] = useState(initialRabbi);
-  const [selectedCantor, setSelectedCantor] = useState(initialCantor);
+  const [selectedRabbis, setSelectedRabbis] = useState(initialRabbi);
+  const [selectedCantors, setSelectedCantors] = useState(initialCantor);
   const { rabbis, cantors, loading, error } = useClergyUsers(apiToken);
 
   // Reset selection when modal opens with new initial values
   useEffect(() => {
     if (isOpen) {
-      setSelectedRabbi(initialRabbi);
-      setSelectedCantor(initialCantor);
+      setSelectedRabbis(initialRabbi);
+      setSelectedCantors(initialCantor);
     }
   }, [isOpen, initialRabbi, initialCantor]);
 
@@ -68,35 +68,38 @@ export default function ClergySelectorModal({
     }
   };
 
-  // Toggle rabbi selection (click again to deselect)
+  // Toggle rabbi selection (multi-select: add or remove from array)
   const toggleRabbi = (user) => {
-    setSelectedRabbi(prev =>
-      prev && prev.userId === String(user._id)
-        ? null
-        : { userId: String(user._id), displayName: user.displayName }
+    const id = String(user._id);
+    setSelectedRabbis(prev =>
+      prev.some(r => r.userId === id)
+        ? prev.filter(r => r.userId !== id)
+        : [...prev, { userId: id, displayName: user.displayName }]
     );
   };
 
-  // Toggle cantor selection (click again to deselect)
+  // Toggle cantor selection (multi-select: add or remove from array)
   const toggleCantor = (user) => {
-    setSelectedCantor(prev =>
-      prev && prev.userId === String(user._id)
-        ? null
-        : { userId: String(user._id), displayName: user.displayName }
+    const id = String(user._id);
+    setSelectedCantors(prev =>
+      prev.some(c => c.userId === id)
+        ? prev.filter(c => c.userId !== id)
+        : [...prev, { userId: id, displayName: user.displayName }]
     );
   };
 
   const handleSave = () => {
-    onSave({ assignedRabbi: selectedRabbi, assignedCantor: selectedCantor });
+    onSave({ assignedRabbi: selectedRabbis, assignedCantor: selectedCantors });
     onClose();
   };
 
   const handleClearAll = () => {
-    setSelectedRabbi(null);
-    setSelectedCantor(null);
+    setSelectedRabbis([]);
+    setSelectedCantors([]);
   };
 
-  const selectionCount = (selectedRabbi ? 1 : 0) + (selectedCantor ? 1 : 0);
+  const selectionCount = selectedRabbis.length + selectedCantors.length;
+  const totalAvailable = rabbis.length + cantors.length;
 
   if (!isOpen) return null;
 
@@ -139,7 +142,7 @@ export default function ClergySelectorModal({
                   Clear All
                 </button>
                 <span className="category-count">
-                  {selectionCount} of 2 assigned
+                  {selectionCount} of {totalAvailable} assigned
                 </span>
               </div>
 
@@ -148,26 +151,29 @@ export default function ClergySelectorModal({
                 <div className="clergy-section">
                   <h4 className="clergy-section-title">Rabbi</h4>
                   <div className="clergy-grid">
-                    {rabbis.map(user => (
-                      <div
-                        key={String(user._id)}
-                        className={`category-item ${selectedRabbi?.userId === String(user._id) ? 'selected' : ''}`}
-                        onClick={() => toggleRabbi(user)}
-                        style={{ '--category-color': '#7c3aed' }}
-                      >
-                        <div className="category-checkbox">
-                          {selectedRabbi?.userId === String(user._id) && (
-                            <span className="category-check">{'\u2713'}</span>
-                          )}
+                    {rabbis.map(user => {
+                      const isSelected = selectedRabbis.some(r => r.userId === String(user._id));
+                      return (
+                        <div
+                          key={String(user._id)}
+                          className={`category-item ${isSelected ? 'selected' : ''}`}
+                          onClick={() => toggleRabbi(user)}
+                          style={{ '--category-color': '#7c3aed' }}
+                        >
+                          <div className="category-checkbox">
+                            {isSelected && (
+                              <span className="category-check">{'\u2713'}</span>
+                            )}
+                          </div>
+                          <div className="category-info">
+                            <span className="category-name">{user.displayName}</span>
+                            {user.title && (
+                              <span className="category-description">{user.title}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="category-info">
-                          <span className="category-name">{user.displayName}</span>
-                          {user.title && (
-                            <span className="category-description">{user.title}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -177,26 +183,29 @@ export default function ClergySelectorModal({
                 <div className="clergy-section">
                   <h4 className="clergy-section-title">Cantor</h4>
                   <div className="clergy-grid">
-                    {cantors.map(user => (
-                      <div
-                        key={String(user._id)}
-                        className={`category-item ${selectedCantor?.userId === String(user._id) ? 'selected' : ''}`}
-                        onClick={() => toggleCantor(user)}
-                        style={{ '--category-color': '#0891b2' }}
-                      >
-                        <div className="category-checkbox">
-                          {selectedCantor?.userId === String(user._id) && (
-                            <span className="category-check">{'\u2713'}</span>
-                          )}
+                    {cantors.map(user => {
+                      const isSelected = selectedCantors.some(c => c.userId === String(user._id));
+                      return (
+                        <div
+                          key={String(user._id)}
+                          className={`category-item ${isSelected ? 'selected' : ''}`}
+                          onClick={() => toggleCantor(user)}
+                          style={{ '--category-color': '#0891b2' }}
+                        >
+                          <div className="category-checkbox">
+                            {isSelected && (
+                              <span className="category-check">{'\u2713'}</span>
+                            )}
+                          </div>
+                          <div className="category-info">
+                            <span className="category-name">{user.displayName}</span>
+                            {user.title && (
+                              <span className="category-description">{user.title}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="category-info">
-                          <span className="category-name">{user.displayName}</span>
-                          {user.title && (
-                            <span className="category-description">{user.title}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

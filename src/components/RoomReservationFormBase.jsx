@@ -170,9 +170,9 @@ export default function RoomReservationFormBase({
     isAllowedConcurrent: false,
     // Allowed categories for concurrent events (only applies when isAllowedConcurrent is true)
     allowedConcurrentCategories: [],
-    // Clergy assignments
-    assignedRabbi: null,
-    assignedCantor: null,
+    // Clergy assignments (arrays for multi-select)
+    assignedRabbi: [],
+    assignedCantor: [],
     ...initialData
   });
 
@@ -1381,7 +1381,7 @@ export default function RoomReservationFormBase({
               <div className="form-group">
                 <button
                   type="button"
-                  className={`all-day-toggle ${(formData.assignedRabbi || formData.assignedCantor) ? 'active' : ''}`}
+                  className={`all-day-toggle ${(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) ? 'active' : ''}`}
                   onClick={() => setShowClergyModal(true)}
                   disabled={fieldsDisabled}
                   style={{ width: '100%', justifyContent: 'center' }}
@@ -1482,15 +1482,15 @@ export default function RoomReservationFormBase({
             )}
 
             {/* Clergy Summary */}
-            {(formData.assignedRabbi || formData.assignedCantor) && (
+            {(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) && (
               <div className="category-summary-display" style={{ marginTop: 'var(--space-2)' }}>
                 <div className="category-summary-content">
                   <span className="category-summary-icon">{'\u26EA'}</span>
                   <span className="category-summary-text">
                     {[
-                      formData.assignedRabbi && `Rabbi: ${formData.assignedRabbi.displayName}`,
-                      formData.assignedCantor && `Cantor: ${formData.assignedCantor.displayName}`
-                    ].filter(Boolean).join(' · ')}
+                      formData.assignedRabbi?.length > 0 && `Rabbi: ${formData.assignedRabbi.map(r => r.displayName).join(', ')}`,
+                      formData.assignedCantor?.length > 0 && `Cantor: ${formData.assignedCantor.map(c => c.displayName).join(', ')}`
+                    ].filter(Boolean).join(' \u00B7 ')}
                   </span>
                 </div>
                 {!fieldsDisabled && (
@@ -1499,9 +1499,9 @@ export default function RoomReservationFormBase({
                       type="button"
                       className="category-clear-btn"
                       onClick={() => {
-                        setFormData(prev => ({ ...prev, assignedRabbi: null, assignedCantor: null }));
+                        setFormData(prev => ({ ...prev, assignedRabbi: [], assignedCantor: [] }));
                         setHasChanges(true);
-                        setTimeout(() => notifyDataChange({ ...formData, assignedRabbi: null, assignedCantor: null }), 0);
+                        setTimeout(() => notifyDataChange({ ...formData, assignedRabbi: [], assignedCantor: [] }), 0);
                       }}
                     >
                       Clear

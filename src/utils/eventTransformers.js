@@ -20,6 +20,16 @@
 import { extractTextFromHtml } from './textUtils';
 
 /**
+ * Normalize a clergy field to an array.
+ * Handles backward compat: legacy single-object { userId, displayName } → [{ userId, displayName }]
+ */
+export function normalizeClergyField(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && value.userId) return [value];
+  return [];
+}
+
+/**
  * Helper: Get field value with format-aware source selection
  *
  * Source priority depends on event format:
@@ -345,9 +355,9 @@ export function transformEventToFlatStructure(event) {
     virtualMeetingUrl: getEventField(event, 'virtualMeetingUrl') || event.graphData?.onlineMeetingUrl || null,
     virtualPlatform: getEventField(event, 'virtualPlatform', null),
 
-    // Clergy assignments
-    assignedRabbi: getEventField(event, 'assignedRabbi', null),
-    assignedCantor: getEventField(event, 'assignedCantor', null),
+    // Clergy assignments (normalized to arrays; handles legacy single-object data)
+    assignedRabbi: normalizeClergyField(getEventField(event, 'assignedRabbi', null)),
+    assignedCantor: normalizeClergyField(getEventField(event, 'assignedCantor', null)),
 
     // Calendar-specific enrichments
     assignedTo: getEventField(event, 'assignedTo', ''),
@@ -447,9 +457,9 @@ export function transformEventToDuplicatePrefill(event) {
     organizerName: get('organizerName', ''),
     organizerPhone: get('organizerPhone', ''),
     organizerEmail: get('organizerEmail', ''),
-    // Clergy assignments
-    assignedRabbi: get('assignedRabbi', null),
-    assignedCantor: get('assignedCantor', null),
+    // Clergy assignments (normalized to arrays)
+    assignedRabbi: normalizeClergyField(get('assignedRabbi', null)),
+    assignedCantor: normalizeClergyField(get('assignedCantor', null)),
     // Dates cleared — user must pick new dates via multi-date picker
     startDate: '',
     endDate: '',

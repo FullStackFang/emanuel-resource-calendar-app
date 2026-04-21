@@ -237,6 +237,8 @@ async function buildEventFields(body, db, options = {}) {
     virtualPlatform: body.virtualPlatform || null,
     occurrenceOverrides: body.occurrenceOverrides || [],
     requiredFeatures: body.requiredFeatures || [],
+    assignedRabbi: body.assignedRabbi || [],
+    assignedCantor: body.assignedCantor || [],
     isOnBehalfOf,
     contactName: isOnBehalfOf ? (body.contactName || '') : '',
     contactEmail: isOnBehalfOf ? (body.contactEmail || '') : '',

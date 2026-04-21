@@ -273,6 +273,8 @@ describe('buildEventFields (mode=create)', () => {
     expect(cd.organizerName).toBe('');
     expect(cd.organizerPhone).toBe('');
     expect(cd.organizerEmail).toBe('');
+    expect(cd.assignedRabbi).toEqual([]);
+    expect(cd.assignedCantor).toEqual([]);
   });
 
   test('eventType derivation: singleInstance when no recurrence', async () => {
@@ -418,6 +420,31 @@ describe('buildEventFields (mode=create)', () => {
     expect(cd.contactEmail).toBe('');
   });
 
+  test('clergy fields: default to empty arrays in create mode', async () => {
+    const { calendarDataDoc: cd } = await buildEventFields(
+      { eventTitle: 'No Clergy' },
+      mockDb,
+      { mode: 'create' }
+    );
+
+    expect(cd.assignedRabbi).toEqual([]);
+    expect(cd.assignedCantor).toEqual([]);
+  });
+
+  test('clergy fields: pass through array data', async () => {
+    const rabbis = [{ userId: 'r1', displayName: 'Rabbi One' }, { userId: 'r2', displayName: 'Rabbi Two' }];
+    const cantors = [{ userId: 'c1', displayName: 'Cantor One' }];
+
+    const { calendarDataDoc: cd } = await buildEventFields(
+      { eventTitle: 'With Clergy', assignedRabbi: rabbis, assignedCantor: cantors },
+      mockDb,
+      { mode: 'create' }
+    );
+
+    expect(cd.assignedRabbi).toEqual(rabbis);
+    expect(cd.assignedCantor).toEqual(cantors);
+  });
+
   test('mecCategories accepted as fallback for categories', async () => {
     const body = {
       eventTitle: 'MEC',
@@ -483,6 +510,18 @@ describe('buildEventFields (mode=update)', () => {
     expect('calendarData.services' in calendarDataFields).toBe(true);
   });
 
+  test('clergy fields: produces dot-notation keys in update mode', async () => {
+    const rabbis = [{ userId: 'r1', displayName: 'Rabbi A' }];
+    const { calendarDataFields } = await buildEventFields(
+      { eventTitle: 'Clergy Update', assignedRabbi: rabbis },
+      mockDb,
+      { mode: 'update' }
+    );
+
+    expect(calendarDataFields['calendarData.assignedRabbi']).toEqual(rabbis);
+    expect(calendarDataFields['calendarData.assignedCantor']).toEqual([]);
+  });
+
   test('topLevelFields includes eventType in update mode', async () => {
     const body = {
       eventTitle: 'Series Update',
@@ -542,6 +581,18 @@ describe('remapToCalendarData', () => {
     expect(result['calendarData.locations'][0]).toBeInstanceOf(ObjectId);
     // Also sets roomReservationData.requestedRooms for backward compat
     expect(result['roomReservationData.requestedRooms']).toHaveLength(1);
+  });
+
+  test('remaps clergy fields to calendarData.*', () => {
+    const rabbis = [{ userId: 'r1', displayName: 'Rabbi A' }];
+    const result = remapToCalendarData({
+      assignedRabbi: rabbis,
+      assignedCantor: [],
+    });
+
+    expect(result['calendarData.assignedRabbi']).toEqual(rabbis);
+    expect(result['calendarData.assignedCantor']).toEqual([]);
+    expect(result['assignedRabbi']).toBeUndefined();
   });
 
   test('normalizes requestedRooms same as locations', () => {

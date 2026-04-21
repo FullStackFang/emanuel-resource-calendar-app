@@ -141,6 +141,8 @@ function createBaseEvent(options = {}) {
       teardownTimeMinutes: options.teardownTimeMinutes || 0,
       reservationStartMinutes: options.reservationStartMinutes || 0,
       reservationEndMinutes: options.reservationEndMinutes || 0,
+      assignedRabbi: options.assignedRabbi || [],
+      assignedCantor: options.assignedCantor || [],
     },
 
     // Optional nested structures — use {} not null so MongoDB can $set nested fields
