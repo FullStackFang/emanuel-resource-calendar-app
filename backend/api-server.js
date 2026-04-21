@@ -18329,17 +18329,17 @@ app.put('/api/role-types/:id', verifyToken, async (req, res) => {
       }
     }
 
-    const result = await roleTypesCollection.findOneAndUpdate(
+    await roleTypesCollection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updateData },
-      { returnDocument: 'after' }
+      { $set: updateData }
     );
 
-    if (!result) {
+    const updated = await roleTypesCollection.findOne({ _id: new ObjectId(id) });
+    if (!updated) {
       return res.status(404).json({ error: 'Role type not found' });
     }
 
-    res.json(result);
+    res.json(updated);
   } catch (error) {
     logger.error('Error updating role type:', error);
     res.status(500).json({ error: 'Failed to update role type' });

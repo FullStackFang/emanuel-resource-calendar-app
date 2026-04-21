@@ -1,8 +1,4 @@
 {
-  "enabledPlugins": {
-    "document-skills@anthropic-agent-skills": true,
-    "example-skills@anthropic-agent-skills": true
-  },
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -25,5 +21,10 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "document-skills@anthropic-agent-skills": true,
+    "example-skills@anthropic-agent-skills": true,
+    "superpowers@claude-plugins-official": true
   }
 }
