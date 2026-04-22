@@ -13,6 +13,9 @@ const {
   createPendingEvent,
   createDraftEvent,
   createPublishedEvent,
+  createRecurringSeriesMaster,
+  createExceptionDocument,
+  createAdditionDocument,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -196,6 +199,142 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
       expect(res.body.success).toBe(true);
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPending._id });
       expect(updated.status).toBe(STATUS.REJECTED);
+    });
+  });
+
+  describe('RR-REC: Rejecting a recurring series cascades to exception/addition docs', () => {
+    // Guards against orphan-exception bug: rejecting the series master must also
+    // flip status='rejected' on all exception and addition children. Otherwise the
+    // children keep status='pending' and continue to render on the calendar after
+    // the parent series is rejected.
+
+    it('RR-REC-1: rejecting a seriesMaster cascades exception doc status to rejected', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'pending',
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Recurring pending series',
+      });
+      const exception = createExceptionDocument(
+        master,
+        '2026-03-17',
+        { startTime: '10:30', endTime: '11:30' },
+        { status: 'pending' }
+      );
+      const [savedMaster] = await insertEvents(db, [master, exception]);
+
+      await request(app)
+        .put(`/api/admin/events/${savedMaster._id}/reject`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'Rejecting whole series' })
+        .expect(200);
+
+      const updatedMaster = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedMaster._id });
+      expect(updatedMaster.status).toBe(STATUS.REJECTED);
+
+      const updatedException = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        eventType: 'exception',
+      });
+      expect(updatedException).toBeTruthy();
+      expect(updatedException.status).toBe(STATUS.REJECTED);
+
+      // statusHistory should reflect the cascade transition
+      const lastHistory = updatedException.statusHistory[updatedException.statusHistory.length - 1];
+      expect(lastHistory.status).toBe(STATUS.REJECTED);
+      expect(lastHistory.reason).toMatch(/series rejected/i);
+    });
+
+    it('RR-REC-2: rejecting a seriesMaster cascades addition doc status to rejected', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'pending',
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      const addition = createAdditionDocument(
+        master,
+        '2026-04-01',
+        { startTime: '09:00', endTime: '10:00' },
+        { status: 'pending' }
+      );
+      const [savedMaster] = await insertEvents(db, [master, addition]);
+
+      await request(app)
+        .put(`/api/admin/events/${savedMaster._id}/reject`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'Rejecting whole series' })
+        .expect(200);
+
+      const updatedAddition = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        eventType: 'addition',
+      });
+      expect(updatedAddition).toBeTruthy();
+      expect(updatedAddition.status).toBe(STATUS.REJECTED);
+    });
+
+    it('RR-REC-3: already soft-deleted exceptions are not touched by the cascade', async () => {
+      // Regression guard: cascadeStatusUpdate filters isDeleted:{ $ne: true }.
+      // A soft-deleted exception should remain status='deleted', not flip to 'rejected'.
+      const master = createRecurringSeriesMaster({
+        status: 'pending',
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      const deletedException = createExceptionDocument(
+        master,
+        '2026-03-17',
+        { startTime: '10:30', endTime: '11:30' },
+        { status: 'deleted', isDeleted: true }
+      );
+      const [savedMaster] = await insertEvents(db, [master, deletedException]);
+
+      await request(app)
+        .put(`/api/admin/events/${savedMaster._id}/reject`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'Rejecting whole series' })
+        .expect(200);
+
+      const stillDeleted = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        eventType: 'exception',
+      });
+      expect(stillDeleted.status).toBe('deleted');
+      expect(stillDeleted.isDeleted).toBe(true);
+    });
+
+    it('RR-REC-4: rejecting a non-recurring pending event does not error and touches no other docs', async () => {
+      // Guards against accidentally cascading on non-recurring events, which have no children.
+      // Also ensures the cascade branch does not break the existing non-recurring reject flow.
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      // Unrelated recurring series in the DB — its children must not be touched.
+      const otherMaster = createRecurringSeriesMaster({
+        status: 'pending',
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+      });
+      const otherException = createExceptionDocument(
+        otherMaster,
+        '2026-03-17',
+        { startTime: '10:30' },
+        { status: 'pending' }
+      );
+      const [savedPending] = await insertEvents(db, [pending, otherMaster, otherException]);
+
+      await request(app)
+        .put(`/api/admin/events/${savedPending._id}/reject`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ reason: 'Unrelated rejection' })
+        .expect(200);
+
+      const untouchedException = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: otherMaster.eventId,
+        eventType: 'exception',
+      });
+      expect(untouchedException.status).toBe('pending');
     });
   });
 });

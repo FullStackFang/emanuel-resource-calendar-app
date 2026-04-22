@@ -19576,6 +19576,23 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
     });
 
+    // Cascade rejection to exception/addition documents when the master is a recurring series.
+    // Without this, child docs keep their prior status (typically 'pending') and continue to
+    // render on the calendar even though the parent series has been rejected. Mirrors the
+    // publish cascade at the publish endpoint above.
+    if (event.eventType === 'seriesMaster') {
+      await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'rejected', {
+        changedBy: userEmail,
+        reason: 'Series rejected',
+        reviewedBy: {
+          userId,
+          name: user?.displayName || userEmail,
+          reviewedAt: new Date()
+        },
+        reviewNotes: reason,
+      });
+    }
+
     logger.info('Room reservation rejected:', {
       eventId: event.eventId,
       mongoId: id,
