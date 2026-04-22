@@ -45,11 +45,13 @@ export function usePolling(callback, intervalMs, enabled = true) {
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        // Stagger refocus refetches over 0-3 seconds to avoid thundering herd
+        // Fire immediately so users don't stare at stale data after refocus.
+        // Small 0-300ms jitter desyncs simultaneous refocus across clients
+        // without the perceptible lag the prior 0-3s stagger introduced.
         refocusTimerRef.current = setTimeout(() => {
           callbackRef.current();
           start();
-        }, Math.random() * 3000);
+        }, Math.random() * 300);
       } else {
         stop();
       }

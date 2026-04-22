@@ -133,6 +133,10 @@ export default function ReservationRequests({ graphToken }) {
       );
 
       if (!response.ok) {
+        if (silent) {
+          logger.warn(`Silent refresh failed with status ${response.status}`);
+          return;
+        }
         throw new Error('Failed to load room reservation events');
       }
 
@@ -153,6 +157,8 @@ export default function ReservationRequests({ graphToken }) {
         setAllReservations(transformedEvents);
       }
       setLastFetchedAt(Date.now());
+      // Silent success after a prior failure: clear stale banner so the UI recovers.
+      if (silent) setError('');
     } catch (err) {
       if (err.name === 'AbortError') return; // Request superseded by a newer one — not an error
       logger.error('Error loading reservations:', err);

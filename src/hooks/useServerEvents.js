@@ -109,11 +109,9 @@ export function useServerEvents({ apiToken, userEmail }) {
 
           const data = JSON.parse(e.data);
 
-          // Skip if this user performed the action (they already have fresh data)
-          if (data.actorEmail && userEmail &&
-              data.actorEmail.toLowerCase() === userEmail.toLowerCase()) {
-            return;
-          }
+          // Process self-actor events too — ensures multi-tab consistency and
+          // keeps the acting tab in sync with the canonical SSE projection
+          // (mutation responses may lag or be incomplete vs projectEventForSSE).
 
           // Build payload from enriched SSE data for client-side patching
           const payload = data.event ? {

@@ -59,12 +59,15 @@ export default function MyReservations() {
 
       if (!response.ok) {
         if (!silent) throw new Error('Failed to load reservations');
+        logger.warn(`Silent refresh failed with status ${response.status}`);
         return;
       }
 
       const data = await response.json();
       setAllReservations(transformEventsToFlatStructure(data.events || []));
       setLastFetchedAt(Date.now());
+      // Silent success after a prior failure: clear stale banner so the UI recovers.
+      if (silent) setError('');
     } catch (err) {
       if (!silent) {
         logger.error('Error loading user reservations:', err);
