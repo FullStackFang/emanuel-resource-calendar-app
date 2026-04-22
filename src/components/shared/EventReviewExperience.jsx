@@ -15,6 +15,7 @@ import React from 'react';
 import ReviewModal from './ReviewModal';
 import RoomReservationReview from '../RoomReservationReview';
 import ConflictDialog from './ConflictDialog';
+import { useCurrentUserGates } from '../../hooks/useCurrentUserGates';
 
 export default function EventReviewExperience({
   // The hook instance (return value from useEventReviewExperience)
@@ -23,15 +24,8 @@ export default function EventReviewExperience({
   // --- Consumer-computed values ---
   title,              // string — modal title
   modalMode,          // 'review' | 'edit' | 'new'
-  isRequesterOnly,    // boolean — true when user is requester (not admin/approver)
-  canRequestEdit,     // boolean — fully computed by caller (Calendar has ownership logic)
-  canRequestCancellation, // boolean — fully computed by caller
-
-  // --- Permissions (standard action gating) ---
-  permissions = {},
-  // permissions.canApproveReservations — gates approve/reject
-  // permissions.canEditEvents — gates admin save
-  // permissions.canDeleteEvents — gates delete/restore
+  canRequestEdit,     // boolean — caller refines gate with pendingEditRequest state
+  canRequestCancellation, // boolean — caller refines gate with pendingCancellationRequest state
 
   // --- Consumer-specific ReviewModal props (optional, pre-gated by caller) ---
   onResubmit,
@@ -52,7 +46,6 @@ export default function EventReviewExperience({
 
   // --- RoomReservationReview consumer-specific props ---
   graphToken,
-  readOnly,
   availableCalendars,
   defaultCalendar,
   selectedTargetCalendar,
@@ -66,11 +59,19 @@ export default function EventReviewExperience({
   // --- ConflictDialog refresh ---
   onConflictRefresh,
 }) {
-  const { canApproveReservations, canEditEvents, canDeleteEvents } = permissions;
+  // Single source of truth for per-event gates. Derived from the current user's
+  // identity + role + the event's state. The previous permissions/readOnly/
+  // isRequesterOnly props were removed — callers can no longer diverge.
+  const gates = useCurrentUserGates(exp.currentItem);
+
   const itemStatus = exp.currentItem?.status || 'published';
   const isPending = itemStatus === 'pending';
-  // Requesters may withdraw their own pending events even though canDeleteEvents is false for the role
-  const effectiveCanDelete = canDeleteEvents || (isRequesterOnly && isPending);
+
+  const canApproveReservations = gates.canApproveReservations;
+  const canEditEvents = gates.canEditEvents;
+  const effectiveCanDelete = gates.canDelete;
+  const effectiveReadOnly = gates.readOnly;
+  const isRequesterOnly = gates.isRequesterOnly;
 
   // Requester name: editableData is already flat (from transformEventToFlatStructure)
   const requesterName = exp.editableData?.requesterName || '';
@@ -93,11 +94,14 @@ export default function EventReviewExperience({
         requesterName={requesterName}
         hasChanges={exp.isEditRequestMode ? detectedChanges.length > 0 : exp.hasChanges}
         // Permission-gated core actions (override spread defaults)
-        onApprove={canApproveReservations ? exp.handleApprove : null}
-        onReject={canApproveReservations ? exp.handleReject : null}
-        onSave={canEditEvents && !exp.isDraft ? exp.handleSave : null}
+        onApprove={gates.canApprove ? exp.handleApprove : null}
+        onReject={gates.canReject ? exp.handleReject : null}
+        onSave={gates.canSave && !exp.isDraft && canEditEvents ? exp.handleSave : null}
         onDelete={effectiveCanDelete && itemStatus !== 'deleted' ? exp.handleDelete : null}
-        onRestore={onRestore || (canDeleteEvents && itemStatus === 'deleted' ? exp.handleRestore : null)}
+        onRestore={onRestore || (gates.canRestore ? exp.handleRestore : null)}
+        // Gate-derived recurrence editability — replaces ReviewModal's legacy
+        // default=true behavior. Now always explicit.
+        canEditRecurrence={gates.canEditRecurrence}
         isRestoring={isRestoring}
         // Requester actions (pre-gated by caller)
         onResubmit={onResubmit}
@@ -157,7 +161,7 @@ export default function EventReviewExperience({
             onDataChange={exp.updateData}
             onFormDataReady={exp.setFormDataGetter}
             onFormValidChange={exp.setIsFormValid}
-            readOnly={readOnly}
+            readOnly={effectiveReadOnly}
             editScope={exp.editScope}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
               exp.setSchedulingConflictInfo(conflictInfo || null);

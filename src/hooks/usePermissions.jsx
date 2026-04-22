@@ -1,5 +1,5 @@
 // src/hooks/usePermissions.jsx
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useRoleSimulation } from '../context/RoleSimulationContext';
 
 /**
@@ -40,8 +40,9 @@ export function usePermissions() {
     return false;
   }, [effectivePermissions.isAdmin, effectivePermissions.canEditEvents, actualDepartment, departmentEditableFields]);
 
-  return {
-    // Permission flags
+  // Stable return reference so downstream `useMemo` deps (e.g. useCurrentUserGates)
+  // don't thrash on every parent render. Re-runs only when inputs actually change.
+  return useMemo(() => ({
     canViewCalendar: effectivePermissions.canViewCalendar,
     canSubmitReservation: effectivePermissions.canSubmitReservation,
     canCreateEvents: effectivePermissions.canCreateEvents,
@@ -49,27 +50,29 @@ export function usePermissions() {
     canDeleteEvents: effectivePermissions.canDeleteEvents,
     canApproveReservations: effectivePermissions.canApproveReservations,
     isAdmin: effectivePermissions.isAdmin,
-
-    // Department permissions
     department: actualDepartment,
     departmentEditableFields,
     canEditDepartmentFields,
     canEditField,
-
-    // Loading state - components can use this to show loading UI
     permissionsLoading,
-
-    // Simulation state
     isSimulating,
     simulatedRoleName,
-
-    // Actual user status (for showing simulation controls)
     isActualAdmin,
     actualRole,
-
-    // Simulated role value (for role-based filtering during simulation)
     simulatedRole
-  };
+  }), [
+    effectivePermissions,
+    actualDepartment,
+    departmentEditableFields,
+    canEditDepartmentFields,
+    canEditField,
+    permissionsLoading,
+    isSimulating,
+    simulatedRoleName,
+    isActualAdmin,
+    actualRole,
+    simulatedRole
+  ]);
 }
 
 export default usePermissions;

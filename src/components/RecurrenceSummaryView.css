@@ -1,0 +1,71 @@
+/* ─── RecurrenceSummaryView — read-only summary of a recurrence pattern ─── */
+
+.recurrence-summary {
+  padding: var(--space-4);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.recurrence-summary--empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: var(--space-8) var(--space-4);
+}
+
+.recurrence-summary--empty p {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  max-width: 320px;
+  margin: var(--space-3) auto 0;
+}
+
+.recurrence-summary-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.recurrence-summary-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.recurrence-summary-text {
+  font-size: var(--text-base);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.recurrence-summary-exceptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.recurrence-summary-exceptions-label {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.recurrence-summary-exceptions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.recurrence-summary-exceptions li {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}

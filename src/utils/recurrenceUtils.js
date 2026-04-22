@@ -445,8 +445,8 @@ export function calculateAllSeriesDates(recurrence) {
 /**
  * Format a recurrence pattern as a multi-line summary.
  *
- * Used by the **editable** recurrence editor tab (`RecurrenceTabContent`) and
- * the pattern modal (`RecurrencePatternModal`). Returns a two-line string like
+ * Used by the **editable** recurrence editor tab (`RecurrenceTabContent`).
+ * Returns a two-line string like
  * "Occurs every M, W\nUntil Mar 4, 2026" — concise single-letter day abbreviations
  * and "Until" phrasing suited for an editor context where the user is actively
  * constructing the pattern.
@@ -715,7 +715,7 @@ function parseLocalDateStr(dateStr) {
 /**
  * Format YYYY-MM-DD as "M/D/YYYY" in en-US locale.
  */
-function formatCompactDate(dateStr) {
+export function formatCompactDate(dateStr) {
   const date = parseLocalDateStr(dateStr);
   if (!date) return '';
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });

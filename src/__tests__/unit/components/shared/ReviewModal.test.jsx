@@ -63,10 +63,12 @@ describe('ReviewModal', () => {
 
   describe('Recurrence tab visibility', () => {
     it('should disable the Recurrence tab for exception documents with no recurrence', () => {
+      // canEditRecurrence=true surfaces the tab; exception eventType flags it disabled.
       render(
         <ReviewModal
           {...defaultProps}
           reservation={{ eventType: 'exception', _id: 'exc-1' }}
+          canEditRecurrence={true}
         >
           <div>Content</div>
         </ReviewModal>
@@ -82,6 +84,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           reservation={{ eventType: 'addition', _id: 'add-1' }}
+          canEditRecurrence={true}
         >
           <div>Content</div>
         </ReviewModal>
@@ -116,6 +119,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           reservation={{ eventType: 'singleInstance', _id: 'single-1' }}
+          canEditRecurrence={true}
         >
           <div>Content</div>
         </ReviewModal>
@@ -124,6 +128,21 @@ describe('ReviewModal', () => {
       const tab = screen.getByText('Recurrence');
       expect(tab).toBeInTheDocument();
       expect(tab.closest('.event-type-tab')).not.toHaveClass('disabled');
+    });
+
+    it('should HIDE the Recurrence tab entirely for non-recurring event when canEditRecurrence is false (prevents faux-editable UI)', () => {
+      // Regression test for the pre-fix bug where canEditRecurrence defaulted to true,
+      // surfacing the tab to viewers/requesters who couldn't actually save changes.
+      render(
+        <ReviewModal
+          {...defaultProps}
+          reservation={{ eventType: 'singleInstance', _id: 'single-2' }}
+          canEditRecurrence={false}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+      expect(screen.queryByText('Recurrence')).toBeNull();
     });
 
     it('should not disable Recurrence tab for exceptions that have recurrence data', () => {

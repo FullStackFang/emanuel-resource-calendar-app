@@ -981,8 +981,6 @@ export default function ReservationRequests({ graphToken }) {
       <EventReviewExperience
         experience={reviewModal}
         title={reviewModal.editableData?.eventTitle || 'Reservation Request'}
-        isRequesterOnly={false}
-        permissions={{ canApproveReservations, canEditEvents: true, canDeleteEvents: true }}
         graphToken={graphToken}
         onLockedEventClick={handleLockedEventClick}
         availableCalendars={availableCalendars}

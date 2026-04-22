@@ -216,7 +216,10 @@ export default function ReviewModal({
 
   const hasRecurrence = hasRecurrenceProp !== null ? hasRecurrenceProp
     : (hasRecurrenceFromReservation || liveHasRecurrence);
-  const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp : true;
+  // canEditRecurrence must be explicitly supplied by the caller (derived from
+  // useCurrentUserGates in EventReviewExperience). Defaulting to true was the
+  // legacy bug that let viewers/requesters see faux-editable recurrence UIs.
+  const canEditRecurrence = canEditRecurrenceProp === true;
   // Show tab (signals series membership) but disable — recurrence is owned by the series master.
   const isExceptionOrAddition = (reservation?.eventType === 'exception' || reservation?.eventType === 'addition') && !hasRecurrence;
   // Single-occurrence edit scope: recurrence is a series-level concept, not editable per-occurrence.

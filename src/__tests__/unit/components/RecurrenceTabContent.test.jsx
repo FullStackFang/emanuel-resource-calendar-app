@@ -148,7 +148,7 @@ describe('RecurrenceTabContent', () => {
       expect(screen.getByText(/1 excluded/i)).toBeInTheDocument();
     });
 
-    it('does NOT render RecurrencePatternModal', () => {
+    it('does NOT render the deleted RecurrencePatternModal (guard against accidental re-introduction)', () => {
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
       expect(screen.queryByTestId('recurrence-modal')).not.toBeInTheDocument();
     });
