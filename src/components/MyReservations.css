@@ -412,9 +412,8 @@
   color: var(--text-secondary);
 }
 
-.mr-expires {
-  color: var(--color-warning-600);
-  font-weight: var(--font-medium);
+.mr-age {
+  color: var(--text-secondary);
 }
 
 .mr-rejection {

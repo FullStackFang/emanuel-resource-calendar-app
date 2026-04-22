@@ -14,6 +14,7 @@ import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
+import { formatDraftAge } from '../utils/draftAgeUtils';
 import EventReviewExperience from './shared/EventReviewExperience';
 import LoadingSpinner from './shared/LoadingSpinner';
 import FreshnessIndicator from './shared/FreshnessIndicator';
@@ -227,16 +228,6 @@ export default function MyReservations() {
   const startIndex = (page - 1) * itemsPerPage;
   const paginatedReservations = sortedReservations.slice(startIndex, startIndex + itemsPerPage);
 
-
-  // Calculate days until draft auto-deletes
-  const getDaysUntilDelete = (draftCreatedAt) => {
-    if (!draftCreatedAt) return null;
-    const createdDate = new Date(draftCreatedAt);
-    const deleteDate = new Date(createdDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const now = new Date();
-    const daysRemaining = Math.ceil((deleteDate - now) / (24 * 60 * 60 * 1000));
-    return Math.max(0, daysRemaining);
-  };
 
   // Format date/time for conflict modal display
   const formatDateTime = (date) => {
@@ -622,12 +613,14 @@ export default function MyReservations() {
                 {/* Status Info (contextual) */}
                 <div className="mr-info-block">
                   <span className="mr-info-label">
-                    {isDraft ? 'Expires' : (reservation.status === 'rejected' && reservation.reviewNotes) ? 'Reason' : 'Last Modified'}
+                    {isDraft ? 'Age' : (reservation.status === 'rejected' && reservation.reviewNotes) ? 'Reason' : 'Last Modified'}
                   </span>
                   <div className="mr-info-value mr-status-info">
-                    {isDraft && reservation.draftCreatedAt ? (
-                      <span className="mr-expires">in {getDaysUntilDelete(reservation.draftCreatedAt)} days</span>
-                    ) : (reservation.status === 'rejected' && reservation.reviewNotes) ? (
+                    {isDraft ? (() => {
+                      const label = formatDraftAge(reservation.lastDraftSaved || reservation.createdAt || reservation.submittedAt);
+                      if (!label) return <span className="mr-not-set">&mdash;</span>;
+                      return <span className="mr-age">{label}</span>;
+                    })() : (reservation.status === 'rejected' && reservation.reviewNotes) ? (
                       <span className="mr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
                     ) : (reservation.actionDate || reservation.lastModifiedDateTime) ? (
                       <span className="mr-last-modified">

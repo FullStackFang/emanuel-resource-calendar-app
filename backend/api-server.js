@@ -709,18 +709,6 @@ async function createUnifiedEventIndexes() {
       }
     );
 
-    // TTL index for automatic draft cleanup (30 days)
-    // Only applies to events with status 'draft' - auto-deletes after 30 days
-    await unifiedEventsCollection.createIndex(
-      { draftCreatedAt: 1 },
-      {
-        name: "draft_auto_cleanup",
-        background: true,
-        expireAfterSeconds: 30 * 24 * 60 * 60, // 30 days
-        partialFilterExpression: { status: 'draft' }
-      }
-    );
-
     logger.log('Unified event indexes created successfully');
   } catch (error) {
     // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
