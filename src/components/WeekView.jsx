@@ -300,6 +300,8 @@ const WeekView = memo(({
                         const isTimelessDraft = event.status === 'draft' &&
                           !event.calendarData?.startTime && !event.calendarData?.endTime;
 
+                        const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
+
                         let timeDisplay;
                         if (isTimelessDraft) {
                           timeDisplay = "All day (time TBD)";
@@ -323,9 +325,8 @@ const WeekView = memo(({
                           const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
                           const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
 
-                          const isShowingReg = showRegistrationTimes && event.hasRegistrationEvent;
-                          const resStart = isShowingReg ? '' : (event.calendarData?.reservationStartTime || '');
-                          const resEnd = isShowingReg ? '' : (event.calendarData?.reservationEndTime || '');
+                          const resStart = isShowingRegistrationTime ? '' : (event.calendarData?.reservationStartTime || '');
+                          const resEnd = isShowingRegistrationTime ? '' : (event.calendarData?.reservationEndTime || '');
                           const evtStart = event.calendarData?.startTime || '';
                           const evtEnd = event.calendarData?.endTime || '';
 
@@ -352,8 +353,6 @@ const WeekView = memo(({
                           return `rgba(${r}, ${g}, ${b}, ${alpha})`;
                         };
                         
-                        // Use different styling if showing registration times
-                        const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
                         // Check if event is pending approval
                         const isPending = event.status === 'pending';
                         // Check if event is a draft

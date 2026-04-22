@@ -221,6 +221,11 @@ export const formatCompactHour = (timeHHMM) => {
  * Side segments are only shown when reservation times differ from event times.
  * Returns JSX with styled segments (muted sides, bold center).
  */
+// Module-level style constants — avoids re-creating objects per render call.
+const MUTED_SEGMENT_STYLE = { color: 'var(--text-tertiary, #999)', fontWeight: 'normal' };
+const DOT_STYLE = { margin: '0 1px' };
+const BOLD_SEGMENT_STYLE = { fontWeight: 700 };
+
 export const buildReservationTimeDisplay = ({
   startTimeStr,
   endTimeStr,
@@ -232,6 +237,11 @@ export const buildReservationTimeDisplay = ({
   const hasPreSegment = reservationStartTime && eventStartTime && reservationStartTime !== eventStartTime;
   const hasPostSegment = reservationEndTime && eventEndTime && reservationEndTime !== eventEndTime;
 
+  // Fast path: no reservation flanking segments — return plain string (avoids JSX allocation)
+  if (!hasPreSegment && !hasPostSegment) {
+    return `${startTimeStr} \u2013 ${endTimeStr}`;
+  }
+
   const preSegment = hasPreSegment
     ? `${formatCompactHour(reservationStartTime)}\u2013${formatCompactHour(eventStartTime)}`
     : null;
@@ -242,16 +252,16 @@ export const buildReservationTimeDisplay = ({
   return (
     <>
       {preSegment && (
-        <span style={{ color: '#999', fontWeight: 'normal' }}>
-          {preSegment}{' '}<span style={{ margin: '0 1px' }}>&middot;</span>{' '}
+        <span style={MUTED_SEGMENT_STYLE}>
+          {preSegment}{' '}<span style={DOT_STYLE}>&middot;</span>{' '}
         </span>
       )}
-      <span style={{ fontWeight: 700 }}>
+      <span style={BOLD_SEGMENT_STYLE}>
         {startTimeStr} &ndash; {endTimeStr}
       </span>
       {postSegment && (
-        <span style={{ color: '#999', fontWeight: 'normal' }}>
-          {' '}<span style={{ margin: '0 1px' }}>&middot;</span>{' '}{postSegment}
+        <span style={MUTED_SEGMENT_STYLE}>
+          {' '}<span style={DOT_STYLE}>&middot;</span>{' '}{postSegment}
         </span>
       )}
     </>
