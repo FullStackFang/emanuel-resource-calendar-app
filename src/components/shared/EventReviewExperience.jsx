@@ -24,8 +24,6 @@ export default function EventReviewExperience({
   // --- Consumer-computed values ---
   title,              // string — modal title
   modalMode,          // 'review' | 'edit' | 'new'
-  canRequestEdit,     // boolean — caller refines gate with pendingEditRequest state
-  canRequestCancellation, // boolean — caller refines gate with pendingCancellationRequest state
 
   // --- Consumer-specific ReviewModal props (optional, pre-gated by caller) ---
   onResubmit,
@@ -60,9 +58,12 @@ export default function EventReviewExperience({
   onConflictRefresh,
 }) {
   // Single source of truth for per-event gates. Derived from the current user's
-  // identity + role + the event's state. The previous permissions/readOnly/
-  // isRequesterOnly props were removed — callers can no longer diverge.
-  const gates = useCurrentUserGates(exp.currentItem);
+  // identity + role + event state + modal context (edit-request mode unlocks
+  // proposing changes; viewing-edit-request forces read-only preview).
+  const gates = useCurrentUserGates(exp.currentItem, {
+    isEditRequestMode: exp.isEditRequestMode,
+    isViewingEditRequest: exp.isViewingEditRequest,
+  });
 
   const itemStatus = exp.currentItem?.status || 'published';
   const isPending = itemStatus === 'pending';
@@ -117,7 +118,7 @@ export default function EventReviewExperience({
         onViewEditRequest={exp.handleViewEditRequest}
         onViewOriginalEvent={exp.handleViewOriginalEvent}
         // Edit request mode (from experience hook)
-        canRequestEdit={canRequestEdit}
+        canRequestEdit={gates.canRequestEdit}
         onRequestEdit={exp.handleRequestEdit}
         isEditRequestMode={exp.isEditRequestMode}
         onSubmitEditRequest={exp.handleSubmitEditRequest}
@@ -133,7 +134,7 @@ export default function EventReviewExperience({
         isCancelEditRequestConfirming={exp.isCancelEditRequestConfirming}
         onCancelCancelEditRequest={exp.cancelCancelEditRequestConfirmation}
         // Cancellation request (from experience hook)
-        canRequestCancellation={canRequestCancellation}
+        canRequestCancellation={gates.canRequestCancellation}
         onRequestCancellation={exp.handleRequestCancellation}
         isCancellationRequestMode={exp.isCancellationRequestMode}
         cancellationReason={exp.cancellationReason}
@@ -162,6 +163,8 @@ export default function EventReviewExperience({
             onFormDataReady={exp.setFormDataGetter}
             onFormValidChange={exp.setIsFormValid}
             readOnly={effectiveReadOnly}
+            isEditRequestMode={exp.isEditRequestMode}
+            isViewingEditRequest={exp.isViewingEditRequest}
             editScope={exp.editScope}
             onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
               exp.setSchedulingConflictInfo(conflictInfo || null);

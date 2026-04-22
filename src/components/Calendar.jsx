@@ -5679,8 +5679,6 @@ import ConflictDialog from './shared/ConflictDialog';
           experience={reviewModal}
           title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.subject || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
           isNavigating={reviewModalIsNavigating}
-          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest && canRequestEditThisEvent}
-          canRequestCancellation={canSubmitReservation && !canEditEvents && !canApproveReservations && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest && canRequestEditThisEvent && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending'}
           graphToken={graphToken}
           onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
           onIsNavigatingChange={setReviewModalIsNavigating}
@@ -5701,6 +5699,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onClose={eventCreation.close}
           onSave={eventCreation.handleSave}
           mode={eventCreation.mode === 'create' ? 'create' : 'edit'}
+          canEditRecurrence={true}
           isPending={false}
           hasChanges={eventCreation.hasChanges}
           isFormValid={eventCreation.isFormValid}

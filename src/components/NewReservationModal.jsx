@@ -29,6 +29,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       title="Event"
       modalMode="new"
       mode={creation.mode === 'event' ? 'edit' : 'create'}
+      canEditRecurrence={true}
       saveButtonLabel={creation.mode === 'event' ? 'Publish' : null}
       onClose={creation.close}
       onSave={creation.handleSave}

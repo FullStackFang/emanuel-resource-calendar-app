@@ -145,6 +145,25 @@ describe('ReviewModal', () => {
       expect(screen.queryByText('Recurrence')).toBeNull();
     });
 
+    it('shows enabled Recurrence tab in creation mode when canEditRecurrence=true', () => {
+      // Regression: creation modals (NewReservationModal, Calendar event creation,
+      // App AI-chat) mount ReviewModal directly and must pass canEditRecurrence={true}.
+      // Without it, the default (false) hides the tab from requesters creating events.
+      render(
+        <ReviewModal
+          {...defaultProps}
+          mode="create"
+          canEditRecurrence={true}
+          reservation={null}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+      const tab = screen.getByText('Recurrence');
+      expect(tab).toBeInTheDocument();
+      expect(tab.closest('.event-type-tab')).not.toHaveClass('disabled');
+    });
+
     it('should not disable Recurrence tab for exceptions that have recurrence data', () => {
       render(
         <ReviewModal

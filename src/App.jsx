@@ -363,6 +363,7 @@ function App() {
                   isOpen={showReservationModal}
                   title="Add Event - AI Assistant"
                   mode="create"
+                  canEditRecurrence={true}
                   onClose={() => {
                     setShowReservationModal(false);
                     setReservationPrefillData(null);

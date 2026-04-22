@@ -238,13 +238,95 @@ describe('deriveGates — invariants', () => {
     });
   });
 
-  describe('canRequestEdit / canResubmit', () => {
-    it('ONLY requester-role owners of published events can request edits', () => {
+  describe('canRequestEdit / canRequestCancellation / canResubmit', () => {
+    it('requester owner on own published event can request edit', () => {
       const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
-      expect(deriveGates(event, PERMISSION_FIXTURES.viewer, accounts).canRequestEdit).toBe(false);
       expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(true);
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestCancellation).toBe(true);
+    });
+
+    it('admin and approver CANNOT request edit (they edit directly)', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
       expect(deriveGates(event, PERMISSION_FIXTURES.approver, accounts).canRequestEdit).toBe(false);
       expect(deriveGates(event, PERMISSION_FIXTURES.admin, accounts).canRequestEdit).toBe(false);
+    });
+
+    it('viewer cannot request edit even on own published event (no canSubmitReservation)', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      expect(deriveGates(event, PERMISSION_FIXTURES.viewer, accounts).canRequestEdit).toBe(false);
+    });
+
+    it('requester cannot request edit on non-published statuses', () => {
+      for (const status of ['draft', 'pending', 'rejected', 'deleted']) {
+        const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
+        expect(
+          deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit,
+          status
+        ).toBe(false);
+      }
+    });
+
+    it('ownerless events (imported from Graph sync) allow any requester to request edit', () => {
+      // Events with no roomReservationData.requestedBy.email are open for
+      // community stewardship per the pre-refactor Calendar logic.
+      const event = {
+        status: 'published',
+        eventType: 'singleInstance',
+        // no roomReservationData at all
+      };
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(true);
+    });
+
+    it('department colleague can request edit on teammate\'s published event', () => {
+      const event = {
+        status: 'published',
+        eventType: 'singleInstance',
+        roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
+        creatorDepartment: 'membership',
+      };
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
+      expect(deriveGates(event, deptRequester, accounts).canRequestEdit).toBe(true);
+    });
+
+    it('requester without dept-match cannot request edit on someone else\'s published event', () => {
+      const event = {
+        status: 'published',
+        eventType: 'singleInstance',
+        roomReservationData: { requestedBy: { email: 'someone@example.com' } },
+      };
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
+    });
+
+    it('canRequestEdit BLOCKED when an edit request is already pending', () => {
+      // Regression of a pre-refactor Calendar bug that MyReservations caught:
+      // don't let user request a second edit while one is pending.
+      const event = {
+        ...makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true }),
+        pendingEditRequest: { status: 'pending' },
+      };
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
+    });
+
+    it('canRequestCancellation BLOCKED when a cancellation is already pending', () => {
+      const event = {
+        ...makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true }),
+        pendingCancellationRequest: { status: 'pending' },
+      };
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canRequestEdit).toBe(true); // edit still allowed
+      expect(gates.canRequestCancellation).toBe(false); // cancellation blocked
+    });
+
+    it('canRequestEdit BLOCKED while in edit-request mode (already composing)', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(gates.canRequestEdit).toBe(false);
+    });
+
+    it('canRequestEdit BLOCKED while viewing an existing edit request preview', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isViewingEditRequest: true });
+      expect(gates.canRequestEdit).toBe(false);
     });
 
     it('canResubmit fires only for owner + rejected', () => {
@@ -259,6 +341,18 @@ describe('deriveGates — invariants', () => {
         expect(
           deriveGates(makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true }), p, accounts).canResubmit
         ).toBe(false);
+      }
+    });
+  });
+
+  describe('isViewingEditRequest forces read-only (even for editors)', () => {
+    it('viewing an edit request preview disables canSave for every role', () => {
+      for (const role of ROLES) {
+        const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+        const gates = deriveGates(event, PERMISSION_FIXTURES[role], accounts, { isViewingEditRequest: true });
+        expect(gates.canSave, `${role}`).toBe(false);
+        expect(gates.readOnly, `${role}`).toBe(true);
+        expect(gates.canEditRecurrence, `${role}`).toBe(false);
       }
     });
   });
@@ -301,6 +395,170 @@ describe('deriveGates — invariants', () => {
       for (let i = 0; i < 100; i++) {
         expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts)).toEqual(first);
       }
+    });
+  });
+
+  describe('edit-request mode (modal context)', () => {
+    it('requester on own published single-instance can canSave + canEditRecurrence in edit-request mode', () => {
+      // Core use case: requester wants to propose adding recurrence to their
+      // own previously-published single-instance event via edit-request flow.
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      const direct = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(direct.canSave, 'direct edit blocked (published)').toBe(false);
+      expect(direct.canEditRecurrence, 'direct recurrence edit blocked').toBe(false);
+      expect(direct.readOnly, 'direct readOnly').toBe(true);
+
+      const proposing = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(proposing.canSave, 'edit-request unlocks save').toBe(true);
+      expect(proposing.canEditRecurrence, 'edit-request unlocks recurrence proposal').toBe(true);
+      expect(proposing.readOnly, 'edit-request makes form editable').toBe(false);
+    });
+
+    it('requester on own published seriesMaster can propose recurrence changes in edit-request mode', () => {
+      const event = makeEvent({ status: 'published', eventType: 'seriesMaster', isOwner: true });
+      const proposing = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(proposing.canSave).toBe(true);
+      expect(proposing.canEditRecurrence).toBe(true);
+      expect(proposing.readOnly).toBe(false);
+    });
+
+    it('non-owner CANNOT use edit-request mode to edit someone else\'s event', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: false });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(gates.canSave).toBe(false);
+      expect(gates.canEditRecurrence).toBe(false);
+      expect(gates.readOnly).toBe(true);
+    });
+
+    it('viewer CANNOT use edit-request mode (no canSubmitReservation)', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.viewer, accounts, { isEditRequestMode: true });
+      expect(gates.canSave).toBe(false);
+      expect(gates.canEditRecurrence).toBe(false);
+    });
+
+    it('edit-request mode is only meaningful on published events', () => {
+      // On non-published statuses, the direct-edit path already works for
+      // owners; edit-request should not give extra powers or change behavior.
+      for (const status of ['draft', 'pending', 'rejected']) {
+        const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
+        const direct = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+        const proposing = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+        expect(proposing.canSave, `${status}: same as direct`).toBe(direct.canSave);
+      }
+    });
+
+    it('edit-request mode cannot resurrect a deleted event', () => {
+      const event = makeEvent({ status: 'deleted', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(gates.canSave).toBe(false);
+    });
+  });
+
+  describe('department-match editing (requester peers collaborate on pending/rejected)', () => {
+    const SAME_DEPT = 'membership';
+    const DIFF_DEPT = 'communications';
+    const makeEventWithDept = ({ status, eventType, isOwner, creatorDepartment }) => ({
+      ...makeEvent({ status, eventType, isOwner }),
+      creatorDepartment,
+    });
+
+    it('requester with matching department CAN edit a teammate\'s pending event', () => {
+      const event = makeEventWithDept({
+        status: 'pending',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(true);
+      expect(gates.readOnly).toBe(false);
+    });
+
+    it('requester with matching department CAN edit a teammate\'s rejected event', () => {
+      const event = makeEventWithDept({
+        status: 'rejected',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(true);
+    });
+
+    it('requester with mismatched department CANNOT edit a colleague\'s pending event', () => {
+      const event = makeEventWithDept({
+        status: 'pending',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: DIFF_DEPT,
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(false);
+      expect(gates.readOnly).toBe(true);
+    });
+
+    it('requester with NO department cannot inherit dept-match edit rights', () => {
+      const event = makeEventWithDept({
+        status: 'pending',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      // No department field set on the user
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canSave).toBe(false);
+    });
+
+    it('department-match does NOT apply to PUBLISHED events (request-edit flow required)', () => {
+      const event = makeEventWithDept({
+        status: 'published',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(false);
+    });
+
+    it('department-match does NOT apply to DRAFT events (owner-only visible)', () => {
+      const event = makeEventWithDept({
+        status: 'draft',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(false);
+    });
+
+    it('department comparison is case-insensitive and trims whitespace', () => {
+      const event = makeEventWithDept({
+        status: 'pending',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: ' Membership ',
+      });
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'MEMBERSHIP' };
+      const gates = deriveGates(event, deptRequester, accounts);
+      expect(gates.canSave).toBe(true);
+    });
+
+    it('viewer with matching department still CANNOT edit (no canSubmitReservation)', () => {
+      const event = makeEventWithDept({
+        status: 'pending',
+        eventType: 'singleInstance',
+        isOwner: false,
+        creatorDepartment: SAME_DEPT,
+      });
+      const deptViewer = { ...PERMISSION_FIXTURES.viewer, department: SAME_DEPT };
+      const gates = deriveGates(event, deptViewer, accounts);
+      expect(gates.canSave).toBe(false);
     });
   });
 });

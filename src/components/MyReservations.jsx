@@ -687,8 +687,6 @@ export default function MyReservations() {
         experience={reviewModal}
         title={getModalTitle()}
         modalMode={getModalMode()}
-        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
-        canRequestCancellation={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && reviewModal.currentItem?.pendingCancellationRequest?.status !== 'pending' && !reviewModal.isEditRequestMode && !reviewModal.isViewingEditRequest}
         onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
         isResubmitting={isResubmitting}
         onRestore={reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}

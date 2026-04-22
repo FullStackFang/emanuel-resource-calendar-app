@@ -6,20 +6,23 @@ import { usePermissions } from './usePermissions';
 /**
  * Single source of truth for per-event permission gates.
  *
- * Invariant: the same (currentUser, event) pair must yield the same gates
- * regardless of the entrypoint calling this hook. Callers pass only the event;
- * identity and role come from hooks. Per-caller permission derivation is the
- * thing this module exists to replace.
+ * Invariant: the same (currentUser, event, modalContext) triple yields the
+ * same gates regardless of which entrypoint calls this hook.
  *
- * Consumers should read the returned fields directly and never re-derive
- * permission-like decisions from the raw permission flags.
+ * @param {Object|null} event
+ * @param {Object} modalContext - transient modal state that affects editability
+ * @param {boolean} modalContext.isEditRequestMode - composing an edit-request
+ *   proposal (save creates a pendingEditRequest, not a direct event mutation)
+ * @param {boolean} modalContext.isViewingEditRequest - browsing an existing
+ *   pending edit request (read-only preview, even for owners)
  */
-export function useCurrentUserGates(event) {
+export function useCurrentUserGates(event, modalContext = {}) {
   const { accounts } = useMsal();
   const permissions = usePermissions();
+  const { isEditRequestMode = false, isViewingEditRequest = false } = modalContext;
   return useMemo(
-    () => deriveGates(event, permissions, accounts),
-    [event, permissions, accounts]
+    () => deriveGates(event, permissions, accounts, { isEditRequestMode, isViewingEditRequest }),
+    [event, permissions, accounts, isEditRequestMode, isViewingEditRequest]
   );
 }
 
@@ -30,9 +33,11 @@ export function useCurrentUserGates(event) {
  * @param {Object|null} event
  * @param {Object} permissions - shape from usePermissions()
  * @param {Array<{username?: string}>} accounts - from useMsal()
+ * @param {Object} modalContext - { isEditRequestMode, isViewingEditRequest }
  * @returns {Gates}
  */
-export function deriveGates(event, permissions = {}, accounts = []) {
+export function deriveGates(event, permissions = {}, accounts = [], modalContext = {}) {
+  const { isEditRequestMode = false, isViewingEditRequest = false } = modalContext;
   const currentUserEmail = (accounts?.[0]?.username || '').toLowerCase();
   const requesterEmail = (
     event?.roomReservationData?.requestedBy?.email
@@ -41,6 +46,12 @@ export function deriveGates(event, permissions = {}, accounts = []) {
     || ''
   ).toLowerCase();
   const isOwner = !!currentUserEmail && !!requesterEmail && currentUserEmail === requesterEmail;
+  // Ownerless: events imported from Graph sync without a roomReservationData
+  // requester record. In the old Calendar formula any requester could
+  // propose edits on these (treated as "open for community stewardship").
+  const isOwnerless = !event?.roomReservationData?.requestedBy?.email;
+  const hasPendingEditRequest = event?.pendingEditRequest?.status === 'pending';
+  const hasPendingCancellationRequest = event?.pendingCancellationRequest?.status === 'pending';
 
   const status = event?.status || null;
   const eventType = event?.eventType || event?.graphData?.type || null;
@@ -64,6 +75,7 @@ export function deriveGates(event, permissions = {}, accounts = []) {
     isAdmin = false,
     actualRole = 'viewer',
     simulatedRole = null,
+    department = null,
   } = permissions;
 
   const role = simulatedRole || actualRole;
@@ -74,7 +86,26 @@ export function deriveGates(event, permissions = {}, accounts = []) {
   // Published requester events must route through the request-edit flow.
   const isOwnerEditable =
     isOwner && canSubmitReservation && (isDraft || isPending || isRejected);
-  const canSave = !isDeleted && (isAdminEditor || isOwnerEditable);
+  // Edit-request mode: owner is composing a proposal on a published event.
+  // The save creates a pendingEditRequest (not a direct event mutation), so
+  // the normal "published events are read-only for requesters" rule gets lifted.
+  const canProposeViaEditRequest =
+    isEditRequestMode && isOwner && canSubmitReservation && isPublished;
+  // Department-match editing: a colleague in the same department may edit a
+  // teammate's pending or rejected event (e.g. help them refine the draft
+  // before admin approval). Published events use the request-edit flow; drafts
+  // are owner-only visible.
+  const ownerDepartmentNormalized = (event?.creatorDepartment || '').toLowerCase().trim();
+  const userDepartmentNormalized = (department || '').toLowerCase().trim();
+  const departmentMatches = Boolean(userDepartmentNormalized && ownerDepartmentNormalized === userDepartmentNormalized);
+  const canDeptColleagueEdit =
+    departmentMatches && canSubmitReservation && !isOwner && (isPending || isRejected);
+  // Viewing an existing edit request is always read-only — the user is
+  // previewing a proposed change, not editing it.
+  const canSave =
+    !isDeleted &&
+    !isViewingEditRequest &&
+    (isAdminEditor || isOwnerEditable || canProposeViaEditRequest || canDeptColleagueEdit);
 
   // Recurrence pattern edit: applies to seriesMaster (modify) and
   // singleInstance (promote to recurring). Never on occurrence or
@@ -87,10 +118,23 @@ export function deriveGates(event, permissions = {}, accounts = []) {
   const canDelete = !isDeleted && (canDeleteEvents || (isOwner && isPending));
   const canRestore = canDeleteEvents && isDeleted;
 
+  // canRequestEdit: requester proposes changes to a PUBLISHED event.
+  // Allowed for owner, department colleague, or any requester on an
+  // ownerless (Graph-synced) event. Blocked while another edit request
+  // is already pending, while the user is actively composing a request,
+  // or while viewing an existing request's preview.
   const canRequestEdit =
-    canSubmitReservation && !isAdminEditor && isPublished && isOwner;
+    canSubmitReservation &&
+    !isAdminEditor &&
+    isPublished &&
+    (isOwner || departmentMatches || isOwnerless) &&
+    !hasPendingEditRequest &&
+    !isEditRequestMode &&
+    !isViewingEditRequest;
 
-  const canRequestCancellation = canRequestEdit;
+  // canRequestCancellation: same gate plus no cancellation already pending.
+  const canRequestCancellation =
+    canRequestEdit && !hasPendingCancellationRequest;
 
   const canResubmit = isOwner && isRejected;
 
