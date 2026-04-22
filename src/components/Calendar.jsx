@@ -5414,6 +5414,8 @@ import ConflictDialog from './shared/ConflictDialog';
                           handleEventClick={handleEventClick}
                           isUnspecifiedLocation={isUnspecifiedLocation}
                           formatDateHeader={formatDateHeader}
+                          canAddEvent={canAddEvent}
+                          handleDayCellClick={handleDayCellClick}
                         />
                       ) : viewType === 'week' ? (
                         <WeekView

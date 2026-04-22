@@ -2239,6 +2239,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // Reservation data (for recurrence tab auto-detection)
       reservation: currentItem,
+      // Recurring edit scope (for disabling recurrence tab on single-occurrence edits)
+      editScope,
 
       // Duplicate (available for pending/published non-recurring events, requires create or submit permission)
       onDuplicate: (

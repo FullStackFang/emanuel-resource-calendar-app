@@ -202,6 +202,63 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
 };
 
 /**
+ * Convert HH:MM time string to compact 12-hour format without AM/PM.
+ * "08:00" → "8", "13:00" → "1", "08:30" → "8:30", "00:00" → "12", "12:00" → "12"
+ */
+export const formatCompactHour = (timeHHMM) => {
+  if (!timeHHMM) return null;
+  const [h, m] = timeHHMM.split(':').map(Number);
+  if (isNaN(h)) return null;
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return m === 0 ? `${hour12}` : `${hour12}:${String(m).padStart(2, '0')}`;
+};
+
+/**
+ * Build a multi-segment time display for calendar event cards.
+ * Shows reservation boundaries flanking the main event times:
+ *   "8–9 · 9:00 AM – 11:00 AM · 11–12"
+ *
+ * Side segments are only shown when reservation times differ from event times.
+ * Returns JSX with styled segments (muted sides, bold center).
+ */
+export const buildReservationTimeDisplay = ({
+  startTimeStr,
+  endTimeStr,
+  reservationStartTime,
+  reservationEndTime,
+  eventStartTime,
+  eventEndTime,
+}) => {
+  const hasPreSegment = reservationStartTime && eventStartTime && reservationStartTime !== eventStartTime;
+  const hasPostSegment = reservationEndTime && eventEndTime && reservationEndTime !== eventEndTime;
+
+  const preSegment = hasPreSegment
+    ? `${formatCompactHour(reservationStartTime)}\u2013${formatCompactHour(eventStartTime)}`
+    : null;
+  const postSegment = hasPostSegment
+    ? `${formatCompactHour(eventEndTime)}\u2013${formatCompactHour(reservationEndTime)}`
+    : null;
+
+  return (
+    <>
+      {preSegment && (
+        <span style={{ color: '#999', fontWeight: 'normal' }}>
+          {preSegment}{' '}<span style={{ margin: '0 1px' }}>&middot;</span>{' '}
+        </span>
+      )}
+      <span style={{ fontWeight: 700 }}>
+        {startTimeStr} &ndash; {endTimeStr}
+      </span>
+      {postSegment && (
+        <span style={{ color: '#999', fontWeight: 'normal' }}>
+          {' '}<span style={{ margin: '0 1px' }}>&middot;</span>{' '}{postSegment}
+        </span>
+      )}
+    </>
+  );
+};
+
+/**
  * Format date for calendar header display
  * @param {Date} date - Date to format
  * @param {string} timezone - Target timezone for display

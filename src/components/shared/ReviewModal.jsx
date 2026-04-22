@@ -179,6 +179,8 @@ export default function ReviewModal({
   isHold = false, // No event times — will display as [Hold]
   // Recurring event data (for Recurrence tab)
   reservation = null,
+  // Recurring edit scope: 'thisEvent' | 'allEvents' | null
+  editScope = null,
   // Recurrence tab props (auto-detected from reservation if not explicitly set)
   hasRecurrence: hasRecurrenceProp = null,
   canEditRecurrence: canEditRecurrenceProp = null,
@@ -216,7 +218,10 @@ export default function ReviewModal({
     : (hasRecurrenceFromReservation || liveHasRecurrence);
   const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp : true;
   // Show tab (signals series membership) but disable — recurrence is owned by the series master.
-  const isRecurrenceTabDisabled = (reservation?.eventType === 'exception' || reservation?.eventType === 'addition') && !hasRecurrence;
+  const isExceptionOrAddition = (reservation?.eventType === 'exception' || reservation?.eventType === 'addition') && !hasRecurrence;
+  // Single-occurrence edit scope: recurrence is a series-level concept, not editable per-occurrence.
+  const isSingleOccurrenceEdit = editScope === 'thisEvent';
+  const isRecurrenceTabDisabled = isExceptionOrAddition || isSingleOccurrenceEdit;
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -259,7 +264,9 @@ export default function ReviewModal({
   }, [isOpen]);
 
   const recurrenceTabTitle = isRecurrenceTabDisabled
-    ? 'Recurrence pattern is defined on the series master'
+    ? (isSingleOccurrenceEdit
+      ? 'Recurrence can only be edited for the entire series'
+      : 'Recurrence pattern is defined on the series master')
     : undefined;
 
   // Local confirmation state for buttons without external confirmation management.

@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
-import { formatEventTime } from '../utils/timezoneUtils';
+import { formatEventTime, buildReservationTimeDisplay } from '../utils/timezoneUtils';
 import { sortEventsByStartTime, getEventCategories } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
@@ -302,26 +302,23 @@ const DayView = memo(({
                           timeDisplay = "All day";
                         } else {
                           // Use formatEventTime utility which properly handles timezone conversion
-                          // Pass the source timezone from event data for correct interpretation
                           const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
                           const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
                           const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
 
-                          // Format total duration - simplified to prevent overflow
-                          const hours = Math.floor(duration / 60);
-                          const minutes = duration % 60;
-                          let durationStr;
-                          if (hours > 0) {
-                            // Only show hours for events longer than 1 hour
-                            durationStr = `${hours}h`;
-                          } else {
-                            // Show minutes for short events
-                            durationStr = `${minutes}m`;
-                          }
+                          const isShowingReg = showRegistrationTimes && event.hasRegistrationEvent;
+                          const resStart = isShowingReg ? '' : (event.calendarData?.reservationStartTime || '');
+                          const resEnd = isShowingReg ? '' : (event.calendarData?.reservationEndTime || '');
+                          const evtStart = event.calendarData?.startTime || '';
+                          const evtEnd = event.calendarData?.endTime || '';
 
-                          timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
-
-                          // Registration time icon rendered inline in JSX below
+                          timeDisplay = buildReservationTimeDisplay({
+                            startTimeStr, endTimeStr,
+                            reservationStartTime: resStart,
+                            reservationEndTime: resEnd,
+                            eventStartTime: evtStart,
+                            eventEndTime: evtEnd,
+                          });
                         }
 
                         // Get primary category for color

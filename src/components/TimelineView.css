@@ -50,6 +50,49 @@
   z-index: 11;
 }
 
+/* ---------- Hover "+" add-event button (top-right of day grid) ---------- */
+
+.timeline-add-event-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  transform: scale(0.6);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-normal) var(--ease-in-out),
+              transform var(--duration-slow) var(--ease-bounce),
+              background-color var(--duration-normal) var(--ease-in-out),
+              box-shadow var(--duration-normal) var(--ease-in-out);
+  box-shadow: var(--shadow-primary);
+  z-index: 10;
+}
+
+.timeline-day-column:hover .timeline-add-event-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.timeline-add-event-btn:hover {
+  background-color: var(--color-primary-600);
+  transform: scale(1.15);
+  box-shadow: var(--shadow-md);
+}
+
 .timeline-hour-label {
   height: 50px;
   display: flex;

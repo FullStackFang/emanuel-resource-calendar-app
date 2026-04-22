@@ -127,6 +127,8 @@ export default function TimelineView({
   handleEventClick,      // (event) => opens review modal
   isUnspecifiedLocation, // (event) => boolean — matches sidebar filter logic
   formatDateHeader,      // (date) => display string (e.g., "Mon, 4/21")
+  canAddEvent,           // boolean — permission gate for create button
+  handleDayCellClick,    // (day, category, location) => opens creation modal
 }) {
   // ── Fixed 3-day view ─────────────────────────────────────────────────
   const containerRef = useRef(null);
@@ -306,6 +308,17 @@ export default function TimelineView({
 
               {/* Hour grid with event blocks — dynamic height based on visible range */}
               <div className="timeline-hour-grid" style={{ height: `${gridHeight}px` }}>
+                {/* Centered "+" create button — appears on hover over the day column */}
+                {canAddEvent && (
+                  <button
+                    className="timeline-add-event-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDayCellClick(date);
+                    }}
+                    title="Add event"
+                  >+</button>
+                )}
                 {/* Hour lines — only for visible range */}
                 {visibleHourLabels.map(({ hour }, i) => (
                   <div

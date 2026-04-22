@@ -5,6 +5,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon } from './shared/CalendarIcons';
+import { buildReservationTimeDisplay } from '../utils/timezoneUtils';
 import './DayEventsPopup.css';
 
 const POPUP_WIDTH = 340;
@@ -213,9 +214,14 @@ const DayEventsPopup = ({
                   {/* Time */}
                   <div className="dep-event-time">
                     {isParentEvent && <span style={{ marginRight: '4px' }}><ConcurrentIcon size={12} /></span>}
-                    {formatTime(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
-                    {' - '}
-                    {formatTime(event.end.dateTime, event.subject, event.end?.timeZone || event.graphData?.end?.timeZone)}
+                    {buildReservationTimeDisplay({
+                      startTimeStr: formatTime(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone),
+                      endTimeStr: formatTime(event.end.dateTime, event.subject, event.end?.timeZone || event.graphData?.end?.timeZone),
+                      reservationStartTime: event.calendarData?.reservationStartTime || '',
+                      reservationEndTime: event.calendarData?.reservationEndTime || '',
+                      eventStartTime: event.calendarData?.startTime || '',
+                      eventEndTime: event.calendarData?.endTime || '',
+                    })}
                   </div>
 
                   {/* Subject */}
