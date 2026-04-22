@@ -329,18 +329,86 @@ describe('deriveGates — invariants', () => {
       expect(gates.canRequestEdit).toBe(false);
     });
 
-    it('canResubmit fires only for owner + rejected', () => {
-      for (const role of ROLES) {
-        const p = PERMISSION_FIXTURES[role];
+    it('canResubmit: owner-requester on own rejected event', () => {
+      const event = makeEvent({ status: 'rejected', eventType: 'singleInstance', isOwner: true });
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canResubmit).toBe(true);
+    });
+
+    it('canResubmit: dept colleague on teammate\'s rejected event (unified with Calendar pre-refactor)', () => {
+      const event = {
+        status: 'rejected',
+        eventType: 'singleInstance',
+        roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
+        creatorDepartment: 'membership',
+      };
+      const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
+      expect(deriveGates(event, deptRequester, accounts).canResubmit).toBe(true);
+    });
+
+    it('canResubmit: excluded for admins and approvers (they use direct publish path)', () => {
+      const event = makeEvent({ status: 'rejected', eventType: 'singleInstance', isOwner: true });
+      expect(deriveGates(event, PERMISSION_FIXTURES.approver, accounts).canResubmit).toBe(false);
+      expect(deriveGates(event, PERMISSION_FIXTURES.admin, accounts).canResubmit).toBe(false);
+    });
+
+    it('canResubmit: excluded on non-rejected statuses', () => {
+      for (const status of ['draft', 'pending', 'published', 'deleted']) {
+        const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
         expect(
-          deriveGates(makeEvent({ status: 'rejected', eventType: 'singleInstance', isOwner: true }), p, accounts).canResubmit
-        ).toBe(true);
-        expect(
-          deriveGates(makeEvent({ status: 'rejected', eventType: 'singleInstance', isOwner: false }), p, accounts).canResubmit
+          deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canResubmit,
+          status
         ).toBe(false);
-        expect(
-          deriveGates(makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true }), p, accounts).canResubmit
-        ).toBe(false);
+      }
+    });
+  });
+
+  describe('canSavePendingEdit / canSaveRejectedEdit (non-admin owner-edit handlers)', () => {
+    it('owner-requester can save edits to own pending event', () => {
+      const event = makeEvent({ status: 'pending', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canSavePendingEdit).toBe(true);
+      expect(gates.canSaveRejectedEdit).toBe(false);
+    });
+
+    it('owner-requester can save edits to own rejected event', () => {
+      const event = makeEvent({ status: 'rejected', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canSavePendingEdit).toBe(false);
+      expect(gates.canSaveRejectedEdit).toBe(true);
+    });
+
+    it('dept colleague can save edits on teammate\'s pending/rejected events', () => {
+      for (const status of ['pending', 'rejected']) {
+        const event = {
+          status,
+          eventType: 'singleInstance',
+          roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
+          creatorDepartment: 'membership',
+        };
+        const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
+        const gates = deriveGates(event, deptRequester, accounts);
+        const gateKey = status === 'pending' ? 'canSavePendingEdit' : 'canSaveRejectedEdit';
+        expect(gates[gateKey], `dept colleague on ${status}`).toBe(true);
+      }
+    });
+
+    it('admin and approver do NOT get the owner-edit handler (they use direct save)', () => {
+      for (const role of ['approver', 'admin']) {
+        for (const status of ['pending', 'rejected']) {
+          const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
+          const gates = deriveGates(event, PERMISSION_FIXTURES[role], accounts);
+          expect(gates.canSavePendingEdit, `${role}/${status}`).toBe(false);
+          expect(gates.canSaveRejectedEdit, `${role}/${status}`).toBe(false);
+        }
+      }
+    });
+
+    it('neither gate fires on draft/published/deleted', () => {
+      for (const status of ['draft', 'published', 'deleted']) {
+        const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+        expect(gates.canSavePendingEdit, status).toBe(false);
+        expect(gates.canSaveRejectedEdit, status).toBe(false);
       }
     });
   });

@@ -104,12 +104,14 @@ export default function EventReviewExperience({
         // default=true behavior. Now always explicit.
         canEditRecurrence={gates.canEditRecurrence}
         isRestoring={isRestoring}
-        // Requester actions (pre-gated by caller)
-        onResubmit={onResubmit}
+        // Requester actions — callers pass the raw handler, gates decide wiring.
+        // Handlers may differ between callers (e.g. Calendar vs MyReservations
+        // hit different endpoints) but the gate condition is unified.
+        onResubmit={gates.canResubmit ? onResubmit : null}
         isResubmitting={isResubmitting}
-        onSavePendingEdit={onSavePendingEdit}
+        onSavePendingEdit={gates.canSavePendingEdit ? onSavePendingEdit : null}
         savingPendingEdit={savingPendingEdit}
-        onSaveRejectedEdit={onSaveRejectedEdit}
+        onSaveRejectedEdit={gates.canSaveRejectedEdit ? onSaveRejectedEdit : null}
         savingRejectedEdit={savingRejectedEdit}
         // Edit request viewing (from experience hook)
         existingEditRequest={exp.existingEditRequest}

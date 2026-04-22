@@ -140,7 +140,20 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   const canRequestCancellation =
     canRequestEdit && !hasPendingCancellationRequest;
 
-  const canResubmit = isOwner && isRejected;
+  // Non-admin owner-or-dept-colleague edit path: uses the owner-edit endpoint
+  // for pending/rejected events. Admins use the direct admin-save path, not
+  // this one, so this gate excludes admins explicitly.
+  const canNonAdminOwnerEdit =
+    !isAdminEditor &&
+    canSubmitReservation &&
+    (isOwner || departmentMatches) &&
+    (isPending || isRejected);
+
+  const canSavePendingEdit = canNonAdminOwnerEdit && isPending;
+  const canSaveRejectedEdit = canNonAdminOwnerEdit && isRejected;
+  // Resubmit-without-changes also fires only for non-admin non-admin editors
+  // on rejected events (admins use the admin publish path).
+  const canResubmit = canNonAdminOwnerEdit && isRejected;
 
   // Single readOnly truth — derived, not input.
   // "readOnly" in the UI context means: the editor should NOT be interactive.
@@ -174,6 +187,8 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
     canRequestEdit,
     canRequestCancellation,
     canResubmit,
+    canSavePendingEdit,
+    canSaveRejectedEdit,
     readOnly,
     recurrenceTabVisible,
     canApproveReservations,

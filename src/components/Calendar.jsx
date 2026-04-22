@@ -5682,11 +5682,11 @@ import ConflictDialog from './shared/ConflictDialog';
           graphToken={graphToken}
           onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
           onIsNavigatingChange={setReviewModalIsNavigating}
-          onResubmit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleResubmitFromCalendar : null}
+          onResubmit={handleResubmitFromCalendar}
           isResubmitting={isResubmitting}
-          onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? reviewModal.handleOwnerEdit : null}
+          onSavePendingEdit={reviewModal.handleOwnerEdit}
           savingPendingEdit={reviewModal.isSavingOwnerEdit}
-          onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? reviewModal.handleOwnerEdit : null}
+          onSaveRejectedEdit={reviewModal.handleOwnerEdit}
           savingRejectedEdit={reviewModal.isSavingOwnerEdit}
           onConflictRefresh={() => loadEvents(true)}
         />
