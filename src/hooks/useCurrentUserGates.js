@@ -3,6 +3,8 @@ import { useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { usePermissions } from './usePermissions';
 
+const normalizeDepartment = (d) => (d || '').toLowerCase().trim();
+
 /**
  * Single source of truth for per-event permission gates.
  *
@@ -95,16 +97,18 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   // teammate's pending or rejected event (e.g. help them refine the draft
   // before admin approval). Published events use the request-edit flow; drafts
   // are owner-only visible.
-  const ownerDepartmentNormalized = (event?.creatorDepartment || '').toLowerCase().trim();
-  const userDepartmentNormalized = (department || '').toLowerCase().trim();
-  const departmentMatches = Boolean(userDepartmentNormalized && ownerDepartmentNormalized === userDepartmentNormalized);
+  const userDept = normalizeDepartment(department);
+  const ownerDept = normalizeDepartment(event?.creatorDepartment);
+  const departmentMatches = Boolean(userDept && ownerDept === userDept);
   const canDeptColleagueEdit =
     departmentMatches && canSubmitReservation && !isOwner && (isPending || isRejected);
-  // Viewing an existing edit request is always read-only — the user is
-  // previewing a proposed change, not editing it.
+
+  // Hard gates: state-level blocks that override every role-based permission.
+  // Deleted events are immutable; viewing an existing edit request is a
+  // read-only preview of a proposed change.
+  const canSaveAtAll = !isDeleted && !isViewingEditRequest;
   const canSave =
-    !isDeleted &&
-    !isViewingEditRequest &&
+    canSaveAtAll &&
     (isAdminEditor || isOwnerEditable || canProposeViaEditRequest || canDeptColleagueEdit);
 
   // Recurrence pattern edit: applies to seriesMaster (modify) and
