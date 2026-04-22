@@ -8,6 +8,7 @@ import DraftSaveDialog from './DraftSaveDialog';
 import DiscardChangesDialog from './DiscardChangesDialog';
 import RecurrenceWarningDialog from './RecurrenceWarningDialog';
 import DuplicateDateDialog from './DuplicateDateDialog';
+import { getEventRecurrence } from '../../utils/eventTransformers';
 import './ReviewModal.css';
 
 /**
@@ -205,7 +206,7 @@ export default function ReviewModal({
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
 
   // Auto-detect recurrence from reservation if not explicitly provided
-  const hasRecurrenceFromReservation = Boolean(reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.eventType === 'seriesMaster');
+  const hasRecurrenceFromReservation = Boolean(getEventRecurrence(reservation) || reservation?.eventType === 'seriesMaster');
   const [liveHasRecurrence, setLiveHasRecurrence] = useState(false);
   const [hasServices, setHasServices] = useState(false);
 

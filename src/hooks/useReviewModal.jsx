@@ -6,7 +6,7 @@ import {
   buildDraftPayload, buildOwnerEditPayload, buildEditRequestPayload,
   buildRequesterPayload, buildGraphFields, buildInternalFields,
 } from '../utils/eventPayloadBuilder';
-import { transformEventToDuplicatePrefill, transformEventToFlatStructure, getOccurrenceDateKey } from '../utils/eventTransformers';
+import { transformEventToDuplicatePrefill, transformEventToFlatStructure, getOccurrenceDateKey, getEventRecurrence } from '../utils/eventTransformers';
 import { usePermissions } from './usePermissions';
 import { useAuthenticatedFetch } from './useAuthenticatedFetch';
 import { dispatchRefresh } from './useDataRefreshBus';
@@ -1669,7 +1669,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         payload.editScope = 'allEvents';
         // Only clear occurrence overrides when recurrence pattern/range changes
         // (shifted dates make old overrides invalid)
-        const oldRecurrence = currentItem?.calendarData?.recurrence || currentItem?.recurrence || null;
+        const oldRecurrence = getEventRecurrence(currentItem);
         const newRecurrence = formData.recurrence || null;
         if (JSON.stringify(oldRecurrence?.pattern) !== JSON.stringify(newRecurrence?.pattern) ||
             JSON.stringify(oldRecurrence?.range) !== JSON.stringify(newRecurrence?.range)) {

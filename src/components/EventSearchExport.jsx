@@ -125,7 +125,7 @@ const EventSearchExport = ({
           isAllDay: event.calendarData?.isAllDayEvent || event.isAllDayEvent || event.graphData?.isAllDay || false,
           importance: event.graphData?.importance || 'normal',
           showAs: event.graphData?.showAs || 'busy',
-          recurrence: event.graphData?.recurrence || null,
+          recurrence: getEventRecurrence(event),
           organizer: event.graphData?.organizer || null,
           webLink: event.graphData?.webLink || '',
           createdDateTime: event.graphData?.createdDateTime,

@@ -4,7 +4,7 @@ import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
-import { transformEventToFlatStructure } from '../utils/eventTransformers';
+import { transformEventToFlatStructure, getEventRecurrence } from '../utils/eventTransformers';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import EventAuditHistory from './EventAuditHistory';
@@ -84,7 +84,7 @@ export default function RoomReservationReview({
   // not on every keystroke (which creates a new `reservation` object reference)
   const reservationId = reservation?._id || reservation?.eventId;
   useEffect(() => {
-    const recurrence = reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.graphData?.recurrence || null;
+    const recurrence = getEventRecurrence(reservation);
     setRecurrencePattern(recurrence);
     recurrencePatternRef.current = recurrence;
     onRecurrenceExists?.(!!recurrence);

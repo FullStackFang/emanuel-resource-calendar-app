@@ -17,7 +17,7 @@ import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
-import { getSeriesMasterDisplayDates } from '../utils/eventTransformers';
+import { getSeriesMasterDisplayDates, getEventRecurrence } from '../utils/eventTransformers';
 import {
   clampEventTimesToReservation,
   expandReservationToContainOperationalTimes,
@@ -213,7 +213,7 @@ export default function RoomReservationFormBase({
 
   // Recurrence state — uses external (lifted) state when provided, falls back to internal for creation mode
   const [_internalRecurrencePattern, _setInternalRecurrencePattern] = useState(
-    initialData?.recurrence || initialData?.graphData?.recurrence || null
+    getEventRecurrence(initialData)
   ); // { pattern, range }
 
   const isRecurrenceLifted = externalRecurrencePattern !== undefined;
@@ -398,10 +398,10 @@ export default function RoomReservationFormBase({
 
   // Sync recurrencePattern when initialData changes (e.g., when loading a saved draft)
   // Mirrors the categories/services sync pattern above — only when using internal state
-  const recurrenceKey = JSON.stringify(initialData?.recurrence || null);
+  const recurrenceKey = JSON.stringify(getEventRecurrence(initialData));
   useEffect(() => {
     if (isRecurrenceLifted) return; // External state is managed by parent
-    const newRecurrence = initialData?.recurrence || null;
+    const newRecurrence = getEventRecurrence(initialData);
     _setInternalRecurrencePattern(newRecurrence);
     recurrencePatternRef.current = newRecurrence;
   }, [recurrenceKey, isRecurrenceLifted]);
@@ -556,8 +556,8 @@ export default function RoomReservationFormBase({
       }
 
       // Initialize recurrence pattern from existing event data (for editing entire series)
-      if (initialData.graphData?.recurrence || initialData.recurrence) {
-        const existingRecurrence = initialData.recurrence || initialData.graphData?.recurrence;
+      const existingRecurrence = getEventRecurrence(initialData);
+      if (existingRecurrence) {
         setRecurrencePattern(existingRecurrence);
       }
 
