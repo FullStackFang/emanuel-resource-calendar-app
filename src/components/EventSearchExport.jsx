@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useNotification } from '../context/NotificationContext';
 import { logger } from '../utils/logger';
 import { generateCalendarPdf } from '../utils/calendarPdfGenerator';
+import { getEventRecurrence } from '../utils/eventTransformers';
 
 const EventSearchExport = ({
   searchResults,
@@ -249,7 +250,7 @@ const EventSearchExport = ({
           isAllDay: event.isAllDay || false,
           importance: event.importance || 'normal',
           showAs: event.showAs || 'busy',
-          recurrence: event.recurrence || null,
+          recurrence: getEventRecurrence(event),
           organizer: event.organizer || null,
           webLink: event.webLink || '',
           createdDateTime: formatDateForExport(event.createdDateTime),

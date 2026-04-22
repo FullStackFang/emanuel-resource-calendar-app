@@ -84,6 +84,52 @@ export function getEventCategories(event) {
 }
 
 /**
+ * Get the recurrence object for an event. Mirrors transformEventToFlatStructure's
+ * precedence (calendarData → top-level → graphData) but as a cheap single-field
+ * read safe for use inside expansion and render hot paths.
+ *
+ * Raw `event.recurrence || event.graphData?.recurrence` reads miss
+ * calendarData.recurrence — which is the authoritative source for MongoDB
+ * documents per the backend write contract. Always prefer this helper.
+ *
+ * @param {Object} event - The event object
+ * @returns {Object|null} Recurrence object or null
+ */
+export function getEventRecurrence(event) {
+  if (!event) return null;
+  return getEventField(event, 'recurrence') || event.graphData?.recurrence || null;
+}
+
+/**
+ * Check whether an event belongs to a recurring series.
+ *
+ * Covers: seriesMaster eventType, exception/addition override documents,
+ * virtual occurrences synthesized by Calendar.jsx expansion, events linked
+ * via seriesMasterId, and events carrying a recurrence pattern directly.
+ *
+ * Uses getEventField / getEventRecurrence so calendarData-only MongoDB docs
+ * are detected (the copy-pasted predicate sprawled across render components
+ * missed this path).
+ *
+ * @param {Object} event - The event object
+ * @returns {boolean}
+ */
+export function isRecurringEvent(event) {
+  if (!event) return false;
+  const eventType = getEventField(event, 'eventType') || event.graphData?.type;
+  const seriesMasterId = getEventField(event, 'seriesMasterId') || event.graphData?.seriesMasterId;
+  const recurrence = getEventRecurrence(event);
+  return !!(
+    seriesMasterId ||
+    recurrence ||
+    eventType === 'seriesMaster' ||
+    eventType === 'exception' ||
+    eventType === 'addition' ||
+    event.isRecurringOccurrence
+  );
+}
+
+/**
  * Helper: Format address from Graph API location data
  * @param {Object} address - Graph API address object
  * @returns {string} Formatted address string

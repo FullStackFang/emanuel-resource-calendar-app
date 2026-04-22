@@ -19,7 +19,7 @@
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
-  import { transformEventToFlatStructure, sortEventsByStartTime, getEventField } from '../utils/eventTransformers';
+  import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence } from '../utils/eventTransformers';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
@@ -1697,7 +1697,7 @@ import ConflictDialog from './shared/ConflictDialog';
             // Guard: a seriesMaster with null recurrence is a stale/corrupted record
             // (eventType not downgraded on recurrence removal). Treat it as a
             // singleInstance so it falls through and renders rather than disappearing.
-            const hasRecurrence = event.recurrence || event.graphData?.recurrence;
+            const hasRecurrence = getEventRecurrence(event);
             if (eventType === 'seriesMaster' && hasRecurrence) return true;
 
             // Keep standalone events (no series master)
@@ -1753,7 +1753,7 @@ import ConflictDialog from './shared/ConflictDialog';
           const eventsBeforeExpansion = eventsToDisplay.length;
           const seriesMastersWithRecurrence = eventsToDisplay.filter(e => {
             const eventType = e.eventType || e.graphData?.type;
-            const recurrence = e.recurrence || e.graphData?.recurrence;
+            const recurrence = getEventRecurrence(e);
             return eventType === 'seriesMaster' && recurrence;
           });
 
@@ -1764,7 +1764,7 @@ import ConflictDialog from './shared/ConflictDialog';
           // Create cache key from date range and series master IDs
           const seriesMasters = eventsToDisplay.filter(e => {
             const eventType = e.eventType || e.graphData?.type;
-            const recurrence = e.recurrence || e.graphData?.recurrence;
+            const recurrence = getEventRecurrence(e);
             return eventType === 'seriesMaster' && recurrence;
           });
           const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
@@ -1801,7 +1801,7 @@ import ConflictDialog from './shared/ConflictDialog';
             // Expand each series master
             for (const event of seriesMasters) {
               // Get recurrence from top-level (authoritative) or graphData (fallback)
-              const recurrence = event.recurrence || event.graphData?.recurrence;
+              const recurrence = getEventRecurrence(event);
               if (!recurrence?.pattern || !recurrence?.range) {
                 logger.warn('Series master has malformed recurrence data:', event.graphData?.subject);
                 continue;
@@ -4114,7 +4114,7 @@ import ConflictDialog from './shared/ConflictDialog';
       // Check top-level fields (authoritative) then graphData (fallback)
       const eventType = event.eventType || event.graphData?.type;
       const seriesMasterId = event.seriesMasterId || event.graphData?.seriesMasterId;
-      const recurrence = event.recurrence || event.graphData?.recurrence;
+      const recurrence = getEventRecurrence(event);
 
       return !!(
         seriesMasterId ||

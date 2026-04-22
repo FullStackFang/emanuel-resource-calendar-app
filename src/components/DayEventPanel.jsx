@@ -2,7 +2,7 @@ import React, { memo, useCallback } from 'react';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
-import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { sortEventsByStartTime, isRecurringEvent } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon, CalendarIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
@@ -136,10 +136,7 @@ const DayEventPanel = memo(({
                   }}
                 >
                   {/* Recurring event indicator - check top-level (authoritative) then graphData (fallback) */}
-                  {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
-                    (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                    (event.recurrence || event.graphData?.recurrence) ||
-                    event.isRecurringOccurrence) && (
+                  {isRecurringEvent(event) && (
                     <div style={{
                       position: 'absolute',
                       top: '4px',

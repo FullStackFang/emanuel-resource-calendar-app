@@ -9,7 +9,7 @@ import {
   formatTimelineEventTime,
   formatDecimalHour,
 } from '../utils/timelineUtils';
-import { getEventField } from '../utils/eventTransformers';
+import { getEventField, isRecurringEvent } from '../utils/eventTransformers';
 import { RecurringIcon } from './shared/CalendarIcons';
 import './TimelineView.css';
 
@@ -369,12 +369,7 @@ export default function TimelineView({
                   const isDraft = event.status === 'draft';
                   const isPending = event.status === 'pending';
                   const isMultiLocation = locInfo.count > 1;
-                  const isRecurring = (
-                    event.eventType === 'seriesMaster' ||
-                    event.seriesMasterId ||
-                    event.recurrence ||
-                    event.isRecurringOccurrence
-                  );
+                  const isRecurring = isRecurringEvent(event);
 
                   return (
                     <div

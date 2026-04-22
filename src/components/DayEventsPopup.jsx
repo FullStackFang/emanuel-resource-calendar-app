@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
-import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { sortEventsByStartTime, isRecurringEvent } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon } from './shared/CalendarIcons';
 import { buildReservationTimeDisplay } from '../utils/timezoneUtils';
@@ -165,10 +165,7 @@ const DayEventsPopup = ({
                   }}
                 >
                   {/* Recurring indicator */}
-                  {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
-                    (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                    (event.recurrence || event.graphData?.recurrence) ||
-                    event.isRecurringOccurrence) && (
+                  {isRecurringEvent(event) && (
                     <div className="dep-recurring-icon" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <RecurringIcon size={14} />
                     </div>

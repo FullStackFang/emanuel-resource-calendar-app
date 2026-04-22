@@ -11,6 +11,7 @@ import {
   getDecimalHourFromMouseEvent,
 } from '../utils/timelineUtils';
 import { RecurringIcon } from './shared/CalendarIcons';
+import { isRecurringEvent } from '../utils/eventTransformers';
 import './DayTimelineModal.css';
 
 /**
@@ -231,10 +232,7 @@ export default function DayTimelineModal({
                     onMouseMove={(e) => tooltipInfo && setTooltipInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
                     onMouseLeave={() => setTooltipInfo(null)}
                   >
-                    {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
-                      (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                      (event.recurrence || event.graphData?.recurrence) ||
-                      event.isRecurringOccurrence) && (
+                    {isRecurringEvent(event) && (
                       <div style={{
                         position: 'absolute',
                         top: '2px',

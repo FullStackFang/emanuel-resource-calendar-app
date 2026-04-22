@@ -4,7 +4,7 @@ import React, { memo, useMemo } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, buildReservationTimeDisplay } from '../utils/timezoneUtils';
-import { sortEventsByStartTime, getEventCategories } from '../utils/eventTransformers';
+import { sortEventsByStartTime, getEventCategories, isRecurringEvent } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
@@ -446,10 +446,7 @@ const DayView = memo(({
                               </span>
                             )}
                             {/* Recurring event indicator */}
-                            {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
-                              (event.seriesMasterId || event.graphData?.seriesMasterId) ||
-                              (event.recurrence || event.graphData?.recurrence) ||
-                              event.isRecurringOccurrence) && (
+                            {isRecurringEvent(event) && (
                               <div style={{
                                 position: 'absolute',
                                 top: '4px',
