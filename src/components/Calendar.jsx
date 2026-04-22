@@ -619,9 +619,6 @@ import ConflictDialog from './shared/ConflictDialog';
       return false;
     }, [reviewModal.currentItem, currentUser?.email, userDepartment]);
 
-    // Whether the current user is a non-admin editor (owner or dept colleague)
-    const isNonAdminEditor = canEditThisEvent && !canEditEvents && !canApproveReservations;
-
     // Resubmit handler (for non-admin users resubmitting rejected events without changes)
     const handleResubmitFromCalendar = useCallback(async () => {
       const item = reviewModal.currentItem;

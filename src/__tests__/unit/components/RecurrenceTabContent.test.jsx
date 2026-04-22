@@ -38,7 +38,7 @@ vi.mock('../../../context/LocationContext', () => ({
   useLocations: () => ({ locations: [], rooms: [], getLocationName: (id) => id }),
 }));
 
-import RecurrenceTabContent, { CONFLICT_DEBOUNCE_MS } from '../../../components/RecurrenceTabContent';
+import RecurrenceTabContent from '../../../components/RecurrenceTabContent';
 
 const weeklyPattern = {
   pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
@@ -62,7 +62,7 @@ describe('RecurrenceTabContent', () => {
     vi.clearAllMocks();
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ totalOccurrences: 0, conflictingOccurrences: 0, conflicts: [] }),
+      json: () => Promise.resolve([]),
     });
   });
 
@@ -199,7 +199,7 @@ describe('RecurrenceTabContent', () => {
         exclusions: [],
       };
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={patternNoExceptions} />);
-      expect(screen.getByText(/No exceptions or conflicts/)).toBeInTheDocument();
+      expect(screen.getByText(/No exceptions/)).toBeInTheDocument();
     });
 
     it('does not render filter tabs', () => {
@@ -475,194 +475,4 @@ describe('RecurrenceTabContent', () => {
     });
   });
 
-  // ─── Conflict Fetching (Infinite Loop Regression) ──────────
-
-  describe('Conflict Fetching', () => {
-    // formData must have rooms for fetchConflicts to proceed (it early-returns on empty roomIds)
-    const formDataWithRooms = {
-      ...defaultProps.formData,
-      requestedRooms: ['room-1'],
-    };
-
-    const conflictProps = {
-      ...defaultProps,
-      formData: formDataWithRooms,
-      recurrencePattern: weeklyPattern,
-    };
-
-    /** Count only fetch calls that hit the recurring-conflicts endpoint. */
-    function conflictFetchCount() {
-      return global.fetch.mock.calls.filter(
-        ([url]) => typeof url === 'string' && url.includes('/rooms/recurring-conflicts')
-      ).length;
-    }
-
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it('fires conflict check exactly once on mount after debounce', async () => {
-      await act(async () => {
-        render(<RecurrenceTabContent {...conflictProps} />);
-      });
-
-      // Debounce has not expired — no fetch yet
-      expect(conflictFetchCount()).toBe(0);
-
-      // Advance past the debounce window (async variant flushes the fetch promise chain)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-
-      expect(conflictFetchCount()).toBe(1);
-
-      // Verify it targeted the correct endpoint with POST
-      const call = global.fetch.mock.calls.find(
-        ([url]) => url.includes('/rooms/recurring-conflicts')
-      );
-      expect(call[1].method).toBe('POST');
-    });
-
-    it('does NOT re-fetch on referentially-new but content-identical props (infinite loop regression)', async () => {
-      let rerender;
-      await act(async () => {
-        const result = render(<RecurrenceTabContent {...conflictProps} />);
-        rerender = result.rerender;
-      });
-
-      // Let the initial debounced fetch fire
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-      expect(conflictFetchCount()).toBe(1);
-
-      // Simulate the production trigger: handleRecurrencePatternChange calling
-      // setRecurrencePattern (new ref) + updateData creating new editableData/reservation
-      // ref on each parent render cycle. New object references, identical content.
-      for (let i = 0; i < 2; i++) {
-        await act(async () => {
-          rerender(
-            <RecurrenceTabContent
-              {...conflictProps}
-              formData={{ ...formDataWithRooms }}
-              reservation={{ ...defaultProps.reservation }}
-            />
-          );
-        });
-      }
-
-      // Give ample time for any spurious debounces to fire
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS * 5);
-      });
-
-      // Still exactly 1 — the ref-based approach prevented new fetches
-      expect(conflictFetchCount()).toBe(1);
-    });
-
-    it('coalesces rapid pattern changes into a single fetch (debounce)', async () => {
-      let rerender;
-      await act(async () => {
-        const result = render(<RecurrenceTabContent {...conflictProps} />);
-        rerender = result.rerender;
-      });
-
-      // Before any debounce fires, rapidly change the pattern 3 times
-      const patterns = [
-        { ...weeklyPattern, pattern: { ...weeklyPattern.pattern, daysOfWeek: ['tuesday'] } },
-        { ...weeklyPattern, pattern: { ...weeklyPattern.pattern, daysOfWeek: ['wednesday'] } },
-        { ...weeklyPattern, pattern: { ...weeklyPattern.pattern, daysOfWeek: ['thursday'] } },
-      ];
-
-      for (const pat of patterns) {
-        await act(async () => {
-          rerender(
-            <RecurrenceTabContent {...conflictProps} recurrencePattern={pat} />
-          );
-        });
-      }
-
-      // No fetch yet — each re-render reset the debounce timer
-      expect(conflictFetchCount()).toBe(0);
-
-      // Now let the final debounce fire
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-
-      // Exactly one fetch — the debounce coalesced all rapid changes
-      expect(conflictFetchCount()).toBe(1);
-    });
-
-    it('re-fetches when recurrence content genuinely changes (positive test)', async () => {
-      let rerender;
-      await act(async () => {
-        const result = render(<RecurrenceTabContent {...conflictProps} />);
-        rerender = result.rerender;
-      });
-
-      // First fetch after mount
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-      expect(conflictFetchCount()).toBe(1);
-
-      // Re-render with genuinely different pattern content
-      const changedPattern = {
-        ...weeklyPattern,
-        pattern: { ...weeklyPattern.pattern, daysOfWeek: ['monday', 'friday'] },
-      };
-      await act(async () => {
-        rerender(
-          <RecurrenceTabContent {...conflictProps} recurrencePattern={changedPattern} />
-        );
-      });
-
-      // Let the new debounce fire
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-
-      // Second fetch — content-based trigger key detected the real change
-      expect(conflictFetchCount()).toBe(2);
-    });
-
-    it('no fetch or warning when unmounted during pending debounce', async () => {
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      let unmount;
-      await act(async () => {
-        const result = render(<RecurrenceTabContent {...conflictProps} />);
-        unmount = result.unmount;
-      });
-
-      // Debounce is pending — don't advance timers
-      expect(conflictFetchCount()).toBe(0);
-
-      // Unmount while debounce is still pending
-      await act(async () => {
-        unmount();
-      });
-
-      // Advance past debounce — the cleanup should have cleared the timer
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CONFLICT_DEBOUNCE_MS);
-      });
-
-      // No fetch fired — cleanup prevented the stale callback
-      expect(conflictFetchCount()).toBe(0);
-
-      // No React warnings about state updates on unmounted components
-      const reactWarnings = errorSpy.mock.calls.filter(
-        ([msg]) => typeof msg === 'string' && msg.includes('unmounted')
-      );
-      expect(reactWarnings).toHaveLength(0);
-
-      errorSpy.mockRestore();
-    });
-  });
 });

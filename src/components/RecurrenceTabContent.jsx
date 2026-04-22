@@ -44,14 +44,11 @@ const DAYS_OPTIONS = [
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-/** Debounce delay (ms) for recurring conflict checks. Exported for test use. */
-export const CONFLICT_DEBOUNCE_MS = 400;
-
 /**
  * RecurrenceTabContent — Dedicated tab for managing recurring event patterns.
  *
  * Inline editor (left column): frequency, interval, day-of-week buttons, end date, calendar preview.
- * Occurrence list (right column): scrollable list with conflict display, toggleable to occurrence detail editor.
+ * Occurrence list (right column): exceptions (added / excluded / customized), toggleable to occurrence detail editor.
  */
 export default function RecurrenceTabContent({
   recurrencePattern,
@@ -84,12 +81,6 @@ export default function RecurrenceTabContent({
   // Refs for auto-commit on unmount/tab-switch (avoids stale closure in cleanup)
   const occurrenceEditsRef = useRef({});
   const selectedOccurrenceRef = useRef(null);
-
-  // Refs for conflict fetching — avoids object-reference churn in useCallback deps
-  const formDataRef = useRef(formData);
-  const reservationRef = useRef(reservation);
-  useEffect(() => { formDataRef.current = formData; }, [formData]);
-  useEffect(() => { reservationRef.current = reservation; }, [reservation]);
 
   // ── Calendar popover state (Customize / Exclude on pattern dates) ──
   const [calendarPopover, setCalendarPopover] = useState(null); // { dateStr, left, top } or null
@@ -127,14 +118,9 @@ export default function RecurrenceTabContent({
     setCategoriesLoaded(true);
   }, [categoriesLoaded, apiToken]);
 
-  // ── Conflict state ────────────────────────────────────────────
-  const [conflictData, setConflictData] = useState(null);
-  const [conflictLoading, setConflictLoading] = useState(false);
-  const [expandedRows, setExpandedRows] = useState(new Set());
   const [confirmRemove, setConfirmRemove] = useState(false);
   const editorTouchedRef = useRef(false);
   const hasUncommittedEditsRef = useRef(false);
-  const abortControllerRef = useRef(null);
 
   const hasPattern = Boolean(recurrencePattern?.pattern && recurrencePattern?.range);
   const canEdit = !readOnly && editScope !== 'thisEvent';
@@ -345,104 +331,6 @@ export default function RecurrenceTabContent({
     return calculateRecurrenceDates(recurrencePattern.pattern, recurrencePattern.range, viewMonth);
   }, [recurrencePattern, hasPattern, viewMonth, frequency, interval, daysOfWeek, patternStartDate, endType, endDate]);
 
-  // ── Conflict fetching ─────────────────────────────────────────
-  // Reads formData/reservation from refs to avoid object-reference churn in deps.
-  // Triggered by conflictTriggerKey (content-based) rather than callback identity.
-  const fetchConflicts = useCallback(async () => {
-    if (!hasPattern || !apiToken) return;
-    const fd = formDataRef.current;
-    const res = reservationRef.current;
-
-    const effectiveStartTime = fd?.startTime || fd?.reservationStartTime;
-    const effectiveEndTime = fd?.endTime || fd?.reservationEndTime;
-    const startDateTime = fd?.startDate && effectiveStartTime
-      ? `${fd.startDate}T${effectiveStartTime}:00`
-      : res?.calendarData?.startDateTime || res?.startDateTime;
-    const endDateTime = fd?.endDate && effectiveEndTime
-      ? `${fd.endDate}T${effectiveEndTime}:00`
-      : res?.calendarData?.endDateTime || res?.endDateTime;
-    const roomIds = (fd?.requestedRooms || res?.calendarData?.locations || res?.locations || [])
-      .map(id => id?.toString?.() || id);
-
-    if (!startDateTime || !endDateTime || !roomIds.length) {
-      setConflictData(null);
-      return;
-    }
-
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setConflictLoading(true);
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/recurring-conflicts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
-        },
-        body: JSON.stringify({
-          startDateTime,
-          endDateTime,
-          recurrence: recurrencePattern,
-          roomIds,
-          setupTimeMinutes: fd?.setupTimeMinutes || res?.calendarData?.setupTimeMinutes || 0,
-          teardownTimeMinutes: fd?.teardownTimeMinutes || res?.calendarData?.teardownTimeMinutes || 0,
-          reservationStartMinutes: fd?.reservationStartMinutes || res?.calendarData?.reservationStartMinutes || 0,
-          reservationEndMinutes: fd?.reservationEndMinutes || res?.calendarData?.reservationEndMinutes || 0,
-          excludeEventId: res?._id?.toString?.() || res?.id || null,
-          excludeMasterEventId: res?.eventId || null,
-          isAllowedConcurrent: fd?.isAllowedConcurrent || res?.isAllowedConcurrent || false,
-          categories: fd?.categories || res?.calendarData?.categories || [],
-        }),
-        signal: controller.signal,
-      });
-      if (response.ok) {
-        setConflictData(await response.json());
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError') setConflictData(null);
-    } finally {
-      setConflictLoading(false);
-    }
-  }, [hasPattern, recurrencePattern, apiToken]); // formData/reservation read from refs
-
-  // Content-based trigger: only re-fetch when values that affect conflict results change.
-  // Using JSON.stringify of the recurrence pattern (small, bounded object) as the primary key,
-  // plus form fields that feed into the conflict check body.
-  const conflictTriggerKey = useMemo(() => {
-    if (!hasPattern || !recurrencePattern) return null;
-    const fd = formDataRef.current || {};
-    return JSON.stringify({
-      pattern: recurrencePattern,
-      startTime: fd.startTime || fd.reservationStartTime,
-      endTime: fd.endTime || fd.reservationEndTime,
-      rooms: fd.requestedRooms,
-      setupTimeMinutes: fd.setupTimeMinutes,
-      teardownTimeMinutes: fd.teardownTimeMinutes,
-      isAllowedConcurrent: fd.isAllowedConcurrent,
-      categories: fd.categories,
-    });
-  }, [hasPattern, recurrencePattern]); // eslint-disable-line react-hooks/exhaustive-deps -- formData read from ref
-
-  // Debounced conflict fetch — 400ms delay prevents rapid-fire requests during pattern editing.
-  // AbortController still cancels in-flight requests on unmount/re-trigger.
-  useEffect(() => {
-    if (!conflictTriggerKey) return;
-    const timer = setTimeout(() => { fetchConflicts(); }, CONFLICT_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(timer);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, [conflictTriggerKey, fetchConflicts]);
-
-  const conflictsByDate = useMemo(() => {
-    if (!conflictData?.conflicts) return {};
-    const map = {};
-    for (const c of conflictData.conflicts) map[c.occurrenceDate] = c;
-    return map;
-  }, [conflictData]);
-
   // ── Calendar popover dismiss (click-outside + Escape) ─────────
   useEffect(() => {
     if (!calendarPopover) return;
@@ -525,16 +413,6 @@ export default function RecurrenceTabContent({
     onRecurrencePatternChange(null);
   }, [confirmRemove, onRecurrencePatternChange]);
 
-  // ── Toggle conflict row expand ────────────────────────────────
-  const toggleRow = useCallback((dateStr) => {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(dateStr)) next.delete(dateStr);
-      else next.add(dateStr);
-      return next;
-    });
-  }, []);
-
   // ── Occurrence overrides ──────────────────────────────────────
   const overrides = liftedOverrides || reservation?.occurrenceOverrides || [];
   const overridesByDate = useMemo(() => {
@@ -586,15 +464,14 @@ export default function RecurrenceTabContent({
     onOccurrenceOverridesChange(overrides.filter(o => o.occurrenceDate !== dateStr));
   }, [canEdit, overrides, onOccurrenceOverridesChange]);
 
-  // ── Filter to exceptions only (added, excluded, conflicts, overrides) ──
+  // ── Filter to exceptions only (added, excluded, overrides) ──
   const filteredOccurrences = useMemo(() => {
     return occurrences.filter(o =>
       o.type === 'added' ||
       o.type === 'excluded' ||
-      conflictsByDate[o.date] ||
       overridesByDate[o.date]
     );
-  }, [occurrences, conflictsByDate, overridesByDate]);
+  }, [occurrences, overridesByDate]);
 
   // ── Time display / Room display ───────────────────────────────
   const timeDisplay = useMemo(() => {
@@ -635,7 +512,6 @@ export default function RecurrenceTabContent({
   // Counts
   const additionCount = recurrencePattern?.additions?.length || 0;
   const exclusionCount = recurrencePattern?.exclusions?.length || 0;
-  const conflictCount = conflictData?.conflictingOccurrences || 0;
 
   // ── Occurrence detail helpers ─────────────────────────────────
   const getEffectiveValue = useCallback((dateStr, field) => {
@@ -882,7 +758,6 @@ export default function RecurrenceTabContent({
             <span>{occurrences.filter(o => o.type !== 'excluded').length} occurrences</span>
             {additionCount > 0 && <span className="stat-added">+{additionCount} added</span>}
             {exclusionCount > 0 && <span className="stat-excluded">{exclusionCount} excluded</span>}
-            {conflictCount > 0 && <span className="stat-conflicts">{conflictCount} conflicts</span>}
           </div>
         )}
 
@@ -1137,28 +1012,6 @@ export default function RecurrenceTabContent({
           })()}
 
         </div>
-
-        {/* Conflict info for this date */}
-        {conflictsByDate[selectedOccurrence] && (
-          <div className="recurrence-detail-conflicts">
-            <span className="recurrence-detail-conflicts-title">Scheduling Conflicts</span>
-            {(conflictsByDate[selectedOccurrence].hardConflicts || []).map((hc, i) => (
-              <div key={i} className="recurrence-occ-conflict-item">
-                <span className="conflict-item-title">{hc.eventTitle || 'Untitled event'}</span>
-                <span className="conflict-item-time">
-                  {hc.startDateTime && hc.endDateTime
-                    ? `${new Date(hc.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${new Date(hc.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-                    : ''}
-                </span>
-                {hc.roomNames && (
-                  <span className="conflict-item-room">
-                    {Array.isArray(hc.roomNames) ? hc.roomNames.join(', ') : hc.roomNames}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     );
   };
@@ -1177,18 +1030,16 @@ export default function RecurrenceTabContent({
       <div className="recurrence-tab-list">
         {filteredOccurrences.length === 0 && (
           <div className="recurrence-tab-list-empty">
-            No exceptions or conflicts.
+            No exceptions.
           </div>
         )}
         {filteredOccurrences.map((occ) => {
-          const conflict = conflictsByDate[occ.date];
-          const isExpanded = expandedRows.has(occ.date);
           const hasOverride = Boolean(overridesByDate[occ.date]);
 
           return (
             <div
               key={occ.date}
-              className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${hasOverride ? 'recurrence-occ-row--customized' : ''} ${conflict ? 'recurrence-occ-row--conflict' : ''}`}
+              className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${hasOverride ? 'recurrence-occ-row--customized' : ''}`}
             >
               <div
                 className="recurrence-occ-main"
@@ -1250,20 +1101,6 @@ export default function RecurrenceTabContent({
                   </span>
                 )}
 
-                {conflict && occ.type !== 'excluded' && (
-                  <span
-                    className="recurrence-occ-conflict-icon"
-                    title="Scheduling conflict"
-                    onClick={(e) => { e.stopPropagation(); toggleRow(occ.date); }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                      <line x1="12" y1="9" x2="12" y2="13" />
-                      <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                  </span>
-                )}
-
                 {canEdit && occ.type === 'added' && (
                   <button
                     type="button"
@@ -1295,34 +1132,10 @@ export default function RecurrenceTabContent({
                   </button>
                 )}
               </div>
-
-              {isExpanded && conflict && (
-                <div className="recurrence-occ-conflict-details">
-                  {(conflict.hardConflicts || []).map((hc, i) => (
-                    <div key={i} className="recurrence-occ-conflict-item">
-                      <span className="conflict-item-title">{hc.eventTitle || 'Untitled event'}</span>
-                      <span className="conflict-item-time">
-                        {hc.startDateTime && hc.endDateTime
-                          ? `${new Date(hc.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${new Date(hc.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-                          : ''}
-                      </span>
-                      {hc.roomNames && (
-                        <span className="conflict-item-room">
-                          {Array.isArray(hc.roomNames) ? hc.roomNames.join(', ') : hc.roomNames}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           );
         })}
       </div>
-
-      {conflictLoading && (
-        <div className="recurrence-tab-conflict-loading">Checking conflicts...</div>
-      )}
     </div>
   );
 

@@ -151,9 +151,10 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
 
   const canSavePendingEdit = canNonAdminOwnerEdit && isPending;
   const canSaveRejectedEdit = canNonAdminOwnerEdit && isRejected;
-  // Resubmit-without-changes also fires only for non-admin non-admin editors
-  // on rejected events (admins use the admin publish path).
-  const canResubmit = canNonAdminOwnerEdit && isRejected;
+  // canResubmit gates the "resubmit-without-changes" path (PUT /resubmit),
+  // canSaveRejectedEdit gates "save-edits-and-resubmit" (owner-edit endpoint).
+  // Different actions/endpoints but the same permission — same gate value.
+  const canResubmit = canSaveRejectedEdit;
 
   // Single readOnly truth — derived, not input.
   // "readOnly" in the UI context means: the editor should NOT be interactive.
