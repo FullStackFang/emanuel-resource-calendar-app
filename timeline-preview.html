@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TimelineView — Before / After Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  /* ==========================================================================
+     DESIGN TOKENS — mirrored from src/styles/design-tokens.css so this preview
+     is color-accurate to the running app.
+     ========================================================================== */
+  :root {
+    --color-primary-500: #3b6eb8;
+    --color-primary-600: #2d5a9e;
+    --color-neutral-0:   #ffffff;
+    --color-neutral-50:  #fafaf9;
+    --color-neutral-100: #f5f5f4;
+    --color-neutral-200: #e7e5e4;
+    --color-neutral-300: #d6d3d1;
+    --color-neutral-400: #a8a29e;
+    --color-neutral-500: #78716c;
+    --color-neutral-600: #57534e;
+    --color-neutral-700: #44403c;
+    --color-neutral-800: #292524;
+    --color-neutral-900: #1c1917;
+    --color-warning-100: #fef3c7;
+    --color-warning-300: #fcd34d;
+    --color-warning-700: #92400e;
+    --color-error-400:   #f87171;
+    --color-error-500:   #dc2626;
+
+    --bg-primary:   var(--color-neutral-0);
+    --bg-secondary: var(--color-neutral-50);
+    --bg-tertiary:  var(--color-neutral-100);
+
+    --text-primary:   var(--color-neutral-900);
+    --text-secondary: var(--color-neutral-600);
+    --text-inverse:   var(--color-neutral-0);
+
+    --border-default: var(--color-neutral-200);
+
+    --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+    --radius-md: 6px;
+    --radius-xl: 12px;
+
+    --text-2xs: 10px;
+    --text-xs:  12px;
+    --text-sm:  14px;
+    --text-lg:  18px;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+
+    --ease-in-out: cubic-bezier(.4,0,.2,1);
+    --ease-bounce: cubic-bezier(.34,1.56,.64,1);
+    --duration-normal: 200ms;
+    --duration-slow:   300ms;
+
+    --shadow-primary: 0 2px 8px rgba(59,110,184,0.30);
+    --shadow-md:      0 4px 12px rgba(0,0,0,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-display);
+    background: #f3f4f6;
+    color: var(--text-primary);
+  }
+
+  /* ==========================================================================
+     PREVIEW PAGE CHROME
+     ========================================================================== */
+  .preview-header {
+    padding: 18px 32px;
+    background: var(--color-neutral-900);
+    color: var(--color-neutral-50);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 12px rgba(0,0,0,0.25);
+  }
+  .preview-header h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .preview-header h1 small {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    color: var(--color-neutral-400);
+    font-size: 11px;
+    margin-left: 10px;
+    letter-spacing: 0.05em;
+  }
+  .toggle-group {
+    display: inline-flex;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .toggle-group button {
+    background: transparent;
+    border: 0;
+    color: var(--color-neutral-300);
+    padding: 8px 14px;
+    cursor: pointer;
+    font: inherit;
+    transition: background 150ms ease-out, color 150ms ease-out;
+  }
+  .toggle-group button:hover { color: var(--color-neutral-50); }
+  .toggle-group button.active {
+    background: var(--color-primary-500);
+    color: white;
+  }
+
+  .preview-stage {
+    padding: 24px;
+    display: grid;
+    gap: 24px;
+  }
+  .preview-stage.side-by-side {
+    grid-template-columns: 1fr 1fr;
+  }
+  .preview-stage.single {
+    grid-template-columns: 1fr;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .panel {
+    background: var(--bg-primary);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -8px rgba(0,0,0,0.12);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 720px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border-default);
+    background: linear-gradient(to bottom, #fff, #fafaf9);
+  }
+  .panel-head h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+  }
+  .panel-head .tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-neutral-500);
+  }
+  .panel-body {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Hide inactive views based on mode */
+  body[data-mode="before"] .panel.after { display: none; }
+  body[data-mode="after"]  .panel.before { display: none; }
+  body[data-mode="before"] .preview-stage,
+  body[data-mode="after"]  .preview-stage {
+    grid-template-columns: 1fr;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ==========================================================================
+     SHARED TIMELINE MARKUP (pulled from TimelineView.css with class prefixing
+     so BEFORE and AFTER variants can coexist on the same page)
+     ========================================================================== */
+  .tl-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+  .tl-grid {
+    display: flex;
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-primary);
+  }
+
+  /* ==========================================================================
+     BEFORE — CURRENT PRODUCTION STYLES (scoped under .before-scope)
+     ========================================================================== */
+  .before-scope .tl-time-column {
+    width: 80px;
+    flex-shrink: 0;
+    border-right: 2px solid var(--border-default);
+    background: var(--bg-secondary);
+    position: sticky;
+    left: 0;
+    z-index: 4;
+  }
+  .before-scope .tl-time-header {
+    height: 50px;
+    border-bottom: 2px solid var(--border-default);
+    background: var(--bg-primary);
+    position: sticky;
+    top: 0;
+    z-index: 11;
+  }
+  .before-scope .tl-hour-label {
+    height: 50px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 4px 8px 0 4px;
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-default);
+    position: relative;
+    top: -8px;
+  }
+  .before-scope .tl-day-column {
+    flex: 1;
+    min-width: 0;
+    border-right: 1px solid var(--border-default);
+    position: relative;
+  }
+  .before-scope .tl-day-column:last-child { border-right: none; }
+  .before-scope .tl-day-header {
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border-default);
+    background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .before-scope .tl-hour-grid { position: relative; }
+  .before-scope .tl-hour-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 50px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .before-scope .tl-hour-line.even { background-color: var(--bg-secondary); }
+
+  .before-scope .tl-event-block {
+    position: absolute;
+    background-color: var(--block-bg, rgba(59,110,184,0.15));
+    border: 1px solid var(--loc-color, var(--color-primary-500));
+    border-radius: 7px;
+    padding: 7px 10px;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    transition: box-shadow 0.15s ease-out, border-width 0.15s ease-out;
+    min-height: 24px;
+    isolation: isolate;
+  }
+  .before-scope .tl-event-block.has-setup::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--event-top, 0%);
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0, transparent 4px,
+      rgba(0,0,0,0.11) 4px, rgba(0,0,0,0.11) 5px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .before-scope .tl-event-block.has-teardown::after {
+    content: '';
+    position: absolute;
+    top: calc(var(--event-top, 0%) + var(--event-span, 100%));
+    bottom: 0; left: 0; right: 0;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0, transparent 4px,
+      rgba(255,255,255,0.45) 4px, rgba(255,255,255,0.45) 5px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .before-scope .tl-event-block:hover {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border-width: 1.5px;
+  }
+  .before-scope .tl-event-title {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-neutral-900);
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .before-scope .tl-event-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .before-scope .tl-event-location {
+    font-family: var(--font-display);
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--color-neutral-700);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.3;
+    margin-top: 2px;
+    position: relative;
+    z-index: 2;
+  }
+  .before-scope .tl-event-time {
+    position: absolute;
+    left: 0; right: 0; bottom: 8px;
+    padding: 0 10px;
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--color-neutral-800);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 3;
+  }
+  .before-scope .tl-event-chip {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+    padding: 3px 6px 2px;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .before-scope .tl-event-chip.chip-draft {
+    background: var(--color-neutral-200);
+    color: var(--color-neutral-700);
+    border-color: var(--color-neutral-300);
+  }
+  .before-scope .tl-event-chip.chip-pending {
+    background: var(--color-warning-100);
+    color: var(--color-warning-700);
+    border-color: var(--color-warning-300);
+  }
+  .before-scope .tl-event-block.draft { opacity: 0.8; }
+  .before-scope .tl-event-block.pending { opacity: 0.9; }
+
+  .before-scope .tl-all-day-overlay {
+    position: absolute;
+    top: 0; left: 4px; right: 4px;
+    height: 100%;
+    background: rgba(147,197,253,0.1);
+    border: 2px dashed rgba(59,130,246,0.3);
+    border-radius: var(--radius-md);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .before-scope .tl-all-day-badge {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(59,130,246,0.9);
+    color: var(--text-inverse);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    z-index: 2;
+    white-space: nowrap;
+  }
+
+  .before-scope .tl-current-time {
+    position: absolute;
+    left: 0; right: 0;
+    border-top: 2px solid var(--color-error-400);
+    z-index: 6;
+    pointer-events: none;
+  }
+  .before-scope .tl-current-time-badge {
+    position: absolute;
+    right: 0; top: -10px;
+    background: var(--color-error-500);
+    color: var(--color-neutral-0);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 5px 1px;
+    border-radius: 2px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ==========================================================================
+     AFTER — PROPOSED PHASE 1 REFINEMENTS (scoped under .after-scope)
+     All the changes from the review are applied here.
+     ========================================================================== */
+  .after-scope .tl-time-column {
+    width: 80px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-default);
+    background: var(--bg-secondary);
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    /* A — shadow instead of 2px border */
+    box-shadow: 2px 0 8px -4px rgba(15, 23, 42, 0.08);
+  }
+  .after-scope .tl-time-header {
+    height: 50px;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-primary);
+    position: sticky;
+    top: 0;
+    z-index: 11;
+  }
+  .after-scope .tl-hour-label {
+    height: 50px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 4px 8px 0 4px;
+    /* G — numeric data goes mono */
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-default);
+    position: relative;
+    top: -7px;
+  }
+  .after-scope .tl-day-column {
+    flex: 1;
+    min-width: 0;
+    border-right: 1px solid var(--border-default);
+    position: relative;
+  }
+  /* Phase 3 preview — subtle alternating column tint */
+  .after-scope .tl-day-column:nth-child(odd of .tl-day-column) {
+    background: linear-gradient(to bottom, rgba(0,0,0,0.012), rgba(0,0,0,0.012));
+  }
+  .after-scope .tl-day-column:last-child { border-right: none; }
+  .after-scope .tl-day-header {
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    /* A — drop gradient, use shadow for elevation */
+    box-shadow: 0 1px 0 0 var(--border-default), 0 2px 6px -3px rgba(15, 23, 42, 0.06);
+    border-bottom: none;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .after-scope .tl-hour-grid { position: relative; }
+  .after-scope .tl-hour-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 50px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .after-scope .tl-hour-line.even { background-color: var(--bg-secondary); }
+
+  .after-scope .tl-event-block {
+    position: absolute;
+    background-color: var(--block-bg, rgba(59,110,184,0.15));
+    border: 1px solid var(--loc-color, var(--color-primary-500));
+    border-radius: 6px;
+    padding: 7px 10px;
+    overflow: hidden;
+    cursor: pointer;
+    /* B — reserve space for the "thicker border" slot via inset shadow, no reflow */
+    box-shadow: inset 0 0 0 0 transparent;
+    transition: box-shadow 150ms var(--ease-in-out), transform 150ms var(--ease-in-out);
+    min-height: 24px;
+    isolation: isolate;
+  }
+  /* C — location-aware hatching instead of muddy black/white */
+  .after-scope .tl-event-block.has-setup::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--event-top, 0%);
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0 5px,
+      color-mix(in srgb, var(--loc-color) 22%, transparent) 5px 6px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .after-scope .tl-event-block.has-teardown::after {
+    content: '';
+    position: absolute;
+    top: calc(var(--event-top, 0%) + var(--event-span, 100%));
+    bottom: 0; left: 0; right: 0;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0 5px,
+      color-mix(in srgb, var(--loc-color) 10%, transparent) 5px 6px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  .after-scope .tl-event-block:hover {
+    box-shadow:
+      inset 0 0 0 1px var(--loc-color),
+      0 4px 12px -4px rgba(15, 23, 42, 0.12);
+    transform: translateY(-0.5px);
+  }
+  .after-scope .tl-event-title {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-neutral-900);
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    position: relative;
+    z-index: 2;
+    letter-spacing: -0.005em;
+  }
+  .after-scope .tl-event-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .after-scope .tl-event-location {
+    font-family: var(--font-display);
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--color-neutral-600);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.3;
+    margin-top: 3px;
+    position: relative;
+    z-index: 2;
+  }
+  .after-scope .tl-event-time {
+    position: absolute;
+    left: 0; right: 0; bottom: 8px;
+    padding: 0 10px;
+    text-align: center;
+    /* G — time is mono */
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--color-neutral-700);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 3;
+  }
+  .after-scope .tl-event-chip {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+    padding: 3px 6px 2px;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .after-scope .tl-event-chip.chip-draft {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-600);
+    border-color: var(--color-neutral-300);
+  }
+  .after-scope .tl-event-chip.chip-pending {
+    background: var(--color-warning-100);
+    color: var(--color-warning-700);
+    border-color: var(--color-warning-300);
+  }
+  .after-scope .tl-event-block.draft { opacity: 0.82; }
+  .after-scope .tl-event-block.pending { opacity: 0.92; }
+
+  /* D — all-day in neutral chrome, not competing blue */
+  .after-scope .tl-all-day-overlay {
+    position: absolute;
+    top: 0; left: 4px; right: 4px;
+    height: 100%;
+    background: var(--bg-secondary);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-md);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .after-scope .tl-all-day-badge {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-700);
+    border: 1px solid var(--color-neutral-300);
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    z-index: 2;
+    white-space: nowrap;
+  }
+
+  /* F — current time dot + halo, drop the badge */
+  .after-scope .tl-current-time {
+    position: absolute;
+    left: 0; right: 0;
+    border-top: 1.5px solid var(--color-error-500);
+    z-index: 6;
+    pointer-events: none;
+  }
+  .after-scope .tl-current-time::before {
+    content: '';
+    position: absolute;
+    left: -4px; top: -5px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--color-error-500);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error-500) 20%, transparent);
+  }
+
+  /* ==========================================================================
+     LEGEND / ANNOTATIONS (preview-only)
+     ========================================================================== */
+  .legend {
+    padding: 14px 20px 18px;
+    border-top: 1px solid var(--border-default);
+    background: var(--bg-secondary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--color-neutral-600);
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .legend strong {
+    color: var(--color-neutral-800);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .legend .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+
+  .change-list {
+    margin: 0 24px 24px;
+    padding: 16px 20px;
+    background: white;
+    border-radius: 10px;
+    border-left: 3px solid var(--color-primary-500);
+    font-size: 13px;
+    line-height: 1.55;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .change-list h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+  }
+  .change-list ul { margin: 4px 0 0 18px; padding: 0; }
+  .change-list li { margin-bottom: 3px; color: var(--color-neutral-700); }
+  .change-list code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--color-neutral-100);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--color-neutral-800);
+  }
+</style>
+</head>
+<body data-mode="side-by-side">
+
+<header class="preview-header">
+  <h1>
+    Timeline View &mdash; Before / After
+    <small>Phase 1 &middot; CSS tokens only</small>
+  </h1>
+  <div class="toggle-group" id="modeToggle">
+    <button data-mode="before">Before</button>
+    <button data-mode="side-by-side" class="active">Side by Side</button>
+    <button data-mode="after">After</button>
+  </div>
+</header>
+
+<section class="change-list">
+  <h3>What's different in "After"</h3>
+  <ul>
+    <li><strong>A</strong> — Sticky time column + day header use a <code>box-shadow</code> for elevation instead of 2px borders / gradient; creates real depth during scroll.</li>
+    <li><strong>B</strong> — Event-block hover uses an <code>inset box-shadow</code> (pre-reserved slot) and a 0.5px lift; no more layout shift from <code>border-width: 1px → 1.5px</code>.</li>
+    <li><strong>C</strong> — Setup / teardown hatching tinted with the event's <code>--loc-color</code> instead of <code>rgba(0,0,0,0.11)</code>; pattern reads as one hue, not muddy.</li>
+    <li><strong>D</strong> — All-day badge switched from competing blue to neutral mono pill; location-colored blocks own the color layer.</li>
+    <li><strong>F</strong> — Current-time reduced from a red <em>badge</em> to a 1.5px line + dot with a soft halo; whispers "live" rather than shouting.</li>
+    <li><strong>G</strong> — Hour labels and event times use <code>--font-mono</code> with tabular-nums; numeric data has a consistent identity across the whole view.</li>
+    <li><strong>H</strong> — Removed negative <code>top: -8px</code> hack on hour labels (now -7px feels tuned, not hacked); tighter letter-spacing on titles.</li>
+    <li><strong>Phase 3 sneak-peek</strong> — Alternating day columns have a 1.2% neutral tint (odd/even striping) to reinforce the 3-day grid at a glance.</li>
+  </ul>
+</section>
+
+<main class="preview-stage side-by-side" id="stage">
+
+  <!-- ================= BEFORE ================= -->
+  <div class="panel before">
+    <div class="panel-head">
+      <h2>Before &mdash; Current Production</h2>
+      <span class="tag">src/components/TimelineView.css</span>
+    </div>
+    <div class="panel-body before-scope">
+      <div class="tl-container">
+        <div class="tl-grid" id="beforeGrid"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><strong>Time col:</strong> 2px border, no shadow</span>
+      <span><strong>All-day:</strong> blue tint + dashed blue</span>
+      <span><strong>Now:</strong> red badge</span>
+      <span><strong>Hatching:</strong> rgba black/white</span>
+    </div>
+  </div>
+
+  <!-- ================= AFTER ================= -->
+  <div class="panel after">
+    <div class="panel-head">
+      <h2>After &mdash; Proposed Phase 1</h2>
+      <span class="tag">scoped under .after-scope</span>
+    </div>
+    <div class="panel-body after-scope">
+      <div class="tl-container">
+        <div class="tl-grid" id="afterGrid"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><strong>Time col:</strong> soft right-edge shadow</span>
+      <span><strong>All-day:</strong> neutral mono pill</span>
+      <span><strong>Now:</strong> line + dot + halo</span>
+      <span><strong>Hatching:</strong> location-tinted</span>
+    </div>
+  </div>
+
+</main>
+
+<!-- ==========================================================================
+     RENDER SCRIPT — builds the same DOM inside both panels so the CSS changes
+     are the only variable. Sample data is hand-positioned to reproduce typical
+     overlap clusters and setup/teardown buffers.
+     ========================================================================== -->
+<script>
+  const LOCATIONS = {
+    'Beit Midrash':   '#3b6eb8',  // primary blue
+    'Sanctuary':      '#059669',  // green
+    'Gold Room':      '#d97706',  // amber
+    'Library':        '#7c3aed',  // violet
+    'Rooftop':        '#0891b2',  // teal
+    'Classroom 2B':   '#be185d',  // pink
+  };
+
+  // Events are described in decimal hours from visible range start (8am == 0).
+  // top/height/left/width are calculated to fit a 10-hour grid (8am - 6pm).
+  const EVENTS = [
+    // Day 1
+    { day: 0, title: 'Board of Trustees Meeting', location: 'Beit Midrash',
+      top: 0.5, height: 2.0,  left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 10, eventPct: 75, time: '9:00 - 10:30', status: null },
+
+    { day: 0, title: 'Torah Study Circle', location: 'Library',
+      top: 3.2, height: 1.6, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 8, eventPct: 84, time: '11:15 - 12:30', status: null },
+
+    { day: 0, title: 'Preschool Open House', location: 'Classroom 2B',
+      top: 5.5, height: 2.3, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 13, eventPct: 70, time: '1:30 - 3:15', status: 'draft' },
+
+    // Day 2 — overlap cluster: 3 events in the same 2-hour window
+    { day: 1, title: 'Shabbat Rehearsal', location: 'Sanctuary',
+      top: 1.0, height: 2.2, left: 'calc(0% + 1.5px)', width: 'calc(33.33% - 3px)',
+      setupPct: 9, eventPct: 82, time: '9:30', status: null, overlap: true },
+
+    { day: 1, title: 'Choir Practice', location: 'Beit Midrash',
+      top: 1.2, height: 2.0, left: 'calc(33.33% + 1.5px)', width: 'calc(33.33% - 3px)',
+      setupPct: 5, eventPct: 88, time: '9:45', status: 'pending', overlap: true },
+
+    { day: 1, title: 'Donor Tour', location: 'Gold Room',
+      top: 0.8, height: 1.8, left: 'calc(66.66% + 1.5px)', width: 'calc(33.33% - 3px)',
+      setupPct: 11, eventPct: 75, time: '9:15', status: null, overlap: true },
+
+    { day: 1, title: 'Faculty Lunch', location: 'Gold Room',
+      top: 4.5, height: 1.3, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 4, eventPct: 92, time: '12:30 - 1:45', status: null },
+
+    { day: 1, title: 'Hebrew School', location: 'Classroom 2B',
+      top: 6.2, height: 1.6, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 6, eventPct: 88, time: '2:15 - 3:45', status: null },
+
+    // Day 3 — tall main event + compact adjacent
+    { day: 2, title: 'Community Seder Prep', location: 'Sanctuary',
+      top: 1.0, height: 4.0, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 18, eventPct: 65, time: '9:00 - 1:00', status: null },
+
+    { day: 2, title: 'Youth Group', location: 'Rooftop',
+      top: 5.5, height: 0.7, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 0, eventPct: 100, time: '1:30 - 2:10', status: null },
+
+    { day: 2, title: 'Executive Session', location: 'Library',
+      top: 6.5, height: 2.2, left: '4px', width: 'calc(100% - 8px)',
+      setupPct: 9, eventPct: 82, time: '2:30 - 4:30', status: 'draft' },
+  ];
+
+  const DAYS = ['Mon, 4/21', 'Tue, 4/22', 'Wed, 4/23'];
+  const TODAY_INDEX = 2; // Wednesday
+  const HOURS = ['8 AM','9 AM','10 AM','11 AM','12 PM','1 PM','2 PM','3 PM','4 PM','5 PM'];
+  const RANGE_HOURS = HOURS.length; // 10
+  const GRID_HEIGHT = RANGE_HOURS * 50; // 500px
+  const NOW_DECIMAL = 5.55; // 1:33 PM relative to 8am start -> roughly 55.5% of the grid
+
+  function buildGrid(rootId) {
+    const grid = document.getElementById(rootId);
+
+    // Time column
+    const timeCol = document.createElement('div');
+    timeCol.className = 'tl-time-column';
+    timeCol.appendChild(Object.assign(document.createElement('div'), { className: 'tl-time-header' }));
+    HOURS.forEach(h => {
+      const label = document.createElement('div');
+      label.className = 'tl-hour-label';
+      label.textContent = h;
+      timeCol.appendChild(label);
+    });
+    grid.appendChild(timeCol);
+
+    // Day columns
+    DAYS.forEach((label, idx) => {
+      const col = document.createElement('div');
+      col.className = 'tl-day-column';
+
+      const header = document.createElement('div');
+      header.className = 'tl-day-header';
+      header.textContent = label;
+      col.appendChild(header);
+
+      const hourGrid = document.createElement('div');
+      hourGrid.className = 'tl-hour-grid';
+      hourGrid.style.height = GRID_HEIGHT + 'px';
+
+      // Hour lines
+      for (let i = 0; i < RANGE_HOURS; i++) {
+        const line = document.createElement('div');
+        line.className = 'tl-hour-line' + (i % 2 === 0 ? ' even' : '');
+        line.style.top = (i * 50) + 'px';
+        hourGrid.appendChild(line);
+      }
+
+      // All-day overlay + badge (on Tue only, for demo)
+      if (idx === 1) {
+        const overlay = document.createElement('div');
+        overlay.className = 'tl-all-day-overlay';
+        hourGrid.appendChild(overlay);
+        const badge = document.createElement('div');
+        badge.className = 'tl-all-day-badge';
+        badge.textContent = 'All Day (2 events)';
+        hourGrid.appendChild(badge);
+      }
+
+      // Current time indicator on today
+      if (idx === TODAY_INDEX) {
+        const line = document.createElement('div');
+        line.className = 'tl-current-time';
+        line.style.top = ((NOW_DECIMAL / RANGE_HOURS) * 100) + '%';
+        const badge = document.createElement('span');
+        badge.className = 'tl-current-time-badge';
+        badge.textContent = '1:33';
+        line.appendChild(badge);
+        hourGrid.appendChild(line);
+      }
+
+      // Events for this day
+      EVENTS.filter(e => e.day === idx).forEach(evt => {
+        const block = document.createElement('div');
+        const classes = ['tl-event-block'];
+        if (evt.overlap) classes.push('has-overlap');
+        if (evt.setupPct > 0) classes.push('has-setup');
+        if (evt.setupPct + evt.eventPct < 100) classes.push('has-teardown');
+        if (evt.status === 'draft') classes.push('draft');
+        if (evt.status === 'pending') classes.push('pending');
+        block.className = classes.join(' ');
+
+        const locColor = LOCATIONS[evt.location];
+        const bgPct = evt.status === 'draft' ? 8 : evt.status === 'pending' ? 12 : 15;
+        block.style.top = ((evt.top / RANGE_HOURS) * 100) + '%';
+        block.style.height = ((evt.height / RANGE_HOURS) * 100) + '%';
+        block.style.left = evt.left;
+        block.style.width = evt.width;
+        block.style.setProperty('--loc-color', locColor);
+        block.style.setProperty('--block-bg',
+          `color-mix(in srgb, ${locColor} ${bgPct}%, white)`);
+        block.style.setProperty('--event-top', evt.setupPct + '%');
+        block.style.setProperty('--event-span', evt.eventPct + '%');
+
+        if (evt.status === 'draft') {
+          const chip = document.createElement('span');
+          chip.className = 'tl-event-chip chip-draft';
+          chip.textContent = 'Draft';
+          block.appendChild(chip);
+        } else if (evt.status === 'pending') {
+          const chip = document.createElement('span');
+          chip.className = 'tl-event-chip chip-pending';
+          chip.textContent = 'Pending';
+          block.appendChild(chip);
+        }
+
+        const title = document.createElement('div');
+        title.className = 'tl-event-title';
+        const titleText = document.createElement('span');
+        titleText.className = 'tl-event-title-text';
+        titleText.textContent = evt.title;
+        title.appendChild(titleText);
+        block.appendChild(title);
+
+        if (evt.height * 50 > 48) { // not compact
+          const loc = document.createElement('div');
+          loc.className = 'tl-event-location';
+          loc.textContent = evt.location;
+          block.appendChild(loc);
+
+          const time = document.createElement('div');
+          time.className = 'tl-event-time';
+          time.textContent = evt.time;
+          block.appendChild(time);
+        }
+
+        hourGrid.appendChild(block);
+      });
+
+      col.appendChild(hourGrid);
+      grid.appendChild(col);
+    });
+  }
+
+  buildGrid('beforeGrid');
+  buildGrid('afterGrid');
+
+  // Toggle mode
+  document.getElementById('modeToggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    document.body.dataset.mode = btn.dataset.mode;
+    document.querySelectorAll('#modeToggle button').forEach(b =>
+      b.classList.toggle('active', b === btn));
+  });
+</script>
+
+</body>
+</html>

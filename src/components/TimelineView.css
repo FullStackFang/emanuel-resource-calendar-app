@@ -193,12 +193,8 @@
   isolation: isolate;
 }
 
-/* Buffer-zone striations — asymmetric by design:
-   - Top buffer (setup, pre-event) uses DARKER diagonal hatching
-   - Bottom buffer (teardown, post-event) uses LIGHTER diagonal hatching
-   The contrast direction (dense above, fading below) mirrors the temporal
-   flow (setup → event → teardown) and tells the eye which zone is which
-   without any additional markers or labels. Event zone stays clean. */
+/* Buffer-zone striations — symmetric dark hatching on both setup and
+   teardown buffers to frame the clean event zone uniformly. */
 .timeline-event-block.has-setup::before {
   content: '';
   position: absolute;
@@ -228,8 +224,8 @@
     -45deg,
     transparent 0,
     transparent 4px,
-    rgba(255, 255, 255, 0.45) 4px,
-    rgba(255, 255, 255, 0.45) 5px
+    rgba(0, 0, 0, 0.11) 4px,
+    rgba(0, 0, 0, 0.11) 5px
   );
   pointer-events: none;
   z-index: 0;
