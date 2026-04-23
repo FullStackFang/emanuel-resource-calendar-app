@@ -37,3 +37,6 @@ build-info.json
 # Test coverage
 coverage
 backend/coverage
+
+# Claude Code
+.claude/worktrees
