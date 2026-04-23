@@ -63,9 +63,11 @@ vi.mock('../../../hooks/usePolling', () => ({
   usePolling: vi.fn(),
 }));
 
-// Prevent refresh bus side-effects
+// Prevent refresh bus side-effects. We capture the handler the component
+// registers so tests can simulate a bus-delivered silent refresh on demand.
+let capturedBusHandler = null;
 vi.mock('../../../hooks/useDataRefreshBus', () => ({
-  useDataRefreshBus: vi.fn(),
+  useDataRefreshBus: (_viewName, handler) => { capturedBusHandler = handler; },
   dispatchRefresh: vi.fn(),
 }));
 
@@ -219,6 +221,7 @@ import ReservationRequests from '../../../components/ReservationRequests';
 describe('ReservationRequests — loadReservations race condition', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedBusHandler = null;
   });
 
   // RC-1: authFetch for the approval-queue endpoint is called with an AbortSignal.
@@ -365,5 +368,78 @@ describe('ReservationRequests — loadReservations race condition', () => {
 
     // With 0 events, the empty state message should appear
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
+  });
+
+  // RC-5: A silent refresh (data-refresh bus) arriving mid-flight must NOT abort
+  // the in-flight non-silent initial load. Before the fix, the bus handler fired
+  // loadReservations({ silent: true }), which unconditionally called
+  // abortControllerRef.current.abort() and killed the initial UI fetch — leaving
+  // the list empty while counts succeeded, producing the count-vs-empty divergence.
+  it('RC-5: silent refresh mid-flight does not abort the non-silent initial load', async () => {
+    const { authFetch, resolveCall } = makeControllableAuthFetch();
+    currentAuthFetch = authFetch;
+
+    render(<ReservationRequests />);
+
+    // Wait for the initial non-silent approval-queue fetch to fire.
+    await waitFor(() => {
+      expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+    });
+
+    // Capture the signal of the first (non-silent) approval-queue fetch.
+    const firstIdx = findApprovalQueueCallIndex(authFetch);
+    const firstSignal = authFetch.mock.calls[firstIdx][1]?.signal;
+    expect(firstSignal).toBeInstanceOf(AbortSignal);
+    expect(firstSignal.aborted).toBe(false);
+
+    // Confirm the bus handler was registered.
+    expect(typeof capturedBusHandler).toBe('function');
+
+    const callCountBeforeBus = authFetch.mock.calls.length;
+
+    // Simulate a bus-delivered silent refresh arriving mid-flight (e.g., from SSE).
+    // With the fix in place this should no-op — the non-silent load is still live.
+    await act(async () => {
+      capturedBusHandler({});
+    });
+
+    // The critical assertion: the initial load's signal must still NOT be aborted.
+    expect(firstSignal.aborted).toBe(false);
+
+    // And no new approval-queue fetch should have been fired by the silent handler
+    // (it should have early-returned because a non-silent load is in flight).
+    const approvalCallsAfterBus = authFetch.mock.calls.filter(
+      ([url]) => url.includes('approval-queue') && url.includes('limit=1000')
+    );
+    expect(approvalCallsAfterBus.length).toBe(1);
+
+    // Resolve all non-approval-queue calls (calendar-settings, counts) first.
+    await act(async () => {
+      authFetch.mock.calls.forEach((call, i) => {
+        if (!call[0].includes('approval-queue') || !call[0].includes('limit=1000')) {
+          try { resolveCall(i, []); } catch (_) {}
+        }
+      });
+    });
+
+    // Now resolve the non-silent approval-queue fetch with events — this must
+    // populate the list, proving the silent refresh did not abort it.
+    await act(async () => {
+      resolveCall(firstIdx, makeEvents(5));
+    });
+
+    // Loading spinner cleared (finally branch executed on the live controller).
+    await waitFor(() => {
+      expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
+    });
+
+    // The empty-state message must NOT be rendered — events made it into state.
+    expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
+
+    // And there should be no user-visible error.
+    expect(screen.queryByText('Failed to load reservation requests')).not.toBeInTheDocument();
+
+    // Silence the lint about unused variable.
+    expect(authFetch.mock.calls.length).toBeGreaterThanOrEqual(callCountBeforeBus);
   });
 });

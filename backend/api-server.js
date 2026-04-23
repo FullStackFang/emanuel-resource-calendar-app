@@ -7356,9 +7356,27 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         const published_cancellation = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' });
         const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' });
 
+        // Atomic needs-attention count — mirrors the list endpoint's needsAttentionFilter
+        // (see /api/events/list, status=needs_attention branch). Summing the three
+        // component counts would double-count an event with both a pending edit AND
+        // a pending cancellation; counting via $or deduplicates at the query level.
+        // baseQuery.$or scopes to reservation-data/pending-request events; combine
+        // with the needs-attention $or via $and to preserve BOTH constraints.
+        const needsAttention = await unifiedEventsCollection.countDocuments({
+          isDeleted: { $ne: true },
+          $and: [
+            { $or: baseQuery.$or },
+            { $or: [
+              { status: { $in: ['pending', 'room-reservation-request'] } },
+              { status: 'published', 'pendingEditRequest.status': 'pending' },
+              { status: 'published', 'pendingCancellationRequest.status': 'pending' }
+            ]}
+          ]
+        });
+
         const all = pending + publishedTotal + rejected;
         const published = publishedTotal - published_edit - published_cancellation;
-        const responseData = { all, pending, published, published_edit, published_cancellation, rejected };
+        const responseData = { all, pending, published, published_edit, published_cancellation, rejected, needsAttention };
         countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
         return responseData;
 
@@ -24991,4 +25009,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { app, connectToDatabase, startServer, setDatabase, setTestAuthMiddleware, setGraphApiService };
+module.exports = { app, connectToDatabase, startServer, setDatabase, setTestAuthMiddleware, setGraphApiService, invalidateCountsCacheTargeted };

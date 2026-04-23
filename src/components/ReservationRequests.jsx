@@ -43,6 +43,12 @@ export default function ReservationRequests({ graphToken }) {
   activeTabRef.current = activeTab; // synchronous render-time assignment — safe to read in async callbacks
   // Tracks the current in-flight AbortController so a new load can cancel the previous one.
   const abortControllerRef = useRef(null);
+  // Tracks whether the in-flight request was started as a silent refresh. A silent
+  // refresh (SSE/polling/bus) must NOT abort a live non-silent (UI) load — otherwise
+  // the initial approval-queue fetch gets cancelled and the list renders empty while
+  // the counts call (which is independent) succeeds, producing a count-vs-empty-list
+  // divergence on first mount.
+  const currentRequestIsSilentRef = useRef(false);
   const lastTokenRef = useRef(null); // Prevents re-running initial load on 45-min token refresh (matches useServerEvents pattern)
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
@@ -106,11 +112,21 @@ export default function ReservationRequests({ graphToken }) {
   };
 
   const loadReservations = useCallback(async ({ silent = false, tab, postAction = false } = {}) => {
+    // A silent refresh (SSE/polling/bus) must NOT interrupt a live non-silent
+    // UI load. If the current in-flight request is non-silent (e.g. the initial
+    // mount fetch), a silent refresh should no-op and let the UI load complete.
+    // Without this guard, a silent refresh arriving during the initial load
+    // aborts it — the catch block silently swallows AbortError, loading clears,
+    // and allReservations stays [] even though counts succeeded independently.
+    if (silent && abortControllerRef.current && !currentRequestIsSilentRef.current) {
+      return;
+    }
     // Cancel any previous in-flight request. A new AbortController is created
     // for each call so the signal is unique per request.
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    currentRequestIsSilentRef.current = silent;
 
     try {
       if (!silent) {
@@ -175,6 +191,11 @@ export default function ReservationRequests({ graphToken }) {
           setIsSilentRefreshing(false);
         }
       }
+      // Only reset the silence tracker when the CURRENT (still-live) controller
+      // completes. A superseded request must not reset the flag for the live one.
+      if (abortControllerRef.current === controller) {
+        currentRequestIsSilentRef.current = false;
+      }
     }
   }, [authFetch]); // activeTab deliberately excluded — read via activeTabRef to prevent stale-closure bugs
 
@@ -184,8 +205,13 @@ export default function ReservationRequests({ graphToken }) {
       const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`);
       if (response.ok) {
         const data = await response.json();
+        // Prefer the authoritative `needsAttention` field from the backend, which
+        // mirrors the list endpoint's needsAttentionFilter as a single atomic count
+        // (no double-count for events with both pending edit AND pending cancel).
+        // Fallback to the legacy sum preserves behavior during a staged rollout where
+        // the frontend deploys before the backend.
         setServerCounts({
-          needs_attention: (data.pending || 0) + (data.published_edit || 0) + (data.published_cancellation || 0),
+          needs_attention: data.needsAttention ?? ((data.pending || 0) + (data.published_edit || 0) + (data.published_cancellation || 0)),
           all: data.all || 0,
         });
       }

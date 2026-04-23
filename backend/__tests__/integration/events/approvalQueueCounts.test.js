@@ -8,6 +8,7 @@
 const request = require('supertest');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
+const { invalidateCountsCacheTargeted } = require('../../../api-server');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
@@ -21,7 +22,7 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
-describe('Approval Queue Counts Tests (AQC-1 to AQC-6)', () => {
+describe('Approval Queue Counts Tests (AQC-1 to AQC-8)', () => {
   let mongoClient;
   let db;
   let app;
@@ -42,6 +43,10 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-6)', () => {
   beforeEach(async () => {
     await db.collection(COLLECTIONS.USERS).deleteMany({});
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
+    // The counts endpoint caches responses for 30s and is keyed per-view
+    // (approval-queue is shared across users). Between tests we reset the DB
+    // but not the in-memory cache, so stale counts leak. Clear it explicitly.
+    invalidateCountsCacheTargeted();
 
     approverUser = createApprover();
     requesterUser = createRequester();
@@ -184,6 +189,77 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-6)', () => {
     expect(res.body.published_cancellation).toBe(1);
     // all = pending + publishedTotal + rejected = 0 + 3 + 0
     expect(res.body.all).toBe(3);
+  });
+
+  it('AQC-8: atomic needsAttention count matches list endpoint and deduplicates doubly-flagged events', async () => {
+    // Doubly-flagged event: both pending edit AND pending cancellation.
+    // Summing the three component counts (pending + published_edit + published_cancellation)
+    // would double-count this one — the atomic needsAttention query deduplicates it.
+    const doublyFlagged = createPublishedEvent({
+      requesterEmail: requesterUser.email,
+      eventTitle: 'Doubly Flagged',
+    });
+    doublyFlagged.pendingEditRequest = {
+      status: 'pending',
+      requestedBy: requesterUser.email,
+      requestedAt: new Date(),
+      changes: { eventTitle: 'New Title' },
+    };
+    doublyFlagged.pendingCancellationRequest = {
+      status: 'pending',
+      requestedBy: requesterUser.email,
+      requestedAt: new Date(),
+      reason: 'No longer needed',
+    };
+
+    // Plain cancellation (edit-request-only)
+    const publishedWithCancel = createPublishedEvent({
+      requesterEmail: requesterUser.email,
+      eventTitle: 'Published With Cancel',
+    });
+    publishedWithCancel.pendingCancellationRequest = {
+      status: 'pending',
+      requestedBy: requesterUser.email,
+      requestedAt: new Date(),
+      reason: 'Cancel me',
+    };
+
+    await insertEvents(db, [
+      createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Pending' }),
+      createPublishedEventWithEditRequest({ requesterEmail: requesterUser.email, eventTitle: 'Published With Edit' }),
+      publishedWithCancel,
+      doublyFlagged,
+      createPublishedEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Published' }),
+      createRejectedEvent({ requesterEmail: requesterUser.email, eventTitle: 'Rejected' }),
+    ]);
+
+    const [countsRes, listRes] = await Promise.all([
+      request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200),
+      request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS}?view=approval-queue&status=needs_attention&limit=1000`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200),
+    ]);
+
+    // Parity: atomic needsAttention === list length for status=needs_attention
+    expect(countsRes.body).toHaveProperty('needsAttention');
+    expect(countsRes.body.needsAttention).toBe(listRes.body.events.length);
+
+    // Needs-attention set here: Plain Pending, Published With Edit,
+    // Published With Cancel, Doubly Flagged → 4 distinct events.
+    expect(countsRes.body.needsAttention).toBe(4);
+
+    // The legacy sum double-counts the doubly-flagged event (once for edit,
+    // once for cancel) — so the atomic count must be strictly LESS than the sum.
+    const legacySum =
+      (countsRes.body.pending || 0) +
+      (countsRes.body.published_edit || 0) +
+      (countsRes.body.published_cancellation || 0);
+    expect(legacySum).toBe(5); // 1 pending + 2 edits (incl doubly) + 2 cancels (incl doubly)
+    expect(countsRes.body.needsAttention).toBeLessThan(legacySum);
   });
 
   it('AQC-7: legacy room-reservation-request status counts as pending', async () => {
