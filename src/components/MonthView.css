@@ -240,7 +240,9 @@
   align-items: center;
   gap: var(--space-1);
   padding: 1px var(--space-1);
-  border-left: 3px solid var(--color-primary-500);
+  /* 1px full outline in category/location color — matches WeekView,
+     DayView, and TimelineView so the calendar reads as one system. */
+  border: 1px solid var(--color-primary-500);
   border-radius: var(--radius-sm);
   font-size: var(--text-2xs);
   line-height: 1.25;
@@ -273,13 +275,11 @@
 }
 
 .month-event-snippet.snippet-pending {
-  border-left-style: dashed;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .month-event-snippet.snippet-draft {
-  border-left-style: dotted;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 /* Outside-month snippets faded */

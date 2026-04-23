@@ -302,11 +302,16 @@ export const calculateReservationEnvelope = (event) => {
     (blockStart.getTime() < evtStart.getTime() ||
      blockEnd.getTime() > evtEnd.getTime());
 
+  // Clamp to [0, 100] — consumed as CSS gradient-stop positions, so float
+  // rounding that produces e.g. 100.0001% would add a stray sliver outside
+  // the visible block area.
+  const clampPct = (n) => Math.max(0, Math.min(100, n));
+
   const eventTopPct = blockDuration > 0
-    ? ((evtStart.getTime() - blockStart.getTime()) / blockDuration) * 100
+    ? clampPct(((evtStart.getTime() - blockStart.getTime()) / blockDuration) * 100)
     : 0;
   const eventSpanPct = blockDuration > 0
-    ? ((evtEnd.getTime() - evtStart.getTime()) / blockDuration) * 100
+    ? clampPct(((evtEnd.getTime() - evtStart.getTime()) / blockDuration) * 100)
     : 100;
 
   return {

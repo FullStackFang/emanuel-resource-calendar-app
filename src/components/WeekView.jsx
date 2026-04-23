@@ -371,20 +371,26 @@ const WeekView = memo(({
                             style={{
                               position: 'relative',
                               backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.12) : transparentColor,
-                              borderLeft: `2px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                              border: `1px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
                               margin: 0,
                               cursor: 'pointer',
                               borderRadius: viewType === 'month' ? '6px' : '7px',
                               color: '#333',
                               opacity: isDraft ? 0.8 : isPending ? 0.9 : 1,
+                              // Registration-time / pending-edit dashed bottom-right
+                              // cue layers on top of the 1px full outline. borderStyle
+                              // remains solid on top/left so only the two edges
+                              // indicated here take the dashed treatment.
                               ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
-                                borderRight: `1px dashed ${eventColor}`,
-                                borderBottom: `1px dashed ${eventColor}`,
+                                borderRightStyle: 'dashed',
+                                borderBottomStyle: 'dashed',
                               }),
                               ...(hasPendingEditRequest && {
-                                borderRight: `1px dashed #a78bfa`,
-                                borderBottom: `1px dashed #a78bfa`,
+                                borderRightColor: '#a78bfa',
+                                borderBottomColor: '#a78bfa',
+                                borderRightStyle: 'dashed',
+                                borderBottomStyle: 'dashed',
                               })
                             }}
                             onClick={(e) => handleEventClick(event, e)}

@@ -474,10 +474,25 @@ export default function TimelineView({
                   const hasTeardown = (envelope.eventTopPct + envelope.eventSpanPct) < 100;
                   // Show the room-hold line only when: we have a distinct secondary
                   // range, the block is tall enough, and the column isn't narrow (overlap).
-                  const showHold = !!timeRanges.secondary && isExpanded && !layout.hasOverlap;
+                  // Status prefix surfaces draft/pending in the aria-label because
+                  // the visible chip text is suppressed by aria-label on the parent.
+                  const statusPrefix = isDraft ? 'Draft: ' : isPending ? 'Pending: ' : '';
                   const ariaLabel = timeRanges.secondary
-                    ? `${eventTitle}, ${locInfo.primary}, room held ${timeRanges.secondary}, event ${timeRanges.primary}`
-                    : `${eventTitle}, ${locInfo.primary}, ${timeRanges.primary}`;
+                    ? `${statusPrefix}${eventTitle}, ${locInfo.primary}, room held ${timeRanges.secondary}, event ${timeRanges.primary}`
+                    : `${statusPrefix}${eventTitle}, ${locInfo.primary}, ${timeRanges.primary}`;
+                  // Background fill uses color-mix against white so the block stays
+                  // OPAQUE — otherwise the TimelineView hour-row tints bleed through
+                  // and compete with the buffer-zone striations. The visual result
+                  // matches hexToRgba(color, 0.15) on white pixel-for-pixel, but
+                  // does not let the grid behind show through.
+                  // Percent ramp mirrors WeekView's alpha ramp:
+                  //   8% (draft) / 12% (pending) / 15% (default).
+                  const bgPercent = isDraft ? 8 : isPending ? 12 : 15;
+                  const blockBg = `color-mix(in srgb, ${locationColor} ${bgPercent}%, white)`;
+                  // Timeline axis already shows time of day — AM/PM in per-block
+                  // labels is redundant. Strip it for display (aria-label keeps it).
+                  const stripMeridian = (s) => s ? s.replace(/\s*(AM|PM)/gi, '') : s;
+                  const displayTime = stripMeridian(timeRanges.primary);
 
                   return (
                     <div
@@ -497,8 +512,11 @@ export default function TimelineView({
                         left: layout.left,
                         width: layout.width,
                         zIndex: layout.zIndex,
-                        backgroundColor: `color-mix(in srgb, ${locationColor} 80%, #1a1a2e)`,
-                        borderLeftColor: locationColor,
+                        // CSS consumes these custom properties: --loc-color for the
+                        // 1px outline, --block-bg for the rgba fill, --event-top /
+                        // --event-span for positioning the buffer-zone striations.
+                        '--loc-color': locationColor,
+                        '--block-bg': blockBg,
                         '--event-top': `${envelope.eventTopPct}%`,
                         '--event-span': `${envelope.eventSpanPct}%`,
                       }}
@@ -529,14 +547,24 @@ export default function TimelineView({
                       )}
                       onMouseLeave={() => setTooltipInfo(null)}
                     >
-                      {/* Recurring indicator */}
-                      {isRecurring && (
-                        <span className="timeline-event-recurring">
-                          <RecurringIcon size={11} />
-                        </span>
+                      {/* Status chip — occupies the top-right corner slot in
+                          expanded mode only. Compact mode conveys status via
+                          border color alone. Exactly one chip per block. */}
+                      {!isCompact && isDraft && (
+                        <span className="timeline-event-chip chip-draft">Draft</span>
+                      )}
+                      {!isCompact && isPending && !isDraft && (
+                        <span className="timeline-event-chip chip-pending">Pending</span>
                       )}
 
-                      <div className="timeline-event-title">{eventTitle}</div>
+                      <div className="timeline-event-title">
+                        {isRecurring && (
+                          <span className="timeline-event-recurring" aria-hidden="true">
+                            <RecurringIcon size={11} />
+                          </span>
+                        )}
+                        <span className="timeline-event-title-text">{eventTitle}</span>
+                      </div>
 
                       {!isCompact && (
                         <>
@@ -549,16 +577,11 @@ export default function TimelineView({
                               + {locInfo.count - 1} more
                             </div>
                           )}
-                          <div className="timeline-event-timing">
-                            <div className="timeline-event-time">
-                              {timeRanges.primary}
-                            </div>
-                            {showHold && (
-                              <div className="timeline-event-hold">
-                                {timeRanges.secondary}
-                              </div>
-                            )}
-                          </div>
+                          {/* Event time sits centered at the bottom. AM/PM stripped
+                              (timeline axis carries time-of-day context). Hold range
+                              removed — the block's visible top and bottom already
+                              show the full room-hold window. */}
+                          <div className="timeline-event-time">{displayTime}</div>
                         </>
                       )}
                     </div>

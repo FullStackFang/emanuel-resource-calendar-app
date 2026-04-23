@@ -355,20 +355,24 @@ const DayView = memo(({
                             style={{
                               position: 'relative',
                               backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
-                              borderLeft: `3px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                              border: `1px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                               padding: '8px 10px',
                               margin: 0,
                               cursor: 'pointer',
-                              borderRadius: '8px',
+                              borderRadius: '7px',
                               color: '#333',
                               opacity: isDraft ? 0.8 : isPending ? 0.9 : 1,
+                              // Registration-time / pending-edit dashed bottom-right
+                              // cue layers on top of the 1px full outline.
                               ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
-                                borderRight: `1px dashed ${eventColor}`,
-                                borderBottom: `1px dashed ${eventColor}`,
+                                borderRightStyle: 'dashed',
+                                borderBottomStyle: 'dashed',
                               }),
                               ...(hasPendingEditRequest && {
-                                borderRight: `1px dashed #a78bfa`,
-                                borderBottom: `1px dashed #a78bfa`,
+                                borderRightColor: '#a78bfa',
+                                borderBottomColor: '#a78bfa',
+                                borderRightStyle: 'dashed',
+                                borderBottomStyle: 'dashed',
                               })
                             }}
                             onClick={(e) => handleEventClick(event, e)}

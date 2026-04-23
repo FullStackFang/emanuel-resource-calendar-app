@@ -174,7 +174,7 @@ const MonthView = memo(({
                             key={event.eventId || event.id}
                             className={`month-event-snippet ${isPending ? 'snippet-pending' : ''} ${isDraft ? 'snippet-draft' : ''}`}
                             style={{
-                              borderLeftColor: eventColor,
+                              borderColor: eventColor,
                               backgroundColor: hexToRgba(eventColor, bgAlpha)
                             }}
                             onClick={(e) => { e.stopPropagation(); handleEventClick(event, e); }}
