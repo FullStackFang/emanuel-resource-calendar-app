@@ -5,9 +5,10 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 're
 import {
   HOUR_LABELS,
   isAllDayEvent,
-  calculateEventPosition as calcPosition,
-  formatTimelineEventTime,
   formatDecimalHour,
+  resolveEventTimeRanges,
+  calculateReservationEnvelope,
+  getBlockKey,
 } from '../utils/timelineUtils';
 import { getEventField, isRecurringEvent } from '../utils/eventTransformers';
 import { RecurringIcon } from './shared/CalendarIcons';
@@ -16,7 +17,12 @@ import './TimelineView.css';
 const HOUR_HEIGHT = 50;          // px per hour row
 const GRID_HEIGHT = HOUR_HEIGHT * 24; // 1200px total
 const DAY_COUNT = 3;             // Fixed 3-day view — wide columns for readable event blocks
-const COMPACT_THRESHOLD = 40;    // px — below this, show title only
+// Three-line layout (title 18.2 + location 16.6 + timing-group 6 + time 12 + padding 12)
+// needs ~65px vertical. Below 48 we bail out to title-only rather than clip two lines.
+const COMPACT_THRESHOLD = 48;    // px — below this, show title only
+// Four visible lines with grouped rhythm (title 18.2 + location 15.6 + timing-group 6 top
+// margin + time 12 + 1 gap + hold 11.9 + padding 12) ≈ 77px. 76 gives a clean fit.
+const EXPANDED_THRESHOLD = 76;   // px — at or above this, also show secondary (room-hold) time line
 
 /**
  * Compute equal-width side-by-side column layout for a day's events.
@@ -24,44 +30,62 @@ const COMPACT_THRESHOLD = 40;    // px — below this, show title only
  * overlapping events in adjacent columns of equal width — no event
  * obscures another.
  *
+ * Overlap is detected using the **reservation envelope** (the block's visible
+ * extent, including setup/teardown buffers) so adjacent blocks don't collide
+ * on their buffer zones.
+ *
  * Algorithm:
- * 1. Sort events by start time (longer events first for ties)
+ * 1. Sort events by envelope start (longer envelopes first for ties)
  * 2. Find connected overlap groups (events that transitively overlap)
  * 3. Within each group, greedily assign the first available column
  * 4. Each event gets: left = (col/totalCols)%, width = (1/totalCols)%
  *
  * @param {Array} dayEvents - Regular (non-all-day) events for one day
+ * @param {Map<string, {blockStart: Date, blockEnd: Date}>} envelopes -
+ *   Precomputed reservation envelopes keyed by event id
  * @returns {Map<string, {left, width, zIndex, hasOverlap}>}
  */
-function calculateColumnLayout(dayEvents) {
+function calculateColumnLayout(dayEvents, envelopes) {
   const result = new Map();
   if (dayEvents.length === 0) return result;
 
-  // Sort by start time, then longer events first (they anchor columns)
+  const envOf = (ev) => envelopes.get(getBlockKey(ev));
+
+  // Sort by envelope start, then longer envelopes first (they anchor columns),
+  // then stable lexical tie-break on block key so the ordering is deterministic
+  // across renders even when two events share identical time bounds.
   const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = new Date(a.start.dateTime).getTime();
-    const bStart = new Date(b.start.dateTime).getTime();
+    const aEnv = envOf(a);
+    const bEnv = envOf(b);
+    const aStart = aEnv.blockStart.getTime();
+    const bStart = bEnv.blockStart.getTime();
     if (aStart !== bStart) return aStart - bStart;
-    const aDur = new Date(a.end.dateTime).getTime() - aStart;
-    const bDur = new Date(b.end.dateTime).getTime() - bStart;
-    return bDur - aDur;
+    const aDur = aEnv.blockEnd.getTime() - aStart;
+    const bDur = bEnv.blockEnd.getTime() - bStart;
+    if (aDur !== bDur) return bDur - aDur;
+    const aKey = getBlockKey(a);
+    const bKey = getBlockKey(b);
+    if (aKey < bKey) return -1;
+    if (aKey > bKey) return 1;
+    return 0;
   });
 
   // Find connected overlap groups — events that transitively overlap
   const groups = [];
   let curGroup = [sorted[0]];
-  let groupEnd = new Date(sorted[0].end.dateTime).getTime();
+  let groupEnd = envOf(sorted[0]).blockEnd.getTime();
 
   for (let i = 1; i < sorted.length; i++) {
-    const evStart = new Date(sorted[i].start.dateTime).getTime();
+    const env = envOf(sorted[i]);
+    const evStart = env.blockStart.getTime();
     if (evStart < groupEnd) {
       curGroup.push(sorted[i]);
-      const evEnd = new Date(sorted[i].end.dateTime).getTime();
+      const evEnd = env.blockEnd.getTime();
       if (evEnd > groupEnd) groupEnd = evEnd;
     } else {
       groups.push(curGroup);
       curGroup = [sorted[i]];
-      groupEnd = new Date(sorted[i].end.dateTime).getTime();
+      groupEnd = env.blockEnd.getTime();
     }
   }
   groups.push(curGroup);
@@ -71,31 +95,32 @@ function calculateColumnLayout(dayEvents) {
 
   groups.forEach(group => {
     if (group.length === 1) {
-      const id = group[0].id || group[0].eventId;
+      const id = getBlockKey(group[0]);
       result.set(id, { left: '4px', width: 'calc(100% - 8px)', zIndex: 5, hasOverlap: false });
       return;
     }
 
-    // Greedy column assignment: each column tracks its latest end time
-    const colEnds = []; // colEnds[c] = end timestamp of last event in column c
+    // Greedy column assignment: each column tracks its latest envelope end time
+    const colEnds = []; // colEnds[c] = end timestamp of last envelope in column c
     const eventCol = new Map();
 
     group.forEach(event => {
-      const evStart = new Date(event.start.dateTime).getTime();
+      const env = envOf(event);
+      const evStart = env.blockStart.getTime();
       let col = -1;
       for (let c = 0; c < colEnds.length; c++) {
         if (evStart >= colEnds[c]) { col = c; break; }
       }
       if (col === -1) { col = colEnds.length; colEnds.push(0); }
-      colEnds[col] = new Date(event.end.dateTime).getTime();
-      eventCol.set(event.id || event.eventId, col);
+      colEnds[col] = env.blockEnd.getTime();
+      eventCol.set(getBlockKey(event), col);
     });
 
     const totalCols = colEnds.length;
     const colWidth = 100 / totalCols;
 
     group.forEach(event => {
-      const id = event.id || event.eventId;
+      const id = getBlockKey(event);
       const col = eventCol.get(id);
       result.set(id, {
         left: `calc(${col * colWidth}% + ${GAP / 2}px)`,
@@ -140,7 +165,7 @@ export default function TimelineView({
     const locById = new Map(generalLocations.map(l => [String(l._id), l.name]));
 
     events.forEach(event => {
-      const id = event.id || event.eventId;
+      const id = getBlockKey(event);
       const locations = getEventField(event, 'locations', []);
       if (locations && locations.length > 0) {
         map.set(id, {
@@ -179,15 +204,27 @@ export default function TimelineView({
       }
     });
 
-    // Compute visible hour range from all regular events (±1 hour padding)
+    // Compute reservation envelopes once — shared by hour range, column
+    // layout overlap detection, and block positioning. getBlockKey guarantees
+    // a stable, always-defined map key so two events with missing ids don't
+    // collide on the `undefined` bucket (which would strand one of them
+    // without a column assignment and render it full-width).
+    const envelopes = new Map();
+    for (const { regular } of Object.values(grouped)) {
+      regular.forEach(event => {
+        envelopes.set(getBlockKey(event), calculateReservationEnvelope(event));
+      });
+    }
+
+    // Compute visible hour range from all regular events' envelopes (±1 hour
+    // padding) — use the envelope so setup/teardown buffer is visible.
     let minHour = 24;
     let maxHour = 0;
     for (const { regular } of Object.values(grouped)) {
       regular.forEach(event => {
-        const s = new Date(event.start.dateTime);
-        const e = new Date(event.end.dateTime);
-        const sh = s.getHours() + s.getMinutes() / 60;
-        const eh = e.getHours() + e.getMinutes() / 60;
+        const env = envelopes.get(getBlockKey(event));
+        const sh = env.blockStart.getHours() + env.blockStart.getMinutes() / 60;
+        const eh = env.blockEnd.getHours() + env.blockEnd.getMinutes() / 60;
         if (sh < minHour) minHour = sh;
         if (eh > maxHour) maxHour = eh;
       });
@@ -208,25 +245,82 @@ export default function TimelineView({
     // Pre-compute equal-width column layout per day — O(1) lookup during render
     const layouts = {};
     for (const [dateKey, { regular }] of Object.entries(grouped)) {
-      const columnMap = calculateColumnLayout(regular);
+      const columnMap = calculateColumnLayout(regular, envelopes);
       layouts[dateKey] = new Map();
       regular.forEach(event => {
-        const id = event.id || event.eventId;
-        // Position relative to visible range (not full 24h)
-        const start = new Date(event.start.dateTime);
-        const end = new Date(event.end.dateTime);
-        const startH = start.getHours() + start.getMinutes() / 60;
-        const endH = end.getHours() + end.getMinutes() / 60;
+        const id = getBlockKey(event);
+        const env = envelopes.get(id);
+        // Position the block using the reservation envelope (not the event time)
+        const startH = env.blockStart.getHours() + env.blockStart.getMinutes() / 60;
+        const endH = env.blockEnd.getHours() + env.blockEnd.getMinutes() / 60;
         const clampedStart = Math.max(startH, rangeStart);
         const clampedEnd = Math.min(endH <= startH ? rangeEnd : endH, rangeEnd);
         const top = ((clampedStart - rangeStart) / rangeHours) * 100;
         const height = Math.max(((clampedEnd - clampedStart) / rangeHours) * 100, 1.5);
 
+        // Column layout should have an entry for every event. If it doesn't,
+        // something upstream went wrong (duplicate key, bad envelope, etc.)
+        // — use a packed column at the END of the cluster rather than a
+        // full-width fallback so the event doesn't silently z-stack behind
+        // its siblings. Warn in dev so we can catch the root cause.
+        let resolvedLayout = columnMap.get(id);
+        if (!resolvedLayout) {
+          if (import.meta.env.DEV) {
+            console.warn(
+              '[TimelineView] event missing column assignment — check for ' +
+              'duplicate keys or malformed envelope data',
+              { key: id, event }
+            );
+          }
+          // Packed-column fallback: treat as a narrow column on the right
+          // edge so at least the event is visible and doesn't overlay
+          // properly-packed siblings.
+          resolvedLayout = {
+            left: 'calc(75% + 1.5px)',
+            width: 'calc(25% - 3px)',
+            zIndex: 9,
+            hasOverlap: true,
+          };
+        }
+
         layouts[dateKey].set(id, {
           position: { top: `${top}%`, height: `${height}%`, heightPx: (height / 100) * gridHeight },
-          layout: columnMap.get(id) || { left: '4px', width: 'calc(100% - 8px)', zIndex: 5, hasOverlap: false },
+          layout: resolvedLayout,
+          envelope: env,
         });
       });
+    }
+
+    // Dev-mode overlap validator — after all layouts are computed, verify
+    // that no two events with genuinely overlapping envelopes ended up in
+    // the same column. If this fires, there's a regression in the column
+    // packing algorithm.
+    if (import.meta.env.DEV) {
+      for (const [dateKey, { regular }] of Object.entries(grouped)) {
+        const dayLayouts = layouts[dateKey];
+        const seen = []; // [{ key, env, column }]
+        for (const event of regular) {
+          const key = getBlockKey(event);
+          const entry = dayLayouts.get(key);
+          if (!entry) continue;
+          const column = entry.layout.left + '|' + entry.layout.width;
+          const env = entry.envelope;
+          for (const prior of seen) {
+            if (prior.column !== column) continue;
+            const overlaps =
+              env.blockStart.getTime() < prior.env.blockEnd.getTime() &&
+              env.blockEnd.getTime() > prior.env.blockStart.getTime();
+            if (overlaps) {
+              console.error(
+                '[TimelineView] overlap bug: two time-overlapping events ' +
+                'were assigned the same column on ' + dateKey,
+                { a: prior.key, b: key, column }
+              );
+            }
+          }
+          seen.push({ key, env, column });
+        }
+      }
     }
 
     return { eventsByDate: grouped, layoutCache: layouts, rangeStart, rangeEnd, rangeHours, gridHeight, visibleHourLabels };
@@ -356,20 +450,34 @@ export default function TimelineView({
 
                 {/* Event blocks */}
                 {regularEvents.map((event) => {
-                  const eventId = event.id || event.eventId;
+                  const eventId = getBlockKey(event);
                   const cached = layoutCache[dateKey]?.get(eventId);
                   if (!cached) return null;
 
-                  const { position, layout } = cached;
+                  const { position, layout, envelope } = cached;
                   const locInfo = eventLocationMap.get(eventId) || { primary: 'Unspecified', count: 1, all: ['Unspecified'] };
                   const locationColor = getLocationColor(locInfo.primary);
                   const eventTitle = event.subject || event.eventTitle || 'Untitled Event';
                   const heightPx = position.heightPx;
                   const isCompact = heightPx < COMPACT_THRESHOLD;
+                  const isExpanded = heightPx >= EXPANDED_THRESHOLD;
                   const isDraft = event.status === 'draft';
                   const isPending = event.status === 'pending';
                   const isMultiLocation = locInfo.count > 1;
                   const isRecurring = isRecurringEvent(event);
+                  const timeRanges = resolveEventTimeRanges(event);
+                  // Separate flags per side — green start notch renders only when
+                  // there's setup buffer (event starts AFTER block top), red end
+                  // notch only when there's teardown buffer (event ends BEFORE
+                  // block bottom). Keeps marks off the block's edge.
+                  const hasSetup = envelope.eventTopPct > 0;
+                  const hasTeardown = (envelope.eventTopPct + envelope.eventSpanPct) < 100;
+                  // Show the room-hold line only when: we have a distinct secondary
+                  // range, the block is tall enough, and the column isn't narrow (overlap).
+                  const showHold = !!timeRanges.secondary && isExpanded && !layout.hasOverlap;
+                  const ariaLabel = timeRanges.secondary
+                    ? `${eventTitle}, ${locInfo.primary}, room held ${timeRanges.secondary}, event ${timeRanges.primary}`
+                    : `${eventTitle}, ${locInfo.primary}, ${timeRanges.primary}`;
 
                   return (
                     <div
@@ -378,6 +486,8 @@ export default function TimelineView({
                         'timeline-event-block' +
                         (isCompact ? ' compact' : '') +
                         (layout.hasOverlap ? ' has-overlap' : '') +
+                        (hasSetup ? ' has-setup' : '') +
+                        (hasTeardown ? ' has-teardown' : '') +
                         (isDraft ? ' draft' : '') +
                         (isPending ? ' pending' : '')
                       }
@@ -389,10 +499,12 @@ export default function TimelineView({
                         zIndex: layout.zIndex,
                         backgroundColor: `color-mix(in srgb, ${locationColor} 80%, #1a1a2e)`,
                         borderLeftColor: locationColor,
+                        '--event-top': `${envelope.eventTopPct}%`,
+                        '--event-span': `${envelope.eventSpanPct}%`,
                       }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${eventTitle}, ${locInfo.primary}, ${formatTimelineEventTime(event)}`}
+                      aria-label={ariaLabel}
                       onClick={(e) => {
                         lastFocusedRef.current = document.activeElement;
                         handleEventClick(event, e);
@@ -406,7 +518,8 @@ export default function TimelineView({
                       }}
                       onMouseEnter={(e) => setTooltipInfo({
                         title: eventTitle,
-                        time: formatTimelineEventTime(event),
+                        time: timeRanges.primary,
+                        timeHold: timeRanges.secondary,
                         location: locInfo.primary,
                         allLocations: isMultiLocation ? locInfo.all.join(', ') : null,
                         x: e.clientX, y: e.clientY,
@@ -436,8 +549,15 @@ export default function TimelineView({
                               + {locInfo.count - 1} more
                             </div>
                           )}
-                          <div className="timeline-event-time">
-                            {formatTimelineEventTime(event)}
+                          <div className="timeline-event-timing">
+                            <div className="timeline-event-time">
+                              {timeRanges.primary}
+                            </div>
+                            {showHold && (
+                              <div className="timeline-event-hold">
+                                {timeRanges.secondary}
+                              </div>
+                            )}
                           </div>
                         </>
                       )}
@@ -459,6 +579,12 @@ export default function TimelineView({
         >
           <div className="timeline-tooltip-title">{tooltipInfo.title}</div>
           <div className="timeline-tooltip-time">{tooltipInfo.time}</div>
+          {tooltipInfo.timeHold && (
+            <div className="timeline-tooltip-hold">
+              <span className="timeline-tooltip-hold-label">Room held</span>
+              {tooltipInfo.timeHold}
+            </div>
+          )}
           <div className="timeline-tooltip-location">{tooltipInfo.location}</div>
           {tooltipInfo.allLocations && (
             <div className="timeline-tooltip-multi">All locations: {tooltipInfo.allLocations}</div>
@@ -490,8 +616,8 @@ export default function TimelineView({
               </button>
             </div>
             <div className="timeline-all-day-list-content">
-              {showAllDayList.events.map((event, index) => {
-                const eventId = event.id || event.eventId || index;
+              {showAllDayList.events.map((event) => {
+                const eventId = getBlockKey(event);
                 const locInfo = eventLocationMap.get(eventId) || { primary: 'Unspecified' };
                 return (
                   <div
