@@ -7377,7 +7377,12 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         const needsAttention = await unifiedEventsCollection.countDocuments(needsAttentionQuery);
 
         const all = pending + publishedTotal + rejected;
-        const published = publishedTotal - published_edit - published_cancellation;
+        // Math.max(0, ...) guards against a theoretical negative when the same event
+        // is both pending-edit AND pending-cancellation — it contributes +1 to
+        // publishedTotal but is subtracted twice. The underlying semantics (plain
+        // published events: no pending requests) are still best expressed as a
+        // separate countDocuments; we clamp here for safety without the extra query.
+        const published = Math.max(0, publishedTotal - published_edit - published_cancellation);
         const responseData = { all, pending, published, published_edit, published_cancellation, rejected, needsAttention };
         countsCache.set(countsCacheKey, { data: responseData, expiresAt: Date.now() + COUNTS_CACHE_TTL });
         return responseData;

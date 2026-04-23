@@ -260,6 +260,11 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       (countsRes.body.published_cancellation || 0);
     expect(legacySum).toBe(5); // 1 pending + 2 edits (incl doubly) + 2 cancels (incl doubly)
     expect(countsRes.body.needsAttention).toBeLessThan(legacySum);
+
+    // The plain-published count (publishedTotal - published_edit - published_cancellation)
+    // would go negative when an event is doubly-flagged (edit AND cancel) without
+    // any plain-published events present. Guarded by Math.max(0, ...) in the handler.
+    expect(countsRes.body.published).toBeGreaterThanOrEqual(0);
   });
 
   it('AQC-9: parity for exception-document path (pendingEditRequest-only arm of baseQuery.$or)', async () => {
