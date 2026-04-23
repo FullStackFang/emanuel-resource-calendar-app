@@ -124,7 +124,10 @@
       "Bash(openspec --version)",
       "Bash(node_modules/.bin/jest recurrenceRemoval --verbose)",
       "Bash(node_modules/.bin/jest recurrenceRemoval --testNamePattern=\"RR-6\" --verbose)",
-      "Bash(claude --version)"
+      "Bash(claude --version)",
+      "Bash(openspec list *)",
+      "Bash(openspec archive *)",
+      "Bash(openspec --help)"
     ],
     "deny": []
   },

@@ -69,7 +69,7 @@
 ## 7. Create Test Skill
 
 - [x] 7.1 Create `~/.claude/skills/test.md` with skill frontmatter and prompt template covering: coverage-first approach, anti-patterns to avoid, project helper usage, business logic boundary focus
-- [ ] 7.2 Verify `/test` is recognized by Claude Code
+- [x] 7.2 Verify `/test` is recognized by Claude Code
 
 ## 8. Final Verification
 
