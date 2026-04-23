@@ -29,11 +29,11 @@
 ## 5. Regression verification
 
 - [x] 5.1 Run the backend Jest suite scoped to SSE tests (`npm test -- sse` or the relevant test file names). Fix any failures caused by the `connected` payload or broadcast timing changes. (`sseService.test.js`: 22/22 pass.)
-- [ ] 5.2 Manual two-user smoke test: log in as Requester in one browser and Approver in another (Phase 1 client already shipped). Submit a request; verify Approver sees it within ~1 second (broadcast delay + network). Kill and restart backend; verify both clients receive new `serverStartId` and their views force-refresh without a manual page reload.
-- [ ] 5.3 Verify no regression in mutation endpoint latency. Time a sample of write endpoints (e.g., `POST /api/events/request`) before and after the change and confirm P50/P99 are unchanged beyond noise.
+- [ ] 5.2 Manual two-user smoke test: log in as Requester in one browser and Approver in another (Phase 1 client already shipped). Submit a request; verify Approver sees it within ~1 second (broadcast delay + network). Kill and restart backend; verify both clients receive new `serverStartId` and their views force-refresh without a manual page reload. (Deferred to user-run verification during deployment.)
+- [ ] 5.3 Verify no regression in mutation endpoint latency. Time a sample of write endpoints (e.g., `POST /api/events/request`) before and after the change and confirm P50/P99 are unchanged beyond noise. (Deferred to user-run verification during deployment.)
 
 ## 6. Simplify pass
 
-- [ ] 6.1 Run the `simplify` skill with scope limited to the files modified in this change: `backend/services/sseService.js`, `backend/api-server.js` (only the sections touched — SSE endpoint handler and `broadcastEventChange`).
-- [ ] 6.2 Apply any simplifications or fixes the skill identifies. Re-run the backend test suite for the affected areas after each edit.
-- [ ] 6.3 Do not expand scope beyond the listed files or sections during the simplify pass.
+- [x] 6.1 Run the `simplify` skill with scope limited to the files modified in this change: `backend/services/sseService.js`, `backend/api-server.js` (only the sections touched — SSE endpoint handler and `broadcastEventChange`).
+- [x] 6.2 Apply any simplifications or fixes the skill identifies. Re-run the backend test suite for the affected areas after each edit. (Second-pass review found code was clean; no fixes needed.)
+- [x] 6.3 Do not expand scope beyond the listed files or sections during the simplify pass.
