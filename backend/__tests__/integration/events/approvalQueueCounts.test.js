@@ -22,7 +22,7 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
-describe('Approval Queue Counts Tests (AQC-1 to AQC-8)', () => {
+describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
   let mongoClient;
   let db;
   let app;
@@ -260,6 +260,64 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-8)', () => {
       (countsRes.body.published_cancellation || 0);
     expect(legacySum).toBe(5); // 1 pending + 2 edits (incl doubly) + 2 cancels (incl doubly)
     expect(countsRes.body.needsAttention).toBeLessThan(legacySum);
+  });
+
+  it('AQC-9: parity for exception-document path (pendingEditRequest-only arm of baseQuery.$or)', async () => {
+    // An event can enter the approval queue through any of three arms of baseQuery.$or:
+    //   1. roomReservationData: { $exists: true, $ne: null }
+    //   2. pendingCancellationRequest.status: 'pending'
+    //   3. pendingEditRequest.status: 'pending'
+    //
+    // AQC-8 already covers the roomReservationData arm. This test locks parity for
+    // the pendingEditRequest arm by seeding a published event that has NO
+    // roomReservationData but carries a pending edit request — e.g., the
+    // exception-document path for a recurring-series edit.
+    const editOnlyEvent = createPublishedEvent({
+      requesterEmail: requesterUser.email,
+      eventTitle: 'Edit-Only (no reservation data)',
+      roomReservationData: null,
+    });
+    editOnlyEvent.pendingEditRequest = {
+      status: 'pending',
+      requestedBy: {
+        userId: requesterUser.userId || 'test-user',
+        email: requesterUser.email,
+        name: requesterUser.email,
+        department: '',
+        phone: '',
+        requestedAt: new Date(),
+      },
+      proposedChanges: { eventTitle: 'New Title' },
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: '',
+    };
+
+    // Also seed a plain-pending event so the other arm contributes too.
+    await insertEvents(db, [
+      createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Pending' }),
+      editOnlyEvent,
+    ]);
+
+    const [countsRes, listRes] = await Promise.all([
+      request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200),
+      request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS}?view=approval-queue&status=needs_attention&limit=1000`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200),
+    ]);
+
+    // Parity: atomic needsAttention === list length for status=needs_attention,
+    // regardless of which baseQuery.$or arm brought the event in.
+    expect(countsRes.body).toHaveProperty('needsAttention');
+    expect(countsRes.body.needsAttention).toBe(listRes.body.events.length);
+
+    // Sanity check: the two seeded events (plain pending + edit-only published)
+    // must both be in the needs-attention set.
+    expect(countsRes.body.needsAttention).toBeGreaterThanOrEqual(2);
   });
 
   it('AQC-7: legacy room-reservation-request status counts as pending', async () => {

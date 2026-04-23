@@ -7357,22 +7357,24 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' });
 
         // Atomic needs-attention count — mirrors the list endpoint's needsAttentionFilter
-        // (see /api/events/list, status=needs_attention branch). Summing the three
-        // component counts would double-count an event with both a pending edit AND
-        // a pending cancellation; counting via $or deduplicates at the query level.
-        // baseQuery.$or scopes to reservation-data/pending-request events; combine
-        // with the needs-attention $or via $and to preserve BOTH constraints.
-        const needsAttention = await unifiedEventsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          $and: [
-            { $or: baseQuery.$or },
-            { $or: [
-              { status: { $in: ['pending', 'room-reservation-request'] } },
-              { status: 'published', 'pendingEditRequest.status': 'pending' },
-              { status: 'published', 'pendingCancellationRequest.status': 'pending' }
-            ]}
-          ]
-        });
+        // (see /api/events/list, status=needs_attention branch at api-server.js:7004).
+        // Summing the three component counts would double-count an event with both a
+        // pending edit AND a pending cancellation; counting via $or deduplicates at the
+        // query level.
+        //
+        // Construction mirrors the list endpoint exactly: spread baseQuery (so any
+        // future fields added to baseQuery — e.g., calendarOwner scoping — propagate
+        // here automatically), then replace $or with $and of [baseQuery.$or,
+        // needsAttentionFilter].
+        const needsAttentionFilter = { $or: [
+          { status: { $in: ['pending', 'room-reservation-request'] } },
+          { status: 'published', 'pendingEditRequest.status': 'pending' },
+          { status: 'published', 'pendingCancellationRequest.status': 'pending' }
+        ]};
+        const needsAttentionQuery = { ...baseQuery };
+        needsAttentionQuery.$and = [{ $or: needsAttentionQuery.$or }, needsAttentionFilter];
+        delete needsAttentionQuery.$or;
+        const needsAttention = await unifiedEventsCollection.countDocuments(needsAttentionQuery);
 
         const all = pending + publishedTotal + rejected;
         const published = publishedTotal - published_edit - published_cancellation;
