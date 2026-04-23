@@ -1,7 +1,7 @@
 .freshness-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   font-size: 0.75rem;
   color: var(--color-text-muted, #888);
   user-select: none;
@@ -9,6 +9,56 @@
 
 .freshness-text {
   white-space: nowrap;
+}
+
+.freshness-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-weight: 500;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.freshness-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.freshness-status-label {
+  white-space: nowrap;
+}
+
+.freshness-status--live {
+  color: var(--color-success-600, #1d7d3a);
+  background: var(--color-success-50, rgba(29, 125, 58, 0.08));
+  border-color: var(--color-success-200, rgba(29, 125, 58, 0.25));
+}
+
+.freshness-status--reconnecting {
+  color: var(--color-warning-600, #a86a00);
+  background: var(--color-warning-50, rgba(168, 106, 0, 0.1));
+  border-color: var(--color-warning-200, rgba(168, 106, 0, 0.3));
+}
+
+.freshness-status--reconnecting .freshness-status-dot {
+  animation: freshness-pulse 1.2s ease-in-out infinite;
+}
+
+.freshness-status--offline {
+  color: var(--color-text-muted, #888);
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.05));
+  border-color: var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+@keyframes freshness-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
 }
 
 .freshness-refresh-btn {

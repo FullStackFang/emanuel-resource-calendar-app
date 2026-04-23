@@ -10,6 +10,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
 import { usePolling } from '../hooks/usePolling';
+import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
@@ -29,6 +30,7 @@ import './ReservationRequests.css';
 
 export default function ReservationRequests({ graphToken }) {
   const { apiToken } = useAuth();
+  const { isConnected } = useSSE();
   const authFetch = useAuthenticatedFetch();
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
@@ -302,7 +304,9 @@ export default function ReservationRequests({ graphToken }) {
     loadReservations({ silent: true });
     loadCounts();
   }, [loadReservations, loadCounts, reviewModal.isOpen]);
-  usePolling(silentRefresh, 300_000, !!apiToken);
+  // Tighten poll cadence to 30s while SSE is unavailable so staleness is bounded
+  // to tens of seconds; relax to the 5-min sanity cadence while SSE is live.
+  usePolling(silentRefresh, isConnected ? 300_000 : 30_000, !!apiToken);
 
   // Listen for refresh events from other views.
   // Delta-patch counts from SSE payload when a clear main-status transition is available;

@@ -20,6 +20,7 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence } from '../utils/eventTransformers';
+  import { isEventInDateRange } from '../utils/calendarRangeUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
@@ -44,6 +45,7 @@ import ConflictDialog from './shared/ConflictDialog';
     deleteLinkedEvent
   } from '../services/graphService';
   import { usePolling } from '../hooks/usePolling';
+  import { useSSE } from '../context/SSEContext';
   import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
@@ -101,6 +103,7 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     const { instance } = useMsal();
     const { getApiToken, setApiToken: setAuthApiToken } = useAuth();
+    const { isConnected } = useSSE();
 
     useEffect(() => {
       // Token-getter: service reads fresh token from AuthContext ref on every request
@@ -2069,8 +2072,9 @@ import ConflictDialog from './shared/ConflictDialog';
       loadEvents(forceRefresh, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventCreation.isOpen]);
 
-    // Poll for updates every 5 min (no spinner, skip while modal is open)
-    usePolling(silentCalendarRefresh, 300_000, !!apiToken && !isDemoMode && !initializing);
+    // Poll for updates every 5 min (no spinner, skip while modal is open).
+    // Tighten to 30s while SSE is unavailable so staleness is bounded to tens of seconds.
+    usePolling(silentCalendarRefresh, isConnected ? 300_000 : 30_000, !!apiToken && !isDemoMode && !initializing);
 
     // Listen for refresh events from other views (SSE, saves, etc.)
     // When SSE payload is available, patch local state instead of full refetch.
@@ -2110,12 +2114,19 @@ import ConflictDialog from './shared/ConflictDialog';
         updated[idx] = { ...events[idx], ...flat };
         setAllEvents(updated);
       } else if (action === 'created' || action === 'published') {
+        // Ignore broadcasts for events outside the currently loaded date range.
+        // Appending them would produce a transient entry that vanishes on the
+        // next date-range reload — a confusing flicker for the user. The event
+        // will appear naturally when they navigate to its date.
+        if (!isEventInDateRange(flat.startDateTime, dateRange)) {
+          return;
+        }
         setAllEvents([...events, flat]);
       } else {
         // Event not found and not a create/publish — full refetch as safety net
         silentCalendarRefresh(true);
       }
-    }, [silentCalendarRefresh, setAllEvents]);
+    }, [silentCalendarRefresh, setAllEvents, dateRange]);
 
     useDataRefreshBus('calendar', handleCalendarBusEvent, !!apiToken && !isDemoMode);
 

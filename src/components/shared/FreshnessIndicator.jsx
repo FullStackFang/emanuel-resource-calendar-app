@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSSE } from '../../context/SSEContext';
 import './FreshnessIndicator.css';
 
 function formatRelativeTime(timestamp) {
@@ -12,8 +13,15 @@ function formatRelativeTime(timestamp) {
   return `${hours}h ago`;
 }
 
+const STATUS_META = {
+  live:         { label: 'Live',         title: 'Receiving live updates',                                      cssModifier: 'live' },
+  reconnecting: { label: 'Reconnecting', title: 'Reconnecting to live update stream',                          cssModifier: 'reconnecting' },
+  offline:      { label: 'Offline',      title: 'Live updates unavailable — falling back to periodic polling', cssModifier: 'offline' },
+};
+
 export default function FreshnessIndicator({ lastFetchedAt, onRefresh, isRefreshing }) {
   const [relativeTime, setRelativeTime] = useState('');
+  const { sseStatus } = useSSE();
 
   const updateTime = useCallback(() => {
     setRelativeTime(formatRelativeTime(lastFetchedAt));
@@ -27,8 +35,19 @@ export default function FreshnessIndicator({ lastFetchedAt, onRefresh, isRefresh
 
   if (!lastFetchedAt) return null;
 
+  const status = STATUS_META[sseStatus] || STATUS_META.offline;
+
   return (
     <span className="freshness-indicator">
+      <span
+        className={`freshness-status freshness-status--${status.cssModifier}`}
+        title={status.title}
+        aria-label={`Connection status: ${status.label}`}
+        role="status"
+      >
+        <span className="freshness-status-dot" aria-hidden="true" />
+        <span className="freshness-status-label">{status.label}</span>
+      </span>
       <span className="freshness-text">Updated {relativeTime}</span>
       <button
         className={`freshness-refresh-btn${isRefreshing ? ' refreshing' : ''}`}

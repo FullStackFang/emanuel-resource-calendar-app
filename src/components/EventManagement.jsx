@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import DatePickerInput from './DatePickerInput';
 import { usePolling } from '../hooks/usePolling';
+import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
@@ -57,6 +58,7 @@ export default function EventManagement() {
   const { showSuccess, showError } = useNotification();
   const { getRoomName } = useRooms();
   const { apiToken } = useAuth();
+  const { isConnected } = useSSE();
   const authFetch = useAuthenticatedFetch();
 
   // Data state
@@ -148,9 +150,10 @@ export default function EventManagement() {
     fetchEvents();
   }, [fetchEvents, apiToken]);
 
-  // Poll for updates every 5 min (silent — no loading spinner)
+  // Poll for updates every 5 min (silent — no loading spinner).
+  // Tighten to 30s while SSE is unavailable so staleness is bounded to tens of seconds.
   const silentRefresh = useCallback(() => fetchEvents({ silent: true }), [fetchEvents]);
-  usePolling(silentRefresh, 300_000, !!apiToken);
+  usePolling(silentRefresh, isConnected ? 300_000 : 30_000, !!apiToken);
 
   // Listen for refresh events from other views
   useDataRefreshBus('event-management', silentRefresh, !!apiToken);

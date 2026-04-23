@@ -10,8 +10,10 @@
  * - Ticket-based auth (POST /api/sse/ticket → EventSource with query param)
  * - Automatic reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max)
  * - Visibility-aware: closes on tab hidden, reconnects on visible
- * - Stops retrying after 10 consecutive failures (falls back to polling)
+ * - Reconnect retries indefinitely — backoff is capped but the loop is not
  * - Replays missed events via lastEventId on reconnect
+ * - Detects server restarts via serverStartId on the `connected` event and
+ *   forces a full refresh of every subscribed view when the id changes
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -20,11 +22,48 @@ import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-const MAX_BACKOFF_MS = 30_000;
+export const MAX_BACKOFF_MS = 30_000;
+
+/**
+ * Pure helper — compute the next reconnect delay given the attempt number.
+ *
+ * Starts at 1000 ms for attempt 1 and doubles each attempt, clamped to maxMs.
+ * Exported so unit tests can exercise the math without standing up an
+ * EventSource/timer harness.
+ *
+ * @param {number} attempt - 1-indexed attempt number (1 = first retry)
+ * @param {number} maxMs   - maximum backoff in milliseconds (default 30s)
+ * @returns {number} delay in milliseconds before the next reconnect
+ */
+export function computeReconnectBackoff(attempt, maxMs = MAX_BACKOFF_MS) {
+  if (!Number.isFinite(attempt) || attempt < 1) return 1000;
+  return Math.min(1000 * Math.pow(2, attempt - 1), maxMs);
+}
+
+/**
+ * Pure helper — decide what action to take when a `connected` event arrives
+ * with (or without) a serverStartId, given the last-seen value.
+ *
+ * Returns one of:
+ *   'baseline'  — first-ever connect in this tab, record incoming, do not dispatch
+ *   'match'     — incoming matches last-seen, no action needed
+ *   'restart'   — server restart detected, dispatch refresh for all subscribed views
+ *   'absent'    — incoming is null/missing; backend predates Phase 2, no action
+ *
+ * @param {string|null} previous - last-seen serverStartId (or null if none yet)
+ * @param {string|null} incoming - incoming serverStartId from this connected event
+ * @returns {'baseline' | 'match' | 'restart' | 'absent'}
+ */
+export function decideServerStartAction(previous, incoming) {
+  if (!incoming) return 'absent';
+  if (!previous) return 'baseline';
+  if (previous === incoming) return 'match';
+  return 'restart';
+}
 
 export function useServerEvents({ apiToken, userEmail }) {
   const [isConnected, setIsConnected] = useState(false);
+  const [sseStatus, setSseStatus] = useState('offline');
   const authFetch = useAuthenticatedFetch();
 
   // Refs to persist across renders without triggering re-connections
@@ -33,10 +72,11 @@ export function useServerEvents({ apiToken, userEmail }) {
   const reconnectTimerRef = useRef(null);
   const stableConnectionTimerRef = useRef(null); // Delays counter reset until connection is stable
   const lastEventIdRef = useRef(null);
-  const disabledRef = useRef(false);
   const connectingRef = useRef(false);   // Prevent concurrent connect attempts
   const mountedRef = useRef(true);
   const lastTokenRef = useRef(null);     // Prevent reconnect on same-value token re-renders
+  const serverStartIdRef = useRef(null); // Last-seen serverStartId from `connected` payload
+  const serverStartIdLoggedAbsentRef = useRef(false); // Debug-log serverStartId absence once per session
 
   // Keep authFetch in a ref so connect() always uses the latest version
   // without needing it as a useCallback dependency. This breaks the cascade:
@@ -46,8 +86,7 @@ export function useServerEvents({ apiToken, userEmail }) {
   authFetchRef.current = authFetch;
 
   const connect = useCallback(async () => {
-    // Guard: skip if disabled, not authenticated, unmounted, or already connecting
-    if (disabledRef.current || !apiToken || !mountedRef.current || connectingRef.current) return;
+    if (!apiToken || !mountedRef.current || connectingRef.current) return;
     connectingRef.current = true;
 
     try {
@@ -86,10 +125,47 @@ export function useServerEvents({ apiToken, userEmail }) {
         return;
       }
 
-      es.addEventListener('connected', () => {
+      es.addEventListener('connected', (e) => {
         if (!mountedRef.current) return;
         logger.log('[SSE] Connected');
         setIsConnected(true);
+        setSseStatus('live');
+
+        // serverStartId is optional — absent payload and missing field both OK.
+        let payload = null;
+        try {
+          payload = e?.data ? JSON.parse(e.data) : null;
+        } catch (err) {
+          logger.warn('[SSE] Failed to parse connected payload:', err);
+        }
+
+        const incomingServerStartId = payload && typeof payload.serverStartId === 'string'
+          ? payload.serverStartId
+          : null;
+        const action = decideServerStartAction(serverStartIdRef.current, incomingServerStartId);
+        switch (action) {
+          case 'restart':
+            logger.log('[SSE] Server restart detected — forcing refresh of all subscribed views');
+            // Dispatch to all subscribers. `null` means every useDataRefreshBus
+            // listener receives the event, regardless of affectedView filter.
+            dispatchRefresh('sse-server-restart', null, null);
+            serverStartIdRef.current = incomingServerStartId;
+            break;
+          case 'baseline':
+            serverStartIdRef.current = incomingServerStartId;
+            break;
+          case 'absent':
+            // Log once per session to avoid flooding during infinite reconnect.
+            if (!serverStartIdLoggedAbsentRef.current) {
+              logger.log('[SSE] connected payload has no serverStartId — restart detection disabled');
+              serverStartIdLoggedAbsentRef.current = true;
+            }
+            break;
+          case 'match':
+          default:
+            break;
+        }
+
         // Don't reset reconnect counter immediately — only after connection is
         // stable for 60s. Prevents reconnect storms when the stream drops
         // immediately after the connected event (e.g., Azure idle timeout).
@@ -141,12 +217,15 @@ export function useServerEvents({ apiToken, userEmail }) {
         // Server is shutting down gracefully — don't reconnect aggressively
         logger.log('[SSE] Server shutdown received');
         cleanup();
+        setIsConnected(false);
+        setSseStatus('offline');
       });
 
       es.onerror = () => {
         if (!mountedRef.current) return;
         logger.warn('[SSE] Connection error — will reconnect');
         setIsConnected(false);
+        setSseStatus('reconnecting');
         cleanup();
         scheduleReconnect();
       };
@@ -154,6 +233,7 @@ export function useServerEvents({ apiToken, userEmail }) {
     } catch (err) {
       logger.warn('[SSE] Connect failed:', err.message);
       setIsConnected(false);
+      setSseStatus('reconnecting');
       scheduleReconnect();
     } finally {
       connectingRef.current = false;
@@ -182,19 +262,10 @@ export function useServerEvents({ apiToken, userEmail }) {
 
   const scheduleReconnect = useCallback(() => {
     reconnectAttemptRef.current++;
-    if (reconnectAttemptRef.current > MAX_RECONNECT_ATTEMPTS) {
-      logger.warn('[SSE] Max reconnect attempts reached — falling back to polling only');
-      disabledRef.current = true;
-      setIsConnected(false);
-      return;
-    }
 
-    const backoff = Math.min(
-      1000 * Math.pow(2, reconnectAttemptRef.current - 1),
-      MAX_BACKOFF_MS
-    );
-    logger.log('[SSE] Reconnecting in %dms (attempt %d/%d)',
-      backoff, reconnectAttemptRef.current, MAX_RECONNECT_ATTEMPTS);
+    // Infinite retry with 30s backoff cap — never permanently disable SSE.
+    const backoff = computeReconnectBackoff(reconnectAttemptRef.current, MAX_BACKOFF_MS);
+    logger.log('[SSE] Reconnecting in %dms (attempt %d)', backoff, reconnectAttemptRef.current);
 
     reconnectTimerRef.current = setTimeout(() => {
       if (mountedRef.current && document.visibilityState === 'visible') {
@@ -212,15 +283,8 @@ export function useServerEvents({ apiToken, userEmail }) {
     if (apiToken === lastTokenRef.current) return;
     lastTokenRef.current = apiToken;
 
-    // New token = fresh authentication. Reset disabled state so SSE can
-    // recover after transient outages (fixes permanent SSE death after 10 failures).
-    if (apiToken && disabledRef.current) {
-      logger.log('[SSE] New token received — resetting disabled state');
-      disabledRef.current = false;
-      reconnectAttemptRef.current = 0;
-    }
-
     if (apiToken) {
+      setSseStatus('reconnecting');
       connect();
     }
 
@@ -236,12 +300,14 @@ export function useServerEvents({ apiToken, userEmail }) {
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        if (!esRef.current && !disabledRef.current && !connectingRef.current) {
+        if (!esRef.current && !connectingRef.current) {
+          setSseStatus('reconnecting');
           connect();
         }
       } else {
         cleanup();
         setIsConnected(false);
+        setSseStatus('offline');
       }
     };
 
@@ -249,5 +315,5 @@ export function useServerEvents({ apiToken, userEmail }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [apiToken, connect, cleanup]);
 
-  return { isConnected };
+  return { isConnected, sseStatus };
 }
