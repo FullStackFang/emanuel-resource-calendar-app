@@ -227,14 +227,34 @@ describe('SSE Service', () => {
       expect(missed).toEqual([]);
     });
 
-    test('SSE-R4: ring buffer caps at 100 events', () => {
-      for (let i = 0; i < 120; i++) {
+    test('SSE-R4: ring buffer caps at 500 events', () => {
+      for (let i = 0; i < 520; i++) {
         sseService.broadcast({ action: 'created', index: i });
       }
 
-      expect(sseService.eventHistory.length).toBe(100);
+      expect(sseService.eventHistory.length).toBe(500);
       // First 20 events should have been evicted
       expect(sseService.eventHistory[0].id).toBe(21);
+    });
+  });
+
+  // ── Server Start Identifier ──
+
+  describe('Server Start Identifier', () => {
+    test('SSE-SSI1: serverStartId is a non-empty string at module load', () => {
+      expect(typeof sseService.serverStartId).toBe('string');
+      expect(sseService.serverStartId.length).toBeGreaterThan(0);
+    });
+
+    test('SSE-SSI2: serverStartId is stable within the process lifetime', () => {
+      // Re-requiring the module returns the same cached singleton.
+      const reloaded = require('../../../services/sseService');
+      expect(reloaded.serverStartId).toBe(sseService.serverStartId);
+    });
+
+    test('SSE-SSI3: serverStartId format pairs a timestamp with random entropy', () => {
+      // Format: `<ms>-<8 hex chars>` — guards against collision across restarts.
+      expect(sseService.serverStartId).toMatch(/^\d+-[0-9a-f]{8}$/);
     });
   });
 

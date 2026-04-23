@@ -5659,12 +5659,19 @@ function invalidateCountsCacheTargeted() {
   }
 }
 
+// Covers Cosmos single-region write-to-read consistency. Applied before SSE emit
+// so subscribers that refetch in response see the just-written document.
+const BROADCAST_DELAY_MS = 150;
+
 /**
  * Broadcast an event change to all SSE-connected clients.
  * Called after every successful write operation. Non-blocking — failures are logged, never thrown.
  *
  * The SSE payload includes the changed event document (projected) and status delta
  * so clients can patch local state without refetching from the database.
+ *
+ * Cache invalidation runs synchronously; the SSE emit is deferred by
+ * BROADCAST_DELAY_MS. The writer's HTTP response does not wait for the emit.
  */
 function broadcastEventChange({ eventId, action, actorEmail, requesterEmail, event, oldStatus, newStatus }) {
   try {
@@ -5690,7 +5697,7 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail, eve
       invalidateCountsCacheTargeted();
     }
 
-    sseService.broadcast({
+    const payload = {
       eventId: eventId ? String(eventId) : null,
       action,
       actorEmail,
@@ -5701,7 +5708,15 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail, eve
       event: projectEventForSSE(event),
       oldStatus: oldStatus || null,
       newStatus: newStatus || null
-    });
+    };
+
+    setTimeout(() => {
+      try {
+        sseService.broadcast(payload);
+      } catch (err) {
+        logger.warn('[SSE] delayed broadcast failed:', err.message);
+      }
+    }, BROADCAST_DELAY_MS);
   } catch (err) {
     logger.warn('[SSE] broadcastEventChange failed:', err.message);
   }
@@ -18354,8 +18369,9 @@ app.get('/api/sse/events', (req, res) => {
     'Content-Encoding': 'identity'
   });
 
-  // Send initial connection confirmation
-  res.write(`event: connected\ndata: ${JSON.stringify({ userId: user.userId, timestamp: Date.now() })}\n\n`);
+  // Send initial connection confirmation. serverStartId lets clients detect
+  // server restarts across reconnects and force a full view refresh.
+  res.write(`event: connected\ndata: ${JSON.stringify({ userId: user.userId, timestamp: Date.now(), serverStartId: sseService.serverStartId })}\n\n`);
   // Flush immediately so the client receives the connected event without delay
   // (matches the flush pattern used in sseService.broadcast)
   if (typeof res.flush === 'function') res.flush();

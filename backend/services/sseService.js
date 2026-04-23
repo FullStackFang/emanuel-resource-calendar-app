@@ -14,7 +14,8 @@ const logger = require('../utils/logger');
 const TICKET_TTL_MS = 30_000;        // Tickets expire after 30 seconds
 const TICKET_CLEANUP_INTERVAL = 60_000; // Clean expired tickets every 60s
 const HEARTBEAT_INTERVAL = 25_000;    // Send heartbeat every 25s (Azure idle timeout is 230s)
-const EVENT_HISTORY_SIZE = 100;       // Ring buffer size for replay
+// Ring buffer sized for ~10 minutes of peak burst traffic (~50 mutations × 10x safety).
+const EVENT_HISTORY_SIZE = 500;
 
 class SSEService {
   constructor() {
@@ -22,6 +23,9 @@ class SSEService {
     this.ticketStore = new Map();     // Map<ticketId, { userId, email, role, createdAt }>
     this.eventHistory = [];           // Ring buffer of recent events for replay
     this.nextEventId = 1;             // Monotonic counter for SSE event IDs
+    // Stable for the lifetime of this process; clients compare across reconnects
+    // to detect server restarts and trigger a full-view refresh.
+    this.serverStartId = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     this._heartbeatTimer = null;
     this._cleanupTimer = null;
   }
