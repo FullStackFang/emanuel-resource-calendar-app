@@ -53,6 +53,18 @@ describe('recurrenceEquals', () => {
     const b = { pattern: { type: 'daily', interval: 1 }, range: { type: 'noEnd', startDate: '2026-04-20' }, exclusions: [] };
     expect(recurrenceEquals(a, b)).toBe(true);
   });
+
+  it('additions order does not matter', () => {
+    const a = { pattern: { type: 'daily', interval: 1 }, range: { type: 'noEnd', startDate: '2026-04-20' }, additions: ['2026-04-23', '2026-04-26'] };
+    const b = { pattern: { type: 'daily', interval: 1 }, range: { type: 'noEnd', startDate: '2026-04-20' }, additions: ['2026-04-26', '2026-04-23'] };
+    expect(recurrenceEquals(a, b)).toBe(true);
+  });
+
+  it('treats missing additions and empty array as equal', () => {
+    const a = { pattern: { type: 'daily', interval: 1 }, range: { type: 'noEnd', startDate: '2026-04-20' } };
+    const b = { pattern: { type: 'daily', interval: 1 }, range: { type: 'noEnd', startDate: '2026-04-20' }, additions: [] };
+    expect(recurrenceEquals(a, b)).toBe(true);
+  });
 });
 
 describe('summarizeRecurrenceShort', () => {
@@ -60,10 +72,9 @@ describe('summarizeRecurrenceShort', () => {
     expect(summarizeRecurrenceShort(null)).toBe('');
   });
 
-  it('returns a non-empty string for a populated pattern', () => {
+  it('returns a summary containing the pattern type keyword', () => {
     const r = { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } };
     const s = summarizeRecurrenceShort(r);
-    expect(typeof s).toBe('string');
-    expect(s.length).toBeGreaterThan(0);
+    expect(s.toLowerCase()).toContain('weekly');
   });
 });
