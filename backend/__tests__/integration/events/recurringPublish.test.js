@@ -1876,7 +1876,9 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         .send({ _version: saved._version, createCalendarEvent: true })
         .expect(400);
 
-      expect(res.body.error).toBe('Cannot publish individual occurrences. Publish the series master instead.');
+      expect(res.body.code).toBe('INVALID_TARGET_EVENT_TYPE');
+      expect(res.body.eventType).toBe('occurrence');
+      expect(res.body.error).toMatch(/Cannot publish.*occurrence.*series master/i);
 
       // Verify event was NOT modified
       const unchanged = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });

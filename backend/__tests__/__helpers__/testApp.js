@@ -17,6 +17,7 @@ const {
   updateExceptionDocument: svcUpdateExceptionDocument,
   findExceptionForDate: svcFindExceptionForDate,
   cascadeDeleteExceptions: svcCascadeDeleteExceptions,
+  cascadeStatusUpdate: svcCascadeStatusUpdate,
   getExceptionsForMaster: svcGetExceptionsForMaster,
   resolveSeriesMaster: svcResolveSeriesMaster,
   EVENT_TYPE: SVC_EVENT_TYPE,
@@ -1547,10 +1548,14 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: `Cannot publish event with status: ${event.status}` });
       }
 
-      // Prevent publishing individual occurrences — must publish the series master
-      if (event.eventType === 'occurrence') {
+      // Prevent publishing individual occurrences or per-occurrence overrides —
+      // the series master is the unit of approval.
+      if (['occurrence', 'exception', 'addition'].includes(event.eventType)) {
         return res.status(400).json({
-          error: 'Cannot publish individual occurrences. Publish the series master instead.'
+          error: `Cannot publish a ${event.eventType} document independently. Publish the series master instead.`,
+          code: 'INVALID_TARGET_EVENT_TYPE',
+          eventType: event.eventType,
+          seriesMasterEventId: event.seriesMasterEventId || null
         });
       }
 
@@ -1758,6 +1763,16 @@ function createTestApp(options = {}) {
 
       const publishedEvent = await testCollections.events.findOne(query);
 
+      // Cascade published status to exception/addition children when publishing a seriesMaster.
+      // Mirrors production (see api-server.js publish endpoint).
+      if (publishedEvent.eventType === 'seriesMaster') {
+        await svcCascadeStatusUpdate(testCollections.events, publishedEvent.eventId, 'published', {
+          changedBy: userEmail,
+          reason: 'Series published',
+          reviewedBy: { userId, name: userDoc?.displayName || userEmail, reviewedAt: now },
+        });
+      }
+
       // Read any approver modifications captured during the save step
       const reviewChanges = event.roomReservationData?.reviewChanges || [];
 
@@ -1835,6 +1850,17 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: `Cannot reject event with status: ${event.status}` });
       }
 
+      // Prevent rejecting individual occurrences or per-occurrence overrides —
+      // the series master is the unit of approval.
+      if (['occurrence', 'exception', 'addition'].includes(event.eventType)) {
+        return res.status(400).json({
+          error: `Cannot reject a ${event.eventType} document independently. Reject the series master instead.`,
+          code: 'INVALID_TARGET_EVENT_TYPE',
+          eventType: event.eventType,
+          seriesMasterEventId: event.seriesMasterEventId || null
+        });
+      }
+
       // Update event status
       const now = new Date();
       await testCollections.events.updateOne(query, {
@@ -1858,6 +1884,17 @@ function createTestApp(options = {}) {
       });
 
       const rejectedEvent = await testCollections.events.findOne(query);
+
+      // Cascade rejected status to exception/addition children when rejecting a seriesMaster.
+      // Mirrors production (see api-server.js reject endpoint).
+      if (rejectedEvent.eventType === 'seriesMaster') {
+        await svcCascadeStatusUpdate(testCollections.events, rejectedEvent.eventId, 'rejected', {
+          changedBy: userEmail,
+          reason: 'Series rejected',
+          reviewedBy: { userId, name: userDoc?.displayName || userEmail, reviewedAt: now },
+          reviewNotes: reason,
+        });
+      }
 
       // Create audit log
       await createAuditLog({
@@ -5041,7 +5078,9 @@ function createTestApp(options = {}) {
         // Scope to user's own events via two ownership models:
         // 1. Reservation workflow events: matched by roomReservationData.requestedBy.email
         // 2. Direct-creation events (unified-form, batch-create): matched by createdByEmail
+        // Per-occurrence overrides (exception/addition) are filtered out — requester sees one row per series.
         const normalizedEmail = (userEmail || '').toLowerCase();
+        query.eventType = { $nin: ['exception', 'addition'] };
         query.$and = [{ $or: [
           { 'roomReservationData.requestedBy.email': normalizedEmail },
           { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
@@ -5063,8 +5102,10 @@ function createTestApp(options = {}) {
           }
         }
       } else if (view === 'approval-queue') {
-        // Approval queue shows events with roomReservationData OR pending cancellation/edit requests
+        // Approval queue shows events with roomReservationData OR pending cancellation/edit requests.
+        // Per-occurrence overrides (exception/addition) are filtered out — the series master is the unit of approval.
         query.isDeleted = { $ne: true };
+        query.eventType = { $nin: ['exception', 'addition'] };
         query.$or = [
           { roomReservationData: { $exists: true, $ne: null } },
           { 'pendingCancellationRequest.status': 'pending' },
@@ -5207,9 +5248,11 @@ function createTestApp(options = {}) {
       }
 
       if (view === 'my-events') {
-        // Scoped to logged-in user via two ownership models
+        // Scoped to logged-in user via two ownership models.
+        // eventType filter excludes per-occurrence override documents.
         const normalizedEmail = (userEmail || '').toLowerCase();
         const baseQuery = {
+          eventType: { $nin: ['exception', 'addition'] },
           $or: [
             { 'roomReservationData.requestedBy.email': normalizedEmail },
             { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
@@ -5223,6 +5266,7 @@ function createTestApp(options = {}) {
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
           testCollections.events.countDocuments({
+            eventType: { $nin: ['exception', 'addition'] },
             $and: [
               { $or: baseQuery.$or },
               { $or: [{ status: 'deleted' }, { isDeleted: true }] }
@@ -5232,8 +5276,10 @@ function createTestApp(options = {}) {
 
         res.json({ all, pending, published, rejected, draft, deleted });
       } else if (view === 'approval-queue') {
+        // eventType filter excludes per-occurrence override documents.
         const baseQuery = {
           isDeleted: { $ne: true },
+          eventType: { $nin: ['exception', 'addition'] },
           $or: [
             { roomReservationData: { $exists: true, $ne: null } },
             { 'pendingCancellationRequest.status': 'pending' },
@@ -5241,17 +5287,27 @@ function createTestApp(options = {}) {
           ],
         };
 
-        const [pending, publishedTotal, published_edit, published_cancellation, rejected] = await Promise.all([
+        const needsAttentionFilter = { $or: [
+          { status: { $in: ['pending', 'room-reservation-request'] } },
+          { status: 'published', 'pendingEditRequest.status': 'pending' },
+          { status: 'published', 'pendingCancellationRequest.status': 'pending' }
+        ]};
+        const needsAttentionQuery = { ...baseQuery };
+        needsAttentionQuery.$and = [{ $or: needsAttentionQuery.$or }, needsAttentionFilter];
+        delete needsAttentionQuery.$or;
+
+        const [pending, publishedTotal, published_edit, published_cancellation, rejected, needsAttention] = await Promise.all([
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
+          testCollections.events.countDocuments(needsAttentionQuery),
         ]);
 
         const all = pending + publishedTotal + rejected;
-        const published = publishedTotal - published_edit - published_cancellation;
-        res.json({ all, pending, published, published_edit, published_cancellation, rejected });
+        const published = Math.max(0, publishedTotal - published_edit - published_cancellation);
+        res.json({ all, pending, published, published_edit, published_cancellation, rejected, needsAttention });
 
       } else if (view === 'admin-browse') {
         const [total, pending, published, rejected, deleted, draft] = await Promise.all([

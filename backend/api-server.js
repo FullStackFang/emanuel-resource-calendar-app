@@ -31,7 +31,14 @@ const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./
 const { batchDelete } = require('./utils/batchDelete');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, enrichSeriesMastersWithOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+
+// Per-occurrence child documents (exception/addition) must never surface as
+// independent targets in the Approval Queue, My Reservations, or the
+// publish/reject endpoints — the series master is the unit of approval.
+// See openspec/changes/scope-pending-queues-to-masters/.
+const OCCURRENCE_CHILD_TYPES = [EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION];
+const NON_CHILD_EVENT_TYPE_FILTER = { $nin: OCCURRENCE_CHILD_TYPES };
 const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
@@ -5764,8 +5771,15 @@ function getCalendarOwnerFromConfig(calendarId) {
  * @param {string} roleInfo.userEmail - User's email for requester matching
  */
 // Projection for calendar view — excludes bulk of graphData (response body, attendees, etc.)
-const CALENDAR_VIEW_PROJECTION = {
-  _id: 1, eventId: 1, userId: 1, calendarId: 1, calendarOwner: 1,
+// Shared event-list projection. Used by:
+//   - getUnifiedEvents (Calendar read path)
+//   - GET /api/events/list (my-events, approval-queue, admin-browse, search)
+// Sharing this prevents entry-point drift — e.g. the Approval Queue review modal
+// previously showed an empty recurrence pattern because its inline projection
+// lacked top-level `recurrence`. Adding a field here automatically propagates
+// to every consumer. See openspec/changes/scope-pending-queues-to-masters/.
+const EVENT_LIST_PROJECTION = {
+  _id: 1, eventId: 1, userId: 1, calendarId: 1, calendarOwner: 1, calendarName: 1,
   status: 1, isDeleted: 1, eventType: 1, seriesMasterId: 1,
   seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1, graphEventId: 1,
   calendarData: 1, roomReservationData: 1,
@@ -5774,6 +5788,9 @@ const CALENDAR_VIEW_PROJECTION = {
   pendingEditRequest: 1, pendingCancellationRequest: 1, statusHistory: 1, _version: 1,
   lastModifiedDateTime: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
   categories: 1, start: 1, end: 1, subject: 1,
+  // Fields previously only on the /api/events/list inline projection — kept so
+  // admin-browse / search / approval-queue consumers don't regress.
+  sourceCalendars: 1, lastSyncedAt: 1, draftCreatedAt: 1, lastDraftSaved: 1,
   // Only the graphData subfields actually used downstream
   'graphData.id': 1, 'graphData.iCalUId': 1,
   'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
@@ -5892,7 +5909,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
 
     logger.debug('Calendar events query:', JSON.stringify(query));
 
-    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).project(CALENDAR_VIEW_PROJECTION).toArray()))
+    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).project(EVENT_LIST_PROJECTION).toArray()))
       .filter(event => {
         // Exclude incomplete drafts that can't be rendered on calendar (no dates)
         if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
@@ -6463,20 +6480,28 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // Build synthetic occurrenceOverrides for series masters from exception docs.
     // RecurrenceTabContent reads reservation.occurrenceOverrides — always [] on the
-    // series master since exceptions are now separate documents. Exception docs are
-    // already in unifiedEvents for the current view window; inject them so the
-    // recurrence tab shows the customized badge for those dates.
-    const exceptionOverridesByMaster = {};
-    for (const e of unifiedEvents) {
-      if ((e.eventType === 'exception' || e.eventType === 'addition')
-          && e.seriesMasterEventId && e.occurrenceDate && e.overrides) {
-        const list = exceptionOverridesByMaster[e.seriesMasterEventId] || [];
-        list.push({ occurrenceDate: e.occurrenceDate, ...e.overrides });
-        exceptionOverridesByMaster[e.seriesMasterEventId] = list;
+    // series master since exceptions are now separate documents. Shared helper —
+    // same implementation as /api/events/list so entry points cannot drift.
+    const enrichedUnifiedEvents = await withCosmosRetry(() =>
+      enrichSeriesMastersWithOverrides(unifiedEventsCollection, unifiedEvents, {
+        log: (info) => logger.debug('[exceptionEnrichment] view=calendar', info),
+        warn: (msg, ctx) => logger.debug(`${msg} view=calendar`, ctx),
+        retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=calendar`),
+      })
+    );
+    // Visible diagnostic — one line per request when any master is returned.
+    const _calMasters = enrichedUnifiedEvents.filter(e => e.eventType === 'seriesMaster').length;
+    const _calOverrides = enrichedUnifiedEvents.reduce((n, e) => n + (Array.isArray(e.occurrenceOverrides) ? e.occurrenceOverrides.length : 0), 0);
+    if (_calMasters > 0) {
+      logger.debug(`[exceptionEnrichment] view=calendar masters=${_calMasters} overrides=${_calOverrides}`);
+      for (const ev of enrichedUnifiedEvents) {
+        if (ev.eventType === 'seriesMaster' && Array.isArray(ev.occurrenceOverrides) && ev.occurrenceOverrides.length > 0) {
+          logger.debug(`[exceptionEnrichment] response preview: master ${ev.eventId} carries occurrenceOverrides length=${ev.occurrenceOverrides.length}`);
+        }
       }
     }
 
-    const transformedLoadEvents = unifiedEvents.map(event => {
+    const transformedLoadEvents = enrichedUnifiedEvents.map(event => {
       // All stored datetimes are local time in America/New_York (no Z suffix).
       // graphData?.start?.timeZone is Outlook format ("Eastern Standard Time")
       // which the frontend getSafeTimezone() doesn't recognize as IANA.
@@ -6507,11 +6532,9 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         // Explicitly include status for frontend styling
         status: event.status || null,
         source: event.source || null,
-        // Inject exception overrides into series masters so RecurrenceTabContent
-        // shows the customized badge for dates that have exception documents.
-        ...(event.eventType === 'seriesMaster' && exceptionOverridesByMaster[event.eventId]
-          ? { occurrenceOverrides: exceptionOverridesByMaster[event.eventId] }
-          : {}),
+        // occurrenceOverrides already spread onto series masters by the shared
+        // enrichSeriesMastersWithOverrides helper above (...event at line 6498
+        // preserves it).
       };
     });
 
@@ -6879,12 +6902,29 @@ app.get('/api/events/master/:masterEventId', verifyToken, async (req, res) => {
       categories: cd.categories || [],
       services: cd.services || {},
       eventType: master.eventType || 'seriesMaster',
-      recurrence: cd.recurrence || master.recurrence || null,
+      recurrence: master.recurrence || cd.recurrence || null,
       _version: master._version || null,
       statusHistory: master.statusHistory || [],
       pendingEditRequest: master.pendingEditRequest || null,
+      occurrenceOverrides: master.occurrenceOverrides || [],
       calendarData: cd,
     };
+
+    // Enrich occurrenceOverrides from exception/addition children.
+    // Same helper as list endpoints — keeps Calendar / Approval Queue / My Reservations symmetric.
+    const [enriched] = await enrichSeriesMastersWithOverrides(
+      unifiedEventsCollection,
+      [{ ...reservation, eventType: 'seriesMaster', eventId: reservation.eventId }],
+      {
+        log: (info) => logger.debug('[exceptionEnrichment] view=master-fetch', info),
+        warn: (msg, ctx) => logger.debug(`${msg} view=master-fetch`, ctx),
+        retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query retry produced ${ctx.childCount} children view=master-fetch`),
+      }
+    );
+    if (enriched?.occurrenceOverrides) {
+      reservation.occurrenceOverrides = enriched.occurrenceOverrides;
+      logger.debug(`[exceptionEnrichment] view=master-fetch master ${reservation.eventId} carries occurrenceOverrides length=${enriched.occurrenceOverrides.length}`);
+    }
 
     res.json(reservation);
   } catch (error) {
@@ -6976,8 +7016,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       // Scope to user's own events via two ownership models:
       // 1. Reservation workflow events: matched by roomReservationData.requestedBy.email
       // 2. Direct-creation events (unified-form, batch-create): matched by createdByEmail
-      // Uses $and to avoid collision with status $or filter for deleted events
+      // Uses $and to avoid collision with status $or filter for deleted events.
+      // Per-occurrence overrides (exception/addition) inherit the master's
+      // roomReservationData.requestedBy — filtered out so requesters see one row per series.
       const normalizedEmail = (userEmail || '').toLowerCase();
+      query.eventType = NON_CHILD_EVENT_TYPE_FILTER;
       query.$and = [{ $or: [
         { 'roomReservationData.requestedBy.email': normalizedEmail },
         { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
@@ -7002,8 +7045,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     } else if (view === 'approval-queue') {
       // Approval queue shows events with roomReservationData (reservation workflow)
-      // OR events with a pending cancellation/edit request (even without roomReservationData)
+      // OR events with a pending cancellation/edit request (even without roomReservationData).
+      // Per-occurrence overrides (exception/addition) are children of a seriesMaster —
+      // excluded here so approvers act on the master, not individual occurrences.
       query.isDeleted = { $ne: true };
+      query.eventType = NON_CHILD_EVENT_TYPE_FILTER;
       query.$or = [
         { roomReservationData: { $exists: true, $ne: null } },
         { 'pendingCancellationRequest.status': 'pending' },
@@ -7190,20 +7236,9 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // ── Projection (reduce response size) ──
-    const projection = {
-      _id: 1, eventId: 1, status: 1, isDeleted: 1, eventType: 1,
-      seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1,
-      calendarId: 1, calendarOwner: 1, calendarName: 1,
-      calendarData: 1,
-      roomReservationData: 1,
-      sourceCalendars: 1, lastSyncedAt: 1,
-      pendingEditRequest: 1, pendingCancellationRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
-      createdAt: 1, createdBy: 1, createdByEmail: 1,
-      lastModifiedDateTime: 1, _version: 1,
-      'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
-      'graphData.location': 1, 'graphData.categories': 1,
-      'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
-    };
+    // Shared with getUnifiedEvents (Calendar) so every entry point into
+    // EventReviewExperience receives identical event shapes.
+    const projection = EVENT_LIST_PROJECTION;
 
     // ── Execute query ──
     const MAX_COUNT = 5000;
@@ -7235,34 +7270,27 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     // Inject exception overrides into series masters so RecurrenceTabContent
     // shows the customized badge for dates with exception documents.
-    // Uses a secondary query (not date-range limited) so all exceptions are found
-    // regardless of status or current view window.
-    const masterEventIds = events
-      .filter(e => e.eventType === 'seriesMaster')
-      .map(e => e.eventId)
-      .filter(Boolean);
-    if (masterEventIds.length > 0) {
-      const exceptionDocs = await withCosmosRetry(() =>
-        unifiedEventsCollection.find({
-          seriesMasterEventId: { $in: masterEventIds },
-          eventType: { $in: ['exception', 'addition'] },
-          isDeleted: { $ne: true },
-        }).project({ seriesMasterEventId: 1, occurrenceDate: 1, overrides: 1 }).toArray()
-      );
-      if (exceptionDocs.length > 0) {
-        const exOvByMaster = {};
-        for (const doc of exceptionDocs) {
-          if (doc.seriesMasterEventId && doc.occurrenceDate && doc.overrides) {
-            const list = exOvByMaster[doc.seriesMasterEventId] || [];
-            list.push({ occurrenceDate: doc.occurrenceDate, ...doc.overrides });
-            exOvByMaster[doc.seriesMasterEventId] = list;
-          }
+    // Shared helper — same implementation as the Calendar path (/api/events/load)
+    // so the Recurrence tab cannot drift between entry points.
+    events = await withCosmosRetry(() =>
+      enrichSeriesMastersWithOverrides(unifiedEventsCollection, events, {
+        log: (info) => logger.debug(`[exceptionEnrichment] view=${view}`, info),
+        warn: (msg, ctx) => logger.debug(`${msg} view=${view}`, ctx),
+        retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=${view}`),
+      })
+    );
+    // Visible diagnostic — one line per request when any master is returned.
+    const _listMasters = events.filter(e => e.eventType === 'seriesMaster').length;
+    const _listOverrides = events.reduce((n, e) => n + (Array.isArray(e.occurrenceOverrides) ? e.occurrenceOverrides.length : 0), 0);
+    if (_listMasters > 0) {
+      logger.debug(`[exceptionEnrichment] view=${view} masters=${_listMasters} overrides=${_listOverrides}`);
+      // Response preview: prove which masters carry occurrenceOverrides in the
+      // serialized payload. If the Network tab disagrees with this log, the
+      // field is being stripped client-side (cache, SSE overwrite, transform).
+      for (const ev of events) {
+        if (ev.eventType === 'seriesMaster' && Array.isArray(ev.occurrenceOverrides) && ev.occurrenceOverrides.length > 0) {
+          logger.debug(`[exceptionEnrichment] response preview: master ${ev.eventId} carries occurrenceOverrides length=${ev.occurrenceOverrides.length}`);
         }
-        events = events.map(e =>
-          e.eventType === 'seriesMaster' && exOvByMaster[e.eventId]
-            ? { ...e, occurrenceOverrides: exOvByMaster[e.eventId] }
-            : e
-        );
       }
     }
 
@@ -7337,16 +7365,20 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     const flightPromise = (async () => {
       if (view === 'my-events') {
         const normalizedEmail = (userEmail || '').toLowerCase();
-        const baseQuery = { $or: [
-          { 'roomReservationData.requestedBy.email': normalizedEmail },
-          { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
-        ] };
+        const baseQuery = {
+          eventType: NON_CHILD_EVENT_TYPE_FILTER,
+          $or: [
+            { 'roomReservationData.requestedBy.email': normalizedEmail },
+            { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
+          ]
+        };
 
         const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
         const published = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } });
         const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } });
         const draft = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } });
         const deleted = await unifiedEventsCollection.countDocuments({
+          eventType: NON_CHILD_EVENT_TYPE_FILTER,
           $and: [{ $or: baseQuery.$or }, { $or: [{ status: 'deleted' }, { isDeleted: true }] }]
         });
 
@@ -7358,6 +7390,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       } else if (view === 'approval-queue') {
         const baseQuery = {
           isDeleted: { $ne: true },
+          eventType: NON_CHILD_EVENT_TYPE_FILTER,
           $or: [
             { roomReservationData: { $exists: true, $ne: null } },
             { 'pendingCancellationRequest.status': 'pending' },
@@ -15279,7 +15312,10 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       // Recurring event fields
       occurrenceOverrides: event.occurrenceOverrides || [],
       eventType: event.eventType || 'singleInstance',
-      recurrence: cd.recurrence || null,
+      // Use top-level recurrence first (authoritative), then calendarData fallback
+      recurrence: event.recurrence || cd.recurrence || null,
+      seriesMasterId: event.seriesMasterId || null,
+      seriesMasterEventId: event.seriesMasterEventId || null,
       // Versioning and history
       _version: event._version || null,
       statusHistory: event.statusHistory || [],
@@ -15288,6 +15324,25 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       // Include calendarData for frontend compatibility
       calendarData: cd
     };
+
+    // If this is a seriesMaster, enrich occurrenceOverrides from its exception/addition children.
+    // Same enrichment the list endpoints use, so every entry point into the review modal
+    // (Calendar, Approval Queue, My Reservations) produces identical data.
+    if (reservation.eventType === 'seriesMaster') {
+      const [enriched] = await enrichSeriesMastersWithOverrides(
+        unifiedEventsCollection,
+        [{ ...reservation, eventType: 'seriesMaster', eventId: reservation.eventId }],
+        {
+          log: (info) => logger.debug('[exceptionEnrichment] view=room-reservation', info),
+          warn: (msg, ctx) => logger.debug(`${msg} view=room-reservation`, ctx),
+          retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query retry produced ${ctx.childCount} children view=room-reservation`),
+        }
+      );
+      if (enriched?.occurrenceOverrides) {
+        reservation.occurrenceOverrides = enriched.occurrenceOverrides;
+        logger.debug(`[exceptionEnrichment] view=room-reservation master ${reservation.eventId} carries occurrenceOverrides length=${enriched.occurrenceOverrides.length}`);
+      }
+    }
 
     res.json(reservation);
   } catch (error) {
@@ -19016,10 +19071,14 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       });
     }
 
-    // Prevent publishing individual occurrences — must publish the series master
-    if (event.eventType === 'occurrence') {
+    // Prevent publishing individual occurrences or per-occurrence overrides —
+    // the series master is the unit of approval (cascade handles the rest).
+    if (['occurrence', EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION].includes(event.eventType)) {
       return res.status(400).json({
-        error: 'Cannot publish individual occurrences. Publish the series master instead.'
+        error: `Cannot publish a ${event.eventType} document independently. Publish the series master instead.`,
+        code: 'INVALID_TARGET_EVENT_TYPE',
+        eventType: event.eventType,
+        seriesMasterEventId: event.seriesMasterEventId || null
       });
     }
 
@@ -19544,6 +19603,17 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       return res.status(400).json({
         error: 'Event is not a pending room reservation request',
         currentStatus: event.status
+      });
+    }
+
+    // Prevent rejecting individual occurrences or per-occurrence overrides —
+    // the series master is the unit of approval (cascade handles the rest).
+    if (['occurrence', EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION].includes(event.eventType)) {
+      return res.status(400).json({
+        error: `Cannot reject a ${event.eventType} document independently. Reject the series master instead.`,
+        code: 'INVALID_TARGET_EVENT_TYPE',
+        eventType: event.eventType,
+        seriesMasterEventId: event.seriesMasterEventId || null
       });
     }
 

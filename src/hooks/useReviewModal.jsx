@@ -237,18 +237,37 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     const hasRooms = roomIds.length > 0;
     const hasDates = !!(itemStartDate && itemStartTime);
 
-    // Open modal IMMEDIATELY — no blocking fetches.
-    // The content gate is now data-derived: it opens when prefetchedAvailability arrives
-    // (for events with rooms + dates) or immediately (no rooms / no dates).
-    // Form content is NOT rendered until the gate opens (conditional rendering, not CSS hiding).
+    // For seriesMaster items, re-hydrate from the single-doc endpoint BEFORE
+    // opening the modal so RoomReservationReview's init effect sees the enriched
+    // occurrenceOverrides on first render. This makes every entry point (Calendar,
+    // Approval Queue, My Reservations) produce identical modal data.
+    let effectiveItem = item;
+    if (item.eventType === 'seriesMaster' && item._id) {
+      try {
+        const response = await authFetch(
+          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}`,
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        if (response.ok) {
+          const fresh = await response.json();
+          effectiveItem = {
+            ...item,
+            occurrenceOverrides: fresh.occurrenceOverrides || item.occurrenceOverrides || [],
+            recurrence: fresh.recurrence || item.recurrence || null,
+          };
+        }
+      } catch (err) {
+        logger.debug('Master re-hydrate failed, using list-provided data:', err.message);
+      }
+    }
+
+    // Open modal — blocking fetch above already completed for seriesMasters.
     setSchedulingConflictInfo(null);
     setPrefetchedAvailability(null);
     setPrefetchedSeriesEvents(null);
-    // Store extracted gate fields alongside the raw item so the gate IIFE can check them
-    // without re-parsing the raw format on every render.
-    setCurrentItem({ ...item, _gateRooms: hasRooms, _gateDates: hasDates });
-    setEditableData(item);
-    setEventVersion(item._version || null);
+    setCurrentItem({ ...effectiveItem, _gateRooms: hasRooms, _gateDates: hasDates });
+    setEditableData(effectiveItem);
+    setEventVersion(effectiveItem._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);

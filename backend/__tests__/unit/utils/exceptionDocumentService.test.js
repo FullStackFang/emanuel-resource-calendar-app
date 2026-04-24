@@ -23,6 +23,7 @@ const {
   cascadeDeleteExceptions,
   cascadeStatusUpdate,
   softDeleteException,
+  enrichSeriesMastersWithOverrides,
 } = require('../../../utils/exceptionDocumentService');
 
 let db;
@@ -548,5 +549,190 @@ describe('DATE_IMMUTABLE — updateExceptionDocument', () => {
     }
     const reread = await collection.findOne({ _id: existingException._id });
     expect(reread._version).toBe(versionBefore);
+  });
+});
+
+// ─── enrichSeriesMastersWithOverrides ────────────────────────────────────
+
+describe('enrichSeriesMastersWithOverrides', () => {
+  it('EDS-27: returns events unchanged when array is empty', async () => {
+    const result = await enrichSeriesMastersWithOverrides(collection, []);
+    expect(result).toEqual([]);
+  });
+
+  it('EDS-28: returns events unchanged when no master is present', async () => {
+    const nonMaster = { ...master, eventType: 'singleInstance', occurrenceOverrides: undefined };
+    const result = await enrichSeriesMastersWithOverrides(collection, [nonMaster]);
+    expect(result).toEqual([nonMaster]);
+  });
+
+  it('EDS-29: spreads occurrenceOverrides onto master from one exception child', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00', endTime: '15:00' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master]);
+    expect(result).toHaveLength(1);
+    expect(result[0].eventId).toBe(master.eventId);
+    expect(result[0].occurrenceOverrides).toHaveLength(1);
+    expect(result[0].occurrenceOverrides[0].occurrenceDate).toBe('2026-03-17');
+    expect(result[0].occurrenceOverrides[0].startTime).toBe('14:00');
+    expect(result[0].occurrenceOverrides[0].endTime).toBe('15:00');
+  });
+
+  it('EDS-30: groups multiple exception children under the same master', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
+    await createExceptionDocument(collection, master, '2026-03-24', { startTime: '15:00' });
+    await createAdditionDocument(collection, master, '2026-04-07', { startTime: '16:00' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master]);
+    expect(result[0].occurrenceOverrides).toHaveLength(3);
+    const dates = result[0].occurrenceOverrides.map(o => o.occurrenceDate).sort();
+    expect(dates).toEqual(['2026-03-17', '2026-03-24', '2026-04-07']);
+  });
+
+  it('EDS-31: does not mutate master when only child docs belong to a different master', async () => {
+    const otherMaster = createRecurringSeriesMaster({ eventTitle: 'Other Series' });
+    await collection.insertOne(otherMaster);
+    await createExceptionDocument(collection, otherMaster, '2026-03-17', { startTime: '14:00' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master]);
+    expect(result[0].occurrenceOverrides).toBeUndefined();
+  });
+
+  it('EDS-32: fallback — exception doc with empty overrides uses top-level inheritable fields', async () => {
+    // Insert a legacy-shaped exception doc directly: overrides is empty but
+    // top-level fields are denormalized (as _insertOccurrenceDocument spreads them).
+    await collection.insertOne({
+      _id: new ObjectId(),
+      eventId: `${master.eventId}-legacy-2026-03-17`,
+      eventType: 'exception',
+      seriesMasterEventId: master.eventId,
+      occurrenceDate: '2026-03-17',
+      overrides: {}, // Empty — forces fallback
+      startTime: '14:00',
+      endTime: '15:00',
+      locationDisplayNames: 'Chapel',
+      status: 'pending',
+      isDeleted: false,
+    });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master]);
+    expect(result[0].occurrenceOverrides).toHaveLength(1);
+    const entry = result[0].occurrenceOverrides[0];
+    expect(entry.occurrenceDate).toBe('2026-03-17');
+    expect(entry.startTime).toBe('14:00');
+    expect(entry.endTime).toBe('15:00');
+    expect(entry.locationDisplayNames).toBe('Chapel');
+  });
+
+  it('EDS-33: skips soft-deleted exception docs', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
+    await softDeleteException(collection, master.eventId, '2026-03-17', { deletedBy: 'admin' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master]);
+    expect(result[0].occurrenceOverrides).toBeUndefined();
+  });
+
+  it('EDS-35: retries once when the first find returns empty but masters exist (Cosmos flakiness guard)', async () => {
+    // Synthesize a master that is NOT inserted into the real collection.
+    // We mock the collection's find() to return [] on call 1 and [child] on call 2.
+    const mockMaster = {
+      eventId: 'mock-master-eds35',
+      eventType: 'seriesMaster',
+    };
+    const fakeChildDoc = {
+      seriesMasterEventId: 'mock-master-eds35',
+      eventType: 'exception',
+      occurrenceDate: '2026-05-01',
+      overrides: { startTime: '14:00' },
+    };
+
+    let findCallCount = 0;
+    const mockCollection = {
+      find: () => ({
+        toArray: async () => {
+          findCallCount++;
+          return findCallCount === 1 ? [] : [fakeChildDoc];
+        },
+      }),
+    };
+
+    const retryCalls = [];
+    const result = await enrichSeriesMastersWithOverrides(mockCollection, [mockMaster], {
+      retry: (ctx) => retryCalls.push(ctx),
+    });
+
+    expect(findCallCount).toBe(2);
+    expect(retryCalls).toHaveLength(1);
+    expect(retryCalls[0].childCount).toBe(1);
+    expect(result[0].occurrenceOverrides).toHaveLength(1);
+    expect(result[0].occurrenceOverrides[0].occurrenceDate).toBe('2026-05-01');
+    expect(result[0].occurrenceOverrides[0].startTime).toBe('14:00');
+  });
+
+  it('EDS-36: does not retry when the first find returns results', async () => {
+    const mockMaster = { eventId: 'mock-master-eds36', eventType: 'seriesMaster' };
+    const fakeChildDoc = {
+      seriesMasterEventId: 'mock-master-eds36',
+      eventType: 'exception',
+      occurrenceDate: '2026-05-01',
+      overrides: { startTime: '14:00' },
+    };
+
+    let findCallCount = 0;
+    const mockCollection = {
+      find: () => ({
+        toArray: async () => {
+          findCallCount++;
+          return [fakeChildDoc];
+        },
+      }),
+    };
+
+    const retryCalls = [];
+    await enrichSeriesMastersWithOverrides(mockCollection, [mockMaster], {
+      retry: (ctx) => retryCalls.push(ctx),
+    });
+
+    expect(findCallCount).toBe(1);
+    expect(retryCalls).toHaveLength(0);
+  });
+
+  it('EDS-37: retries once when find returns [] twice — no infinite loop, helper returns master unchanged', async () => {
+    const mockMaster = { eventId: 'mock-master-eds37', eventType: 'seriesMaster' };
+
+    let findCallCount = 0;
+    const mockCollection = {
+      find: () => ({
+        toArray: async () => {
+          findCallCount++;
+          return [];
+        },
+      }),
+    };
+
+    const warnCalls = [];
+    const retryCalls = [];
+    const result = await enrichSeriesMastersWithOverrides(mockCollection, [mockMaster], {
+      warn: (msg, ctx) => warnCalls.push({ msg, ctx }),
+      retry: (ctx) => retryCalls.push(ctx),
+    });
+
+    expect(findCallCount).toBe(2); // single retry, not unbounded
+    expect(retryCalls).toHaveLength(0); // retry hook only fires when retry produces results
+    expect(warnCalls).toHaveLength(1); // warn about both attempts empty
+    expect(result[0].occurrenceOverrides).toBeUndefined();
+  });
+
+  it('EDS-34: invokes the log callback with diagnostic info', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
+    await createExceptionDocument(collection, master, '2026-03-24', { startTime: '15:00' });
+
+    const logs = [];
+    await enrichSeriesMastersWithOverrides(collection, [master], { log: (info) => logs.push(info) });
+
+    expect(logs).toHaveLength(1);
+    expect(logs[0].masterCount).toBe(1);
+    expect(logs[0].overrideCount).toBe(2);
+    expect(logs[0].perMaster).toEqual([{ masterEventId: master.eventId, count: 2 }]);
   });
 });

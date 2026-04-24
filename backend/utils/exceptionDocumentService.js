@@ -501,6 +501,135 @@ async function softDeleteException(collection, seriesMasterEventId, occurrenceDa
   return unwrapFindOneResult(result) || null;
 }
 
+/**
+ * Build an override entry for a single exception/addition document.
+ *
+ * Preferred source: the nested `overrides` field populated by
+ * {@link _insertOccurrenceDocument} at write time. When that's missing or
+ * empty (legacy docs, partial writes, schema drift), fall back to reading
+ * the denormalized top-level inheritable fields so the recurrence tab still
+ * surfaces the customized badge. This matches the Calendar path's tolerant
+ * behavior, which iterates the full child doc and doesn't depend on the
+ * nested `overrides` shape.
+ *
+ * @param {Object} doc - Exception or addition document
+ * @returns {Object} Override entry shaped `{ occurrenceDate, ...fields }`
+ * @private
+ */
+function _buildOverrideEntry(doc) {
+  const hasNestedOverrides = doc.overrides && Object.keys(doc.overrides).length > 0;
+  if (hasNestedOverrides) {
+    return { occurrenceDate: doc.occurrenceDate, ...doc.overrides };
+  }
+  const fromTopLevel = {};
+  for (const field of INHERITABLE_FIELDS) {
+    if (doc[field] !== undefined) {
+      fromTopLevel[field] = doc[field];
+    }
+  }
+  return { occurrenceDate: doc.occurrenceDate, ...fromTopLevel };
+}
+
+/**
+ * Enrich seriesMaster events with an `occurrenceOverrides` array synthesized
+ * from their exception/addition child documents.
+ *
+ * Both the Calendar load endpoint (`POST /api/events/load`) and the unified
+ * list endpoint (`GET /api/events/list`) surface a shared review modal. That
+ * modal's RecurrenceTabContent reads `reservation.occurrenceOverrides` to
+ * populate the exceptions list. This helper is the single source of truth for
+ * how that array is computed, so the Approval Queue and Calendar cannot drift
+ * from each other.
+ *
+ * @param {Collection} collection - templeEvents__Events
+ * @param {Array<Object>} events - Primary result array; masters get mutated (copy-on-write)
+ * @param {Object} [options]
+ * @param {Function} [options.log] - Receives `{ masterCount, overrideCount, perMaster }` for diagnostics
+ * @returns {Promise<Array<Object>>} New events array with overrides spread onto masters
+ */
+async function enrichSeriesMastersWithOverrides(collection, events, options = {}) {
+  if (!Array.isArray(events) || events.length === 0) return events;
+
+  const masterEventIdSet = new Set(
+    events
+      .filter(e => e.eventType === EVENT_TYPE.SERIES_MASTER)
+      .map(e => e.eventId)
+      .filter(Boolean)
+  );
+
+  if (masterEventIdSet.size === 0) {
+    options.log?.({ masterCount: 0, overrideCount: 0, perMaster: [], source: 'in-array' });
+    return events;
+  }
+
+  // Primary: iterate the events array itself for exception/addition children
+  // whose seriesMasterEventId matches a master in the array. This is how the
+  // Calendar `/api/events/load` path has always worked reliably — children
+  // are in the same result set as their master, no separate query needed.
+  let childDocs = events.filter(e =>
+    EXCEPTION_TYPES.includes(e.eventType) &&
+    e.seriesMasterEventId &&
+    masterEventIdSet.has(e.seriesMasterEventId) &&
+    e.isDeleted !== true
+  );
+  let source = 'in-array';
+
+  // Fallback: if no in-array children were found (e.g., the caller's primary
+  // query filtered them out for user-facing purposes), query the collection.
+  // Use retry-on-empty to guard against Cosmos cross-partition query flakiness.
+  if (childDocs.length === 0) {
+    const query = {
+      seriesMasterEventId: { $in: Array.from(masterEventIdSet) },
+      eventType: { $in: EXCEPTION_TYPES },
+      isDeleted: { $ne: true },
+    };
+    childDocs = await collection.find(query).toArray();
+    source = 'query';
+
+    if (childDocs.length === 0) {
+      // Retry once — Cosmos cross-partition queries sometimes return empty
+      // on the first call while index metadata is warming.
+      childDocs = await collection.find(query).toArray();
+      if (childDocs.length > 0 && options.retry) {
+        options.retry({ childCount: childDocs.length, masterEventIds: Array.from(masterEventIdSet) });
+      }
+    }
+  }
+
+  const overridesByMaster = {};
+  for (const doc of childDocs) {
+    if (!doc.seriesMasterEventId || !doc.occurrenceDate) continue;
+    const list = overridesByMaster[doc.seriesMasterEventId] || [];
+    list.push(_buildOverrideEntry(doc));
+    overridesByMaster[doc.seriesMasterEventId] = list;
+  }
+
+  const diagnostic = {
+    masterCount: masterEventIdSet.size,
+    overrideCount: childDocs.length,
+    source,
+    perMaster: Object.entries(overridesByMaster).map(([id, list]) => ({
+      masterEventId: id,
+      count: list.length,
+    })),
+  };
+  if (options.log) options.log(diagnostic);
+
+  if (masterEventIdSet.size > 0 && childDocs.length === 0 && options.warn) {
+    options.warn('[exceptionEnrichment] masters found but no exception/addition children (in-array or query)', {
+      masterEventIds: Array.from(masterEventIdSet),
+    });
+  }
+
+  if (Object.keys(overridesByMaster).length === 0) return events;
+
+  return events.map(e =>
+    e.eventType === EVENT_TYPE.SERIES_MASTER && overridesByMaster[e.eventId]
+      ? { ...e, occurrenceOverrides: overridesByMaster[e.eventId] }
+      : e
+  );
+}
+
 module.exports = {
   EVENT_TYPE,
   EXCEPTION_TYPES,
@@ -516,4 +645,5 @@ module.exports = {
   cascadeStatusUpdate,
   softDeleteException,
   resolveSeriesMaster,
+  enrichSeriesMastersWithOverrides,
 };
