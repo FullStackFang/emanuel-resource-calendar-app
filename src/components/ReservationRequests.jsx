@@ -67,6 +67,12 @@ export default function ReservationRequests({ graphToken }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
   const [serverCounts, setServerCounts] = useState({ needs_attention: 0, all: 0 });
+  // countsLoaded flips true after the first loadCounts attempt (success or failure),
+  // so the empty-state render gate can distinguish "counts not known yet" from
+  // "counts say there is nothing to approve". Without this, a momentary empty list
+  // at mount (Cosmos read lag, 401 retry) rendered "All caught up!" while the nav
+  // badge truthfully showed N>0.
+  const [countsLoaded, setCountsLoaded] = useState(false);
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -193,10 +199,22 @@ export default function ReservationRequests({ graphToken }) {
           setIsSilentRefreshing(false);
         }
       }
-      // Only reset the silence tracker when the CURRENT (still-live) controller
-      // completes. A superseded request must not reset the flag for the live one.
+      // Only reset ownership state when the CURRENT (still-live) controller
+      // completes. Both clauses here are load-bearing:
+      //   • `=== controller` identity check preserves RC-5: a superseded
+      //     request must not reset state owned by the newer live request
+      //     (otherwise a mid-flight silent refresh could null the ref while
+      //     the non-silent initial load is still running).
+      //   • `abortControllerRef.current = null` re-arms the silent-refresh
+      //     guard at the top of loadReservations (RC-7). Without it, the ref
+      //     keeps pointing at this dead controller forever, and every
+      //     subsequent silent refresh (polling, SSE, bus) permanently
+      //     short-circuits at that guard — which is why the empty-state bug
+      //     did not self-heal until the user triggered a non-silent path.
+      // Removing either line silently regresses one of those invariants.
       if (abortControllerRef.current === controller) {
         currentRequestIsSilentRef.current = false;
+        abortControllerRef.current = null;
       }
     }
   }, [authFetch]); // activeTab deliberately excluded — read via activeTabRef to prevent stale-closure bugs
@@ -219,6 +237,11 @@ export default function ReservationRequests({ graphToken }) {
       }
     } catch (err) {
       logger.error('Error loading approval queue counts:', err);
+    } finally {
+      // Flip regardless of success/failure so the render gate can always progress.
+      // On failure, serverCounts stays at the initial {0, 0} — which the gate reads
+      // as "counts agrees empty", matching pre-fix behavior for this edge case.
+      setCountsLoaded(true);
     }
   }, [authFetch]);
 
@@ -403,6 +426,31 @@ export default function ReservationRequests({ graphToken }) {
   const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
   // hasActiveSearchFilters: used for empty-state messaging (sort alone can't filter out results)
   const hasActiveSearchFilters = !!(searchTerm || dateFrom || dateTo || statusFilter);
+
+  // One-shot recovery refetch when counts disagrees with the list. Closes the
+  // divergence window without waiting 30s for the next silent poll. Bounded to
+  // one refetch per apiToken/activeTab pair so a persistently wrong counts
+  // response can't spin us into a loop.
+  const recoveryAttemptedRef = useRef(false);
+  useEffect(() => { recoveryAttemptedRef.current = false; }, [apiToken, activeTab]);
+  useEffect(() => {
+    // Permission gate before the cross-check: skip entirely if permissions
+    // haven't resolved or the user isn't an approver, otherwise a slow
+    // usePermissions() resolve could fire a recovery fetch into a backend
+    // that will return 403.
+    if (permissionsLoading || !canApproveReservations) return;
+    if (!apiToken) return;
+    if (loading || isSilentRefreshing) return;
+    if (hasActiveSearchFilters) return;    // client filters can legitimately empty the list
+    if (!countsLoaded) return;             // no cross-check available yet
+    const expected = activeTab === 'needs_attention' ? serverCounts.needs_attention : serverCounts.all;
+    if (expected > 0 && allReservations.length === 0 && !recoveryAttemptedRef.current) {
+      recoveryAttemptedRef.current = true;
+      loadReservations(); // non-silent — updates `loading` and unconditionally writes through
+    }
+  }, [apiToken, loading, isSilentRefreshing, hasActiveSearchFilters, countsLoaded,
+      serverCounts, activeTab, allReservations.length, loadReservations,
+      permissionsLoading, canApproveReservations]);
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -697,7 +745,11 @@ export default function ReservationRequests({ graphToken }) {
     );
   }
 
-  if (loading && allReservations.length === 0) {
+  // Hold the spinner until BOTH the list and counts have landed. The empty-state
+  // render gate (below) requires counts agreement, so if we cleared this spinner
+  // on `!loading` alone we'd briefly render a blank body while countsLoaded is
+  // still false (list resolved, counts in flight).
+  if ((loading || !countsLoaded) && allReservations.length === 0) {
     return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
@@ -958,7 +1010,20 @@ export default function ReservationRequests({ graphToken }) {
           );
         })}
 
+        {/*
+          Empty-state gate requires counts to corroborate emptiness for the active
+          tab. Without this cross-check the Approval Queue rendered "All caught up!"
+          while the nav badge showed N>0 — a login-time race where the list query
+          transiently returned [] but counts reported the real count. See RC-6.
+          hasActiveSearchFilters bypasses the cross-check because counts doesn't
+          know about client-side search/date filters.
+        */}
         {paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
+          hasActiveSearchFilters ||
+          (activeTab === 'needs_attention'
+            ? serverCounts.needs_attention === 0
+            : serverCounts.all === 0)
+        ) && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
               {hasActiveSearchFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}

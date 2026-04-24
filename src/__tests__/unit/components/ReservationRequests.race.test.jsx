@@ -160,7 +160,8 @@ function makeControllableAuthFetch() {
     });
   });
 
-  // Helper: resolve the Nth pending call (0-indexed) with a given event list
+  // Helper: resolve the Nth pending call (0-indexed) with a given event list.
+  // Backward-compatible wrapper for list-shaped responses.
   function resolveCall(index, events = []) {
     const entry = pendingCalls[index];
     if (!entry) throw new Error(`No pending call at index ${index}`);
@@ -170,12 +171,24 @@ function makeControllableAuthFetch() {
     });
   }
 
+  // Helper: resolve the Nth pending call with an arbitrary response body.
+  // Needed for counts responses like { needsAttention: 35, all: 35 } which
+  // do not conform to the list { events: [...] } shape.
+  function resolveCallWith(index, body) {
+    const entry = pendingCalls[index];
+    if (!entry) throw new Error(`No pending call at index ${index}`);
+    entry.resolve({
+      ok: true,
+      json: async () => body,
+    });
+  }
+
   // Helper: how many calls are currently pending (not yet resolved/rejected)
   function pendingCount() {
     return pendingCalls.length;
   }
 
-  return { authFetch, resolveCall, pendingCount };
+  return { authFetch, resolveCall, resolveCallWith, pendingCount };
 }
 
 // ─── Dynamic mock for useAuthenticatedFetch ───────────────────────────────────
@@ -212,6 +225,13 @@ function makeEvents(count) {
 // On mount the component fires 3 fetches: calendar-settings, approval-queue, counts.
 function findApprovalQueueCallIndex(authFetch) {
   return authFetch.mock.calls.findIndex(([url]) => url.includes('approval-queue') && url.includes('limit=1000'));
+}
+
+// Returns the index of the counts fetch in authFetch.mock.calls.
+// The counts endpoint shares the `approval-queue` substring with the list
+// endpoint, so we match on `/counts` specifically.
+function findCountsCallIndex(authFetch) {
+  return authFetch.mock.calls.findIndex(([url]) => url.includes('/counts') && url.includes('view=approval-queue'));
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -337,8 +357,10 @@ describe('ReservationRequests — loadReservations race condition', () => {
 
   // RC-4: Loading state is cleared after the valid request resolves.
   // Verifies the `finally` guard works: only the current (non-aborted) controller clears loading.
+  // Counts is resolved with an explicit `{ needsAttention: 0, all: 0 }` body so the
+  // post-Edit-1 empty-state gate (which requires counts agreement) fires deterministically.
   it('RC-4: loading spinner is removed after the valid request resolves', async () => {
-    const { authFetch, resolveCall } = makeControllableAuthFetch();
+    const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
     render(<ReservationRequests />);
@@ -346,27 +368,32 @@ describe('ReservationRequests — loadReservations race condition', () => {
     // Spinner should be visible initially
     expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
 
-    // Wait for all mount fetches to fire
+    // Wait for all mount fetches to fire (list + counts)
     await waitFor(() => {
-      const idx = findApprovalQueueCallIndex(authFetch);
-      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findCountsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
     });
 
     const aqIdx = findApprovalQueueCallIndex(authFetch);
+    const countsIdx = findCountsCallIndex(authFetch);
 
-    // Resolve all fetches
+    // Resolve all fetches: list = 0 events, counts = explicit 0/0
     await act(async () => {
       authFetch.mock.calls.forEach((_call, i) => {
-        try { resolveCall(i, i === aqIdx ? makeEvents(0) : []); } catch (_) {}
+        try {
+          if (i === aqIdx) resolveCall(i, makeEvents(0));
+          else if (i === countsIdx) resolveCallWith(i, { needsAttention: 0, all: 0 });
+          else resolveCall(i, []);
+        } catch (_) {}
       });
     });
 
-    // Loading spinner should be gone after the approval-queue call resolves
+    // Loading spinner should be gone after both resolves (countsLoaded flips in finally)
     await waitFor(() => {
       expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
     });
 
-    // With 0 events, the empty state message should appear
+    // With 0 events AND counts agreeing 0, the empty state message should appear
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
   });
 
@@ -441,5 +468,167 @@ describe('ReservationRequests — loadReservations race condition', () => {
 
     // Silence the lint about unused variable.
     expect(authFetch.mock.calls.length).toBeGreaterThanOrEqual(callCountBeforeBus);
+  });
+
+  // RC-6: The "All caught up!" card must NEVER render while the counts endpoint
+  // reports N > 0. This is the observed bug: the list came back empty during a
+  // narrow post-login window (Cosmos replica lag, 401 retry, etc.) while counts
+  // correctly reported 35 items. The render gate at line 961 now requires
+  // counts to corroborate emptiness. A one-shot recovery effect also refetches
+  // the list once per tab/token pair to close the window proactively.
+  it('RC-6: divergence (counts > 0, list empty) does not render "All caught up!" and triggers recovery', async () => {
+    const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
+    currentAuthFetch = authFetch;
+
+    render(<ReservationRequests />);
+
+    // Wait for initial mount fetches.
+    await waitFor(() => {
+      expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findCountsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+    });
+
+    const aqIdx = findApprovalQueueCallIndex(authFetch);
+    const countsIdx = findCountsCallIndex(authFetch);
+
+    // Resolve: list transiently returns 0, counts returns 35 (the divergence window).
+    await act(async () => {
+      authFetch.mock.calls.forEach((call, i) => {
+        try {
+          if (i === aqIdx) resolveCall(i, []);
+          else if (i === countsIdx) resolveCallWith(i, { needsAttention: 35, all: 35, pending: 35, published_edit: 0, published_cancellation: 0 });
+          else resolveCall(i, []);
+        } catch (_) {}
+      });
+    });
+
+    // CRITICAL invariant: the false-positive card must never render while the
+    // counts slice disagrees with the empty list. Check right after the initial
+    // resolve — before the recovery refetch has had a chance to fire.
+    expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
+
+    // The recovery effect should fire a second non-silent approval-queue fetch
+    // to close the divergence. (Note: this will re-set loading=true briefly,
+    // which is why we check the empty-state text invariant, not the spinner.)
+    await waitFor(() => {
+      const approvalCalls = authFetch.mock.calls.filter(
+        ([url]) => url.includes('approval-queue') && url.includes('limit=1000')
+      );
+      expect(approvalCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // The false positive must still not render while the recovery is in flight.
+    expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
+
+    // Resolve the recovery fetch with the real 35 events.
+    const recoveryIdx = authFetch.mock.calls.findIndex(
+      ([url], i) => url.includes('approval-queue') && url.includes('limit=1000') && i > aqIdx
+    );
+    expect(recoveryIdx).toBeGreaterThan(aqIdx);
+
+    // Resolve any non-approval-queue calls that the recovery also triggered.
+    await act(async () => {
+      authFetch.mock.calls.forEach((call, i) => {
+        if (i > aqIdx && i !== recoveryIdx && (!call[0].includes('approval-queue') || !call[0].includes('limit=1000'))) {
+          try { resolveCall(i, []); } catch (_) {}
+        }
+      });
+    });
+
+    await act(async () => {
+      resolveCall(recoveryIdx, makeEvents(35));
+    });
+
+    // After recovery settles: spinner gone, events rendered, no false positive.
+    await waitFor(() => {
+      expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
+      expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
+      expect(screen.queryAllByText(/^Event /).length).toBeGreaterThan(0);
+    });
+  });
+
+  // RC-7: After the initial non-silent load completes, silent refreshes (SSE,
+  // polling, bus) must still run. Before Edit 3, `abortControllerRef.current`
+  // was never nulled when the fetch completed — so the silent-refresh guard
+  // at the top of loadReservations permanently short-circuited, and the
+  // component couldn't self-heal from polling/SSE. Edit 3 nulls the ref in
+  // the finally block, re-arming the guard for the next silent call.
+  it('RC-7: silent refresh after initial load issues a new list fetch', async () => {
+    const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
+    currentAuthFetch = authFetch;
+
+    render(<ReservationRequests />);
+
+    await waitFor(() => {
+      expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findCountsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
+    });
+
+    const aqIdx = findApprovalQueueCallIndex(authFetch);
+    const countsIdx = findCountsCallIndex(authFetch);
+
+    // Initial load: 1 event, counts=1. Consistent state, no divergence, no recovery.
+    await act(async () => {
+      authFetch.mock.calls.forEach((call, i) => {
+        try {
+          if (i === aqIdx) resolveCall(i, makeEvents(1));
+          else if (i === countsIdx) resolveCallWith(i, { needsAttention: 1, all: 1, pending: 1, published_edit: 0, published_cancellation: 0 });
+          else resolveCall(i, []);
+        } catch (_) {}
+      });
+    });
+
+    // Wait for initial state to settle.
+    await waitFor(() => {
+      expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
+      expect(screen.queryByText('Event 0')).toBeInTheDocument();
+    });
+
+    const approvalCallsBefore = authFetch.mock.calls.filter(
+      ([url]) => url.includes('approval-queue') && url.includes('limit=1000')
+    ).length;
+    expect(approvalCallsBefore).toBe(1);
+
+    // Confirm the bus handler was registered.
+    expect(typeof capturedBusHandler).toBe('function');
+
+    // Simulate a bus-delivered silent refresh (SSE or polling). With Edit 3
+    // in place, the silent-refresh guard is re-armed (abortControllerRef is
+    // null post-completion), so a new fetch should fire. Before Edit 3 this
+    // handler no-oped because the guard permanently short-circuited.
+    await act(async () => {
+      capturedBusHandler({});
+    });
+
+    // A second approval-queue fetch should have been issued.
+    await waitFor(() => {
+      const approvalCalls = authFetch.mock.calls.filter(
+        ([url]) => url.includes('approval-queue') && url.includes('limit=1000')
+      );
+      expect(approvalCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    const silentIdx = authFetch.mock.calls.findIndex(
+      ([url], i) => url.includes('approval-queue') && url.includes('limit=1000') && i > aqIdx
+    );
+    expect(silentIdx).toBeGreaterThan(aqIdx);
+
+    // Resolve any other newer calls (silentRefresh also refetches counts).
+    await act(async () => {
+      authFetch.mock.calls.forEach((call, i) => {
+        if (i > aqIdx && i !== silentIdx && (!call[0].includes('approval-queue') || !call[0].includes('limit=1000'))) {
+          try { resolveCall(i, []); } catch (_) {}
+        }
+      });
+    });
+
+    // Resolve the silent refresh with 3 events and verify the list updated.
+    await act(async () => {
+      resolveCall(silentIdx, makeEvents(3));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Event 2')).toBeInTheDocument();
+    });
   });
 });
