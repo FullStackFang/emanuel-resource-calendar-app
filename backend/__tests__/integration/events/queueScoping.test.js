@@ -548,6 +548,131 @@ describe('Queue Scoping Tests (QS-1 to QS-14)', () => {
     expect(row.recurrence.range?.endDate).toBe('2026-06-30');
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Draft master + draft exception child scoping (regression test).
+  // Reproduces the scenario reported on 2026-04-24: an admin saves a recurring
+  // series as draft, then edits one occurrence — system creates an exception
+  // document with status=draft. MyReservations.jsx calls
+  // `GET /events/list?view=my-events&limit=1000&includeDeleted=true` with NO
+  // status param, so the previous QS-7/QS-8 coverage (which scoped to
+  // status=pending / status=published) didn't catch a draft-leak regression.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('QS-21: my-events list (no status param, includeDeleted=true) excludes draft exception children', async () => {
+    const master = createRecurringSeriesMaster({
+      status: STATUS.DRAFT,
+      eventTitle: 'Draft daily series',
+      requesterEmail: requesterUser.email,
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-26', endDate: '2026-04-28' },
+        additions: [],
+        exclusions: [],
+      },
+    });
+    const exceptionChild = createExceptionDocument(master, '2026-04-27', {
+      startTime: '10:00',
+      endTime: '12:00',
+    });
+    // Sanity: the test fixtures must reproduce the user's wire-shape exactly.
+    expect(master.eventType).toBe('seriesMaster');
+    expect(master.status).toBe(STATUS.DRAFT);
+    expect(exceptionChild.eventType).toBe('exception');
+    expect(exceptionChild.status).toBe(STATUS.DRAFT);
+    expect(exceptionChild.seriesMasterEventId).toBe(master.eventId);
+
+    await insertEvents(db, [master, exceptionChild]);
+
+    // This URL is byte-identical to MyReservations.jsx:61.
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=my-events&limit=1000&includeDeleted=true`)
+      .set('Authorization', `Bearer ${requesterToken}`)
+      .expect(200);
+
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.events[0].eventId).toBe(master.eventId);
+    expect(res.body.events[0].eventType).toBe('seriesMaster');
+    // The master should carry the exception's overrides (so the modal shows it).
+    expect(res.body.events[0].occurrenceOverrides).toHaveLength(1);
+    expect(res.body.events[0].occurrenceOverrides[0].occurrenceDate).toBe('2026-04-27');
+  });
+
+  it('QS-22: my-events counts include draft master, exclude draft exception children', async () => {
+    const master = createRecurringSeriesMaster({
+      status: STATUS.DRAFT,
+      eventTitle: 'Draft daily series',
+      requesterEmail: requesterUser.email,
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-26', endDate: '2026-04-28' },
+        additions: [],
+        exclusions: [],
+      },
+    });
+    const exceptionChild = createExceptionDocument(master, '2026-04-27', {
+      startTime: '10:00',
+      endTime: '12:00',
+    });
+    await insertEvents(db, [master, exceptionChild]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=my-events`)
+      .set('Authorization', `Bearer ${requesterToken}`)
+      .expect(200);
+
+    expect(res.body.draft).toBe(1);
+    expect(res.body.all).toBe(1);
+  });
+
+  it('QS-23: my-events list with status=draft excludes draft exception children', async () => {
+    const master = createRecurringSeriesMaster({
+      status: STATUS.DRAFT,
+      eventTitle: 'Draft daily series',
+      requesterEmail: requesterUser.email,
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-26', endDate: '2026-04-28' },
+        additions: [],
+        exclusions: [],
+      },
+    });
+    const exceptionChild = createExceptionDocument(master, '2026-04-27', {
+      startTime: '10:00',
+      endTime: '12:00',
+    });
+    await insertEvents(db, [master, exceptionChild]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=my-events&status=draft`)
+      .set('Authorization', `Bearer ${requesterToken}`)
+      .expect(200);
+
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.events[0].eventId).toBe(master.eventId);
+  });
+
+  it('QS-24: approval-queue (no status) excludes draft exception children even when master is draft (drafts not in queue)', async () => {
+    const master = createRecurringSeriesMaster({
+      status: STATUS.DRAFT,
+      eventTitle: 'Draft daily series',
+      requesterEmail: requesterUser.email,
+    });
+    const exceptionChild = createExceptionDocument(master, '2026-04-27', {
+      startTime: '10:00',
+      endTime: '12:00',
+    });
+    await insertEvents(db, [master, exceptionChild]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=approval-queue`)
+      .set('Authorization', `Bearer ${approverToken}`)
+      .expect(200);
+
+    // Drafts are not pending/published/rejected, so neither the master nor
+    // the child should appear in the approval queue.
+    expect(res.body.events).toHaveLength(0);
+  });
+
   it('QS-14: rejecting the master still returns 200 and cascades rejection to children', async () => {
     const { master, children } = buildPendingSeriesWithChildren({
       requesterEmail: requesterUser.email,
