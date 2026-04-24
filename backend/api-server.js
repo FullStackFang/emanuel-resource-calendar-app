@@ -23308,9 +23308,10 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Role-based scoping: Admins can delete anything, others have restrictions
     if (!isAdminUser) {
       if (!isApprover) {
-        // Requesters: can only delete (withdraw) their own pending events
-        if (!isOwner || event.status !== 'pending') {
-          return res.status(403).json({ error: 'You can only withdraw your own pending requests' });
+        // Requesters: can delete own drafts, or withdraw own pending events (with reason)
+        const allowedStatus = event.status === 'pending' || event.status === 'draft';
+        if (!isOwner || !allowedStatus) {
+          return res.status(403).json({ error: 'You can only delete your own drafts or withdraw your own pending requests' });
         }
       } else {
         // Approvers: own events (any status) or any published event

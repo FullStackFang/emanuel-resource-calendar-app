@@ -127,7 +127,11 @@
       "Bash(claude --version)",
       "Bash(openspec list *)",
       "Bash(openspec archive *)",
-      "Bash(openspec --help)"
+      "Bash(openspec --help)",
+      "Bash(cp -r /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/harden-sse-server-reliability /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/openspec/changes/archive/2026-04-23-harden-sse-server-reliability)",
+      "Bash(/mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app)",
+      "Bash(sed -i 's|logger\\\\.info\\(`\\\\[exceptionEnrichment\\\\]|logger.debug\\(`[exceptionEnrichment]|g' api-server.js)",
+      "Bash(sed -i 's|logger\\\\.warn\\(`\\\\[exceptionEnrichment\\\\]|logger.debug\\(`[exceptionEnrichment]|g' api-server.js)"
     ],
     "deny": []
   },

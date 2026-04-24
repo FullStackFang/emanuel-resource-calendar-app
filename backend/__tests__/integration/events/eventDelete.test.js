@@ -8,7 +8,7 @@ const request = require('supertest');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
-const { createApprover, createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
+const { createApprover, createRequester, createOtherRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createDraftEvent,
   createPendingEvent,
@@ -737,6 +737,92 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       const emailTracked = app.locals.lastDeletionEmail;
       expect(emailTracked).not.toBeNull();
       expect(emailTracked.recipientEmail).toBe(requesterUser.email);
+    });
+  });
+
+  describe('Requester Draft Delete Permissions (RD-1 to RD-4)', () => {
+    let requesterToken;
+    let otherRequesterUser;
+    let otherRequesterToken;
+
+    beforeEach(async () => {
+      requesterToken = await createMockToken(requesterUser);
+      otherRequesterUser = createOtherRequester();
+      await insertUsers(db, [otherRequesterUser]);
+      otherRequesterToken = await createMockToken(otherRequesterUser);
+    });
+
+    it('RD-1: Requester can delete own draft via /api/admin/events/:id without reason', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Requester Own Draft',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(event.status).toBe('deleted');
+      expect(event.isDeleted).toBe(true);
+    });
+
+    it('RD-2: Requester cannot delete another requester\'s draft (403)', async () => {
+      const otherDraft = createDraftEvent({
+        userId: otherRequesterUser.odataId,
+        requesterEmail: otherRequesterUser.email,
+        eventTitle: 'Other Requester Draft',
+      });
+      const [saved] = await insertEvents(db, [otherDraft]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(403);
+
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(event.status).toBe('draft');
+      expect(event.isDeleted).not.toBe(true);
+    });
+
+    it('RD-3: Own draft delete writes statusHistory entry with changedBy=requester', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Status History Draft',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(200);
+
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      const lastHistory = event.statusHistory[event.statusHistory.length - 1];
+      expect(lastHistory.status).toBe('deleted');
+      expect(lastHistory.changedByEmail).toBe(requesterUser.email);
+    });
+
+    it('RD-4: Requester pending-withdraw still requires reason (regression guard)', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Regression Guard Pending',
+      });
+      const [saved] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(400);
+
+      expect(res.body.error).toMatch(/reason.*required/i);
     });
   });
 });

@@ -878,6 +878,23 @@ export default function ReviewModal({
                     </div>
                   )}
 
+                  {/* Discard Draft — requester, draft (no reason required) */}
+                  {isRequesterOnly && itemStatus === 'draft' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
+                    <div className="confirm-button-group">
+                      <button
+                        type="button"
+                        className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                        onClick={onDelete}
+                        disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
+                      >
+                        {isDeleting ? 'Discarding...' : (isDeleteConfirming ? 'Confirm Discard?' : 'Discard Draft')}
+                      </button>
+                      {isDeleteConfirming && onCancelDelete && (
+                        <button type="button" className="confirm-cancel-x delete-cancel-x" onClick={onCancelDelete}>✕</button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Withdraw Cancellation — requester */}
                   {isRequesterOnly && existingCancellationRequest?.status === 'pending' && onWithdrawCancellationRequest && (
                     <div className="confirm-button-group">

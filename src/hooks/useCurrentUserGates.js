@@ -119,7 +119,7 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   // Occurrence-level overrides (time/location of a single instance via exception doc).
   const canEditOccurrence = isOccurrence && (isAdminEditor || (isOwner && (isDraft || isPending)));
 
-  const canDelete = !isDeleted && (canDeleteEvents || (isOwner && isPending));
+  const canDelete = !isDeleted && (canDeleteEvents || (isOwner && (isPending || isDraft)));
   const canRestore = canDeleteEvents && isDeleted;
 
   // canRequestEdit: requester proposes changes to a PUBLISHED event.

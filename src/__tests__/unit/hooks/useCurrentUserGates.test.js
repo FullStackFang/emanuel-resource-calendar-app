@@ -218,15 +218,40 @@ describe('deriveGates — invariants', () => {
       expect(gates.canDelete).toBe(true);
     });
 
-    it('requester CANNOT delete non-pending events or events they do not own', () => {
-      for (const status of ['draft', 'published', 'rejected']) {
+    it('requester CAN delete their OWN DRAFT event (discard)', () => {
+      const event = makeEvent({ status: 'draft', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canDelete).toBe(true);
+    });
+
+    it('requester CANNOT delete published/rejected own events or any non-owned events', () => {
+      for (const status of ['published', 'rejected']) {
         const event = makeEvent({ status, eventType: 'singleInstance', isOwner: true });
         const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
         expect(gates.canDelete, status).toBe(false);
       }
-      const otherEvent = makeEvent({ status: 'pending', eventType: 'singleInstance', isOwner: false });
-      const gates = deriveGates(otherEvent, PERMISSION_FIXTURES.requester, accounts);
-      expect(gates.canDelete).toBe(false);
+      // Non-owner: drafts, pending, and every other status denied
+      for (const status of ['draft', 'pending', 'published', 'rejected']) {
+        const otherEvent = makeEvent({ status, eventType: 'singleInstance', isOwner: false });
+        const gates = deriveGates(otherEvent, PERMISSION_FIXTURES.requester, accounts);
+        expect(gates.canDelete, `non-owner/${status}`).toBe(false);
+      }
+    });
+
+    it.each(['approver', 'admin'])('%s CAN delete own draft (via canDeleteEvents global)', (role) => {
+      const event = makeEvent({ status: 'draft', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES[role], accounts);
+      expect(gates.canDelete).toBe(true);
+    });
+
+    it('canDelete is FALSE for deleted events regardless of owner/role (isDeleted hard gate)', () => {
+      for (const role of ROLES) {
+        for (const isOwner of OWNERS) {
+          const event = makeEvent({ status: 'deleted', eventType: 'singleInstance', isOwner });
+          const gates = deriveGates(event, PERMISSION_FIXTURES[role], accounts);
+          expect(gates.canDelete, `${role}/owner=${isOwner}`).toBe(false);
+        }
+      }
     });
 
     it('canRestore requires canDeleteEvents AND status=deleted', () => {
