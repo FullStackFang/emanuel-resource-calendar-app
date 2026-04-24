@@ -184,6 +184,86 @@ describe('ReviewModal', () => {
     });
   });
 
+  describe('seriesMasterBanner (shown on recurring series children)', () => {
+    // Contract: when the opened item is an exception/addition/occurrence the
+    // gate layer sets onApprove/onReject/onApproveEditRequest/etc. to null.
+    // ReviewModal then surfaces the info strip (always) and the Open Series
+    // Master button (when onOpenMaster is wired).
+
+    it('renders the info strip when seriesMasterBanner.visible is true', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isPending
+          itemStatus="pending"
+          // onApprove/onReject intentionally omitted — mirrors the gate layer
+          // nulling them out for series children.
+          seriesMasterBanner={{ visible: true, onOpenMaster: vi.fn() }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      expect(screen.getByText(/recurring series.*actions are on the master/i)).toBeInTheDocument();
+    });
+
+    it('renders the "Open Series Master" button when onOpenMaster is provided, and clicks it', async () => {
+      const onOpenMaster = vi.fn();
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isPending
+          itemStatus="pending"
+          seriesMasterBanner={{ visible: true, onOpenMaster }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const btn = screen.getByRole('button', { name: /open series master/i });
+      btn.click();
+      expect(onOpenMaster).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the "Open Series Master" button when onOpenMaster is null (master unreachable) but keeps the info strip', () => {
+      // Real-world: viewer has the child in memory but the master is outside
+      // the currently-loaded window, so allEvents lookup would fail.
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isPending
+          itemStatus="pending"
+          seriesMasterBanner={{ visible: true, onOpenMaster: null }}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      expect(screen.getByText(/recurring series.*actions are on the master/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /open series master/i })).toBeNull();
+    });
+
+    it('renders NEITHER strip NOR button when seriesMasterBanner is null (regression guard — masters/singles unaffected)', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isPending
+          itemStatus="pending"
+          onApprove={vi.fn()}
+          seriesMasterBanner={null}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      expect(screen.queryByText(/recurring series.*actions are on the master/i)).toBeNull();
+      expect(screen.queryByRole('button', { name: /open series master/i })).toBeNull();
+      // Sanity: Publish still renders because onApprove is present and we are
+      // not a requester-only viewer.
+      expect(screen.getByRole('button', { name: /^publish$/i })).toBeInTheDocument();
+    });
+  });
+
   describe('Submit Request button (draft mode)', () => {
     it('should be disabled when isFormValid is false', () => {
       render(

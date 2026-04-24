@@ -68,6 +68,12 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   const isOccurrence = eventType === 'occurrence';
   const isSingleInstance = eventType === 'singleInstance' || !eventType;
   const isExceptionOrAddition = eventType === 'exception' || eventType === 'addition';
+  // Children of a series (exception/addition override docs and raw occurrences)
+  // are never the unit of approval or the unit of edit/cancellation requests —
+  // those propagate through the series master's cascade. The backend blocks
+  // publish/reject with INVALID_TARGET_EVENT_TYPE; the UI must match so users
+  // don't see buttons the server will refuse.
+  const isSeriesChild = isExceptionOrAddition || isOccurrence;
 
   const {
     canEditEvents = false,
@@ -131,6 +137,7 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
     canSubmitReservation &&
     !isAdminEditor &&
     isPublished &&
+    !isSeriesChild &&
     (isOwner || departmentMatches || isOwnerless) &&
     !hasPendingEditRequest &&
     !isEditRequestMode &&
@@ -179,8 +186,14 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
     isExceptionOrAddition,
     isAdmin,
     canSave,
-    canApprove: canApproveReservations && isPending,
-    canReject: canApproveReservations && isPending,
+    canApprove: canApproveReservations && isPending && !isSeriesChild,
+    canReject: canApproveReservations && isPending && !isSeriesChild,
+    // Approver-side gates for edit-request and cancellation-request workflows.
+    // No backend INVALID_TARGET_EVENT_TYPE guard exists on those endpoints, so
+    // the UI is the sole enforcement. Excluding isSeriesChild keeps the full
+    // approval surface consistent: master is the unit of approval, period.
+    canApproveEditRequest: canApproveReservations && !isSeriesChild,
+    canApproveCancellationRequest: canApproveReservations && !isSeriesChild,
     canDelete,
     canRestore,
     canEditRecurrence,

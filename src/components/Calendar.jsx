@@ -4741,11 +4741,16 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleNavigateToSeriesEvent = useCallback((targetEventId) => {
       logger.debug('Navigating to series event:', targetEventId);
 
-      // Find the target event in allEvents
-      const targetEvent = allEvents.find(event => event.eventId === targetEventId);
+      // Look up target in allEvents first. Series masters are filtered out of
+      // allEvents during recurring expansion (they get replaced by their
+      // expanded occurrences) but preserved in seriesMastersRef — mirror the
+      // fallback used by the recurring scope dialog at line 4181.
+      const targetEvent =
+        allEvents.find(event => event.eventId === targetEventId)
+        || seriesMastersRef.current.get(targetEventId);
 
       if (!targetEvent) {
-        logger.error('Could not find target event in allEvents:', targetEventId);
+        logger.error('Could not find target event in allEvents or seriesMastersRef:', targetEventId);
         showError('Could not find the selected event');
         return;
       }

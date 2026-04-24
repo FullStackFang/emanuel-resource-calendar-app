@@ -654,4 +654,94 @@ describe('deriveGates — invariants', () => {
       expect(gates.canSave).toBe(false);
     });
   });
+
+  describe('series-child gating (exception/addition/occurrence cannot be approved independently)', () => {
+    // The series master is the unit of approval. Children are the unit of
+    // rendering. The backend INVALID_TARGET_EVENT_TYPE guard blocks publish
+    // and reject on children, and the same rule must hold for edit-request
+    // approvals, cancellation-request approvals, and requester-initiated
+    // edit/cancellation proposals on children (which have no backend guard).
+    const CHILD_TYPES = ['occurrence', 'exception', 'addition'];
+    const PARENT_TYPES = ['singleInstance', 'seriesMaster'];
+
+    describe('approver gates (canApprove / canReject)', () => {
+      it.each(CHILD_TYPES)('canApprove is FALSE on pending %s (approver, cannot publish child)', (eventType) => {
+        const event = makeEvent({ status: 'pending', eventType, isOwner: false });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.approver, accounts);
+        expect(gates.canApprove, eventType).toBe(false);
+        expect(gates.canReject, eventType).toBe(false);
+      });
+
+      it.each(CHILD_TYPES)('admin cannot approve/reject pending %s either', (eventType) => {
+        const event = makeEvent({ status: 'pending', eventType, isOwner: false });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.admin, accounts);
+        expect(gates.canApprove, eventType).toBe(false);
+        expect(gates.canReject, eventType).toBe(false);
+      });
+
+      it.each(PARENT_TYPES)('canApprove is TRUE on pending %s (approver, regression guard)', (eventType) => {
+        const event = makeEvent({ status: 'pending', eventType, isOwner: false });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.approver, accounts);
+        expect(gates.canApprove, eventType).toBe(true);
+        expect(gates.canReject, eventType).toBe(true);
+      });
+
+      it('canApprove stays FALSE on non-pending seriesMaster (regression guard)', () => {
+        for (const status of ['draft', 'published', 'rejected', 'deleted']) {
+          const event = makeEvent({ status, eventType: 'seriesMaster', isOwner: false });
+          const gates = deriveGates(event, PERMISSION_FIXTURES.approver, accounts);
+          expect(gates.canApprove, status).toBe(false);
+          expect(gates.canReject, status).toBe(false);
+        }
+      });
+
+      it('non-approver never gets canApprove even on pending master (regression guard)', () => {
+        const event = makeEvent({ status: 'pending', eventType: 'seriesMaster', isOwner: true });
+        expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canApprove).toBe(false);
+        expect(deriveGates(event, PERMISSION_FIXTURES.viewer, accounts).canApprove).toBe(false);
+      });
+    });
+
+    describe('approver edit-request / cancellation-request gates', () => {
+      // These endpoints have no server-side INVALID_TARGET_EVENT_TYPE guard,
+      // so the UI gate is the sole line of defense.
+      it.each(CHILD_TYPES)('canApproveEditRequest is FALSE on %s (approver)', (eventType) => {
+        const event = makeEvent({ status: 'published', eventType, isOwner: false });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.approver, accounts);
+        expect(gates.canApproveEditRequest, eventType).toBe(false);
+        expect(gates.canApproveCancellationRequest, eventType).toBe(false);
+      });
+
+      it.each(PARENT_TYPES)('canApproveEditRequest is TRUE on %s (approver, regression guard)', (eventType) => {
+        const event = makeEvent({ status: 'published', eventType, isOwner: false });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.approver, accounts);
+        expect(gates.canApproveEditRequest, eventType).toBe(true);
+        expect(gates.canApproveCancellationRequest, eventType).toBe(true);
+      });
+
+      it('non-approver never gets canApproveEditRequest', () => {
+        const event = makeEvent({ status: 'published', eventType: 'seriesMaster', isOwner: true });
+        expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canApproveEditRequest).toBe(false);
+        expect(deriveGates(event, PERMISSION_FIXTURES.viewer, accounts).canApproveEditRequest).toBe(false);
+      });
+    });
+
+    describe('requester gates (canRequestEdit / canRequestCancellation)', () => {
+      // Requester-initiated edit/cancellation on a series-child would be
+      // incoherent — the master cascade owns the child's lifecycle.
+      it.each(CHILD_TYPES)('canRequestEdit is FALSE on published %s (owner requester)', (eventType) => {
+        const event = makeEvent({ status: 'published', eventType, isOwner: true });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+        expect(gates.canRequestEdit, eventType).toBe(false);
+        expect(gates.canRequestCancellation, eventType).toBe(false);
+      });
+
+      it.each(PARENT_TYPES)('canRequestEdit is TRUE on published %s (owner requester, regression guard)', (eventType) => {
+        const event = makeEvent({ status: 'published', eventType, isOwner: true });
+        const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+        expect(gates.canRequestEdit, eventType).toBe(true);
+        expect(gates.canRequestCancellation, eventType).toBe(true);
+      });
+    });
+  });
 });

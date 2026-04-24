@@ -68,11 +68,26 @@ export default function EventReviewExperience({
   const itemStatus = exp.currentItem?.status || 'published';
   const isPending = itemStatus === 'pending';
 
-  const canApproveReservations = gates.canApproveReservations;
   const canEditEvents = gates.canEditEvents;
   const effectiveCanDelete = gates.canDelete;
   const effectiveReadOnly = gates.readOnly;
   const isRequesterOnly = gates.isRequesterOnly;
+
+  // Series-child banner: when the opened item is an occurrence/exception/addition,
+  // the approval surface is hidden (via gates above) and the user is guided to
+  // open the series master. Navigation uses seriesMasterEventId (MongoDB eventId
+  // that handleNavigateToSeriesEvent looks up in allEvents) — NOT seriesMasterId
+  // (Graph ID, which will not resolve).
+  const isSeriesChild = gates.isExceptionOrAddition || gates.isOccurrence;
+  const seriesMasterTargetId = exp.currentItem?.seriesMasterEventId || null;
+  const seriesMasterBanner = isSeriesChild
+    ? {
+        visible: true,
+        onOpenMaster: (seriesMasterTargetId && onNavigateToSeriesEvent)
+          ? () => onNavigateToSeriesEvent(seriesMasterTargetId)
+          : null,
+      }
+    : null;
 
   // Requester name: editableData is already flat (from transformEventToFlatStructure)
   const requesterName = exp.editableData?.requesterName || '';
@@ -127,9 +142,12 @@ export default function EventReviewExperience({
         onCancelEditRequest={exp.handleCancelEditRequest}
         originalData={exp.flatOriginalEventData}
         detectedChanges={detectedChanges}
-        // Edit request approve/reject (from experience hook, permission-gated)
-        onApproveEditRequest={canApproveReservations ? exp.handleApproveEditRequest : null}
-        onRejectEditRequest={canApproveReservations ? exp.handleRejectEditRequest : null}
+        // Edit request approve/reject (from experience hook, permission-gated).
+        // Gate excludes series children — only the master carries the approval
+        // semantics for an edit request; the backend has no matching guard, so
+        // this is the UI's sole enforcement point.
+        onApproveEditRequest={gates.canApproveEditRequest ? exp.handleApproveEditRequest : null}
+        onRejectEditRequest={gates.canApproveEditRequest ? exp.handleRejectEditRequest : null}
         // Cancel pending edit request (from experience hook)
         onCancelPendingEditRequest={exp.handleCancelPendingEditRequest}
         isCancelingEditRequest={exp.isCancelingEditRequest}
@@ -145,13 +163,16 @@ export default function EventReviewExperience({
         onCancelCancellationRequest={exp.handleCancelCancellationRequest}
         isSubmittingCancellationRequest={exp.isSubmittingCancellationRequest}
         existingCancellationRequest={exp.currentItem?.pendingCancellationRequest}
-        onApproveCancellationRequest={canApproveReservations ? exp.handleApproveCancellationRequest : null}
-        onRejectCancellationRequest={canApproveReservations ? exp.handleRejectCancellationRequest : null}
+        onApproveCancellationRequest={gates.canApproveCancellationRequest ? exp.handleApproveCancellationRequest : null}
+        onRejectCancellationRequest={gates.canApproveCancellationRequest ? exp.handleRejectCancellationRequest : null}
         // Cancellation withdrawal (MyReservations-specific)
         onWithdrawCancellationRequest={onWithdrawCancellationRequest}
         isWithdrawingCancellationRequest={isWithdrawingCancellationRequest}
         isWithdrawCancellationConfirming={isWithdrawCancellationConfirming}
         onCancelWithdrawCancellation={onCancelWithdrawCancellation}
+        // Series-child info banner — guides approvers to the master, which is
+        // the unit of approval. Null when the item is not a series child.
+        seriesMasterBanner={seriesMasterBanner}
       >
         {exp.currentItem && (
           <RoomReservationReview

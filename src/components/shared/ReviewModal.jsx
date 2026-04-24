@@ -195,7 +195,13 @@ export default function ReviewModal({
   createRecurrenceRef = null,
   onHasUncommittedRecurrence = null,
   // Scheduling check complete: false while waiting for initial conflict check, defaults to true for parents that don't track it
-  isSchedulingCheckComplete = true
+  isSchedulingCheckComplete = true,
+  // Series-child banner: when the opened item is an exception/addition/occurrence,
+  // approve/reject/edit-request/cancellation-approve are hidden by the gate layer
+  // (onApprove et al. arrive as null). This banner explains why, and gives a
+  // one-click "Open Series Master" action when the master is reachable.
+  // Shape: { visible: boolean, onOpenMaster: (() => void) | null }
+  seriesMasterBanner = null
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -410,6 +416,15 @@ export default function ReviewModal({
                   Edit Request Mode
                 </span>
               )}
+              {seriesMasterBanner?.visible && (
+                <span
+                  className="info-strip info-series-child"
+                  role="status"
+                  title="This occurrence belongs to a recurring series. Approval and requester actions are performed on the series master."
+                >
+                  ⓘ Recurring series — actions are on the master
+                </span>
+              )}
             </div>
           </div>
 
@@ -475,6 +490,21 @@ export default function ReviewModal({
                   )}
 
                   {/* ── GROUP 1: Primary positive actions ── */}
+
+                  {/* Open Series Master — shown when the opened item is a
+                      series child (exception/addition/occurrence) and its
+                      master is reachable. Publish/Reject/edit-request actions
+                      are hidden by the gate layer on these items. */}
+                  {seriesMasterBanner?.visible && seriesMasterBanner.onOpenMaster && (
+                    <button
+                      type="button"
+                      className="action-btn series-master-open-btn"
+                      onClick={seriesMasterBanner.onOpenMaster}
+                      disabled={anyConfirming}
+                    >
+                      Open Series Master
+                    </button>
+                  )}
 
                   {/* Publish — admin reviewing pending */}
                   {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
