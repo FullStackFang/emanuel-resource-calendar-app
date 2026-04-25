@@ -6,6 +6,7 @@
  */
 
 const request = require('supertest');
+const { ObjectId } = require('mongodb');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
@@ -353,4 +354,74 @@ describe('Edit Request Tests — Recurrence (ER-R0 to ER-R5)', () => {
     });
   });
 
+  describe('ER-R5b: conflict detection runs when recurrence changes', () => {
+    it('returns 409 SchedulingConflict when new pattern collides with another published event', async () => {
+      // Use an ObjectId so MongoDB $in matching works correctly (stored type must match query type).
+      const roomId = new ObjectId('507f1f77bcf86cd799439011');
+
+      // Conflict event: a published singleInstance on 2026-04-21 09:00-10:00 in the same room.
+      const conflictEvent = createPublishedEvent({
+        userId: 'other-user-id',
+        requesterEmail: 'other@example.com',
+      });
+      conflictEvent.eventType = 'singleInstance';
+      conflictEvent.recurrence = null;
+      conflictEvent.calendarData.locations = [roomId];
+      conflictEvent.calendarData.startDate = '2026-04-21';
+      conflictEvent.calendarData.startTime = '09:00';
+      conflictEvent.calendarData.endDate = '2026-04-21';
+      conflictEvent.calendarData.endTime = '10:00';
+      conflictEvent.calendarData.startDateTime = '2026-04-21T09:00:00';
+      conflictEvent.calendarData.endDateTime = '2026-04-21T10:00:00';
+      await insertEvents(db, [conflictEvent]);
+
+      // Owner's seriesMaster: insert then update to share the room, fix times, and add a bounded range.
+      // The master's calendarData.startDateTime is set to the same slot as the conflict event so the
+      // conflict check window (effectiveData.startDateTime/endDateTime) catches the conflict.
+      const ownerBase = await insertPublishedSeriesMaster();
+      await db.collection(COLLECTIONS.EVENTS).updateOne(
+        { eventId: ownerBase.eventId },
+        {
+          $set: {
+            'calendarData.locations': [roomId],
+            'calendarData.startDateTime': '2026-04-21T09:00:00',
+            'calendarData.endDateTime': '2026-04-21T10:00:00',
+            'calendarData.startDate': '2026-04-21',
+            'calendarData.endDate': '2026-04-21',
+            'calendarData.startTime': '09:00',
+            'calendarData.endTime': '10:00',
+            recurrence: {
+              pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+              range: { type: 'endDate', startDate: '2026-04-21', endDate: '2026-04-30' },
+              exclusions: [],
+              additions: [],
+            },
+          },
+        }
+      );
+      const ownerEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: ownerBase.eventId });
+
+      // Propose any recurrence change — just changing the pattern day triggers hasTimeOrRoomChange.
+      const newRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
+        range: { type: 'endDate', startDate: '2026-04-21', endDate: '2026-04-30' },
+      };
+
+      const submitRes = await request(app)
+        .post(`/api/events/${ownerEvent._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ recurrence: newRecurrence, _version: ownerEvent._version });
+      expect(submitRes.status).toBe(201);
+
+      const submitted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: ownerEvent.eventId });
+
+      const res = await request(app)
+        .put(`/api/admin/events/${ownerEvent._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: submitted._version });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('SchedulingConflict');
+    });
+  });
 });
