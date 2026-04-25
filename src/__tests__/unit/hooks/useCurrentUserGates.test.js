@@ -124,6 +124,26 @@ describe('deriveGates — invariants', () => {
       expect(gates.canRequestEdit).toBe(true);
     });
 
+    it('requester CAN edit recurrence on own published seriesMaster IN edit-request mode', () => {
+      const event = makeEvent({ status: 'published', eventType: 'seriesMaster', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(gates.canEditRecurrence).toBe(true);
+      expect(gates.canSave).toBe(true);
+    });
+
+    it('requester CAN promote own published singleInstance to recurring IN edit-request mode (Q2=B)', () => {
+      const event = makeEvent({ status: 'published', eventType: 'singleInstance', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts, { isEditRequestMode: true });
+      expect(gates.canEditRecurrence).toBe(true);
+    });
+
+    it('requester CANNOT edit recurrence on own published seriesMaster WITHOUT edit-request mode', () => {
+      // Regression check: at-rest editing of published events stays blocked.
+      const event = makeEvent({ status: 'published', eventType: 'seriesMaster', isOwner: true });
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canEditRecurrence).toBe(false);
+    });
+
     it('requester CAN edit recurrence on their own DRAFT/PENDING/REJECTED series master', () => {
       for (const status of ['draft', 'pending', 'rejected']) {
         const event = makeEvent({ status, eventType: 'seriesMaster', isOwner: true });

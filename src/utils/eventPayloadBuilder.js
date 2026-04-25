@@ -349,6 +349,8 @@ export function buildEditRequestPayload(data, { eventVersion, editScope, occurre
     offsiteAddress: data.offsiteAddress || '',
     offsiteLat: data.offsiteLat || null,
     offsiteLon: data.offsiteLon || null,
+    // Recurrence pattern (undefined = not sent, so backend skips compare for non-recurring contexts)
+    recurrence: data.recurrence !== undefined ? data.recurrence : undefined,
   };
 }
 

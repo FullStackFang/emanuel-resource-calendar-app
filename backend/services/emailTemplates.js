@@ -1623,6 +1623,48 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
 }
 
 /**
+ * Convert a recurrence object (or JSON string) to a one-line human-readable summary.
+ * @param {string|Object} jsonOrString - Raw JSON string or already-parsed recurrence object
+ * @returns {string} Readable summary, e.g. 'weekly every 1 on monday,wednesday from 2026-04-20'
+ */
+function summarizeRecurrenceFromJson(jsonOrString) {
+  try {
+    const r = typeof jsonOrString === 'string' ? JSON.parse(jsonOrString) : jsonOrString;
+    if (!r || !r.pattern) return '(none)';
+    const interval = r.pattern.interval || 1;
+    const days = Array.isArray(r.pattern.daysOfWeek) ? r.pattern.daysOfWeek.join(',') : '';
+    const rangeBits = [];
+    if (r.range && r.range.startDate) rangeBits.push(`from ${r.range.startDate}`);
+    if (r.range && r.range.endDate) rangeBits.push(`until ${r.range.endDate}`);
+    return `${r.pattern.type} every ${interval}${days ? ` on ${days}` : ''}${rangeBits.length ? ' ' + rangeBits.join(' ') : ''}`;
+  } catch {
+    return '(invalid)';
+  }
+}
+
+/**
+ * Pre-process a single change row before rendering.
+ * Intercepts recurrence entries and replaces raw JSON with a readable summary.
+ * Also normalises entries that carry 'field' instead of 'displayName'.
+ * @param {Object} change
+ * @returns {Object} Normalised change row ready for HTML rendering
+ */
+function formatChangeRow(change) {
+  if (!change) return change;
+
+  // Normalise field -> displayName when the raw audit object is passed directly
+  const displayName = change.displayName || change.field || '';
+
+  if (change.field === 'recurrence' || displayName === 'recurrence') {
+    const oldVal = change.oldValue && change.oldValue !== '(none)' ? summarizeRecurrenceFromJson(change.oldValue) : '(none)';
+    const newVal = change.newValue && change.newValue !== '(none)' ? summarizeRecurrenceFromJson(change.newValue) : '(none)';
+    return { ...change, displayName: 'Recurrence', oldValue: oldVal, newValue: newVal };
+  }
+
+  return { ...change, displayName };
+}
+
+/**
  * Build HTML table for review changes in approval email
  * @param {Array<{displayName: string, oldValue: string, newValue: string}>} changes
  * @returns {string} HTML table string
@@ -1630,13 +1672,14 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
 function buildChangesTableHtml(changes) {
   if (!changes || changes.length === 0) return '';
 
-  const rows = changes.map(change =>
-    `<tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 8px; color: #2d3748; font-weight: 500;">${escapeHtml(change.displayName)}</td>
-      <td style="padding: 8px; color: #718096; text-decoration: line-through;">${escapeHtml(change.oldValue)}</td>
-      <td style="padding: 8px; color: #2d3748; font-weight: 600;">${escapeHtml(change.newValue)}</td>
-    </tr>`
-  ).join('\n      ');
+  const rows = changes.map(change => {
+    const row = formatChangeRow(change);
+    return `<tr style="border-bottom: 1px solid #e2e8f0;">
+      <td style="padding: 8px; color: #2d3748; font-weight: 500;">${escapeHtml(row.displayName)}</td>
+      <td style="padding: 8px; color: #718096; text-decoration: line-through;">${escapeHtml(String(row.oldValue ?? ''))}</td>
+      <td style="padding: 8px; color: #2d3748; font-weight: 600;">${escapeHtml(String(row.newValue ?? ''))}</td>
+    </tr>`;
+  }).join('\n      ');
 
   return `<table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
     <thead>
@@ -1673,6 +1716,8 @@ module.exports = {
   extractVariables,
   escapeHtml,
   buildChangesTableHtml,
+  summarizeRecurrenceFromJson,
+  formatChangeRow,
 
   // Generator functions (backward compatible)
   generateSubmissionConfirmation,

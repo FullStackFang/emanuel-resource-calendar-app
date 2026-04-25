@@ -6,6 +6,7 @@
  * we compute a delta of what they changed relative to the original
  * published event data.
  */
+import { recurrenceEquals, summarizeRecurrenceShort } from './recurrenceCompare';
 
 /**
  * Fields tracked in edit requests that can be compared.
@@ -176,10 +177,15 @@ export function buildEditRequestViewData(event, currentData) {
     //    only contains calendar data fields — never 'status', '_version', etc.)
     pendingEditRequest: event.pendingEditRequest,
 
-    // 4. Merge proposed changes into calendarData for transformEventToFlatStructure on remount
+    // 4. Explicit recurrence handling: ensure it lands at top-level even if decomposeProposedChanges
+    //    ever drops object-typed values in the future.
+    ...(proposed.recurrence !== undefined ? { recurrence: proposed.recurrence } : {}),
+
+    // 5. Merge proposed changes into calendarData for transformEventToFlatStructure on remount
     calendarData: {
       ...(currentData?.calendarData || {}),
       ...decomposed,
+      ...(proposed.recurrence !== undefined ? { recurrence: proposed.recurrence } : {}),
     },
   };
 }
@@ -247,6 +253,11 @@ export function computeApproverChanges(currentFormData, originalEventData) {
     changes.endDateTime = currentEnd;
   }
 
+  // Recurrence: top-level field, deep object compare via recurrenceEquals.
+  if (!recurrenceEquals(currentFormData.recurrence || null, originalEventData.recurrence || null)) {
+    changes.recurrence = currentFormData.recurrence || null;
+  }
+
   return Object.keys(changes).length > 0 ? changes : null;
 }
 
@@ -302,6 +313,18 @@ export function computeDetectedChanges(originalData, currentData) {
   const currentCategories = (currentData.categories || currentData.mecCategories || []).join(', ');
   if (originalCategories !== currentCategories) {
     changes.push({ field: 'categories', label: 'Categories', oldValue: originalCategories || '(none)', newValue: currentCategories || '(none)' });
+  }
+
+  // Recurrence diff (single pseudo-field row with summary text on each side).
+  const oldR = originalData.recurrence || null;
+  const newR = currentData.recurrence || null;
+  if (!recurrenceEquals(oldR, newR)) {
+    changes.push({
+      field: 'recurrence',
+      label: 'Recurrence',
+      oldValue: summarizeRecurrenceShort(oldR) || '(none)',
+      newValue: summarizeRecurrenceShort(newR) || '(none)',
+    });
   }
 
   return changes;
