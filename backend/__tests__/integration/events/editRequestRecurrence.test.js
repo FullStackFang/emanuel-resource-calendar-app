@@ -10,7 +10,7 @@ const request = require('supertest');
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
-const { createRecurringSeriesMaster, insertEvents } = require('../../__helpers__/eventFactory');
+const { createRecurringSeriesMaster, createPublishedEvent, insertEvents } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 
@@ -306,4 +306,51 @@ describe('Edit Request Tests — Recurrence (ER-R0 to ER-R5)', () => {
       expect(cleanedException.status).toBe('deleted');
     });
   });
+
+  describe('ER-R8: singleInstance -> seriesMaster promotion (Q2=B)', () => {
+    it('publish-edit flips eventType to seriesMaster and stores recurrence', async () => {
+      const event = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requesterName: requesterUser.displayName,
+        publishedBy: approverUser.email,
+      });
+      // Force singleInstance, no recurrence
+      event.recurrence = null;
+      event.eventType = 'singleInstance';
+      event.calendarData.startDate = '2026-04-20';
+      event.calendarData.startTime = '09:00';
+      event.calendarData.endDate = '2026-04-20';
+      event.calendarData.endTime = '10:00';
+      event.calendarData.startDateTime = '2026-04-20T09:00:00';
+      event.calendarData.endDateTime = '2026-04-20T10:00:00';
+      const [saved] = await insertEvents(db, [event]);
+
+      const newRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+        range: { type: 'noEnd', startDate: '2026-04-20' },
+      };
+
+      // Submit edit request with recurrence
+      const submitRes = await request(app)
+        .post(`/api/events/${saved._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ recurrence: newRecurrence, _version: event._version });
+      expect(submitRes.status).toBe(201);
+
+      const submitted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+
+      // Approver publishes the edit
+      const pubRes = await request(app)
+        .put(`/api/admin/events/${saved._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: submitted._version });
+      expect(pubRes.status).toBe(200);
+
+      const promoted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+      expect(promoted.eventType).toBe('seriesMaster');
+      expect(promoted.recurrence).toEqual(newRecurrence);
+    });
+  });
+
 });
