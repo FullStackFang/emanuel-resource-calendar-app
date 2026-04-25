@@ -25,6 +25,7 @@ const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = r
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
+const { recurrenceEquals, exclusionsRemoved } = require('./utils/recurrenceCompare');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
@@ -19825,6 +19826,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       organizerPhone,
       organizerEmail,
       _version,
+      recurrence,                  // NEW: full recurrence object { pattern, range, exclusions, additions }
       // Recurring event scope fields (for per-occurrence edit requests)
       editScope,        // 'thisEvent' | 'allEvents' | undefined
       occurrenceDate,   // ISO date string e.g. '2026-03-12' | undefined
@@ -19915,9 +19917,11 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       });
     }
 
-    // Prevent date changes on recurring series masters (dates are tied to recurrence pattern).
+    // Per-master date moves on recurring series remain blocked: dates are tied to the recurrence
+    // pattern, so a date change MUST come bundled with a recurrence change. The recurrence path
+    // handles its own date derivation in publish-edit (Q3=A — range.startDate becomes master start).
     // Single-occurrence edits (editScope === 'thisEvent') are exempt — they go to occurrenceOverrides.
-    if (originalEvent.eventType === 'seriesMaster' && editScope !== 'thisEvent' && (startDateTime || endDateTime)) {
+    if (originalEvent.eventType === 'seriesMaster' && editScope !== 'thisEvent' && (startDateTime || endDateTime) && !recurrence) {
       const cd = originalEvent.calendarData || {};
       const originalStartDate = extractDatePart(cd.startDateTime);
       const originalEndDate = extractDatePart(cd.endDateTime);
@@ -19927,7 +19931,20 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
           (proposedEndDate && proposedEndDate !== originalEndDate)) {
         return res.status(400).json({
-          error: 'Date changes are not allowed in edit requests for recurring series. Only time changes are permitted. Contact an administrator to modify the recurrence pattern.'
+          error: 'Date changes are not allowed in edit requests for recurring series unless bundled with a recurrence change. Submit the new recurrence pattern (whose range.startDate sets the new series start), or contact an administrator.'
+        });
+      }
+    }
+
+    // Q5=A: Block exclusion-removal. Graph cannot un-cancel a previously-deleted occurrence,
+    // so allowing this would create a split-brain (MongoDB shows occurrence; Outlook does not).
+    if (recurrence !== undefined && originalEvent.recurrence) {
+      const removed = exclusionsRemoved(originalEvent.recurrence, recurrence);
+      if (removed.length > 0) {
+        return res.status(400).json({
+          error: 'EXCLUSION_REMOVAL_NOT_SUPPORTED',
+          message: 'Removing previously-cancelled occurrences from a recurring series is not supported via edit request. Affected dates: ' + removed.join(', '),
+          removedExclusions: removed
         });
       }
     }
@@ -20084,6 +20101,20 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
         oldValue: JSON.stringify(cd.services || {}),
         newValue: JSON.stringify(services)
       });
+    }
+
+    // Recurrence comparison (deep object compare via recurrenceEquals).
+    // Compares against top-level event.recurrence (authoritative source) with calendarData fallback.
+    if (recurrence !== undefined) {
+      const baselineRecurrence = originalEvent.recurrence || (originalEvent.calendarData && originalEvent.calendarData.recurrence) || null;
+      if (!recurrenceEquals(recurrence, baselineRecurrence)) {
+        proposedChanges.recurrence = recurrence;
+        changesArray.push({
+          field: 'recurrence',
+          oldValue: baselineRecurrence ? JSON.stringify(baselineRecurrence) : '(none)',
+          newValue: recurrence ? JSON.stringify(recurrence) : '(none)'
+        });
+      }
     }
 
     // Handle contact person changes
