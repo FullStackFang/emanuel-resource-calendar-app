@@ -159,6 +159,13 @@ describe('Edit Request Tests — Recurrence (ER-R0 to ER-R5)', () => {
     });
   });
 
+  // Helper: build AND insert a published seriesMaster, returning the saved doc with _id.
+  async function insertPublishedSeriesMaster({ exclusions = [] } = {}) {
+    const event = publishedSeriesMaster({ exclusions });
+    const [saved] = await insertEvents(db, [event]);
+    return saved;
+  }
+
   describe('ER-R0: replaces old date-change block — date moves are now allowed when bundled with recurrence (Q3=A)', () => {
     it('does NOT 400 when startDateTime change is implied by recurrence.range.startDate change', async () => {
       const event = publishedSeriesMaster();
@@ -194,6 +201,109 @@ describe('Edit Request Tests — Recurrence (ER-R0 to ER-R5)', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Date changes are not allowed/);
+    });
+  });
+
+  describe('ER-R4: publish-edit applies recurrence to master', () => {
+    it('updates event.recurrence and increments _version', async () => {
+      const event = await insertPublishedSeriesMaster();
+      const newRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday', 'thursday'] },
+        range: { type: 'noEnd', startDate: '2026-04-21' },
+      };
+
+      // Submit edit request
+      await request(app)
+        .post(`/api/events/${event._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ recurrence: newRecurrence, _version: event._version });
+
+      const submitted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+      expect(submitted.pendingEditRequest.proposedChanges.recurrence).toEqual(newRecurrence);
+
+      // Approver publishes
+      const res = await request(app)
+        .put(`/api/admin/events/${event._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: submitted._version });
+
+      expect(res.status).toBe(200);
+      const published = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+      expect(published.recurrence).toEqual(newRecurrence);
+      expect(published.pendingEditRequest.status).toBe('approved');
+    });
+  });
+
+  describe('ER-R6: range.startDate change derives master.startDateTime (Q3=A)', () => {
+    it('publish-edit updates calendarData.startDateTime to match new range.startDate', async () => {
+      const event = await insertPublishedSeriesMaster();
+      const newRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+        range: { type: 'noEnd', startDate: '2026-05-04' },
+      };
+
+      await request(app)
+        .post(`/api/events/${event._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ recurrence: newRecurrence, _version: event._version });
+
+      const submitted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+
+      const res = await request(app)
+        .put(`/api/admin/events/${event._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: submitted._version });
+
+      expect(res.status).toBe(200);
+      const published = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+      expect(published.calendarData.startDateTime.startsWith('2026-05-04')).toBe(true);
+      expect(published.calendarData.startDate).toBe('2026-05-04');
+    });
+  });
+
+  describe('ER-R7: orphaned override docs are soft-deleted on pattern change (Q1=B)', () => {
+    it('soft-deletes exception docs whose occurrenceDate is not in the new pattern', async () => {
+      const event = await insertPublishedSeriesMaster();
+      // Insert an exception doc on a Wednesday (NOT in the 'monday'-only pattern — dirty data).
+      const exceptionDoc = {
+        eventId: `${event.eventId}-exception-1`,
+        seriesMasterId: event.eventId,
+        seriesMasterEventId: event.eventId,
+        occurrenceDate: '2026-04-22',
+        eventType: 'exception',
+        status: 'published',
+        isDeleted: false,
+        _version: 1,
+        calendarOwner: event.calendarOwner,
+        calendarId: event.calendarId,
+        overrides: { eventTitle: 'Exception Title' },
+      };
+      await db.collection(COLLECTIONS.EVENTS).insertOne(exceptionDoc);
+
+      // Submit a recurrence change. The new pattern is also 'monday'-only, so the exception
+      // doc on Wednesday is still orphaned and should be cleaned up.
+      const newRecurrence = {
+        pattern: { type: 'weekly', interval: 2, daysOfWeek: ['monday'] },
+        range: { type: 'noEnd', startDate: '2026-04-20' },
+      };
+
+      await request(app)
+        .post(`/api/events/${event._id}/request-edit`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ recurrence: newRecurrence, _version: event._version });
+
+      const submitted = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: event.eventId });
+
+      const res = await request(app)
+        .put(`/api/admin/events/${event._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: submitted._version });
+
+      expect(res.status).toBe(200);
+
+      const cleanedException = await db.collection(COLLECTIONS.EVENTS).findOne({ eventId: exceptionDoc.eventId });
+      expect(cleanedException.isDeleted).toBe(true);
+      expect(cleanedException.status).toBe('deleted');
     });
   });
 });
