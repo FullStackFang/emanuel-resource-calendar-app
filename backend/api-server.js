@@ -26,6 +26,7 @@ const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/er
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { recurrenceEquals, exclusionsRemoved } = require('./utils/recurrenceCompare');
+const { findOrphanedOverrides } = require('./utils/recurrenceOrphanCleanup');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
@@ -20629,7 +20630,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const hasTimeOrRoomChange = finalChanges.startDateTime || finalChanges.endDateTime ||
       finalChanges.locations || finalChanges.requestedRooms ||
       finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined ||
-      finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined;
+      finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined ||
+      finalChanges.recurrence !== undefined;  // Pattern change moves the entire occurrence set.
 
     if (hasTimeOrRoomChange && !forcePublishEdit) {
       let conflictReservation;
@@ -20927,6 +20929,24 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
     // Concurrent modification check is now handled atomically via _version
 
+    // Declare ahead of conditionalUpdate so it's reachable at the response site.
+    let orphanedDocsCleaned = [];
+
+    // Q3=A: When recurrence changes, derive master start/end dates from range.startDate.
+    // The master's date is downstream of the recurrence range. We synthesize the date fields
+    // into finalChanges so remapToCalendarData picks them up and Graph sync sees them.
+    if (finalChanges.recurrence && finalChanges.recurrence.range && finalChanges.recurrence.range.startDate) {
+      const newStartDate = finalChanges.recurrence.range.startDate;
+      const existingStartTime = (cd.startDateTime || '').split('T')[1] || (cd.startTime ? `${cd.startTime}:00` : '00:00:00');
+      const existingEndTime = (cd.endDateTime || '').split('T')[1] || (cd.endTime ? `${cd.endTime}:00` : '23:59:00');
+      const newEndDate = newStartDate;  // v1: same-day events. Multi-day series are out of scope.
+
+      if (!finalChanges.startDateTime) finalChanges.startDateTime = `${newStartDate}T${existingStartTime}`;
+      if (!finalChanges.endDateTime) finalChanges.endDateTime = `${newEndDate}T${existingEndTime}`;
+      if (!finalChanges.startDate) finalChanges.startDate = newStartDate;
+      if (!finalChanges.endDate) finalChanges.endDate = newEndDate;
+    }
+
     // Build update object - apply final changes to calendarData
     const updateFields = {};
 
@@ -20934,6 +20954,17 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     // Apply all final changes — remap calendar fields to calendarData.* (shared builder)
     const remappedFields = remapToCalendarData(finalChanges);
     Object.assign(updateFields, remappedFields);
+
+    // Recurrence is stored at top level (not in calendarData). remapToCalendarData falls
+    // through non-CALENDAR_DATA_FIELDS to top-level already, but we set it explicitly for
+    // clarity and to handle Q2=B promotion.
+    if (finalChanges.recurrence !== undefined) {
+      updateFields.recurrence = finalChanges.recurrence;
+      // Q2=B: promotion — singleInstance becomes seriesMaster when recurrence is added.
+      if (finalChanges.recurrence && finalChanges.recurrence.pattern && event.eventType !== 'seriesMaster') {
+        updateFields.eventType = 'seriesMaster';
+      }
+    }
 
     // Update pendingEditRequest status
     updateFields['pendingEditRequest.status'] = 'approved';
@@ -20963,6 +20994,60 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         return res.status(409).json(err.toJSON());
       }
       throw err;
+    }
+
+    // Q1=B: Orphan reconciliation. Find override docs that no longer fit the new pattern
+    // and soft-delete them with audit entries. Runs AFTER master conditionalUpdate succeeds
+    // so a 409 conflict does not trigger orphan cleanup.
+    if (finalChanges.recurrence) {
+      try {
+        const overrideDocs = await unifiedEventsCollection.find({
+          seriesMasterEventId: event.eventId,
+          eventType: { $in: ['exception', 'addition'] },
+          isDeleted: { $ne: true }
+        }).toArray();
+
+        const orphans = findOrphanedOverrides(finalChanges.recurrence, overrideDocs);
+        if (orphans.length > 0) {
+          const orphanIds = orphans.map(o => o._id);
+          const now = new Date();
+          await unifiedEventsCollection.updateMany(
+            { _id: { $in: orphanIds } },
+            {
+              $set: {
+                isDeleted: true,
+                status: 'deleted',
+                deletedAt: now,
+                deletedBy: userEmail,
+                deletionReason: `Auto-deleted: orphaned by recurrence pattern change (edit request ${pendingEditRequest.id})`
+              },
+              $inc: { _version: 1 }
+            }
+          );
+
+          for (const orphan of orphans) {
+            await eventAuditHistoryCollection.insertOne({
+              eventId: orphan.eventId,
+              reservationId: orphan._id,
+              action: 'orphan-cleanup',
+              performedBy: userId,
+              performedByEmail: userEmail,
+              timestamp: now,
+              changes: [{ field: 'status', oldValue: orphan.status, newValue: 'deleted' }],
+              metadata: {
+                seriesMasterEventId: event.eventId,
+                editRequestId: pendingEditRequest.id,
+                reason: 'orphaned-by-pattern-change',
+                occurrenceDate: orphan.occurrenceDate,
+              }
+            });
+          }
+          orphanedDocsCleaned = orphans.map(o => ({ eventId: o.eventId, occurrenceDate: o.occurrenceDate }));
+          logger.info('Orphan override cleanup complete', { count: orphans.length, masterEventId: event.eventId });
+        }
+      } catch (cleanupErr) {
+        logger.error('Orphan override cleanup failed (non-fatal):', cleanupErr.message);
+      }
     }
 
     // Sync changes to Graph API via app-only auth (graphApiService)
@@ -21056,12 +21141,37 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
           }
         }
 
+        // Recurrence sync to Graph: PATCH the event with the new pattern.
+        // For promotion (Q2=B), this converts a singleInstance Graph event into a series.
+        if (finalChanges.recurrence) {
+          const graphRecurrence = buildGraphRecurrence(finalChanges.recurrence, 'America/New_York');
+          if (graphRecurrence) {
+            graphUpdate.recurrence = graphRecurrence;
+          }
+        }
+
         graphSyncResult = await graphApiService.updateCalendarEvent(
           event.calendarOwner,
           event.calendarId,
           graphEventId,
           graphUpdate
         );
+
+        // For recurrence changes that include exclusions, replay them to Graph (cancels matching occurrences).
+        // Note: This only adds new exclusions; removing them is blocked at submit time (Q5=A).
+        if (finalChanges.recurrence && finalChanges.recurrence.exclusions && finalChanges.recurrence.exclusions.length > 0) {
+          try {
+            await syncRecurrenceExclusionsToGraph(
+              event.calendarOwner,
+              event.calendarId,
+              graphEventId,
+              finalChanges.recurrence
+            );
+          } catch (exclSyncErr) {
+            logger.warn('Failed to sync recurrence exclusions on publish-edit (non-fatal):', exclSyncErr.message);
+          }
+        }
+
         logger.info('Graph event updated successfully via graphApiService:', { graphEventId });
       } catch (graphError) {
         logger.error('Failed to update Graph event (non-blocking):', graphError.message);
@@ -21183,6 +21293,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       eventId: event.eventId,
       _version: publishedEditEvent._version,
       changesApplied: finalChanges,
+      orphanedDocsCleaned,  // Q1=B: surface to frontend so it can show "X overrides were cleaned up."
       graphSynced: !!graphSyncResult
     });
 
