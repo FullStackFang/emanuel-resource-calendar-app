@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeDetectedChanges, computeApproverChanges } from '../../../utils/editRequestUtils';
+import { buildEditRequestPayload } from '../../../utils/eventPayloadBuilder';
 
 const baseFields = {
   eventTitle: 'Weekly Standup',
@@ -71,5 +72,25 @@ describe('computeApproverChanges — recurrence', () => {
     const delta = computeApproverChanges(current, original);
     expect(delta).not.toBeNull();
     expect(delta.recurrence).toEqual(weeklyMonWed);
+  });
+});
+
+describe('buildEditRequestPayload — recurrence', () => {
+  it('includes recurrence when provided', () => {
+    const data = {
+      eventTitle: 'X',
+      startDate: '2026-04-20', startTime: '09:00',
+      endDate: '2026-04-20', endTime: '10:00',
+      attendeeCount: 5,
+      recurrence: { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } },
+    };
+    const payload = buildEditRequestPayload(data, { eventVersion: 1 });
+    expect(payload.recurrence).toEqual(data.recurrence);
+  });
+
+  it('omits recurrence key when not provided (gets stripped by JSON.stringify)', () => {
+    const data = { eventTitle: 'X', startDate: '2026-04-20', startTime: '09:00', endDate: '2026-04-20', endTime: '10:00' };
+    const payload = buildEditRequestPayload(data, { eventVersion: 1 });
+    expect(JSON.parse(JSON.stringify(payload)).recurrence).toBeUndefined();
   });
 });
