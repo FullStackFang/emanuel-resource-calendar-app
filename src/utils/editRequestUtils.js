@@ -177,10 +177,15 @@ export function buildEditRequestViewData(event, currentData) {
     //    only contains calendar data fields — never 'status', '_version', etc.)
     pendingEditRequest: event.pendingEditRequest,
 
-    // 4. Merge proposed changes into calendarData for transformEventToFlatStructure on remount
+    // 4. Explicit recurrence handling: ensure it lands at top-level even if decomposeProposedChanges
+    //    ever drops object-typed values in the future.
+    ...(proposed.recurrence !== undefined ? { recurrence: proposed.recurrence } : {}),
+
+    // 5. Merge proposed changes into calendarData for transformEventToFlatStructure on remount
     calendarData: {
       ...(currentData?.calendarData || {}),
       ...decomposed,
+      ...(proposed.recurrence !== undefined ? { recurrence: proposed.recurrence } : {}),
     },
   };
 }

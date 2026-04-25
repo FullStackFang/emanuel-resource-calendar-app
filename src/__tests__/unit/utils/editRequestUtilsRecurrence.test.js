@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeDetectedChanges, computeApproverChanges } from '../../../utils/editRequestUtils';
+import { computeDetectedChanges, computeApproverChanges, buildEditRequestViewData } from '../../../utils/editRequestUtils';
 import { buildEditRequestPayload } from '../../../utils/eventPayloadBuilder';
 
 const baseFields = {
@@ -72,6 +72,24 @@ describe('computeApproverChanges — recurrence', () => {
     const delta = computeApproverChanges(current, original);
     expect(delta).not.toBeNull();
     expect(delta.recurrence).toEqual(weeklyMonWed);
+  });
+});
+
+describe('buildEditRequestViewData — recurrence overlay', () => {
+  it('overlays proposed recurrence at top level', () => {
+    const event = {
+      _version: 3,
+      calendarData: { eventTitle: 'X' },
+      recurrence: { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } },
+      pendingEditRequest: {
+        proposedChanges: {
+          recurrence: { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } },
+        },
+      },
+    };
+    const result = buildEditRequestViewData(event, { calendarData: event.calendarData, recurrence: event.recurrence });
+    expect(result.recurrence.pattern.daysOfWeek).toEqual(['monday', 'wednesday']);
+    expect(result.calendarData.recurrence.pattern.daysOfWeek).toEqual(['monday', 'wednesday']);
   });
 });
 
