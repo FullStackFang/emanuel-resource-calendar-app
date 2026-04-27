@@ -20316,6 +20316,1242 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
   }
 });
 
+// ============================================================================
+// EDIT REQUESTS — Phase 1b: First-Class Collection Endpoints
+// ============================================================================
+// New endpoints write to templeEvents__EditRequests collection. Each request is
+// its own document with independent lifecycle, OCC version, and audit trail.
+// Multiple parallel pending requests per event are allowed across users.
+// Same-user duplicate guard scoped to (userId, eventId, occurrenceDate).
+//
+// Phase 1b ships these alongside the legacy embedded endpoints. Phase 1d
+// converts the legacy endpoints to facades that delegate to these handlers.
+// ============================================================================
+
+/**
+ * Resolve an event by either its ObjectId or its string eventId.
+ * Returns the event document or null.
+ */
+async function resolveEventForEditRequest(eventIdentifier) {
+  if (!eventIdentifier) return null;
+  // ObjectId lookup first (most common case from frontend)
+  try {
+    const byObjectId = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventIdentifier) });
+    if (byObjectId) return byObjectId;
+  } catch (_) {
+    // not a valid ObjectId — fall through to string lookup
+  }
+  return unifiedEventsCollection.findOne({ eventId: eventIdentifier });
+}
+
+/**
+ * Build a baseline snapshot of the event's authoritative state at submit time.
+ * Used later for stale-baseline detection at review time and (Phase 2) for
+ * three-way-merge rebasing.
+ */
+function buildEditRequestBaselineSnapshot(event) {
+  const cd = event.calendarData || {};
+  return {
+    _version: event._version || 1,
+    eventTitle: cd.eventTitle || event.eventTitle || null,
+    startDateTime: cd.startDateTime || event.startDateTime || null,
+    endDateTime: cd.endDateTime || event.endDateTime || null,
+    locations: cd.locations || event.locations || [],
+    recurrence: event.recurrence || cd.recurrence || null,
+  };
+}
+
+/**
+ * POST /api/edit-requests
+ *
+ * Create a new edit request for a published event. Writes to the
+ * templeEvents__EditRequests collection. Does NOT touch the event document.
+ * Permission gate: isOwner OR isSameDepartment OR isOwnerlessEvent.
+ * Same-user duplicate guard: blocks when (userId, eventId, occurrenceDate)
+ * already has a pending request.
+ */
+app.post('/api/edit-requests', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const {
+      eventId: eventIdentifier,
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms: requestedRoomsParam,
+      locationIds,
+      specialRequirements,
+      department,
+      phone,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      isOffsite,
+      offsiteName,
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon,
+      categories,
+      services,
+      organizerName,
+      organizerPhone,
+      organizerEmail,
+      recurrence,
+      editScope,
+      occurrenceDate,
+      seriesMasterId,
+    } = req.body;
+
+    if (!eventIdentifier) {
+      return res.status(400).json({ error: 'eventId is required' });
+    }
+
+    const requestedRooms = requestedRoomsParam || locationIds;
+
+    const originalEvent = await resolveEventForEditRequest(eventIdentifier);
+    if (!originalEvent) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Published-only check (events without explicit status are implicitly published)
+    const hasExplicitStatus = originalEvent.status !== undefined;
+    const isPublished = hasExplicitStatus ? originalEvent.status === 'published' : true;
+    if (!isPublished) {
+      return res.status(400).json({
+        error: 'Edit requests can only be submitted for published events',
+        currentStatus: originalEvent.status,
+      });
+    }
+
+    // Permission gate: isOwner OR isSameDepartment OR isOwnerlessEvent
+    const isOwner =
+      originalEvent.createdBy === userId ||
+      (originalEvent.createdByEmail || '').toLowerCase() === (userEmail || '').toLowerCase() ||
+      originalEvent.roomReservationData?.requestedBy?.userId === userId ||
+      (originalEvent.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
+
+    let isSameDepartment = false;
+    if (!isOwner) {
+      const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+      const myDept = (requestingUser?.department || '').toLowerCase().trim();
+      if (myDept) {
+        const eventDept = (
+          originalEvent.roomReservationData?.requestedBy?.department ||
+          originalEvent.calendarData?.department ||
+          ''
+        ).toLowerCase().trim();
+        if (eventDept && eventDept === myDept) {
+          isSameDepartment = true;
+        } else {
+          const creatorUserId = originalEvent.roomReservationData?.requestedBy?.userId || originalEvent.createdBy;
+          const creatorEmail = originalEvent.roomReservationData?.requestedBy?.email || originalEvent.createdByEmail;
+          if (creatorUserId || creatorEmail) {
+            const creatorUser = await findUserByIdentity(usersCollection, creatorUserId, creatorEmail);
+            const creatorDept = (creatorUser?.department || '').toLowerCase().trim();
+            if (creatorDept && creatorDept === myDept) isSameDepartment = true;
+          }
+        }
+      }
+    }
+
+    const isOwnerlessEvent = !originalEvent.roomReservationData?.requestedBy?.email;
+
+    if (!isOwner && !isSameDepartment && !isOwnerlessEvent) {
+      return res.status(403).json({
+        error: 'Only the event owner or users in the same department can request edits',
+      });
+    }
+
+    // Same-user duplicate guard (the new model allows parallel requests across users,
+    // but blocks the same user from stacking requests for the same target).
+    const duplicateExisting = await editRequestsCollection.findOne({
+      eventId: originalEvent.eventId,
+      'requestedBy.userId': userId,
+      editScope: editScope || null,
+      occurrenceDate: occurrenceDate || null,
+      status: 'pending',
+    });
+    if (duplicateExisting) {
+      return res.status(400).json({
+        error: 'DUPLICATE_PENDING_REQUEST',
+        message: 'You already have a pending edit request for this event/occurrence',
+        existingEditRequestId: duplicateExisting.editRequestId,
+      });
+    }
+
+    // Q3=A — series-level date moves on recurring masters require a recurrence change.
+    // Single-occurrence edits (editScope === 'thisEvent') are exempt.
+    if (originalEvent.eventType === 'seriesMaster' && editScope !== 'thisEvent' && (startDateTime || endDateTime) && !recurrence) {
+      const cd = originalEvent.calendarData || {};
+      const originalStartDate = extractDatePart(cd.startDateTime);
+      const originalEndDate = extractDatePart(cd.endDateTime);
+      const proposedStartDate = extractDatePart(startDateTime);
+      const proposedEndDate = extractDatePart(endDateTime);
+      if ((proposedStartDate && proposedStartDate !== originalStartDate) ||
+          (proposedEndDate && proposedEndDate !== originalEndDate)) {
+        return res.status(400).json({
+          error: 'Date changes are not allowed in edit requests for recurring series unless bundled with a recurrence change.',
+        });
+      }
+    }
+
+    // Q5=A — block exclusion-removal (Graph cannot un-cancel).
+    if (recurrence !== undefined && originalEvent.recurrence) {
+      const removed = exclusionsRemoved(originalEvent.recurrence, recurrence);
+      if (removed.length > 0) {
+        return res.status(400).json({
+          error: 'EXCLUSION_REMOVAL_NOT_SUPPORTED',
+          message: 'Removing previously-cancelled occurrences from a recurring series is not supported via edit request. Affected dates: ' + removed.join(', '),
+          removedExclusions: removed,
+        });
+      }
+    }
+
+    // Mutual exclusion with pending cancellation (cancellation flow still uses embedded model).
+    if (originalEvent.pendingCancellationRequest && originalEvent.pendingCancellationRequest.status === 'pending') {
+      return res.status(400).json({
+        error: 'Cannot submit an edit request while a cancellation request is pending',
+      });
+    }
+
+    // Look up rooms for display name + ObjectId normalization
+    let roomNames = [];
+    let locationObjectIds = [];
+    if (!isOffsite && requestedRooms && requestedRooms.length > 0) {
+      try {
+        const roomQuery = requestedRooms.map((id) => {
+          try {
+            if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+              return new ObjectId(id);
+            }
+            return id;
+          } catch (_) { return id; }
+        });
+        const rooms = await locationsCollection.find({ _id: { $in: roomQuery }, isReservable: true }).toArray();
+        roomNames = rooms.map((r) => r.displayName || r.name || 'Unknown Room');
+        locationObjectIds = rooms.map((r) => r._id);
+      } catch (err) {
+        logger.error('Error looking up locations for edit request:', err);
+        roomNames = requestedRooms.map((id) => `Room ${id}`);
+      }
+    }
+    const locationDisplayName = isOffsite
+      ? `${offsiteName} (Offsite) - ${offsiteAddress}`
+      : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
+
+    // proposedChanges = delta against baseline. For occurrence-scoped edits,
+    // overlay any existing exception doc onto the master baseline.
+    const cd = originalEvent.calendarData || {};
+    let baselineData = cd;
+    if (editScope === 'thisEvent' && occurrenceDate) {
+      baselineData = { ...cd };
+      const dateKey = occurrenceDate.split('T')[0];
+      const existingException = await findExceptionForDate(unifiedEventsCollection, originalEvent.eventId, dateKey);
+      const overrideSource = existingException?.overrides
+        || (originalEvent.occurrenceOverrides || []).find((o) => o.occurrenceDate === dateKey);
+      if (overrideSource) {
+        for (const [k, v] of Object.entries(overrideSource)) {
+          if (k !== 'occurrenceDate') baselineData[k] = v;
+        }
+      }
+    }
+
+    const proposedChanges = {};
+    const changesArray = [];
+    const fieldsToCompare = [
+      'eventTitle', 'eventDescription',
+      'startDateTime', 'endDateTime',
+      'startTime', 'endTime',
+      'attendeeCount',
+      'setupTimeMinutes', 'teardownTimeMinutes',
+      'reservationStartMinutes', 'reservationEndMinutes',
+      'setupTime', 'teardownTime',
+      'reservationStartTime', 'reservationEndTime',
+      'doorOpenTime', 'doorCloseTime',
+      'setupNotes', 'doorNotes', 'eventNotes',
+      'specialRequirements',
+      'virtualMeetingUrl',
+      'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon',
+    ];
+    for (const field of fieldsToCompare) {
+      const newValue = req.body[field];
+      const oldValue = baselineData[field];
+      if (newValue !== undefined && newValue !== oldValue) {
+        proposedChanges[field] = newValue;
+        changesArray.push({ field, oldValue: oldValue || '', newValue });
+      }
+    }
+
+    // Rooms / locations
+    const newRooms = requestedRooms || [];
+    const oldRooms = baselineData.locations || cd.locations || [];
+    const normalizedNewRooms = newRooms.map((id) => id?.toString?.() || String(id)).sort();
+    const normalizedOldRooms = oldRooms.map((id) => id?.toString?.() || String(id)).sort();
+    const roomsChanged = JSON.stringify(normalizedNewRooms) !== JSON.stringify(normalizedOldRooms);
+    if (requestedRooms !== undefined && roomsChanged) {
+      const normalizedLocationIds = locationObjectIds.length > 0
+        ? locationObjectIds
+        : requestedRooms.map((id) => new ObjectId(id));
+      proposedChanges.requestedRooms = normalizedLocationIds;
+      proposedChanges.locations = normalizedLocationIds;
+      proposedChanges.locationDisplayNames = locationDisplayName;
+      changesArray.push({
+        field: 'locations',
+        oldValue: cd.locationDisplayNames || '',
+        newValue: locationDisplayName,
+      });
+    }
+
+    // Categories
+    const newCategories = categories || [];
+    const oldCategories = cd.categories || [];
+    if (categories !== undefined && JSON.stringify(newCategories.slice().sort()) !== JSON.stringify(oldCategories.slice().sort())) {
+      proposedChanges.categories = categories;
+      changesArray.push({
+        field: 'categories',
+        oldValue: oldCategories.join(', '),
+        newValue: newCategories.join(', '),
+      });
+    }
+
+    // Services
+    if (services !== undefined && JSON.stringify(services) !== JSON.stringify(cd.services || {})) {
+      proposedChanges.services = services;
+      changesArray.push({
+        field: 'services',
+        oldValue: JSON.stringify(cd.services || {}),
+        newValue: JSON.stringify(services),
+      });
+    }
+
+    // Recurrence (deep compare)
+    if (recurrence !== undefined) {
+      const baselineRecurrence = originalEvent.recurrence || (originalEvent.calendarData && originalEvent.calendarData.recurrence) || null;
+      if (!recurrenceEquals(recurrence, baselineRecurrence)) {
+        proposedChanges.recurrence = recurrence;
+        changesArray.push({
+          field: 'recurrence',
+          oldValue: baselineRecurrence ? JSON.stringify(baselineRecurrence) : '(none)',
+          newValue: recurrence ? JSON.stringify(recurrence) : '(none)',
+        });
+      }
+    }
+
+    // Contact-on-behalf
+    if (isOnBehalfOf !== undefined) {
+      proposedChanges.isOnBehalfOf = isOnBehalfOf;
+      proposedChanges.contactName = contactName;
+      proposedChanges.contactEmail = contactEmail;
+    }
+
+    // Organizer fields
+    for (const field of ['organizerName', 'organizerPhone', 'organizerEmail']) {
+      const newVal = req.body[field];
+      if (newVal === undefined) continue;
+      const oldVal = cd[field] || '';
+      if (valuesAreDifferent(oldVal, newVal)) {
+        proposedChanges[field] = newVal;
+        changesArray.push({ field, oldValue: oldVal, newValue: newVal });
+      }
+    }
+
+    const requesterName = originalEvent.roomReservationData?.requestedBy?.name || userEmail;
+    const editRequestId = `edit-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date();
+
+    const editRequestDoc = {
+      _version: 1,
+      editRequestId,
+      eventId: originalEvent.eventId,
+      eventObjectId: originalEvent._id,
+
+      editScope: editScope || null,
+      occurrenceDate: occurrenceDate || null,
+      seriesMasterId: seriesMasterId || null,
+
+      status: 'pending',
+      statusHistory: [{ status: 'pending', changedAt: now, changedBy: userId }],
+
+      requestedBy: {
+        userId,
+        email: userEmail,
+        name: requesterName,
+        department: department || originalEvent.roomReservationData?.requestedBy?.department || '',
+        phone: phone || originalEvent.roomReservationData?.requestedBy?.phone || '',
+      },
+      requestedAt: now,
+
+      proposedChanges,
+      baselineSnapshot: buildEditRequestBaselineSnapshot(originalEvent),
+
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: '',
+
+      createdAt: now,
+      lastModifiedDateTime: now,
+      lastModifiedBy: userId,
+    };
+
+    const insertResult = await editRequestsCollection.insertOne(editRequestDoc);
+    const insertedId = insertResult.insertedId;
+
+    // Audit log
+    await eventAuditHistoryCollection.insertOne({
+      eventId: originalEvent.eventId,
+      reservationId: originalEvent._id,
+      action: 'edit-request-submitted',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: now,
+      changes: [],
+      metadata: {
+        editRequestId,
+        editRequestDocId: insertedId,
+        proposedChanges,
+        ...(editScope && { editScope }),
+        ...(occurrenceDate && { occurrenceDate }),
+      },
+    });
+
+    logger.info('Edit request created (collection model):', {
+      editRequestId,
+      eventId: originalEvent.eventId,
+      requestedBy: userEmail,
+      changesCount: Object.keys(proposedChanges).length,
+    });
+
+    // Email shape mirrors the legacy endpoint so existing templates work unchanged.
+    const editRequestForEmail = {
+      _id: originalEvent._id,
+      eventId: originalEvent.eventId,
+      eventTitle: proposedChanges.eventTitle || originalEvent.eventTitle || cd.eventTitle,
+      startDateTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
+      endDateTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
+      requesterName,
+      requesterEmail: userEmail,
+      startTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
+      endTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
+      locationDisplayNames: proposedChanges.locationDisplayNames || originalEvent.locationDisplayNames || cd.locationDisplayNames || locationDisplayName,
+      proposedChanges: changesArray,
+    };
+
+    try {
+      await emailService.sendEditRequestSubmittedConfirmation(editRequestForEmail);
+    } catch (emailError) {
+      logger.error('Edit request confirmation email failed:', emailError.message);
+    }
+    try {
+      await emailService.sendAdminEditRequestAlert(editRequestForEmail);
+    } catch (emailError) {
+      logger.error('Admin edit request alert email failed:', emailError.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      editRequestId,
+      requestId: insertedId,
+      eventId: originalEvent.eventId,
+      _version: 1,
+      message: 'Edit request submitted successfully',
+      proposedChanges,
+    });
+
+    broadcastEventChange({
+      eventId: originalEvent.eventId,
+      action: 'edit-requested',
+      actorEmail: userEmail,
+      requesterEmail: originalEvent.roomReservationData?.requestedBy?.email,
+      event: originalEvent,
+      oldStatus: 'published',
+      newStatus: 'published',
+    });
+  } catch (error) {
+    logger.error('Error creating edit request (collection model):', error);
+    res.status(500).json({ error: 'Failed to create edit request' });
+  }
+});
+
+/**
+ * GET /api/edit-requests
+ *
+ * List edit requests with optional filters (eventId, userId, status). Approvers
+ * and admins may query any user/event; requesters are scoped to their own
+ * userId regardless of what they pass in.
+ *
+ * Query params:
+ *   eventId    — filter by event
+ *   userId     — filter by requester (scoped to self for non-approvers)
+ *   status     — pending | approved | rejected | withdrawn | superseded
+ *   limit      — default 50, max 200
+ *   skip       — default 0
+ *   sort       — newest (default) | oldest
+ */
+app.get('/api/edit-requests', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+    const isApproverOrAdmin = canViewAllReservations(requestingUser, userEmail);
+
+    const {
+      eventId: eventIdFilter,
+      userId: userIdFilter,
+      status: statusFilter,
+      sort = 'newest',
+    } = req.query;
+
+    const limit = Math.min(Number.parseInt(req.query.limit, 10) || 50, 200);
+    const skip = Math.max(Number.parseInt(req.query.skip, 10) || 0, 0);
+
+    const query = {};
+    if (eventIdFilter) query.eventId = eventIdFilter;
+    if (statusFilter) query.status = statusFilter;
+
+    // Requesters can only see their own requests. Approvers/admins can filter
+    // by any userId (or omit it).
+    if (isApproverOrAdmin) {
+      if (userIdFilter) query['requestedBy.userId'] = userIdFilter;
+    } else {
+      query['requestedBy.userId'] = userId;
+    }
+
+    const sortDir = sort === 'oldest' ? 1 : -1;
+
+    const totalCount = await editRequestsCollection.countDocuments(query);
+    const editRequests = await editRequestsCollection
+      .find(query)
+      .sort({ requestedAt: sortDir })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({ editRequests, totalCount, limit, skip });
+  } catch (error) {
+    logger.error('Error listing edit requests:', error);
+    res.status(500).json({ error: 'Failed to list edit requests' });
+  }
+});
+
+/**
+ * GET /api/edit-requests/:id
+ *
+ * Fetch a single edit request by its document _id. Includes:
+ *   - the full request document
+ *   - the parent event's current `_version` and key fields (for stale-baseline display)
+ *   - `baselineShifted: true` when the parent event's _version has moved since
+ *     the request was submitted (advisory only; does not block any action)
+ *
+ * Permission: approvers/admins can read any request; requesters only their own.
+ */
+app.get('/api/edit-requests/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    let editRequest;
+    try {
+      editRequest = await editRequestsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    } catch (_) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+    const isApproverOrAdmin = canViewAllReservations(requestingUser, userEmail);
+    const isOwnRequest = editRequest.requestedBy?.userId === userId
+      || (editRequest.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
+
+    if (!isApproverOrAdmin && !isOwnRequest) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Look up parent event to compute stale-baseline advisory
+    const parentEvent = await unifiedEventsCollection.findOne({
+      eventId: editRequest.eventId,
+    });
+
+    let baselineShifted = false;
+    let event = null;
+    if (parentEvent) {
+      const baselineVersion = editRequest.baselineSnapshot?._version || null;
+      const currentVersion = parentEvent._version || null;
+      if (baselineVersion !== null && currentVersion !== null && currentVersion !== baselineVersion) {
+        baselineShifted = true;
+      }
+      const cd = parentEvent.calendarData || {};
+      event = {
+        _id: parentEvent._id,
+        eventId: parentEvent.eventId,
+        _version: currentVersion,
+        status: parentEvent.status,
+        eventTitle: cd.eventTitle || parentEvent.eventTitle,
+        startDateTime: cd.startDateTime || parentEvent.startDateTime,
+        endDateTime: cd.endDateTime || parentEvent.endDateTime,
+      };
+    }
+
+    res.json({ editRequest, event, baselineShifted });
+  } catch (error) {
+    logger.error('Error fetching edit request:', error);
+    res.status(500).json({ error: 'Failed to fetch edit request' });
+  }
+});
+
+/**
+ * PUT /api/edit-requests/:id/withdraw
+ *
+ * Requester withdraws their own pending edit request. Single-document write
+ * on the EditRequest doc. No event changes, no email (matches today's cancel
+ * semantics).
+ *
+ * Body: { editRequestVersion } — OCC token for the request document.
+ */
+app.put('/api/edit-requests/:id/withdraw', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { editRequestVersion } = req.body || {};
+
+    let editRequest;
+    try {
+      editRequest = await editRequestsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    } catch (_) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    const isOwnRequest = editRequest.requestedBy?.userId === userId
+      || (editRequest.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
+    if (!isOwnRequest) {
+      return res.status(403).json({ error: 'Only the requester can withdraw this edit request' });
+    }
+
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Only pending edit requests can be withdrawn',
+        currentStatus: editRequest.status,
+      });
+    }
+
+    const now = new Date();
+    let updated;
+    try {
+      updated = await conditionalUpdate(
+        editRequestsCollection,
+        { _id: editRequest._id },
+        {
+          $set: {
+            status: 'withdrawn',
+          },
+          $push: {
+            statusHistory: {
+              status: 'withdrawn',
+              changedAt: now,
+              changedBy: userId,
+            },
+          },
+        },
+        {
+          expectedVersion: editRequestVersion != null ? editRequestVersion : null,
+          expectedStatus: 'pending',
+          modifiedBy: userEmail,
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequest.eventId,
+      reservationId: editRequest.eventObjectId,
+      action: 'edit-request-withdrawn',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: now,
+      changes: [],
+      metadata: {
+        editRequestId: editRequest.editRequestId,
+        editRequestDocId: editRequest._id,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Edit request withdrawn',
+      editRequestId: editRequest.editRequestId,
+      _version: updated._version,
+    });
+
+    broadcastEventChange({
+      eventId: editRequest.eventId,
+      action: 'edit-withdrawn',
+      actorEmail: userEmail,
+      requesterEmail: editRequest.requestedBy?.email,
+      event: { eventId: editRequest.eventId },
+      oldStatus: 'published',
+      newStatus: 'published',
+    });
+  } catch (error) {
+    logger.error('Error withdrawing edit request:', error);
+    res.status(500).json({ error: 'Failed to withdraw edit request' });
+  }
+});
+
+/**
+ * PUT /api/edit-requests/:id/reject
+ *
+ * Approver rejects a pending edit request. Single-document write on the
+ * EditRequest doc; no event changes. Sends rejection email to the requester.
+ *
+ * Body: { reason, editRequestVersion } — reason is required.
+ */
+app.put('/api/edit-requests/:id/reject', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { reason, editRequestVersion } = req.body || {};
+
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({ error: 'A rejection reason is required' });
+    }
+
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+    if (!canApproveReservations(requestingUser, userEmail)) {
+      return res.status(403).json({ error: 'Only approvers can reject edit requests' });
+    }
+
+    let editRequest;
+    try {
+      editRequest = await editRequestsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    } catch (_) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Only pending edit requests can be rejected',
+        currentStatus: editRequest.status,
+      });
+    }
+
+    const now = new Date();
+    const reviewer = {
+      userId,
+      email: userEmail,
+      name: requestingUser?.displayName || userEmail,
+    };
+
+    let updated;
+    try {
+      updated = await conditionalUpdate(
+        editRequestsCollection,
+        { _id: editRequest._id },
+        {
+          $set: {
+            status: 'rejected',
+            reviewedBy: reviewer,
+            reviewedAt: now,
+            reviewNotes: reason.trim(),
+          },
+          $push: {
+            statusHistory: {
+              status: 'rejected',
+              changedAt: now,
+              changedBy: userId,
+            },
+          },
+        },
+        {
+          expectedVersion: editRequestVersion != null ? editRequestVersion : null,
+          expectedStatus: 'pending',
+          modifiedBy: userEmail,
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequest.eventId,
+      reservationId: editRequest.eventObjectId,
+      action: 'edit-request-rejected',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: now,
+      changes: [],
+      metadata: {
+        editRequestId: editRequest.editRequestId,
+        editRequestDocId: editRequest._id,
+        requestedBy: editRequest.requestedBy?.email,
+        rejectionReason: reason.trim(),
+      },
+    });
+
+    // Look up the parent event for email payload (best-effort; non-blocking)
+    try {
+      const parentEvent = await unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
+      if (parentEvent) {
+        const cd = parentEvent.calendarData || {};
+        const editRequestForEmail = {
+          _id: parentEvent._id,
+          eventId: parentEvent.eventId,
+          eventTitle: cd.eventTitle || parentEvent.eventTitle,
+          startDateTime: cd.startDateTime || parentEvent.startDateTime,
+          endDateTime: cd.endDateTime || parentEvent.endDateTime,
+          requesterName: editRequest.requestedBy?.name,
+          requesterEmail: editRequest.requestedBy?.email,
+          startTime: cd.startDateTime || parentEvent.startDateTime,
+          endTime: cd.endDateTime || parentEvent.endDateTime,
+          locationDisplayNames: cd.locationDisplayNames || parentEvent.locationDisplayNames,
+        };
+        await emailService.sendEditRequestRejectedNotification(editRequestForEmail, reason.trim());
+      }
+    } catch (emailError) {
+      logger.error('Edit request rejection email failed:', emailError.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Edit request rejected',
+      editRequestId: editRequest.editRequestId,
+      _version: updated._version,
+    });
+
+    broadcastEventChange({
+      eventId: editRequest.eventId,
+      action: 'edit-rejected',
+      actorEmail: userEmail,
+      requesterEmail: editRequest.requestedBy?.email,
+      event: { eventId: editRequest.eventId },
+      oldStatus: 'published',
+      newStatus: 'published',
+    });
+  } catch (error) {
+    logger.error('Error rejecting edit request:', error);
+    res.status(500).json({ error: 'Failed to reject edit request' });
+  }
+});
+
+/**
+ * PUT /api/edit-requests/:id/approve
+ *
+ * Approver applies a pending edit request. Two-document write:
+ *   Write 1: EditRequest doc → status 'approved' (OCC via editRequestVersion)
+ *   Write 2: Event doc      → finalChanges applied (OCC via eventVersion)
+ *
+ * If Write 2 fails with 409 (event was modified concurrently), the response
+ * includes `partialFailure: true` and `compensationRequired: true`. The
+ * EditRequest is already approved at that point — admin must re-apply changes
+ * to the now-current event version.
+ *
+ * Phase 1 scope:
+ *   - Series-level (editScope null/'allEvents'): full apply via remapToCalendarData
+ *   - Occurrence-scoped (editScope 'thisEvent'): write to occurrenceOverrides[]
+ *     array (legacy pattern). Phase 2 swaps this to exceptionDocumentService.
+ *   - Conflict detection: enforced unless `forcePublishEdit: true` (admin only)
+ *   - Supersede sweep at the end for matching-scope co-pending requests
+ *   - Graph sync: deferred to Phase 1c follow-up (legacy endpoint still handles)
+ *
+ * Body: {
+ *   notes, approverChanges, forcePublishEdit, acknowledgeSoftConflicts,
+ *   editRequestVersion, eventVersion
+ * }
+ */
+app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const {
+      notes,
+      approverChanges,
+      forcePublishEdit,
+      acknowledgeSoftConflicts,
+      editRequestVersion,
+      eventVersion,
+    } = req.body || {};
+
+    // Permission: approver or admin (respects X-Simulated-Role for dev)
+    const user = await getCachedUser(userId);
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    const hasApproverAccess = ROLE_HIERARCHY[effectiveRole] >= ROLE_HIERARCHY['approver'];
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
+    }
+    if (forcePublishEdit && effectiveRole !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
+    }
+
+    // Fetch request
+    let editRequest;
+    try {
+      editRequest = await editRequestsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    } catch (_) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Only pending edit requests can be approved',
+        currentStatus: editRequest.status,
+      });
+    }
+
+    // Fetch event
+    const event = await unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
+    if (!event) {
+      return res.status(404).json({ error: 'Parent event not found' });
+    }
+
+    const proposedChanges = editRequest.proposedChanges || {};
+    const finalChanges = approverChanges
+      ? { ...proposedChanges, ...approverChanges }
+      : { ...proposedChanges };
+
+    // Q3=A — when recurrence supplied with range.startDate, derive master start/end dates
+    if (finalChanges.recurrence && finalChanges.recurrence.range && finalChanges.recurrence.range.startDate) {
+      const cd = event.calendarData || {};
+      const newStartDate = finalChanges.recurrence.range.startDate;
+      const existingStartTime = (cd.startDateTime || '').split('T')[1] || (cd.startTime ? `${cd.startTime}:00` : '00:00:00');
+      const existingEndTime = (cd.endDateTime || '').split('T')[1] || (cd.endTime ? `${cd.endTime}:00` : '23:59:00');
+      const newEndDate = newStartDate;
+      if (!finalChanges.startDateTime) finalChanges.startDateTime = `${newStartDate}T${existingStartTime}`;
+      if (!finalChanges.endDateTime) finalChanges.endDateTime = `${newEndDate}T${existingEndTime}`;
+      if (!finalChanges.startDate) finalChanges.startDate = newStartDate;
+      if (!finalChanges.endDate) finalChanges.endDate = newEndDate;
+    }
+
+    // Scheduling conflict check (mirrors legacy publish-edit)
+    const hasTimeOrRoomChange =
+      finalChanges.startDateTime || finalChanges.endDateTime ||
+      finalChanges.locations || finalChanges.requestedRooms ||
+      finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined ||
+      finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined ||
+      finalChanges.recurrence !== undefined;
+
+    if (hasTimeOrRoomChange && !forcePublishEdit) {
+      let conflictReservation;
+      if (editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate) {
+        const occDateKey = editRequest.occurrenceDate.split('T')[0];
+        const occOverride = (event.occurrenceOverrides || []).find((o) => o.occurrenceDate === occDateKey) || {};
+        const occBaseline = { ...(event.calendarData || {}), ...occOverride, ...finalChanges };
+        conflictReservation = {
+          startDateTime: occBaseline.startDateTime,
+          endDateTime: occBaseline.endDateTime,
+          setupTimeMinutes: occBaseline.setupTimeMinutes,
+          teardownTimeMinutes: occBaseline.teardownTimeMinutes,
+          calendarData: {
+            locations: occBaseline.locations || occBaseline.requestedRooms,
+            startDateTime: occBaseline.startDateTime,
+            endDateTime: occBaseline.endDateTime,
+            setupTimeMinutes: occBaseline.setupTimeMinutes,
+            teardownTimeMinutes: occBaseline.teardownTimeMinutes,
+          },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: occBaseline.categories || [],
+        };
+      } else {
+        // Series-level: synthesize an event with the proposed pendingEditRequest shape
+        // so buildEffectiveEditData yields the merged form.
+        const synthEvent = {
+          ...event,
+          pendingEditRequest: {
+            proposedChanges: finalChanges,
+            editScope: editRequest.editScope,
+            occurrenceDate: editRequest.occurrenceDate,
+          },
+        };
+        const effectiveData = buildEffectiveEditData(synthEvent);
+        conflictReservation = {
+          startDateTime: effectiveData.startDateTime,
+          endDateTime: effectiveData.endDateTime,
+          setupTimeMinutes: effectiveData.setupTimeMinutes,
+          teardownTimeMinutes: effectiveData.teardownTimeMinutes,
+          calendarData: {
+            locations: effectiveData.locations,
+            startDateTime: effectiveData.startDateTime,
+            endDateTime: effectiveData.endDateTime,
+            setupTimeMinutes: effectiveData.setupTimeMinutes,
+            teardownTimeMinutes: effectiveData.teardownTimeMinutes,
+          },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: finalChanges.categories || event.calendarData?.categories || [],
+        };
+      }
+
+      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(conflictReservation, event._id.toString());
+      if (hardConflicts.length > 0) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          conflictTier: 'hard',
+          message: 'The proposed edit changes conflict with published events',
+          hardConflicts,
+          softConflicts,
+          conflicts: allConflicts,
+          canForce: isAdmin(user, userEmail),
+          forceField: 'forcePublishEdit',
+        });
+      }
+      if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          conflictTier: 'soft',
+          message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+          hardConflicts: [],
+          softConflicts,
+          conflicts: softConflicts,
+        });
+      }
+    }
+
+    const now = new Date();
+    const reviewer = {
+      userId,
+      email: userEmail,
+      name: user?.displayName || userEmail,
+    };
+
+    // ---- Write 1: flip EditRequest status to approved (OCC) ----
+    let updatedRequest;
+    try {
+      updatedRequest = await conditionalUpdate(
+        editRequestsCollection,
+        { _id: editRequest._id },
+        {
+          $set: {
+            status: 'approved',
+            reviewedBy: reviewer,
+            reviewedAt: now,
+            reviewNotes: notes || '',
+          },
+          $push: {
+            statusHistory: {
+              status: 'approved',
+              changedAt: now,
+              changedBy: userId,
+            },
+          },
+        },
+        {
+          expectedVersion: editRequestVersion != null ? editRequestVersion : null,
+          expectedStatus: 'pending',
+          modifiedBy: userEmail,
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // ---- Write 2: apply changes to the event (OCC) ----
+    const cd = event.calendarData || {};
+    const isOccurrenceScoped = editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate;
+
+    let updateFields = {};
+    let updatedEvent = null;
+
+    if (isOccurrenceScoped) {
+      // Phase 1: write to legacy occurrenceOverrides[] array on the master.
+      // Phase 2 swaps this to exceptionDocumentService.createExceptionDocument /
+      // updateExceptionDocument with proper child-document semantics.
+      const dateKey = editRequest.occurrenceDate.split('T')[0];
+      const existingOverrides = event.occurrenceOverrides || [];
+      const existingIdx = existingOverrides.findIndex((o) => o.occurrenceDate === dateKey);
+
+      const overrideEntry = { occurrenceDate: dateKey };
+      // Copy each non-recurrence finalChange into the override
+      for (const [k, v] of Object.entries(finalChanges)) {
+        if (k === 'recurrence') continue; // recurrence is series-level, not per-occurrence
+        overrideEntry[k] = v;
+      }
+
+      const newOverrides = existingIdx >= 0
+        ? existingOverrides.map((o, i) => (i === existingIdx ? { ...o, ...overrideEntry } : o))
+        : [...existingOverrides, overrideEntry];
+
+      updateFields = { occurrenceOverrides: newOverrides };
+    } else {
+      // Series-level / non-recurring: remap calendar fields into calendarData.*
+      const remappedFields = remapToCalendarData(finalChanges);
+      updateFields = { ...remappedFields };
+
+      // Recurrence is stored at top level (not in calendarData).
+      if (finalChanges.recurrence !== undefined) {
+        updateFields.recurrence = finalChanges.recurrence;
+        // Q2=B promotion — singleInstance becomes seriesMaster on recurrence add
+        if (finalChanges.recurrence && finalChanges.recurrence.pattern && event.eventType !== 'seriesMaster') {
+          updateFields.eventType = 'seriesMaster';
+        }
+      }
+    }
+
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: event._id },
+        { $set: updateFields },
+        {
+          expectedVersion: eventVersion != null ? eventVersion : null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS,
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        // Split-brain: request is approved but event update failed. Surface a
+        // distinct partial-failure response so the frontend can offer a
+        // "Re-apply Approved Changes" admin action.
+        const conflictBody = err.toJSON();
+        conflictBody.partialFailure = true;
+        conflictBody.compensationRequired = true;
+        conflictBody.editRequestId = editRequest.editRequestId;
+        conflictBody.editRequestApproved = true;
+        return res.status(409).json(conflictBody);
+      }
+      throw err;
+    }
+
+    // Audit log
+    const changesArray = [];
+    for (const [field, newValue] of Object.entries(finalChanges)) {
+      changesArray.push({ field, oldValue: cd[field] ?? '', newValue });
+    }
+    await eventAuditHistoryCollection.insertOne({
+      eventId: event.eventId,
+      reservationId: event._id,
+      action: 'edit-request-approved',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: now,
+      changes: changesArray,
+      metadata: {
+        editRequestId: editRequest.editRequestId,
+        editRequestDocId: editRequest._id,
+        requestedBy: editRequest.requestedBy?.email,
+        approvalNotes: notes || '',
+        ...(approverChanges && { approverChanges }),
+        ...(approverChanges && { originalProposedChanges: proposedChanges }),
+        ...(editRequest.editScope && { editScope: editRequest.editScope }),
+        ...(editRequest.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
+      },
+    });
+
+    // Approval email (non-blocking, mirrors legacy template payload)
+    try {
+      const editRequestForEmail = {
+        _id: event._id,
+        eventId: event.eventId,
+        eventTitle: finalChanges.eventTitle || cd.eventTitle || event.eventTitle,
+        startDateTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
+        endDateTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
+        requesterName: editRequest.requestedBy?.name,
+        requesterEmail: editRequest.requestedBy?.email,
+        startTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
+        endTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
+        locationDisplayNames: finalChanges.locationDisplayNames || cd.locationDisplayNames || event.locationDisplayNames,
+        ...(editRequest.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
+      };
+      await emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray);
+    } catch (emailError) {
+      logger.error('Edit request approval email failed:', emailError.message);
+    }
+
+    // Supersede sweep — flip other matching-scope pending requests to 'superseded'.
+    // Series-level approval supersedes other pending series-level requests on the
+    // same event. Occurrence-scoped approval supersedes other pending requests
+    // for the SAME occurrenceDate. Cross-scope supersede deferred to Phase 2.
+    let supersededCount = 0;
+    try {
+      const supersedeQuery = {
+        eventId: event.eventId,
+        status: 'pending',
+        _id: { $ne: editRequest._id },
+      };
+      if (isOccurrenceScoped) {
+        supersedeQuery.editScope = 'thisEvent';
+        supersedeQuery.occurrenceDate = editRequest.occurrenceDate;
+      } else {
+        // Series-level: supersede other series-level requests
+        supersedeQuery.$or = [
+          { editScope: { $in: [null, 'allEvents'] } },
+          { editScope: { $exists: false } },
+        ];
+      }
+      const supersedeResult = await editRequestsCollection.updateMany(
+        supersedeQuery,
+        {
+          $set: { status: 'superseded', lastModifiedDateTime: now, lastModifiedBy: 'system' },
+          $push: {
+            statusHistory: {
+              status: 'superseded',
+              changedAt: now,
+              changedBy: 'system',
+            },
+          },
+          $inc: { _version: 1 },
+        }
+      );
+      supersededCount = supersedeResult.modifiedCount || 0;
+    } catch (supersedeErr) {
+      logger.warn('Supersede sweep failed (non-fatal):', supersedeErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Edit request approved and applied',
+      eventId: event.eventId,
+      editRequestId: editRequest.editRequestId,
+      editRequestVersion: updatedRequest._version,
+      eventVersion: updatedEvent._version,
+      changesApplied: finalChanges,
+      supersededCount,
+    });
+
+    broadcastEventChange({
+      eventId: event.eventId,
+      action: 'edit-published',
+      actorEmail: userEmail,
+      requesterEmail: editRequest.requestedBy?.email,
+      event: updatedEvent,
+      oldStatus: 'published',
+      newStatus: 'published',
+    });
+  } catch (error) {
+    logger.error('Error approving edit request:', error);
+    res.status(500).json({ error: 'Failed to approve edit request' });
+  }
+});
+
 /**
  * Get a single event by ID (Authenticated)
  * GET /api/events/:id
