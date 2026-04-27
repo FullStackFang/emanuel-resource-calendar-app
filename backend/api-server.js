@@ -415,6 +415,7 @@ let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
+let editRequestsCollection; // First-class change requests against published events
 
 // --- Test injection: allows tests to provide a MongoDB Memory Server db ---
 function setDatabase(injectedDb) {
@@ -435,6 +436,7 @@ function setDatabase(injectedDb) {
   eventAttachmentsCollection = injectedDb.collection('templeEvents__EventAttachments');
   reservationAttachmentsCollection = injectedDb.collection('templeEvents__ReservationAttachments');
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
+  editRequestsCollection = injectedDb.collection('templeEvents__EditRequests');
   filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
   emailService.setDbConnection(injectedDb);
   emailTemplates.setDbConnection(injectedDb);
@@ -1184,6 +1186,48 @@ async function createReservationAuditHistoryIndexes() {
     logger.log('Reservation audit history indexes created successfully');
   } catch (error) {
     logger.error('Error creating reservation audit history indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the edit requests collection.
+ * Each request is a first-class change-request entity linked to an event.
+ * Hot paths: by-event listing (approval queue + event detail), by-user listing
+ * (My Reservations), global pending queue, and direct lookup by editRequestId
+ * for emails and audit references.
+ */
+async function createEditRequestsIndexes() {
+  try {
+    logger.log('Creating edit requests indexes...');
+
+    // Primary lookup: all requests for a given event, ordered newest-first
+    await editRequestsCollection.createIndex(
+      { eventId: 1, status: 1, requestedAt: -1 },
+      { name: "edit_requests_by_event", background: true }
+    );
+
+    // Per-user listing for My Reservations (cross-partition under eventId
+    // partitioning — acceptable RU cost for low-volume per-user queries)
+    await editRequestsCollection.createIndex(
+      { "requestedBy.userId": 1, status: 1, requestedAt: -1 },
+      { name: "edit_requests_by_user", background: true }
+    );
+
+    // Global pending queue for approver dashboards
+    await editRequestsCollection.createIndex(
+      { status: 1, requestedAt: -1 },
+      { name: "edit_requests_by_status", background: true }
+    );
+
+    // Direct lookup by human-readable editRequestId (used in emails, audit)
+    await editRequestsCollection.createIndex(
+      { editRequestId: 1 },
+      { name: "edit_requests_by_request_id", unique: true, background: true }
+    );
+
+    logger.log('Edit requests indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating edit requests indexes:', error);
   }
 }
 
@@ -3127,6 +3171,7 @@ async function connectToDatabase() {
     eventAttachmentsCollection = withRetryCollection(db.collection('templeEvents__EventAttachments'));
     reservationAttachmentsCollection = withRetryCollection(db.collection('templeEvents__ReservationAttachments'));
     systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
+    editRequestsCollection = withRetryCollection(db.collection('templeEvents__EditRequests'));
 
     // Initialize email service with database connection
     emailService.setDbConnection(db);
@@ -3154,7 +3199,8 @@ async function connectToDatabase() {
       createFeatureCategoriesIndexes(),
       createCategoriesIndexes(),
       createDepartmentsIndexes(),
-      createRoleTypesIndexes()
+      createRoleTypesIndexes(),
+      createEditRequestsIndexes()
     ]);
     
     // Event cache indexes removed - using unifiedEventsCollection instead

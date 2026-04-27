@@ -61,6 +61,7 @@ async function createCollections(database) {
   await database.createCollection(COLLECTIONS.CATEGORIES);
   await database.createCollection(COLLECTIONS.DEPARTMENTS);
   await database.createCollection(COLLECTIONS.ROLE_TYPES);
+  await database.createCollection(COLLECTIONS.EDIT_REQUESTS);
 
   // Create indexes for events collection
   const eventsCollection = database.collection(COLLECTIONS.EVENTS);
@@ -84,6 +85,13 @@ async function createCollections(database) {
   await auditCollection.createIndex({ eventId: 1 });
   await auditCollection.createIndex({ action: 1 });
   await auditCollection.createIndex({ timestamp: -1 });
+
+  // Create indexes for edit requests collection
+  const editRequestsCollection = database.collection(COLLECTIONS.EDIT_REQUESTS);
+  await editRequestsCollection.createIndex({ eventId: 1, status: 1, requestedAt: -1 });
+  await editRequestsCollection.createIndex({ 'requestedBy.userId': 1, status: 1, requestedAt: -1 });
+  await editRequestsCollection.createIndex({ status: 1, requestedAt: -1 });
+  await editRequestsCollection.createIndex({ editRequestId: 1 }, { unique: true });
 }
 
 /**

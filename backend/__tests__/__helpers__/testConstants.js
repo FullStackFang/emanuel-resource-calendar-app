@@ -52,6 +52,7 @@ const COLLECTIONS = {
   DEPARTMENTS: 'templeEvents__Departments',
   ROLE_TYPES: 'templeEvents__RoleTypes',
   CATEGORIES: 'templeEvents__Categories',
+  EDIT_REQUESTS: 'templeEvents__EditRequests',
 };
 
 // API endpoints
