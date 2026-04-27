@@ -72,10 +72,9 @@ const ENDPOINTS = {
   REJECT_EVENT: (id) => `/api/admin/events/${id}/reject`,
   RESTORE_EVENT: (id) => `/api/admin/events/${id}/restore`,
 
-  // Edit request endpoints
-  REQUEST_EDIT: (id) => `/api/events/${id}/request-edit`,
-  PUBLISH_EDIT: (id) => `/api/admin/events/${id}/publish-edit`,
-  REJECT_EDIT: (id) => `/api/admin/events/${id}/reject-edit`,
+  // Edit request endpoints removed in Phase 1d. The new editRequests*.test.js
+  // suites currently inline `/api/edit-requests` URLs directly. Add helpers
+  // here only when a second consumer appears to avoid premature abstraction.
 
   // Room reservation endpoints
   OWNER_RESTORE_RESERVATION: (id) => `/api/room-reservations/${id}/restore`,

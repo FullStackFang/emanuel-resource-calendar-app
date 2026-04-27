@@ -159,12 +159,13 @@ describe('Concurrency Integration Tests', () => {
 
       expect(result._version).toBe(2);
 
-      // Requester tries to submit edit request with stale version
+      // Requester tries to write with stale version (any field — this test
+      // verifies OCC, not a specific field semantic).
       await expect(
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { pendingEditRequest: { reason: 'test' } } },
+          { $set: { eventDescription: 'Requester edit' } },
           { expectedVersion: 1, modifiedBy: 'requester@test.com' }
         )
       ).rejects.toMatchObject({

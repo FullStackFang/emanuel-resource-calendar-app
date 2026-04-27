@@ -36,7 +36,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
   let requesterUser;
   let requesterToken;
   let otherRequesterUser;
-  let otherRequesterToken;
   let approverUser;
 
   beforeAll(async () => {
@@ -66,7 +65,6 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
     // Create tokens
     requesterToken = await createMockToken(requesterUser);
-    otherRequesterToken = await createMockToken(otherRequesterUser);
   });
 
   // ============================================
@@ -420,28 +418,9 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-12: Requester CAN request edit on own published', () => {
-    it('should create pendingEditRequest', async () => {
-      const published = createPublishedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-        eventTitle: 'Original Title',
-      });
-      const [savedPublished] = await insertEvents(db, [published]);
-
-      const res = await request(app)
-        .post(`/api/events/${savedPublished._id}/request-edit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .send({
-          proposedChanges: { eventTitle: 'New Title' },
-        })
-        .expect(200);
-
-      expect(res.body.success).toBe(true);
-      expect(res.body.event.pendingEditRequest).toBeDefined();
-      expect(res.body.event.pendingEditRequest.proposedChanges.eventTitle).toBe('New Title');
-    });
-  });
+  // R-12 (requester CAN request edit on own published) — coverage now lives in
+  // editRequestsCreate.test.js 'happy path > creates a pending edit request in the
+  // new collection'. Legacy /api/events/:id/request-edit endpoint deleted in 1d.
 
   describe('R-13: Requester CANNOT delete own published', () => {
     it('should return 403 for delete attempt', async () => {
@@ -464,80 +443,11 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
   // EDIT REQUEST (OWN) - R-14 to R-17
   // ============================================
 
-  describe('R-14: Requester CAN view own edit request status', () => {
-    it('should see pendingEditRequest in event data', async () => {
-      const published = createPublishedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-      });
-      published.pendingEditRequest = {
-        id: 'edit-req-test-1',
-        status: 'pending',
-        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
-        proposedChanges: { eventTitle: 'New Title' },
-        reviewedBy: null, reviewedAt: null, reviewNotes: '',
-      };
-      const [savedPublished] = await insertEvents(db, [published]);
-
-      const res = await request(app)
-        .get('/api/reservations/my')
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(200);
-
-      expect(res.body.reservations[0].pendingEditRequest).toBeDefined();
-    });
-  });
-
-  describe('R-16: Requester CANNOT publish own edit request', () => {
-    it('should return 403 for self-publish of edit request', async () => {
-      const published = createPublishedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-      });
-      published.pendingEditRequest = {
-        id: 'edit-req-test-2',
-        status: 'pending',
-        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
-        proposedChanges: { eventTitle: 'New Title' },
-        reviewedBy: null, reviewedAt: null, reviewNotes: '',
-      };
-      const [savedPublished] = await insertEvents(db, [published]);
-
-      const res = await request(app)
-        .put(`/api/admin/events/${savedPublished._id}/publish-edit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(403);
-
-      expect(res.body.error).toMatch(/permission denied/i);
-    });
-  });
-
-  describe('R-17: Requester CANNOT create duplicate edit request', () => {
-    it('should return 400 when edit request already exists', async () => {
-      const published = createPublishedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-      });
-      published.pendingEditRequest = {
-        id: 'edit-req-test-3',
-        status: 'pending',
-        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
-        proposedChanges: { eventTitle: 'First Request' },
-        reviewedBy: null, reviewedAt: null, reviewNotes: '',
-      };
-      const [savedPublished] = await insertEvents(db, [published]);
-
-      const res = await request(app)
-        .post(`/api/events/${savedPublished._id}/request-edit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .send({
-          proposedChanges: { eventTitle: 'Second Request' },
-        })
-        .expect(400);
-
-      expect(res.body.error).toMatch(/already exists/i);
-    });
-  });
+  // R-14, R-16, R-17 — coverage moved to editRequestsCreate.test.js
+  // (DUPLICATE_PENDING_REQUEST guard) and editRequestsApprove.test.js
+  // (requester 403 on approve). The pendingEditRequest field is no longer
+  // embedded on event documents post-Phase-1d; visibility flows through
+  // GET /api/edit-requests?userId=... instead.
 
   // ============================================
   // REJECTED STATE (OWN) - R-18 to R-20
@@ -656,25 +566,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-25: Requester CANNOT request edit on other\'s published', () => {
-    it('should return 403 when trying to request edit on other user\'s event', async () => {
-      const otherPublished = createPublishedEvent({
-        userId: otherRequesterUser.odataId,
-        requesterEmail: otherRequesterUser.email,
-      });
-      const [savedPublished] = await insertEvents(db, [otherPublished]);
-
-      const res = await request(app)
-        .post(`/api/events/${savedPublished._id}/request-edit`)
-        .set('Authorization', `Bearer ${requesterToken}`)
-        .send({
-          proposedChanges: { eventTitle: 'Hacked Title' },
-        })
-        .expect(403);
-
-      expect(res.body.error).toMatch(/permission denied/i);
-    });
-  });
+  // R-25 — coverage moved to editRequestsCreate.test.js 'permission gate >
+  // rejects submission from a non-owner not in the same department'.
 
   // ============================================
   // ADMIN ACTIONS - R-28 to R-29

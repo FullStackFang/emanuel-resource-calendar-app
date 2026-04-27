@@ -1,11 +1,12 @@
 /**
- * Architecture Review Fixes Tests (ARF-1 to ARF-12)
+ * Architecture Review Fixes Tests
  *
  * Regression tests for P0/P1 findings from the 2026-04-20 architecture review:
  *   ARF-1 to ARF-4: P0 — Migration endpoint admin guards
- *   ARF-5 to ARF-7: P1 — publish-edit occurrence OCC (conditionalUpdate)
+ *   ARF-5 to ARF-7: removed (Phase 1d) — covered by editRequestsApprove.test.js
  *   ARF-8 to ARF-10: P1 — Cancellation withdrawal atomic guard
- *   ARF-11 to ARF-12: P1 — upsertUnifiedEvent workflow field preservation
+ *   ARF-11: P1 — upsertUnifiedEvent workflow field preservation
+ *   ARF-12: removed (Phase 1d) — embedded pendingEditRequest no longer exists
  */
 
 const request = require('supertest');
@@ -21,7 +22,6 @@ const {
 } = require('../__helpers__/userFactory');
 const {
   createPublishedEvent,
-  createPublishedEventWithEditRequest,
   insertEvents,
 } = require('../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../__helpers__/authHelpers');
@@ -149,103 +149,11 @@ describe('Architecture Review Fixes (ARF-1 to ARF-12)', () => {
     });
   });
 
-  // ==========================================================================
-  // P1: publish-edit occurrence OCC (ARF-5 to ARF-7)
-  // ==========================================================================
-
-  describe('P1: publish-edit occurrence uses conditionalUpdate', () => {
-    let publishedEvent;
-
-    beforeEach(async () => {
-      // Create a published event with a pending occurrence-scoped edit request
-      publishedEvent = createPublishedEventWithEditRequest({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-        _version: 1,
-        pendingEditRequest: {
-          id: `edit-req-${Date.now()}`,
-          status: 'pending',
-          editScope: 'thisEvent',
-          occurrenceDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-          requestedBy: {
-            userId: requesterUser.odataId,
-            email: requesterUser.email,
-            name: requesterUser.displayName,
-            requestedAt: new Date(),
-          },
-          proposedChanges: {
-            eventTitle: 'Updated Occurrence Title',
-          },
-          reviewedBy: null,
-          reviewedAt: null,
-          reviewNotes: '',
-        },
-        // Make it a series master so occurrence edit path triggers
-        eventType: 'seriesMaster',
-        recurrence: {
-          pattern: { type: 'daily', interval: 1 },
-          range: {
-            type: 'endDate',
-            startDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-            endDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-          },
-        },
-      });
-      [publishedEvent] = await insertEvents(db, [publishedEvent]);
-    });
-
-    describe('ARF-5: publish-edit occurrence returns 409 on version mismatch', () => {
-      it('should reject with 409 when _version is stale', async () => {
-        const res = await request(app)
-          .put(ENDPOINTS.PUBLISH_EDIT(publishedEvent._id))
-          .set('Authorization', `Bearer ${adminToken}`)
-          .send({
-            notes: 'Approving occurrence edit',
-            _version: 999, // stale version
-          });
-
-        expect(res.status).toBe(409);
-        expect(res.body.details.code).toBe('VERSION_CONFLICT');
-      });
-    });
-
-    describe('ARF-6: publish-edit occurrence succeeds with correct version', () => {
-      it('should approve edit request with matching version', async () => {
-        const res = await request(app)
-          .put(ENDPOINTS.PUBLISH_EDIT(publishedEvent._id))
-          .set('Authorization', `Bearer ${adminToken}`)
-          .send({
-            notes: 'Approved',
-            _version: publishedEvent._version,
-          });
-
-        expect(res.status).toBe(200);
-        expect(res.body.success).toBe(true);
-        // _version should be incremented from conditionalUpdate
-        expect(res.body._version).toBe((publishedEvent._version || 1) + 1);
-      });
-    });
-
-    describe('ARF-7: publish-edit occurrence updates pendingEditRequest atomically', () => {
-      it('should set pendingEditRequest.status to approved in DB', async () => {
-        await request(app)
-          .put(ENDPOINTS.PUBLISH_EDIT(publishedEvent._id))
-          .set('Authorization', `Bearer ${adminToken}`)
-          .send({
-            notes: 'Approved',
-            _version: publishedEvent._version,
-          })
-          .expect(200);
-
-        const updated = await db.collection(COLLECTIONS.EVENTS)
-          .findOne({ _id: publishedEvent._id });
-
-        expect(updated.pendingEditRequest.status).toBe('approved');
-        expect(updated.pendingEditRequest.reviewedBy.email).toBe(adminUser.email);
-        expect(updated._version).toBe((publishedEvent._version || 1) + 1);
-      });
-    });
-  });
+  // ARF-5/6/7 (P1: publish-edit occurrence OCC) removed — the legacy
+  // /api/admin/events/:id/publish-edit endpoint was deleted in Phase 1d. OCC
+  // semantics on the new approve endpoint are exercised in
+  // editRequestsApprove.test.js (partialFailure 409 on stale eventVersion +
+  // VERSION_CONFLICT 409 on stale editRequestVersion).
 
   // ==========================================================================
   // P1: Cancellation withdrawal atomic guard (ARF-8 to ARF-10)
@@ -381,41 +289,10 @@ describe('Architecture Review Fixes (ARF-1 to ARF-12)', () => {
       });
     });
 
-    describe('ARF-12: replaceOne preserves pendingEditRequest and calendarOwner', () => {
-      it('should preserve pendingEditRequest when existingDoc has one', async () => {
-        const graphId = `AAMkAGraph-edit-preserve-${Date.now()}`;
-        const eventWithEdit = createPublishedEventWithEditRequest({
-          userId: adminUser.odataId,
-          calendarOwner: 'templeeventssandbox@emanuelnyc.org',
-          _version: 3,
-          pendingEditRequest: {
-            id: 'edit-123',
-            status: 'pending',
-            requestedBy: { email: 'requester@external.com' },
-            proposedChanges: { eventTitle: 'New Title' },
-          },
-          graphData: {
-            id: graphId,
-            iCalUId: `ical-${graphId}`,
-            subject: 'Event With Edit',
-            start: { dateTime: '2026-07-01T14:00:00', timeZone: 'America/New_York' },
-            end: { dateTime: '2026-07-01T15:00:00', timeZone: 'America/New_York' },
-            location: { displayName: '' },
-            locations: [],
-            categories: [],
-            body: { content: '', contentType: 'text' },
-            organizer: { emailAddress: { address: 'admin@emanuelnyc.org', name: 'Admin' } },
-          },
-        });
-        await insertEvents(db, [eventWithEdit]);
-
-        // Verify pre-condition
-        const before = await db.collection(COLLECTIONS.EVENTS)
-          .findOne({ 'graphData.id': graphId });
-        expect(before.pendingEditRequest.status).toBe('pending');
-        expect(before.calendarOwner).toBe('templeeventssandbox@emanuelnyc.org');
-      });
-    });
+    // ARF-12 removed — the original test exercised replaceOne preserving an
+    // embedded pendingEditRequest field that no longer exists on event docs
+    // post-Phase-1d. Edit-request preservation across syncs is irrelevant now
+    // that requests live in templeEvents__EditRequests with their own _id.
   });
 
   // ==========================================================================
