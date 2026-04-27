@@ -2368,7 +2368,6 @@ const CONFLICT_PROJECTION = {
   'calendarData.reservationStartMinutes': 1, 'calendarData.reservationEndMinutes': 1,
   recurrence: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
   categories: 1,
-  'pendingEditRequest.status': 1, 'pendingEditRequest.proposedChanges': 1,
 };
 
 // Projection for availability endpoint — only fields used by response builders (lines 13283-13481)
@@ -2393,8 +2392,6 @@ const AVAILABILITY_PROJECTION = {
   'graphData.location.displayName': 1,
   'roomReservationData.requestedBy.name': 1,
   'roomReservationData.requestedBy.email': 1,
-  'pendingEditRequest.status': 1, 'pendingEditRequest.proposedChanges': 1,
-  'pendingEditRequest.requestedBy.name': 1, 'pendingEditRequest.requestedBy.email': 1,
 };
 
 /**
@@ -2556,8 +2553,12 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     // Pending edits live in templeEvents__EditRequests now. Fetch only those
     // whose proposedChanges touch location or time fields (the only ones that
-    // can produce a soft conflict), then load the matching events and attach
-    // the request data so downstream `buildEffectiveEditData` keeps working.
+    // can produce a soft conflict), then load the matching events and produce
+    // ONE synthetic event-with-pendingEditRequest per pending request so
+    // downstream `buildEffectiveEditData` evaluates each scope independently.
+    // (A single event can have BOTH a series-level + per-occurrence pending
+    // request; collapsing them with "newest wins" silently drops a soft
+    // conflict candidate, hence the per-request fan-out.)
     let pendingEditEvents = [];
     {
       const conflictRelevantPending = await editRequestsCollection.find({
@@ -2570,7 +2571,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         ],
       }).toArray();
       if (conflictRelevantPending.length > 0) {
-        const eventIds = conflictRelevantPending.map((r) => r.eventId);
+        const eventIds = Array.from(new Set(conflictRelevantPending.map((r) => r.eventId)));
         const eventQuery = {
           status: 'published',
           eventId: { $in: eventIds },
@@ -2579,25 +2580,21 @@ async function checkRoomConflicts(reservation, excludeId = null) {
           eventQuery._id = { $ne: new ObjectId(excludeId) };
         }
         const events = await unifiedEventsCollection.find(eventQuery).project(CONFLICT_PROJECTION).toArray();
-        const requestsByEventId = new Map();
+        const eventsByEventId = new Map(events.map((e) => [e.eventId, e]));
         for (const r of conflictRelevantPending) {
-          const existing = requestsByEventId.get(r.eventId);
-          if (!existing || r.requestedAt > existing.requestedAt) {
-            requestsByEventId.set(r.eventId, r);
-          }
-        }
-        pendingEditEvents = events.map((evt) => {
-          const r = requestsByEventId.get(evt.eventId);
-          if (!r) return evt;
-          return {
+          const evt = eventsByEventId.get(r.eventId);
+          if (!evt) continue;
+          pendingEditEvents.push({
             ...evt,
             pendingEditRequest: {
               status: r.status,
               proposedChanges: r.proposedChanges,
               requestedBy: r.requestedBy,
+              editScope: r.editScope,
+              occurrenceDate: r.occurrenceDate,
             },
-          };
-        });
+          });
+        }
       }
     }
 
@@ -4754,7 +4751,6 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       if (existingDoc._version != null) unifiedEvent._version = existingDoc._version;
       if (existingDoc.statusHistory) unifiedEvent.statusHistory = existingDoc.statusHistory;
       if (existingDoc.roomReservationData) unifiedEvent.roomReservationData = existingDoc.roomReservationData;
-      if (existingDoc.pendingEditRequest) unifiedEvent.pendingEditRequest = existingDoc.pendingEditRequest;
       if (existingDoc.pendingCancellationRequest) unifiedEvent.pendingCancellationRequest = existingDoc.pendingCancellationRequest;
       if (existingDoc.calendarOwner) unifiedEvent.calendarOwner = existingDoc.calendarOwner;
       if (existingDoc.isAllowedConcurrent != null) unifiedEvent.isAllowedConcurrent = existingDoc.isAllowedConcurrent;
@@ -5707,7 +5703,6 @@ function projectEventForSSE(event) {
     },
     recurrence: event.recurrence,
     categories: event.categories,
-    pendingEditRequest: event.pendingEditRequest ? { id: event.pendingEditRequest.id, status: event.pendingEditRequest.status } : null,
     pendingCancellationRequest: event.pendingCancellationRequest ? { id: event.pendingCancellationRequest.id, status: event.pendingCancellationRequest.status } : null,
     _version: event._version,
     lastModifiedDateTime: event.lastModifiedDateTime,
@@ -6986,7 +6981,6 @@ app.get('/api/events/master/:masterEventId', verifyToken, async (req, res) => {
       recurrence: master.recurrence || cd.recurrence || null,
       _version: master._version || null,
       statusHistory: master.statusHistory || [],
-      pendingEditRequest: master.pendingEditRequest || null,
       occurrenceOverrides: master.occurrenceOverrides || [],
       calendarData: cd,
     };
@@ -13336,44 +13330,40 @@ app.get('/api/rooms/availability', async (req, res) => {
           ]
         }).project(AVAILABILITY_PROJECTION).toArray()),
 
-        // Q3: pending edits live in templeEvents__EditRequests now. Fetch the
-        // pending request docs and their matching events; attach the request
-        // data to each event in-memory so downstream `buildEffectiveEditData`
-        // (which expects an embedded `pendingEditRequest`) keeps working.
+        // Q3: pending edits live in templeEvents__EditRequests now. Fan out
+        // ONE synthetic event-with-pendingEditRequest per pending request so
+        // soft conflicts surface for every scope independently. (Series-level
+        // and per-occurrence pending edits on the same event are independent
+        // slots under the one-active-per-scope rule; both must produce
+        // separate soft-conflict candidates.)
         withCosmosRetry(async () => {
           const pendingRequests = await editRequestsCollection
             .find({ status: 'pending' })
             .toArray();
           if (pendingRequests.length === 0) return [];
-          const eventIds = pendingRequests.map((r) => r.eventId);
+          const eventIds = Array.from(new Set(pendingRequests.map((r) => r.eventId)));
           const events = await unifiedEventsCollection.find({
             isDeleted: { $ne: true },
             status: { $nin: ['draft', 'rejected', 'deleted'] },
             eventId: { $in: eventIds },
           }).project(AVAILABILITY_PROJECTION).toArray();
-          // Index requests by eventId so we can attach the right one. If a
-          // single event has multiple pending requests the one-active-per-scope
-          // guard makes that impossible for the same scope, so for the
-          // soft-conflict surface we attach the newest pending request.
-          const requestsByEventId = new Map();
+          const eventsByEventId = new Map(events.map((e) => [e.eventId, e]));
+          const out = [];
           for (const req of pendingRequests) {
-            const existing = requestsByEventId.get(req.eventId);
-            if (!existing || (req.requestedAt > existing.requestedAt)) {
-              requestsByEventId.set(req.eventId, req);
-            }
-          }
-          return events.map((evt) => {
-            const req = requestsByEventId.get(evt.eventId);
-            if (!req) return evt;
-            return {
+            const evt = eventsByEventId.get(req.eventId);
+            if (!evt) continue;
+            out.push({
               ...evt,
               pendingEditRequest: {
                 status: req.status,
                 proposedChanges: req.proposedChanges,
                 requestedBy: req.requestedBy,
+                editScope: req.editScope,
+                occurrenceDate: req.occurrenceDate,
               },
-            };
-          });
+            });
+          }
+          return out;
         }),
 
         // Q4: Published series masters sharing any requested rooms.
@@ -15434,9 +15424,9 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       // Versioning and history
       _version: event._version || null,
       statusHistory: event.statusHistory || [],
-      // Edit request data (needed by fetchExistingEditRequest for scope filtering)
-      pendingEditRequest: event.pendingEditRequest || null,
-      // Include calendarData for frontend compatibility
+      // Edit requests live in templeEvents__EditRequests; the frontend's
+      // fetchExistingEditRequest queries that collection separately rather
+      // than reading from the event response.
       calendarData: cd
     };
 
@@ -19934,18 +19924,42 @@ function buildEditRequestBaselineSnapshot(event) {
   };
 }
 
+// Defensive cap on the $in array size returned by
+// getEventIdsWithPendingEditRequests. Cosmos DB's MongoDB API degrades
+// significantly past ~200 elements in $in clauses; the absolute hard limit is
+// ~1k. In a healthy state the queue holds 0–20 pending requests; this cap
+// only kicks in for backfill or stuck-queue scenarios. When truncation
+// happens, callers receive a partial list — soft conflicts may underreport,
+// the badge count remains correct (the cap is well above realistic queue
+// sizes), and a warning is logged for observability.
+const EDIT_REQUEST_EVENT_ID_CAP = 500;
+
 /**
  * Return the set of event eventIds that have at least one matching edit
  * request in the new collection. Replaces the legacy pattern of scanning
  * events for `'pendingEditRequest.status': 'pending'` — the embedded field
  * is gone post-cutover, so callers join through this helper instead.
  *
+ * Uses find().limit() rather than distinct() so we can bound the working
+ * set; results are de-duped in memory.
+ *
  * @param {Object} filter - mongoose-style filter on editRequestsCollection
  *   (defaults to { status: 'pending' }).
- * @returns {Promise<string[]>} distinct eventIds.
+ * @returns {Promise<string[]>} distinct eventIds (capped at EDIT_REQUEST_EVENT_ID_CAP).
  */
 async function getEventIdsWithPendingEditRequests(filter = { status: 'pending' }) {
-  return editRequestsCollection.distinct('eventId', filter);
+  const docs = await editRequestsCollection
+    .find(filter, { projection: { eventId: 1, _id: 0 } })
+    .limit(EDIT_REQUEST_EVENT_ID_CAP)
+    .toArray();
+  if (docs.length === EDIT_REQUEST_EVENT_ID_CAP) {
+    logger.warn('getEventIdsWithPendingEditRequests hit the cap — soft conflict / queue surfaces may underreport', {
+      cap: EDIT_REQUEST_EVENT_ID_CAP,
+      filter,
+    });
+  }
+  // Dedupe — a single event can have multiple pending requests across scopes.
+  return Array.from(new Set(docs.map((d) => d.eventId)));
 }
 
 /**
@@ -23231,7 +23245,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
               $set: {
                 status: 'deleted', isDeleted: true,
                 deletedAt: new Date(), deletedBy: userId, deletedByEmail: userEmail,
-                pendingEditRequest: null,
               },
               $push: {
                 statusHistory: buildStatusHistoryEntry('deleted', userId, userEmail, reason?.trim() || 'Series deleted via exception card')
@@ -23570,7 +23583,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
               deletedAt: new Date(),
               deletedBy: userId,
               deletedByEmail: userEmail,
-              pendingEditRequest: null,
             },
             $push: {
               statusHistory: buildStatusHistoryEntry('deleted', userId, userEmail, 'Auto-deleted: all occurrences excluded')
@@ -23611,7 +23623,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             deletedAt: new Date(),
             deletedBy: userId,
             deletedByEmail: userEmail,
-            pendingEditRequest: null,
           },
           $push: {
             statusHistory: buildStatusHistoryEntry('deleted', userId, userEmail, reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Withdrawn by requester')))
