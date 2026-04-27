@@ -20357,7 +20357,38 @@ function buildEditRequestBaselineSnapshot(event) {
     startDateTime: cd.startDateTime || event.startDateTime || null,
     endDateTime: cd.endDateTime || event.endDateTime || null,
     locations: cd.locations || event.locations || [],
+    // Human-readable location string captured here so the approval queue can
+    // render without per-row location lookups against the locations collection.
+    locationDisplayNames: cd.locationDisplayNames || event.locationDisplayNames || '',
     recurrence: event.recurrence || cd.recurrence || null,
+  };
+}
+
+/**
+ * Build the email-template payload shape from an event + edit request +
+ * optional finalChanges (to prefer post-merge values for approval emails).
+ * Centralizes the shape that emailService.sendEditRequest{Submitted,Approved,
+ * Rejected}Notification expects.
+ */
+function buildEditRequestEmailPayload(event, editRequest, options = {}) {
+  const { finalChanges = {}, requesterOverride = null, locationDisplayNameFallback = null, proposedChanges = null } = options;
+  const cd = event.calendarData || {};
+  return {
+    _id: event._id,
+    eventId: event.eventId,
+    eventTitle: finalChanges.eventTitle || cd.eventTitle || event.eventTitle,
+    startDateTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
+    endDateTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
+    requesterName: requesterOverride?.name || editRequest?.requestedBy?.name,
+    requesterEmail: requesterOverride?.email || editRequest?.requestedBy?.email,
+    startTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
+    endTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
+    locationDisplayNames: finalChanges.locationDisplayNames
+      || cd.locationDisplayNames
+      || event.locationDisplayNames
+      || locationDisplayNameFallback,
+    ...(editRequest?.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
+    ...(proposedChanges && { proposedChanges }),
   };
 }
 
@@ -20475,20 +20506,38 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
       });
     }
 
-    // Same-user duplicate guard (the new model allows parallel requests across users,
-    // but blocks the same user from stacking requests for the same target).
+    // One-active-per-scope guard. A scope = (eventId, editScope, occurrenceDate).
+    // Only one pending request per scope is allowed system-wide. Series-level
+    // and per-occurrence are independent slots; different occurrenceDate values
+    // are independent slots. Approve / reject / withdraw clears the slot.
     const duplicateExisting = await editRequestsCollection.findOne({
       eventId: originalEvent.eventId,
-      'requestedBy.userId': userId,
       editScope: editScope || null,
       occurrenceDate: occurrenceDate || null,
       status: 'pending',
     });
     if (duplicateExisting) {
+      const existingRequester = duplicateExisting.requestedBy?.name
+        || duplicateExisting.requestedBy?.email
+        || 'another user';
+      const isSameUser = duplicateExisting.requestedBy?.userId === userId;
+      const scopeLabel = duplicateExisting.editScope === 'thisEvent' && duplicateExisting.occurrenceDate
+        ? `the ${duplicateExisting.occurrenceDate} occurrence`
+        : 'this event';
+      const message = isSameUser
+        ? `You already have a pending edit request for ${scopeLabel}. Withdraw it before submitting a new one.`
+        : `${existingRequester} has a pending edit request for ${scopeLabel}. Only one active edit request per ${duplicateExisting.editScope === 'thisEvent' ? 'occurrence' : 'event'} is allowed at a time. Wait for it to be approved, rejected, or withdrawn.`;
       return res.status(400).json({
         error: 'DUPLICATE_PENDING_REQUEST',
-        message: 'You already have a pending edit request for this event/occurrence',
+        message,
         existingEditRequestId: duplicateExisting.editRequestId,
+        existingRequester: {
+          userId: duplicateExisting.requestedBy?.userId,
+          email: duplicateExisting.requestedBy?.email,
+          name: duplicateExisting.requestedBy?.name,
+        },
+        isSameUser,
+        existingRequestSubmittedAt: duplicateExisting.requestedAt,
       });
     }
 
@@ -20735,19 +20784,12 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
     });
 
     // Email shape mirrors the legacy endpoint so existing templates work unchanged.
-    const editRequestForEmail = {
-      _id: originalEvent._id,
-      eventId: originalEvent.eventId,
-      eventTitle: proposedChanges.eventTitle || originalEvent.eventTitle || cd.eventTitle,
-      startDateTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
-      endDateTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
-      requesterName,
-      requesterEmail: userEmail,
-      startTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
-      endTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
-      locationDisplayNames: proposedChanges.locationDisplayNames || originalEvent.locationDisplayNames || cd.locationDisplayNames || locationDisplayName,
+    const editRequestForEmail = buildEditRequestEmailPayload(originalEvent, editRequestDoc, {
+      finalChanges: proposedChanges,
+      requesterOverride: { name: requesterName, email: userEmail },
+      locationDisplayNameFallback: locationDisplayName,
       proposedChanges: changesArray,
-    };
+    });
 
     try {
       await emailService.sendEditRequestSubmittedConfirmation(editRequestForEmail);
@@ -21118,19 +21160,7 @@ app.put('/api/edit-requests/:id/reject', verifyToken, async (req, res) => {
     try {
       const parentEvent = await unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
       if (parentEvent) {
-        const cd = parentEvent.calendarData || {};
-        const editRequestForEmail = {
-          _id: parentEvent._id,
-          eventId: parentEvent.eventId,
-          eventTitle: cd.eventTitle || parentEvent.eventTitle,
-          startDateTime: cd.startDateTime || parentEvent.startDateTime,
-          endDateTime: cd.endDateTime || parentEvent.endDateTime,
-          requesterName: editRequest.requestedBy?.name,
-          requesterEmail: editRequest.requestedBy?.email,
-          startTime: cd.startDateTime || parentEvent.startDateTime,
-          endTime: cd.endDateTime || parentEvent.endDateTime,
-          locationDisplayNames: cd.locationDisplayNames || parentEvent.locationDisplayNames,
-        };
+        const editRequestForEmail = buildEditRequestEmailPayload(parentEvent, editRequest);
         await emailService.sendEditRequestRejectedNotification(editRequestForEmail, reason.trim());
       }
     } catch (emailError) {
@@ -21441,12 +21471,35 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       throw err;
     }
 
-    // Audit log
+    // No supersede sweep needed — the one-active-per-scope guard at submission
+    // time means there's at most one pending request per (eventId, editScope,
+    // occurrenceDate) tuple. Cross-scope auto-supersede (e.g., series-level
+    // approval invalidating a co-pending occurrence edit) is deferred to Phase 2.
+
+    // Build the audit changes array eagerly so it's referenced in the
+    // post-response logging below (Object.entries iteration is cheap).
     const changesArray = [];
     for (const [field, newValue] of Object.entries(finalChanges)) {
       changesArray.push({ field, oldValue: cd[field] ?? '', newValue });
     }
-    await eventAuditHistoryCollection.insertOne({
+
+    // Send the response BEFORE side effects: audit insert, approval email,
+    // and SSE broadcast are independent of the API contract and should not
+    // block TTFB. They run after the response on the same tick.
+    res.json({
+      success: true,
+      message: 'Edit request approved and applied',
+      eventId: event.eventId,
+      editRequestId: editRequest.editRequestId,
+      editRequestVersion: updatedRequest._version,
+      eventVersion: updatedEvent._version,
+      changesApplied: finalChanges,
+    });
+
+    // Post-response side effects. Logged on failure but never blocks the
+    // approver — the EditRequest + Event mutations already committed above.
+    const auditContext = { eventId: event.eventId, editRequestId: editRequest.editRequestId };
+    eventAuditHistoryCollection.insertOne({
       eventId: event.eventId,
       reservationId: event._id,
       action: 'edit-request-approved',
@@ -21464,88 +21517,29 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         ...(editRequest.editScope && { editScope: editRequest.editScope }),
         ...(editRequest.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
       },
+    }).catch((auditErr) => {
+      logger.warn('Edit request approval audit insert failed (non-fatal):', { ...auditContext, error: auditErr.message });
     });
 
-    // Approval email (non-blocking, mirrors legacy template payload)
+    const editRequestForEmail = buildEditRequestEmailPayload(event, editRequest, { finalChanges });
+    emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray)
+      .catch((emailError) => {
+        logger.warn('Edit request approval email failed (non-fatal):', { ...auditContext, error: emailError.message });
+      });
+
     try {
-      const editRequestForEmail = {
-        _id: event._id,
+      broadcastEventChange({
         eventId: event.eventId,
-        eventTitle: finalChanges.eventTitle || cd.eventTitle || event.eventTitle,
-        startDateTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
-        endDateTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
-        requesterName: editRequest.requestedBy?.name,
+        action: 'edit-published',
+        actorEmail: userEmail,
         requesterEmail: editRequest.requestedBy?.email,
-        startTime: finalChanges.startDateTime || cd.startDateTime || event.startDateTime,
-        endTime: finalChanges.endDateTime || cd.endDateTime || event.endDateTime,
-        locationDisplayNames: finalChanges.locationDisplayNames || cd.locationDisplayNames || event.locationDisplayNames,
-        ...(editRequest.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
-      };
-      await emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray);
-    } catch (emailError) {
-      logger.error('Edit request approval email failed:', emailError.message);
+        event: updatedEvent,
+        oldStatus: 'published',
+        newStatus: 'published',
+      });
+    } catch (broadcastErr) {
+      logger.warn('Edit request approval SSE broadcast failed (non-fatal):', { ...auditContext, error: broadcastErr.message });
     }
-
-    // Supersede sweep — flip other matching-scope pending requests to 'superseded'.
-    // Series-level approval supersedes other pending series-level requests on the
-    // same event. Occurrence-scoped approval supersedes other pending requests
-    // for the SAME occurrenceDate. Cross-scope supersede deferred to Phase 2.
-    let supersededCount = 0;
-    try {
-      const supersedeQuery = {
-        eventId: event.eventId,
-        status: 'pending',
-        _id: { $ne: editRequest._id },
-      };
-      if (isOccurrenceScoped) {
-        supersedeQuery.editScope = 'thisEvent';
-        supersedeQuery.occurrenceDate = editRequest.occurrenceDate;
-      } else {
-        // Series-level: supersede other series-level requests
-        supersedeQuery.$or = [
-          { editScope: { $in: [null, 'allEvents'] } },
-          { editScope: { $exists: false } },
-        ];
-      }
-      const supersedeResult = await editRequestsCollection.updateMany(
-        supersedeQuery,
-        {
-          $set: { status: 'superseded', lastModifiedDateTime: now, lastModifiedBy: 'system' },
-          $push: {
-            statusHistory: {
-              status: 'superseded',
-              changedAt: now,
-              changedBy: 'system',
-            },
-          },
-          $inc: { _version: 1 },
-        }
-      );
-      supersededCount = supersedeResult.modifiedCount || 0;
-    } catch (supersedeErr) {
-      logger.warn('Supersede sweep failed (non-fatal):', supersedeErr.message);
-    }
-
-    res.json({
-      success: true,
-      message: 'Edit request approved and applied',
-      eventId: event.eventId,
-      editRequestId: editRequest.editRequestId,
-      editRequestVersion: updatedRequest._version,
-      eventVersion: updatedEvent._version,
-      changesApplied: finalChanges,
-      supersededCount,
-    });
-
-    broadcastEventChange({
-      eventId: event.eventId,
-      action: 'edit-published',
-      actorEmail: userEmail,
-      requesterEmail: editRequest.requestedBy?.email,
-      event: updatedEvent,
-      oldStatus: 'published',
-      newStatus: 'published',
-    });
   } catch (error) {
     logger.error('Error approving edit request:', error);
     res.status(500).json({ error: 'Failed to approve edit request' });

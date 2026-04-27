@@ -9,6 +9,7 @@ import DiscardChangesDialog from './DiscardChangesDialog';
 import RecurrenceWarningDialog from './RecurrenceWarningDialog';
 import DuplicateDateDialog from './DuplicateDateDialog';
 import { getEventRecurrence } from '../../utils/eventTransformers';
+import { buildEditRequestTooltip } from '../../utils/editRequestUtils';
 import './ReviewModal.css';
 
 /**
@@ -723,6 +724,7 @@ export default function ReviewModal({
                       className="action-btn view-edit-request-btn"
                       onClick={onViewEditRequest}
                       disabled={loadingEditRequest || anyConfirming}
+                      title={buildEditRequestTooltip(existingEditRequest)}
                     >
                       {loadingEditRequest ? 'Loading...' : (
                         existingEditRequest?.proposedChanges?.startDateTime

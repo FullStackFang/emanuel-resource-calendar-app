@@ -329,3 +329,27 @@ export function computeDetectedChanges(originalData, currentData) {
 
   return changes;
 }
+
+/**
+ * Build an explanatory tooltip describing why an event has a pending edit
+ * request and the one-active-per-scope rule. Used on the "View Edit Request"
+ * affordance so a user who can't request their own edit understands why.
+ */
+export function buildEditRequestTooltip(editRequest) {
+  if (!editRequest) return '';
+  const requesterName = editRequest.requestedBy?.name
+    || editRequest.requestedBy?.email
+    || 'Another user';
+  const submittedAt = editRequest.requestedAt
+    || editRequest.requestedBy?.requestedAt
+    || editRequest.createdAt;
+  const submittedLabel = submittedAt
+    ? new Date(submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+  const isOccurrence = editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate;
+  const scopeLabel = isOccurrence
+    ? `the ${editRequest.occurrenceDate} occurrence`
+    : 'this event';
+  const scopeUnit = isOccurrence ? 'occurrence' : 'event';
+  return `${requesterName} has a pending edit request for ${scopeLabel}${submittedLabel ? ` (submitted ${submittedLabel})` : ''}. Only one active edit request per ${scopeUnit} is allowed at a time. Click to review.`;
+}

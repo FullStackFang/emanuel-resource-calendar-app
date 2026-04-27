@@ -341,53 +341,12 @@ describe('PUT /api/edit-requests/:id/approve', () => {
     });
   });
 
-  describe('supersede sweep', () => {
-    it('flips co-pending series-level requests on the same event to superseded', async () => {
-      const published = createPublishedEvent({
-        userId: requesterUser.odataId,
-        requesterEmail: requesterUser.email,
-      });
-      const [savedEvent] = await insertEvents(db, [published]);
-
-      const otherUser = createOtherRequester({ odataId: 'other-odata' });
-      await insertUsers(db, [otherUser]);
-
-      const [primaryReq, otherReq] = await insertEditRequests(db, [
-        createPendingEditRequest({
-          eventId: savedEvent.eventId,
-          eventObjectId: savedEvent._id,
-          userId: requesterUser.odataId,
-          requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email },
-          proposedChanges: { eventTitle: 'Primary change' },
-        }),
-        createPendingEditRequest({
-          eventId: savedEvent.eventId,
-          eventObjectId: savedEvent._id,
-          userId: otherUser.odataId,
-          requestedBy: { userId: otherUser.odataId, email: otherUser.email, name: otherUser.email },
-          proposedChanges: { eventDescription: 'Other description' },
-        }),
-      ]);
-
-      const res = await request(app)
-        .put(`/api/edit-requests/${primaryReq._id}/approve`)
-        .set('Authorization', `Bearer ${approverToken}`)
-        .send({
-          editRequestVersion: primaryReq._version,
-          eventVersion: savedEvent._version,
-        })
-        .expect(200);
-
-      expect(res.body.supersededCount).toBe(1);
-
-      const otherAfter = await db
-        .collection(COLLECTIONS.EDIT_REQUESTS)
-        .findOne({ _id: otherReq._id });
-      expect(otherAfter.status).toBe('superseded');
-      expect(otherAfter.statusHistory[otherAfter.statusHistory.length - 1].changedBy).toBe('system');
-    });
-
-    it('does not supersede occurrence requests for different dates', async () => {
+  describe('cross-scope independence', () => {
+    it('approving a per-occurrence request does not affect a co-pending request for a different occurrenceDate', async () => {
+      // Different occurrenceDate values are independent slots; one approval
+      // does not touch the other. (Cross-scope auto-supersede where a
+      // series-level approval would cancel co-pending occurrence edits is
+      // deferred to Phase 2 — tested separately when implemented.)
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -415,7 +374,7 @@ describe('PUT /api/edit-requests/:id/approve', () => {
         }),
       ]);
 
-      const res = await request(app)
+      await request(app)
         .put(`/api/edit-requests/${reqMar12._id}/approve`)
         .set('Authorization', `Bearer ${approverToken}`)
         .send({
@@ -424,8 +383,6 @@ describe('PUT /api/edit-requests/:id/approve', () => {
         })
         .expect(200);
 
-      // Mar 19 request should still be pending — different occurrenceDate
-      expect(res.body.supersededCount).toBe(0);
       const mar19After = await db
         .collection(COLLECTIONS.EDIT_REQUESTS)
         .findOne({ _id: reqMar19._id });

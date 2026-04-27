@@ -11,6 +11,11 @@ import { usePermissions } from './usePermissions';
 import { useAuthenticatedFetch } from './useAuthenticatedFetch';
 import { dispatchRefresh } from './useDataRefreshBus';
 import APP_CONFIG from '../config/config';
+import {
+  createEditRequest as createEditRequestApi,
+  approveEditRequestRaw,
+  rejectEditRequest as rejectEditRequestApi,
+} from '../services/editRequestsApi';
 
 /**
  * useReviewModal - Custom hook for managing review modal state and API calls
@@ -374,6 +379,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsHold(false); // Reset hold state
     setHasUncommittedRecurrence(false); // Reset recurrence warning state
     setShowRecurrenceWarning(false);
+    setSoftConflictConfirmation(null); // Drop any pending soft-conflict prompt; otherwise it would re-surface on next open.
   }, [hasChanges, isDraft, currentItem]);
 
   /**
@@ -1230,7 +1236,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
     setIsSubmittingEditRequest(true);
     try {
-      const eventId = currentItem._id || currentItem.eventId;
+      // The new collection endpoint takes eventId in the body. Prefer eventId
+      // string when available, fall back to ObjectId form for legacy compat
+      // (resolveEventForEditRequest handles either shape on the backend).
+      const eventIdentifier = currentItem.eventId || currentItem._id;
       const payload = buildEditRequestPayload(liveFormData, {
         eventVersion,
         editScope,
@@ -1240,26 +1249,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           : undefined,
       });
 
-      const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to submit edit request');
+      try {
+        const result = await createEditRequestApi(authFetch, {
+          eventId: eventIdentifier,
+          ...payload,
+        });
+        notifySuccess({ editRequestSubmitted: true });
+        await closeModal(true);
+        return { success: true, data: result };
+      } catch (apiError) {
+        const message = apiError.message || 'Failed to submit edit request';
+        if (onError) onError(message);
+        return { success: false, error: message, status: apiError.status, body: apiError.body };
       }
-
-      const result = await response.json();
-      notifySuccess({ editRequestSubmitted: true });
-      await closeModal(true);
-      return { success: true, data: result };
     } catch (error) {
       logger.error('Error submitting edit request:', error);
       if (onError) onError(error.message || 'Failed to submit edit request');
@@ -1279,9 +1281,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Uses two-click confirmation.
    *
    * @param {Object|null} approverChanges - Pre-computed approver modifications (from computeApproverChanges)
+   * @param {Object} editRequestDoc - The EditRequest doc (from existingEditRequest). Must include
+   *   `_id` (the request's ObjectId) and `_version` (request OCC token).
    */
-  const handleApproveEditRequest = useCallback(async (approverChanges) => {
+  const handleApproveEditRequest = useCallback(async (approverChanges, editRequestDoc) => {
     if (!currentItem) return { success: false, error: 'No item' };
+    if (!editRequestDoc?._id) {
+      const message = 'No edit request document available to approve';
+      if (onError) onError(message);
+      return { success: false, error: message };
+    }
 
     // Two-click confirmation
     if (!pendingEditRequestApproveConfirmation) {
@@ -1293,71 +1302,70 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsApprovingEditRequest(true);
     try {
       const eventId = currentItem._id || currentItem.eventId;
+      const editRequestDocId = editRequestDoc._id;
+      const editRequestVersion = editRequestDoc._version ?? null;
 
-      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
-      const freshVersion = await fetchFreshVersion(eventId);
+      // Refresh event version to avoid false VERSION_CONFLICT from stale modal data
+      const freshEventVersion = await fetchFreshVersion(eventId);
 
-      const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            notes: '',
-            _version: freshVersion ?? null,
-            ...(approverChanges && { approverChanges })
-          })
-        }
-      );
+      const buildBody = (extras = {}) => ({
+        notes: '',
+        editRequestVersion,
+        eventVersion: freshEventVersion ?? null,
+        ...(approverChanges && { approverChanges }),
+        ...extras,
+      });
+
+      const response = await approveEditRequestRaw(authFetch, editRequestDocId, buildBody());
 
       if (response.status === 409) {
         const errorData = await response.json();
-        if (errorData.error === 'SchedulingConflict') {
-          if (errorData.conflictTier === 'soft') {
-            // Soft conflicts: show confirmation dialog with retry
-            const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`;
-            setSoftConflictConfirmation({
-              message: `This time slot has ${errorData.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
-              conflicts: errorData.softConflicts || errorData.conflicts || [],
-              retryFn: async () => {
-                setSoftConflictConfirmation(null);
-                setIsApprovingEditRequest(true);
-                try {
-                  const retryResponse = await authFetch(endpoint, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      notes: '',
-                      _version: freshVersion ?? null,
-                      ...(approverChanges && { approverChanges }),
-                      acknowledgeSoftConflicts: true,
-                    })
-                  });
-                  if (retryResponse.ok) {
-                    const retryResult = await retryResponse.json();
-                    await closeModal(true);
-                    notifySuccess({ editRequestApproved: true, eventId });
-                    return { success: true, data: retryResult };
-                  }
-                  const retryData = await retryResponse.json().catch(() => ({}));
-                  const retryMsg = retryData.message || 'Cannot approve edit: scheduling conflict(s) detected';
-                  if (onError) onError(retryMsg);
-                  return { success: false, error: retryMsg };
-                } finally {
-                  setIsApprovingEditRequest(false);
+
+        // Soft conflicts: prompt to override
+        if (errorData.error === 'SchedulingConflict' && errorData.conflictTier === 'soft') {
+          setSoftConflictConfirmation({
+            message: `This time slot has ${errorData.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
+            conflicts: errorData.softConflicts || errorData.conflicts || [],
+            retryFn: async () => {
+              setSoftConflictConfirmation(null);
+              setIsApprovingEditRequest(true);
+              try {
+                const retryResponse = await approveEditRequestRaw(authFetch, editRequestDocId, buildBody({ acknowledgeSoftConflicts: true }));
+                if (retryResponse.ok) {
+                  const retryResult = await retryResponse.json();
+                  await closeModal(true);
+                  notifySuccess({ editRequestApproved: true, eventId });
+                  return { success: true, data: retryResult };
                 }
+                const retryData = await retryResponse.json().catch(() => ({}));
+                const retryMsg = retryData.message || 'Cannot approve edit: scheduling conflict(s) detected';
+                if (onError) onError(retryMsg);
+                return { success: false, error: retryMsg };
+              } finally {
+                setIsApprovingEditRequest(false);
               }
-            });
-            return { success: false, error: 'SoftConflictPending' };
-          }
-          // Hard conflicts
+            }
+          });
+          return { success: false, error: 'SoftConflictPending' };
+        }
+
+        // Hard conflicts
+        if (errorData.error === 'SchedulingConflict') {
           const message = `Cannot approve edit: ${errorData.hardConflicts?.length || errorData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
           if (onError) onError(message);
           return { success: false, error: 'SchedulingConflict', conflictData: errorData };
         }
-        // OCC version conflict
+
+        // Partial failure: Write 1 succeeded but Write 2 (event update) hit a stale eventVersion.
+        // The request is now `approved` in the collection, but the event was not updated.
+        // Surface a distinct error so the UI can offer a 'Re-apply Approved Changes' admin action.
+        if (errorData.partialFailure) {
+          const message = 'Approval was recorded but the event update failed (event was modified concurrently). An administrator can re-apply the approved changes.';
+          if (onError) onError(message);
+          return { success: false, error: 'PARTIAL_FAILURE', partialFailureData: errorData };
+        }
+
+        // OCC conflict on the EditRequest doc itself (someone else acted on it)
         if (errorData.details?.code === 'VERSION_CONFLICT') {
           setConflictInfo({
             conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
@@ -1367,16 +1375,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
+
         if (onError) onError(errorData.error || 'This event was modified by another user');
         return { success: false, error: errorData.error };
       }
+
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to approve edit request');
       }
 
       const result = await response.json();
-      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
       await closeModal(true);
       notifySuccess({ editRequestApproved: true, eventId });
       return { success: true, data: result };
@@ -1398,9 +1407,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Reject an edit request on a published event (admin/approver only).
    * Replaces 3 in-modal copies across Calendar.jsx, MyReservations.jsx, ReservationRequests.jsx.
    * Uses two-click confirmation with reason required.
+   *
+   * @param {Object} editRequestDoc - The EditRequest doc (from existingEditRequest). Must include
+   *   `_id` and `_version`.
    */
-  const handleRejectEditRequest = useCallback(async () => {
+  const handleRejectEditRequest = useCallback(async (editRequestDoc) => {
     if (!currentItem) return { success: false, error: 'No item' };
+    if (!editRequestDoc?._id) {
+      const message = 'No edit request document available to reject';
+      if (onError) onError(message);
+      return { success: false, error: message };
+    }
 
     // Two-click confirmation
     if (!pendingEditRequestRejectConfirmation) {
@@ -1418,49 +1435,33 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsRejectingEditRequest(true);
     try {
       const eventId = currentItem._id || currentItem.eventId;
+      const editRequestDocId = editRequestDoc._id;
+      const editRequestVersion = editRequestDoc._version ?? null;
 
-      // Refresh version to avoid false VERSION_CONFLICT from stale modal data
-      const freshVersion = await fetchFreshVersion(eventId);
-
-      const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            reason: editRequestRejectionReason.trim(),
-            _version: freshVersion ?? null,
-          })
-        }
-      );
-
-      if (response.status === 409) {
-        const errorData = await response.json();
-        if (errorData.details?.code === 'VERSION_CONFLICT') {
+      try {
+        const result = await rejectEditRequestApi(authFetch, editRequestDocId, {
+          reason: editRequestRejectionReason.trim(),
+          editRequestVersion,
+        });
+        setEditRequestRejectionReason('');
+        await closeModal(true);
+        notifySuccess({ editRequestRejected: true, eventId });
+        return { success: true, data: result };
+      } catch (apiError) {
+        // OCC conflict on the EditRequest doc
+        if (apiError.status === 409 && apiError.body?.details?.code === 'VERSION_CONFLICT') {
           setConflictInfo({
-            conflictType: errorData.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            conflictType: apiError.body?.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
-            details: errorData.details || {},
-            staleData: transformEventToFlatStructure(currentItem)
+            details: apiError.body?.details || {},
+            staleData: transformEventToFlatStructure(currentItem),
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
-        if (onError) onError(errorData.error || 'This event was modified by another user');
-        return { success: false, error: errorData.error };
+        const message = apiError.message || 'Failed to reject edit request';
+        if (onError) onError(message);
+        return { success: false, error: message };
       }
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to reject edit request');
-      }
-
-      const result = await response.json();
-      setEditRequestRejectionReason('');
-      // Close modal FIRST (guaranteed) — prevents stale UI if notifySuccess throws
-      await closeModal(true);
-      notifySuccess({ editRequestRejected: true, eventId });
-      return { success: true, data: result };
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
       if (onError) onError(error.message);
@@ -1469,7 +1470,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsRejectingEditRequest(false);
       setPendingEditRequestRejectConfirmation(false);
     }
-  }, [currentItem, authFetch, fetchFreshVersion, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
+  }, [currentItem, authFetch, editRequestRejectionReason, notifySuccess, onError, closeModal, pendingEditRequestRejectConfirmation]);
 
   const cancelEditRequestRejectConfirmation = useCallback(() => {
     setPendingEditRequestRejectConfirmation(false);

@@ -23,6 +23,7 @@ import {
 } from '../utils/editRequestUtils';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import { listEditRequests, withdrawEditRequest } from '../services/editRequestsApi';
 
 /**
  * @param {Object} config
@@ -126,58 +127,32 @@ export function useEventReviewExperience({
 
     setLoadingEditRequest(true);
     try {
-      // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
-      const pendingReq = event.pendingEditRequest;
-      if (pendingReq?.status === 'pending') {
-        // Scope filters only apply to Calendar-expanded virtual occurrences, where
-        // pendingEditRequest is inherited from the master and needs date-matching.
-        // Raw documents (list views, API) own their edit requests — never filter them out.
-        if (event.isRecurringOccurrence) {
-          if (isScopeMismatch(pendingReq, viewingEditScope)) return null;
-          if (isEditForDifferentOccurrence(pendingReq, event)) return null;
-        }
-        return {
-          _id: event._id,
-          editRequestId: pendingReq.id,
-          status: pendingReq.status,
-          requestedBy: pendingReq.requestedBy,
-          changeReason: pendingReq.changeReason,
-          proposedChanges: pendingReq.proposedChanges,
-          reviewedBy: pendingReq.reviewedBy,
-          reviewedAt: pendingReq.reviewedAt,
-          reviewNotes: pendingReq.reviewNotes,
-          createdAt: pendingReq.requestedBy?.requestedAt,
-        };
-      }
-
-      // Calendar-expanded occurrences had pendingEditRequest scoped by Calendar.jsx.
-      // Absence means the edit doesn't target this occurrence — skip the API fallback
-      // which would re-fetch the master's edit request and bypass that scoping.
+      // Calendar-expanded virtual occurrences are not stored docs in the new
+      // collection model; their request belongs to the master. The Calendar
+      // layer is responsible for scoping the master's request to the clicked
+      // occurrence before opening the modal. Skip the network call here.
       if (event.isRecurringOccurrence) {
         return null;
       }
 
-      // Fallback: API call for events loaded without full data (e.g., from list views)
-      const eventId = event._id || event.eventId;
-      if (!eventId || !apiToken) return null;
+      const eventIdentifier = event.eventId || event._id;
+      if (!eventIdentifier || !apiToken) return null;
 
-      const response = await doFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/${eventId}/edit-requests`
-      );
+      const data = await listEditRequests(doFetch, {
+        eventId: eventIdentifier,
+        status: 'pending',
+        sort: 'newest',
+        limit: 50,
+      });
 
-      if (response.ok) {
-        const data = await response.json();
-        const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
-        // Same guard as embedded path: only filter for Calendar-expanded occurrences.
-        // (Unreachable for expanded occurrences due to early return above, but
-        // consistent for defense-in-depth.)
-        if (event.isRecurringOccurrence) {
-          if (isScopeMismatch(pendingRequest, viewingEditScope)) return null;
-          if (isEditForDifferentOccurrence(pendingRequest, event)) return null;
-        }
-        return pendingRequest || null;
-      }
-      return null;
+      const editRequests = data?.editRequests || [];
+      // For Phase 1c, the existing UI assumes one pending request at a time —
+      // pick the newest pending. The multi-request UI lands in a follow-up.
+      const pendingRequest = editRequests[0] || null;
+      if (!pendingRequest) return null;
+
+      if (isScopeMismatch(pendingRequest, viewingEditScope)) return null;
+      return pendingRequest;
     } catch (err) {
       logger.error('Error fetching edit requests:', err);
       return null;
@@ -282,10 +257,15 @@ export function useEventReviewExperience({
 
   const handleApproveEditRequest = useCallback(() => {
     const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
-    return reviewModal.handleApproveEditRequest(approverChanges);
-  }, [reviewModal, originalEventData]);
+    // Phase 1c: pass existingEditRequest doc through so the handler can use the
+    // collection endpoint (which routes by EditRequest doc _id, not event _id).
+    return reviewModal.handleApproveEditRequest(approverChanges, existingEditRequest);
+  }, [reviewModal, originalEventData, existingEditRequest]);
 
-  // handleRejectEditRequest: no wrapper needed — comes through ...reviewModal spread
+  // Phase 1c: wrap reject so the handler receives the editRequest doc.
+  const handleRejectEditRequest = useCallback(() => {
+    return reviewModal.handleRejectEditRequest(existingEditRequest);
+  }, [reviewModal, existingEditRequest]);
 
   // =========================================================================
   // CANCEL PENDING EDIT REQUEST (requester withdrawing own edit request)
@@ -308,21 +288,15 @@ export function useEventReviewExperience({
     try {
       setIsCancelingEditRequest(true);
       const eventId = currentItem._id || currentItem.eventId;
+      const editRequestDocId = existingEditRequest._id;
+      const editRequestVersion = existingEditRequest._version;
 
-      const response = await doFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to cancel edit request');
+      try {
+        await withdrawEditRequest(doFetch, editRequestDocId, { editRequestVersion });
+        logger.info('Edit request withdrawn:', { eventId, editRequestDocId });
+      } catch (apiError) {
+        throw new Error(apiError.message || 'Failed to withdraw edit request');
       }
-
-      logger.info('Edit request canceled:', eventId);
 
       // Reset state
       setIsCancelEditRequestConfirming(false);
@@ -418,8 +392,11 @@ export function useEventReviewExperience({
     handleSubmitEditRequest,
 
     // Edit request approve/reject (admin)
+    // Phase 1c: both wrapped here so they get existingEditRequest passed to the
+    // collection-model handlers. Order matters — these MUST come AFTER the
+    // ...reviewModal spread so they override the unwrapped versions.
     handleApproveEditRequest,
-    // handleRejectEditRequest comes through ...reviewModal spread
+    handleRejectEditRequest,
 
     // Cancel pending edit request (requester)
     isCancelingEditRequest,

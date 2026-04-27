@@ -153,35 +153,39 @@ describe('POST /api/edit-requests — collection-model create', () => {
     });
   });
 
-  describe('parallel requests across users', () => {
-    it('allows two users to have pending requests on the same event simultaneously', async () => {
+  describe('one-active-per-scope guard', () => {
+    it('blocks a second user from submitting while another user has a pending request on the same event', async () => {
       const published = createOwnerlessPublishedEvent({ eventTitle: 'Shared Event' });
       const [saved] = await insertEvents(db, [published]);
 
-      const res1 = await request(app)
+      // First requester submits successfully
+      await request(app)
         .post('/api/edit-requests')
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({ eventId: saved.eventId, eventTitle: 'Requester A change' })
         .expect(201);
 
-      const res2 = await request(app)
+      // Second requester is blocked because a pending request already exists
+      const res = await request(app)
         .post('/api/edit-requests')
         .set('Authorization', `Bearer ${secondRequesterToken}`)
         .send({ eventId: saved.eventId, eventTitle: 'Requester B change' })
-        .expect(201);
+        .expect(400);
 
-      expect(res1.body.editRequestId).not.toBe(res2.body.editRequestId);
+      expect(res.body.error).toBe('DUPLICATE_PENDING_REQUEST');
+      expect(res.body.isSameUser).toBe(false);
+      expect(res.body.existingRequester).toBeDefined();
+      expect(res.body.existingRequester.email).toBe(requesterUser.email);
+      expect(res.body.message).toMatch(/Only one active edit request/i);
 
-      const both = await db
+      const all = await db
         .collection(COLLECTIONS.EDIT_REQUESTS)
         .find({ eventId: saved.eventId, status: 'pending' })
         .toArray();
-      expect(both).toHaveLength(2);
+      expect(all).toHaveLength(1);
     });
-  });
 
-  describe('same-user duplicate guard', () => {
-    it('rejects a second pending request from the same user on the same event/occurrence tuple', async () => {
+    it('rejects a second pending request from the SAME user on the same scope', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -201,16 +205,37 @@ describe('POST /api/edit-requests — collection-model create', () => {
         .expect(400);
 
       expect(res.body.error).toBe('DUPLICATE_PENDING_REQUEST');
-      expect(res.body.existingEditRequestId).toBeDefined();
-
-      const requests = await db
-        .collection(COLLECTIONS.EDIT_REQUESTS)
-        .find({ eventId: saved.eventId })
-        .toArray();
-      expect(requests).toHaveLength(1);
+      expect(res.body.isSameUser).toBe(true);
+      expect(res.body.message).toMatch(/withdraw it/i);
     });
 
-    it('allows the same user to submit different occurrenceDate edits in parallel', async () => {
+    it('once the active request is withdrawn, a different user can submit', async () => {
+      const published = createOwnerlessPublishedEvent({ eventTitle: 'Slot Frees Up' });
+      const [saved] = await insertEvents(db, [published]);
+
+      // First user submits and the request takes the active slot
+      const firstRes = await request(app)
+        .post('/api/edit-requests')
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ eventId: saved.eventId, eventTitle: 'First' })
+        .expect(201);
+
+      // Manually mark the existing request as withdrawn (simulating the
+      // requester withdrawing through the withdraw endpoint)
+      await db.collection(COLLECTIONS.EDIT_REQUESTS).updateOne(
+        { editRequestId: firstRes.body.editRequestId },
+        { $set: { status: 'withdrawn' } }
+      );
+
+      // Second user can now submit
+      await request(app)
+        .post('/api/edit-requests')
+        .set('Authorization', `Bearer ${secondRequesterToken}`)
+        .send({ eventId: saved.eventId, eventTitle: 'Second' })
+        .expect(201);
+    });
+
+    it('different occurrenceDate values are independent slots — parallel submissions allowed', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
