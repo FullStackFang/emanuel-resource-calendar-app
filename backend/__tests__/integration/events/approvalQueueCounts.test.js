@@ -19,6 +19,7 @@ const {
   createDeletedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
+const { seedPendingEditRequestForEvent } = require('../../__helpers__/editRequestFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
@@ -43,6 +44,7 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
   beforeEach(async () => {
     await db.collection(COLLECTIONS.USERS).deleteMany({});
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
+    await db.collection(COLLECTIONS.EDIT_REQUESTS).deleteMany({});
     // The counts endpoint caches responses for 30s and is keyed per-view
     // (approval-queue is shared across users). Between tests we reset the DB
     // but not the in-memory cache, so stale counts leak. Clear it explicitly.
@@ -101,11 +103,14 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       reason: 'No longer needed',
     };
 
-    await insertEvents(db, [
+    const insertedEvents = await insertEvents(db, [
       createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Pending' }),
       createPublishedEventWithEditRequest({ requesterEmail: requesterUser.email, eventTitle: 'Published With Edit' }),
       publishedWithCancel,
     ]);
+    // Edit requests live in templeEvents__EditRequests; pair the published-with-edit fixture
+    // with a real pending request doc so the new collection-backed queries pick it up.
+    await seedPendingEditRequestForEvent(db, insertedEvents[1], { userId: requesterUser.userId, requestedBy: { email: requesterUser.email, name: requesterUser.email } });
 
     const res = await request(app)
       .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)
@@ -171,11 +176,12 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       reason: 'No longer needed',
     };
 
-    await insertEvents(db, [
+    const insertedEvents = await insertEvents(db, [
       createPublishedEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Published' }),
       createPublishedEventWithEditRequest({ requesterEmail: requesterUser.email, eventTitle: 'Published With Edit' }),
       publishedWithCancel,
     ]);
+    await seedPendingEditRequestForEvent(db, insertedEvents[1], { userId: requesterUser.userId, requestedBy: { email: requesterUser.email, name: requesterUser.email } });
 
     const res = await request(app)
       .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)
@@ -199,12 +205,8 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       requesterEmail: requesterUser.email,
       eventTitle: 'Doubly Flagged',
     });
-    doublyFlagged.pendingEditRequest = {
-      status: 'pending',
-      requestedBy: requesterUser.email,
-      requestedAt: new Date(),
-      changes: { eventTitle: 'New Title' },
-    };
+    // Pending edit goes to the new collection (seeded after insert below);
+    // pending cancellation still lives embedded on the event doc.
     doublyFlagged.pendingCancellationRequest = {
       status: 'pending',
       requestedBy: requesterUser.email,
@@ -224,7 +226,7 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       reason: 'Cancel me',
     };
 
-    await insertEvents(db, [
+    const insertedEvents = await insertEvents(db, [
       createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Pending' }),
       createPublishedEventWithEditRequest({ requesterEmail: requesterUser.email, eventTitle: 'Published With Edit' }),
       publishedWithCancel,
@@ -232,6 +234,11 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       createPublishedEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Published' }),
       createRejectedEvent({ requesterEmail: requesterUser.email, eventTitle: 'Rejected' }),
     ]);
+    // Seed pending edit-requests for the two events that need them.
+    const insertedPublishedWithEdit = insertedEvents[1];
+    const insertedDoublyFlagged = insertedEvents[3];
+    await seedPendingEditRequestForEvent(db, insertedPublishedWithEdit, { userId: requesterUser.userId, requestedBy: { email: requesterUser.email, name: requesterUser.email } });
+    await seedPendingEditRequestForEvent(db, insertedDoublyFlagged, { userId: requesterUser.userId, requestedBy: { email: requesterUser.email, name: requesterUser.email } });
 
     const [countsRes, listRes] = await Promise.all([
       request(app)
@@ -282,27 +289,18 @@ describe('Approval Queue Counts Tests (AQC-1 to AQC-9)', () => {
       eventTitle: 'Edit-Only (no reservation data)',
       roomReservationData: null,
     });
-    editOnlyEvent.pendingEditRequest = {
-      status: 'pending',
-      requestedBy: {
-        userId: requesterUser.userId || 'test-user',
-        email: requesterUser.email,
-        name: requesterUser.email,
-        department: '',
-        phone: '',
-        requestedAt: new Date(),
-      },
-      proposedChanges: { eventTitle: 'New Title' },
-      reviewedBy: null,
-      reviewedAt: null,
-      reviewNotes: '',
-    };
+    // Edit request lives in the new collection — seeded after the event is inserted below.
 
     // Also seed a plain-pending event so the other arm contributes too.
-    await insertEvents(db, [
+    const insertedEvents = await insertEvents(db, [
       createPendingEvent({ requesterEmail: requesterUser.email, eventTitle: 'Plain Pending' }),
       editOnlyEvent,
     ]);
+    const insertedEditOnly = insertedEvents[1];
+    await seedPendingEditRequestForEvent(db, insertedEditOnly, {
+      userId: requesterUser.userId || 'test-user',
+      requestedBy: { email: requesterUser.email, name: requesterUser.email },
+    });
 
     const [countsRes, listRes] = await Promise.all([
       request(app)

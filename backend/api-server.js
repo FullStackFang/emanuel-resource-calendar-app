@@ -2541,20 +2541,6 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       recurringQuery._id = { $ne: new ObjectId(excludeId) };
     }
 
-    const pendingEditQuery = {
-      status: 'published',
-      'pendingEditRequest.status': 'pending',
-      $or: [
-        { 'pendingEditRequest.proposedChanges.locations': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.requestedRooms': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
-        { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } },
-      ]
-    };
-    if (excludeId) {
-      pendingEditQuery._id = { $ne: new ObjectId(excludeId) };
-    }
-
     const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
 
     // Run conflict queries sequentially to avoid Cosmos DB serverless burst spike.
@@ -2567,7 +2553,53 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     } catch (recurringError) {
       logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
     }
-    const pendingEditEvents = await unifiedEventsCollection.find(pendingEditQuery).project(CONFLICT_PROJECTION).toArray();
+
+    // Pending edits live in templeEvents__EditRequests now. Fetch only those
+    // whose proposedChanges touch location or time fields (the only ones that
+    // can produce a soft conflict), then load the matching events and attach
+    // the request data so downstream `buildEffectiveEditData` keeps working.
+    let pendingEditEvents = [];
+    {
+      const conflictRelevantPending = await editRequestsCollection.find({
+        status: 'pending',
+        $or: [
+          { 'proposedChanges.locations': { $exists: true } },
+          { 'proposedChanges.requestedRooms': { $exists: true } },
+          { 'proposedChanges.startDateTime': { $exists: true } },
+          { 'proposedChanges.endDateTime': { $exists: true } },
+        ],
+      }).toArray();
+      if (conflictRelevantPending.length > 0) {
+        const eventIds = conflictRelevantPending.map((r) => r.eventId);
+        const eventQuery = {
+          status: 'published',
+          eventId: { $in: eventIds },
+        };
+        if (excludeId) {
+          eventQuery._id = { $ne: new ObjectId(excludeId) };
+        }
+        const events = await unifiedEventsCollection.find(eventQuery).project(CONFLICT_PROJECTION).toArray();
+        const requestsByEventId = new Map();
+        for (const r of conflictRelevantPending) {
+          const existing = requestsByEventId.get(r.eventId);
+          if (!existing || r.requestedAt > existing.requestedAt) {
+            requestsByEventId.set(r.eventId, r);
+          }
+        }
+        pendingEditEvents = events.map((evt) => {
+          const r = requestsByEventId.get(evt.eventId);
+          if (!r) return evt;
+          return {
+            ...evt,
+            pendingEditRequest: {
+              status: r.status,
+              proposedChanges: r.proposedChanges,
+              requestedBy: r.requestedBy,
+            },
+          };
+        });
+      }
+    }
 
     // Expand recurring series masters and add overlapping occurrences to conflicts
     // De-duplicate against conflicts already found by the main query
@@ -7097,18 +7129,22 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       // OR events with a pending cancellation/edit request (even without roomReservationData).
       // Per-occurrence overrides (exception/addition) are children of a seriesMaster —
       // excluded here so approvers act on the master, not individual occurrences.
+      // Edit requests live in templeEvents__EditRequests; we join via eventId IN [...]
+      // rather than scanning a (now non-existent) embedded field.
+      const pendingEditEventIds = await getEventIdsWithPendingEditRequests();
+
       query.isDeleted = { $ne: true };
       query.eventType = NON_CHILD_EVENT_TYPE_FILTER;
       query.$or = [
         { roomReservationData: { $exists: true, $ne: null } },
         { 'pendingCancellationRequest.status': 'pending' },
-        { 'pendingEditRequest.status': 'pending' }
+        { eventId: { $in: pendingEditEventIds } },
       ];
       if (status === 'needs_attention') {
         // Pending events + published events with pending edit/cancel requests
         const needsAttentionFilter = { $or: [
           { status: { $in: ['pending', 'room-reservation-request'] } },
-          { status: 'published', 'pendingEditRequest.status': 'pending' },
+          { status: 'published', eventId: { $in: pendingEditEventIds } },
           { status: 'published', 'pendingCancellationRequest.status': 'pending' }
         ]};
         query.$and = [{ $or: query.$or }, needsAttentionFilter];
@@ -7437,35 +7473,33 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         return responseData;
 
       } else if (view === 'approval-queue') {
+        // Edit requests live in templeEvents__EditRequests; pull the eventIds
+        // with pending requests once and reuse across all the count queries.
+        const pendingEditEventIds = await getEventIdsWithPendingEditRequests();
+
         const baseQuery = {
           isDeleted: { $ne: true },
           eventType: NON_CHILD_EVENT_TYPE_FILTER,
           $or: [
             { roomReservationData: { $exists: true, $ne: null } },
             { 'pendingCancellationRequest.status': 'pending' },
-            { 'pendingEditRequest.status': 'pending' }
+            { eventId: { $in: pendingEditEventIds } },
           ],
         };
 
         const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
         const publishedTotal = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' });
-        const published_edit = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingEditRequest.status': 'pending' });
+        const published_edit = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', eventId: { $in: pendingEditEventIds } });
         const published_cancellation = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', 'pendingCancellationRequest.status': 'pending' });
         const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' });
 
-        // Atomic needs-attention count — mirrors the list endpoint's needsAttentionFilter
-        // (see /api/events/list, status=needs_attention branch at api-server.js:7004).
+        // Atomic needs-attention count — mirrors the list endpoint's needsAttentionFilter.
         // Summing the three component counts would double-count an event with both a
-        // pending edit AND a pending cancellation; counting via $or deduplicates at the
-        // query level.
-        //
-        // Construction mirrors the list endpoint exactly: spread baseQuery (so any
-        // future fields added to baseQuery — e.g., calendarOwner scoping — propagate
-        // here automatically), then replace $or with $and of [baseQuery.$or,
-        // needsAttentionFilter].
+        // pending edit AND a pending cancellation; counting via $or deduplicates at
+        // the query level.
         const needsAttentionFilter = { $or: [
           { status: { $in: ['pending', 'room-reservation-request'] } },
-          { status: 'published', 'pendingEditRequest.status': 'pending' },
+          { status: 'published', eventId: { $in: pendingEditEventIds } },
           { status: 'published', 'pendingCancellationRequest.status': 'pending' }
         ]};
         const needsAttentionQuery = { ...baseQuery };
@@ -13302,13 +13336,45 @@ app.get('/api/rooms/availability', async (req, res) => {
           ]
         }).project(AVAILABILITY_PROJECTION).toArray()),
 
-        // Simplified Q3: pending edits are rare (0-5 total), so fetch all and filter rooms in-memory
-        // Avoids un-indexable $or on nested pendingEditRequest.proposedChanges.* fields
-        withCosmosRetry(() => unifiedEventsCollection.find({
-          isDeleted: { $ne: true },
-          status: { $nin: ['draft', 'rejected', 'deleted'] },
-          'pendingEditRequest.status': 'pending',
-        }).project(AVAILABILITY_PROJECTION).toArray()),
+        // Q3: pending edits live in templeEvents__EditRequests now. Fetch the
+        // pending request docs and their matching events; attach the request
+        // data to each event in-memory so downstream `buildEffectiveEditData`
+        // (which expects an embedded `pendingEditRequest`) keeps working.
+        withCosmosRetry(async () => {
+          const pendingRequests = await editRequestsCollection
+            .find({ status: 'pending' })
+            .toArray();
+          if (pendingRequests.length === 0) return [];
+          const eventIds = pendingRequests.map((r) => r.eventId);
+          const events = await unifiedEventsCollection.find({
+            isDeleted: { $ne: true },
+            status: { $nin: ['draft', 'rejected', 'deleted'] },
+            eventId: { $in: eventIds },
+          }).project(AVAILABILITY_PROJECTION).toArray();
+          // Index requests by eventId so we can attach the right one. If a
+          // single event has multiple pending requests the one-active-per-scope
+          // guard makes that impossible for the same scope, so for the
+          // soft-conflict surface we attach the newest pending request.
+          const requestsByEventId = new Map();
+          for (const req of pendingRequests) {
+            const existing = requestsByEventId.get(req.eventId);
+            if (!existing || (req.requestedAt > existing.requestedAt)) {
+              requestsByEventId.set(req.eventId, req);
+            }
+          }
+          return events.map((evt) => {
+            const req = requestsByEventId.get(evt.eventId);
+            if (!req) return evt;
+            return {
+              ...evt,
+              pendingEditRequest: {
+                status: req.status,
+                proposedChanges: req.proposedChanges,
+                requestedBy: req.requestedBy,
+              },
+            };
+          });
+        }),
 
         // Q4: Published series masters sharing any requested rooms.
         // No date filter — same design as checkRoomConflicts() (eventType is highly selective).
@@ -19866,6 +19932,20 @@ function buildEditRequestBaselineSnapshot(event) {
     locationDisplayNames: cd.locationDisplayNames || event.locationDisplayNames || '',
     recurrence: event.recurrence || cd.recurrence || null,
   };
+}
+
+/**
+ * Return the set of event eventIds that have at least one matching edit
+ * request in the new collection. Replaces the legacy pattern of scanning
+ * events for `'pendingEditRequest.status': 'pending'` — the embedded field
+ * is gone post-cutover, so callers join through this helper instead.
+ *
+ * @param {Object} filter - mongoose-style filter on editRequestsCollection
+ *   (defaults to { status: 'pending' }).
+ * @returns {Promise<string[]>} distinct eventIds.
+ */
+async function getEventIdsWithPendingEditRequests(filter = { status: 'pending' }) {
+  return editRequestsCollection.distinct('eventId', filter);
 }
 
 /**

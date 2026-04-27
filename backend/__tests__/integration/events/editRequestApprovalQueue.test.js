@@ -17,6 +17,11 @@ const {
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
+const {
+  seedPendingEditRequestForEvent,
+  createApprovedEditRequest,
+  insertEditRequest,
+} = require('../../__helpers__/editRequestFactory');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
 describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
@@ -40,6 +45,7 @@ describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
   beforeEach(async () => {
     await db.collection(COLLECTIONS.USERS).deleteMany({});
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
+    await db.collection(COLLECTIONS.EDIT_REQUESTS).deleteMany({});
 
     approverUser = createApprover();
     requesterUser = createRequester();
@@ -58,24 +64,13 @@ describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
         userId: requesterUser.odataId,
         eventTitle: 'rsSched Imported Event',
       });
-      ownerlessEvent.pendingEditRequest = {
-        id: `edit-req-${Date.now()}-eraq1`,
-        status: 'pending',
-        requestedBy: {
-          userId: requesterUser.odataId,
-          email: requesterUser.email,
-          name: requesterUser.email,
-          department: '',
-          phone: '',
-          requestedAt: new Date(),
-        },
+      const [insertedEvent] = await insertEvents(db, [ownerlessEvent]);
+      // Edit request lives in templeEvents__EditRequests now.
+      await seedPendingEditRequestForEvent(db, insertedEvent, {
+        userId: requesterUser.odataId,
+        requestedBy: { email: requesterUser.email, name: requesterUser.email },
         proposedChanges: { attendeeCount: 10 },
-        reviewedBy: null,
-        reviewedAt: null,
-        reviewNotes: '',
-      };
-
-      await insertEvents(db, [ownerlessEvent]);
+      });
 
       const res = await request(app)
         .get(ENDPOINTS.LIST_EVENTS)
@@ -98,24 +93,12 @@ describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
         userId: requesterUser.odataId,
         eventTitle: 'Counts Test Event',
       });
-      ownerlessEvent.pendingEditRequest = {
-        id: `edit-req-${Date.now()}-eraq2`,
-        status: 'pending',
-        requestedBy: {
-          userId: requesterUser.odataId,
-          email: requesterUser.email,
-          name: requesterUser.email,
-          department: '',
-          phone: '',
-          requestedAt: new Date(),
-        },
+      const [insertedEvent] = await insertEvents(db, [ownerlessEvent]);
+      await seedPendingEditRequestForEvent(db, insertedEvent, {
+        userId: requesterUser.odataId,
+        requestedBy: { email: requesterUser.email, name: requesterUser.email },
         proposedChanges: { eventDescription: 'Updated' },
-        reviewedBy: null,
-        reviewedAt: null,
-        reviewNotes: '',
-      };
-
-      await insertEvents(db, [ownerlessEvent]);
+      });
 
       const res = await request(app)
         .get(ENDPOINTS.LIST_EVENTS_COUNTS)
@@ -137,24 +120,18 @@ describe('Edit Request Approval Queue Visibility (ERAQ-1 to ERAQ-4)', () => {
         userId: requesterUser.odataId,
         eventTitle: 'Approved Edit Event',
       });
-      ownerlessEvent.pendingEditRequest = {
-        id: `edit-req-${Date.now()}-eraq3`,
-        status: 'approved', // Already approved — should NOT match
-        requestedBy: {
-          userId: requesterUser.odataId,
-          email: requesterUser.email,
-          name: requesterUser.email,
-          department: '',
-          phone: '',
-          requestedAt: new Date(),
-        },
+      const [insertedEvent] = await insertEvents(db, [ownerlessEvent]);
+      // Seed an APPROVED (not pending) request — this is the negative case.
+      // Approved requests must not surface the event in the approval queue.
+      await insertEditRequest(db, createApprovedEditRequest({
+        eventId: insertedEvent.eventId,
+        eventObjectId: insertedEvent._id,
+        userId: requesterUser.odataId,
+        requestedBy: { email: requesterUser.email, name: requesterUser.email },
         proposedChanges: { attendeeCount: 5 },
-        reviewedBy: { userId: approverUser.odataId, email: approverUser.email },
-        reviewedAt: new Date(),
+        reviewedBy: { userId: approverUser.odataId, email: approverUser.email, name: approverUser.email },
         reviewNotes: 'Approved',
-      };
-
-      await insertEvents(db, [ownerlessEvent]);
+      }));
 
       const res = await request(app)
         .get(ENDPOINTS.LIST_EVENTS)

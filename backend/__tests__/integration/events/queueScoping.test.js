@@ -25,6 +25,7 @@ const {
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
+const { seedPendingEditRequestForEvent } = require('../../__helpers__/editRequestFactory');
 const { STATUS, COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
 
 describe('Queue Scoping Tests (QS-1 to QS-14)', () => {
@@ -181,9 +182,16 @@ describe('Queue Scoping Tests (QS-1 to QS-14)', () => {
     };
 
     const child = createExceptionDocument(master, '2026-03-17', { startTime: '14:00' });
-    child.pendingEditRequest = { ...master.pendingEditRequest };
 
-    await insertEvents(db, [master, child]);
+    const inserted = await insertEvents(db, [master, child]);
+    // Seed the pending edit request on the master via the new collection.
+    // The child does NOT need its own request — the QS-6 invariant is that the
+    // count is keyed by the master, so even if the child also points at the
+    // same request, needsAttention should still be 1.
+    await seedPendingEditRequestForEvent(db, inserted[0], {
+      userId: requesterUser.userId,
+      requestedBy: { email: requesterUser.email, name: requesterUser.email },
+    });
 
     const res = await request(app)
       .get(`${ENDPOINTS.LIST_EVENTS_COUNTS}?view=approval-queue`)

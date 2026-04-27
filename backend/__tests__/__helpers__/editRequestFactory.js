@@ -201,6 +201,26 @@ async function insertEditRequest(db, editRequest) {
   return { ...editRequest, _id: result.insertedId };
 }
 
+/**
+ * Seed a pending edit request for an already-inserted event. Used by approval-
+ * queue/counts tests that need an event + matching pending edit request side
+ * by side. The event must already have its eventId/_id assigned (i.e., come
+ * from `insertEvent` / `insertEvents`).
+ *
+ * @param {Db} db - MongoDB database instance
+ * @param {Object} event - Event with eventId + _id already set
+ * @param {Object} options - Forwarded to createPendingEditRequest
+ * @returns {Promise<Object>} the inserted edit-request doc
+ */
+async function seedPendingEditRequestForEvent(db, event, options = {}) {
+  const editRequest = createPendingEditRequest({
+    eventId: event.eventId,
+    eventObjectId: event._id,
+    ...options,
+  });
+  return insertEditRequest(db, editRequest);
+}
+
 async function insertEditRequests(db, editRequests) {
   if (editRequests.length === 0) return [];
   const result = await db.collection(COLLECTIONS.EDIT_REQUESTS).insertMany(editRequests);
@@ -222,4 +242,5 @@ module.exports = {
   createSupersededEditRequest,
   insertEditRequest,
   insertEditRequests,
+  seedPendingEditRequestForEvent,
 };
