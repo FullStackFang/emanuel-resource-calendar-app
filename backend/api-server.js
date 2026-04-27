@@ -7358,6 +7358,46 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=${view}`),
       })
     );
+
+    // Decorate each event with a `pendingEditRequest` summary so the approval
+    // queue's status badge + filter logic can read it without a per-card
+    // round-trip to /api/edit-requests. The full edit request doc still lives
+    // in templeEvents__EditRequests and is fetched by the unified review modal
+    // when opened — this summary just covers list-view display needs.
+    if (events.length > 0) {
+      const eventIds = events.map((e) => e.eventId).filter(Boolean);
+      if (eventIds.length > 0) {
+        const pendingRequests = await editRequestsCollection
+          .find({ eventId: { $in: eventIds }, status: 'pending' })
+          .project({
+            eventId: 1, status: 1, editRequestId: 1, editScope: 1, occurrenceDate: 1,
+            requestedAt: 1, requestedBy: 1, proposedChanges: 1,
+          })
+          .toArray();
+        // One event can have multiple pending requests across scopes; pick the
+        // newest as the summary representative. The full list is available via
+        // GET /api/edit-requests?eventId=... when needed.
+        const summaryByEventId = new Map();
+        for (const r of pendingRequests) {
+          const existing = summaryByEventId.get(r.eventId);
+          if (!existing || (r.requestedAt > existing.requestedAt)) {
+            summaryByEventId.set(r.eventId, {
+              id: r.editRequestId,
+              status: r.status,
+              editScope: r.editScope,
+              occurrenceDate: r.occurrenceDate,
+              requestedBy: r.requestedBy,
+              requestedAt: r.requestedAt,
+              proposedChanges: r.proposedChanges,
+            });
+          }
+        }
+        events = events.map((e) => {
+          const summary = summaryByEventId.get(e.eventId);
+          return summary ? { ...e, pendingEditRequest: summary } : e;
+        });
+      }
+    }
     // Visible diagnostic — one line per request when any master is returned.
     const _listMasters = events.filter(e => e.eventType === 'seriesMaster').length;
     const _listOverrides = events.reduce((n, e) => n + (Array.isArray(e.occurrenceOverrides) ? e.occurrenceOverrides.length : 0), 0);

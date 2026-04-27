@@ -11,7 +11,6 @@ import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
 import ConflictDialog from './shared/ConflictDialog';
 import RecurrenceTabContent from './RecurrenceTabContent';
-import RecurrenceSummaryView from './RecurrenceSummaryView';
 import './RoomReservationForm.css';
 
 /**
@@ -612,29 +611,29 @@ export default function RoomReservationReview({
                 </div>
               )}
 
-              {/* Tab: Recurrence — summary for readers, editor for editors. Forking
-                  at mount avoids the rules-of-hooks trap of toggling between
-                  early-return and full-render inside one component. */}
+              {/* Tab: Recurrence — always renders the full visual layout
+                  (calendar + pattern editor + occurrence list). When
+                  effectiveReadOnly (viewer mode OR approver reviewing a
+                  pending edit request), RecurrenceTabContent suppresses
+                  edit affordances internally via its own readOnly path
+                  while still showing the spatial context approvers need
+                  to evaluate proposed changes. */}
               {activeTab === 'recurrence' && (
                 <div className="tab-content-pad">
-                  {effectiveReadOnly ? (
-                    <RecurrenceSummaryView recurrencePattern={recurrencePattern} />
-                  ) : (
-                    <RecurrenceTabContent
-                      recurrencePattern={recurrencePattern}
-                      onRecurrencePatternChange={isViewingEditRequest ? undefined : handleRecurrencePatternChange}
-                      occurrenceOverrides={occurrenceOverrides}
-                      onOccurrenceOverridesChange={isViewingEditRequest ? undefined : handleOccurrenceOverridesChange}
-                      reservation={reservation}
-                      formData={liveFormData || (formDataRef.current ? formDataRef.current() : null)}
-                      apiToken={apiToken}
-                      editScope={editScope}
-                      readOnly={effectiveReadOnly}
-                      onHasUncommittedRecurrence={onHasUncommittedRecurrence}
-                      createRecurrenceRef={createRecurrenceRef}
-                      commitPendingOverridesRef={commitPendingOverridesRef}
-                    />
-                  )}
+                  <RecurrenceTabContent
+                    recurrencePattern={recurrencePattern}
+                    onRecurrencePatternChange={effectiveReadOnly ? undefined : handleRecurrencePatternChange}
+                    occurrenceOverrides={occurrenceOverrides}
+                    onOccurrenceOverridesChange={effectiveReadOnly ? undefined : handleOccurrenceOverridesChange}
+                    reservation={reservation}
+                    formData={liveFormData || (formDataRef.current ? formDataRef.current() : null)}
+                    apiToken={apiToken}
+                    editScope={editScope}
+                    readOnly={effectiveReadOnly}
+                    onHasUncommittedRecurrence={onHasUncommittedRecurrence}
+                    createRecurrenceRef={createRecurrenceRef}
+                    commitPendingOverridesRef={commitPendingOverridesRef}
+                  />
                 </div>
               )}
             </>

@@ -9,11 +9,6 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
-import {
-  listEditRequests,
-  approveEditRequestRaw,
-  rejectEditRequest as rejectEditRequestApi,
-} from '../services/editRequestsApi';
 import { usePolling } from '../hooks/usePolling';
 import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
@@ -26,7 +21,6 @@ const APPROVAL_QUEUE_COUNTED_STATUSES = new Set(['pending', 'published', 'reject
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import LoadingSpinner from './shared/LoadingSpinner';
-import EditRequestComparison from './EditRequestComparison';
 import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
@@ -96,14 +90,11 @@ export default function ReservationRequests({ graphToken }) {
 
   // Scheduling conflict state managed by reviewModal hook (synchronous reset in openModal)
 
-  // Edit request state (card-level EditRequestComparison modal)
-  const [editRequests, setEditRequests] = useState([]);
-  const [editRequestsLoading, setEditRequestsLoading] = useState(false);
-  const [selectedEditRequest, setSelectedEditRequest] = useState(null);
-  const [showEditRequestModal, setShowEditRequestModal] = useState(false);
-  const [approvingEditRequest, setApprovingEditRequest] = useState(false);
-  const [rejectingEditRequest, setRejectingEditRequest] = useState(false);
-  const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
+  // Edit-request review uses the unified EventReviewExperience modal — same
+  // path as Calendar and MyReservations. The standalone EditRequestComparison
+  // modal that lived here previously has been removed; clicking 'View Details'
+  // on a queue card opens reviewModal which handles the edit-request diff
+  // through its own existingEditRequest fetch path.
 
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -457,64 +448,6 @@ export default function ReservationRequests({ graphToken }) {
       serverCounts, activeTab, allReservations.length, loadReservations,
       permissionsLoading, canApproveReservations]);
 
-  // Load edit requests (for admin review).
-  // Phase 1c: queries the new templeEvents__EditRequests collection. Each item
-  // is an EditRequest doc; event-derived fields come from baselineSnapshot.
-  const loadEditRequests = async () => {
-    try {
-      setEditRequestsLoading(true);
-
-      const data = await listEditRequests(authFetch, { status: 'pending', sort: 'newest', limit: 200 });
-
-      // Transform request docs into the queue card shape. Event title and
-      // start/end come from the baseline snapshot captured at submit time.
-      // _id here = the EditRequest doc's ObjectId (NEW; was the event's _id
-      // in the legacy embedded model).
-      const transformedEditRequests = (data.editRequests || []).map(req => ({
-        _id: req._id,
-        editRequestDocId: req._id,
-        editRequestVersion: req._version,
-        // Event _version captured at submit time — drives Write 2 OCC on approve.
-        eventVersion: req.baselineSnapshot?._version ?? null,
-        eventId: req.eventId,
-        eventObjectId: req.eventObjectId,
-        editRequestId: req.editRequestId,
-
-        // Event-derived display fields from baselineSnapshot (Phase 1b backend captures these)
-        eventTitle: req.baselineSnapshot?.eventTitle || '',
-        startDateTime: req.baselineSnapshot?.startDateTime || '',
-        endDateTime: req.baselineSnapshot?.endDateTime || '',
-        locations: req.baselineSnapshot?.locations || [],
-        locationDisplayNames: req.baselineSnapshot?.locationDisplayNames || '',
-
-        editScope: req.editScope,
-        occurrenceDate: req.occurrenceDate,
-        seriesMasterId: req.seriesMasterId,
-        proposedChanges: req.proposedChanges || {},
-        status: req.status,
-        submittedAt: req.requestedAt,
-
-        requesterName: req.requestedBy?.name || '',
-        requesterEmail: req.requestedBy?.email || '',
-
-        reviewNotes: req.reviewNotes || '',
-        reviewedBy: req.reviewedBy,
-        reviewedAt: req.reviewedAt,
-
-        _isEditRequest: true,
-      }));
-
-      logger.info('Loaded edit requests (collection model):', { count: transformedEditRequests.length });
-      setEditRequests(transformedEditRequests);
-
-    } catch (err) {
-      logger.error('Error loading edit requests:', err);
-      // Don't set error state - edit requests are optional
-    } finally {
-      setEditRequestsLoading(false);
-    }
-  };
-
   // Client-side pagination
   const totalPages = Math.ceil(sortedReservations.length / PAGE_SIZE);
   const startIndex = (page - 1) * PAGE_SIZE;
@@ -550,130 +483,11 @@ export default function ReservationRequests({ graphToken }) {
   }, []);
 
 
-  // =========================================================================
-  // EDIT REQUEST HANDLERS
-  // =========================================================================
-
-  // Open edit request review modal
-  const openEditRequestModal = (editRequest) => {
-    setSelectedEditRequest(editRequest);
-    setShowEditRequestModal(true);
-    setEditRequestRejectionReason('');
-  };
-
-  // Close edit request review modal
-  const closeEditRequestModal = () => {
-    setShowEditRequestModal(false);
-    setSelectedEditRequest(null);
-    setEditRequestRejectionReason('');
-  };
-
-  // Approve edit request (Phase 1c — collection-model two-write).
-  // selectedEditRequest._id is the EditRequest doc's ObjectId (not the event's).
-  // editRequestVersion + eventVersion are the two OCC tokens the backend needs.
-  const handleApproveEditRequest = async (notes = '') => {
-    if (!selectedEditRequest) return;
-
-    try {
-      setApprovingEditRequest(true);
-
-      const editRequestDocId = selectedEditRequest.editRequestDocId || selectedEditRequest._id;
-      const editRequestVersion = selectedEditRequest.editRequestVersion ?? null;
-      const eventVersion = selectedEditRequest.eventVersion ?? null;
-
-      const response = await approveEditRequestRaw(authFetch, editRequestDocId, {
-        notes,
-        editRequestVersion,
-        eventVersion,
-      });
-
-      if (response.status === 409) {
-        const errorData = await response.json();
-        if (errorData.error === 'SchedulingConflict') {
-          throw new Error(errorData.message || 'Scheduling conflict detected — please resolve conflicts before approving');
-        }
-        if (errorData.partialFailure) {
-          // Write 1 succeeded but Write 2 (event update) hit a stale eventVersion.
-          // Surface a clear message so an admin knows to re-trigger the apply step.
-          throw new Error('Approval recorded but the event update failed (event was modified concurrently). Please refresh and re-apply.');
-        }
-        throw new Error(errorData.error || errorData.details?.message || 'Event was modified by another user — please close and try again');
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to approve edit request');
-      }
-
-      logger.info('Edit request approved:', editRequestDocId);
-
-      // Close modal FIRST so the user sees immediate feedback
-      closeEditRequestModal();
-      showSuccess('Edit request approved and changes applied');
-
-      // Refresh edit requests (non-blocking)
-      loadEditRequests();
-
-      // Notify MyReservations and nav badge to refresh
-      dispatchRefresh('reservation-requests');
-      dispatchRefresh('reservation-requests', 'navigation-counts');
-
-    } catch (error) {
-      logger.error('Error approving edit request:', error);
-      showError(error, { context: 'ReservationRequests.approveEditRequest', userMessage: 'Failed to approve edit request' });
-    } finally {
-      setApprovingEditRequest(false);
-    }
-  };
-
-  // Reject edit request (Phase 1c — single-doc write on the EditRequest doc).
-  const handleRejectEditRequest = async () => {
-    if (!selectedEditRequest) return;
-
-    if (!editRequestRejectionReason.trim()) {
-      showError('Please provide a reason for rejecting the edit request.');
-      return;
-    }
-
-    try {
-      setRejectingEditRequest(true);
-
-      const editRequestDocId = selectedEditRequest.editRequestDocId || selectedEditRequest._id;
-      const editRequestVersion = selectedEditRequest.editRequestVersion ?? null;
-
-      try {
-        await rejectEditRequestApi(authFetch, editRequestDocId, {
-          reason: editRequestRejectionReason.trim(),
-          editRequestVersion,
-        });
-      } catch (apiError) {
-        throw new Error(apiError.message || 'Failed to reject edit request');
-      }
-
-      logger.info('Edit request rejected:', editRequestDocId);
-
-      // Close modal FIRST so the user sees immediate feedback
-      closeEditRequestModal();
-      showSuccess('Edit request rejected');
-
-      // Refresh edit requests (non-blocking)
-      loadEditRequests();
-
-      // Notify MyReservations and nav badge to refresh
-      dispatchRefresh('reservation-requests');
-      dispatchRefresh('reservation-requests', 'navigation-counts');
-
-    } catch (error) {
-      logger.error('Error rejecting edit request:', error);
-      showError(error, { context: 'ReservationRequests.rejectEditRequest', userMessage: 'Failed to reject edit request' });
-    } finally {
-      setRejectingEditRequest(false);
-    }
-  };
-
-  // =========================================================================
-  // END CARD-LEVEL EDIT REQUEST HANDLERS
-  // =========================================================================
+  // Edit-request approve/reject flows live in useReviewModal (the unified
+  // hook used here, by Calendar, and by MyReservations). Approver clicks
+  // 'View Details' on a card → reviewModal.openModal → click 'View Edit
+  // Request' inside the modal → click Approve/Reject. Same flow as Calendar
+  // entry, single source of truth.
 
   // Handle locked event click from SchedulingAssistant
   const handleLockedEventClick = async (reservationId) => {
@@ -1078,27 +892,6 @@ export default function ReservationRequests({ graphToken }) {
         </div>
       )}
 
-      {/* Edit Request Review Modal.
-          Phase 1c gap: in the legacy embedded model the queue endpoint returned
-          full event docs so calendarData/roomReservationData were available
-          here for diff rendering. The new collection-model list endpoint returns
-          only request docs, so these are unavailable until a follow-up adds
-          a per-card fetch (or server-side $lookup hydration) for the parent
-          event. EditRequestComparison degrades gracefully when these are null. */}
-      {showEditRequestModal && selectedEditRequest && (
-        <EditRequestComparison
-          editRequest={selectedEditRequest}
-          eventCalendarData={null}
-          eventRoomReservationData={null}
-          onClose={closeEditRequestModal}
-          onApprove={handleApproveEditRequest}
-          onReject={handleRejectEditRequest}
-          rejectionReason={editRequestRejectionReason}
-          onRejectionReasonChange={setEditRequestRejectionReason}
-          isApproving={approvingEditRequest}
-          isRejecting={rejectingEditRequest}
-        />
-      )}
 
       {/* Unified ReviewModal experience (shared hook + component) */}
       <EventReviewExperience
