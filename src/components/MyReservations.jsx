@@ -1,5 +1,5 @@
 // src/components/MyReservations.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -131,12 +131,38 @@ export default function MyReservations() {
   // Tracks in-flight silent polling fetches so the empty state doesn't flash
   // if the server momentarily returns an empty result during a background refresh.
   const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
+  // Mirror of ReservationRequests.jsx (commit 38c9748): a silent refresh
+  // (SSE/polling/bus) must NOT abort a live non-silent UI load — otherwise the
+  // initial mount fetch gets cancelled and the list renders empty. The pair
+  // (controller + silence flag) enables the early-return guard in loadMyReservations.
+  const abortControllerRef = useRef(null);
+  const currentRequestIsSilentRef = useRef(false);
+  // Mirror of Calendar.jsx (commit ee73aff): silent refreshes no-op until the
+  // mount effect has dispatched its first non-silent load. Prevents an SSE
+  // 'event-changed' or bus event delivered during init from racing the initial
+  // load. Stays true for the lifetime of the component once flipped.
+  const initialLoadAttemptedRef = useRef(false);
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
 
   const isRequesterOnly = !canEditEvents && !canApproveReservations;
 
   const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
+    // If the in-flight request is non-silent (e.g. the initial mount UI load),
+    // a silent refresh must no-op rather than supersede it. Without this guard,
+    // a silent refresh arriving during the initial load aborts it — the catch
+    // block silently swallows AbortError, loading clears, and allReservations
+    // stays []. (Identical pattern to ReservationRequests.jsx.)
+    if (silent && abortControllerRef.current && !currentRequestIsSilentRef.current) {
+      return;
+    }
+    // Cancel any previous in-flight request. A new AbortController is created
+    // for each call so the signal is unique per request.
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    currentRequestIsSilentRef.current = silent;
+
     try {
       if (!silent) {
         setLoading(true);
@@ -145,7 +171,10 @@ export default function MyReservations() {
         setIsSilentRefreshing(true);
       }
 
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`);
+      const response = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`,
+        { signal: controller.signal }
+      );
 
       if (!response.ok) {
         if (!silent) throw new Error('Failed to load reservations');
@@ -154,18 +183,45 @@ export default function MyReservations() {
       }
 
       const data = await response.json();
-      setAllReservations(transformEventsToFlatStructure(data.events || []));
+      const transformed = transformEventsToFlatStructure(data.events || []);
+      // Stale-while-revalidate write rule (mirrors Calendar / ReservationRequests):
+      //   non-silent           → always writes (mount, manual refresh)
+      //   silent + non-empty   → writes (legitimate refresh update)
+      //   silent + empty       → DOES NOT write (the truth source for "0 reservations"
+      //                          is a non-silent load — silent zeros are usually
+      //                          transient: replica lag, 401-retry, network race).
+      if (!silent || transformed.length > 0) {
+        setAllReservations(transformed);
+      }
       setLastFetchedAt(Date.now());
       // Silent success after a prior failure: clear stale banner so the UI recovers.
       if (silent) setError('');
     } catch (err) {
+      if (err?.name === 'AbortError') return; // Superseded by a newer request — not an error
       if (!silent) {
         logger.error('Error loading user reservations:', err);
         setError('Failed to load your reservation requests');
       }
     } finally {
-      if (!silent) setLoading(false);
-      else setIsSilentRefreshing(false);
+      // Only the still-live controller flips the loading flag. A superseded
+      // request must not clobber the live request's state.
+      if (!controller.signal.aborted) {
+        if (!silent) setLoading(false);
+        else setIsSilentRefreshing(false);
+      }
+      // Re-arm the silent-refresh guard at the top of this callback. Both
+      // clauses below are load-bearing:
+      //   • `=== controller` identity check preserves correctness when a
+      //     superseded request resolves AFTER its replacement: it must not
+      //     null-out the live request's controller.
+      //   • `abortControllerRef.current = null` re-arms the silent-refresh
+      //     guard. Without it, the ref keeps pointing at this dead controller
+      //     forever, and every subsequent silent refresh (polling, SSE, bus)
+      //     permanently short-circuits at the early-return guard.
+      if (abortControllerRef.current === controller) {
+        currentRequestIsSilentRef.current = false;
+        abortControllerRef.current = null;
+      }
     }
   }, [authFetch]);
 
@@ -229,9 +285,13 @@ export default function MyReservations() {
   const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
   const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
 
-  // Load all user's reservations once on mount
+  // Load all user's reservations once on mount.
+  // Mark the gate true BEFORE dispatching so any SSE/bus event debounced
+  // into the same tick (useDataRefreshBus has a 500ms debounce buffer)
+  // replays correctly against a real in-flight (or completed) load.
   useEffect(() => {
     if (apiToken) {
+      initialLoadAttemptedRef.current = true;
       loadMyReservations();
     }
   }, [loadMyReservations]);
@@ -242,6 +302,10 @@ export default function MyReservations() {
   // directly, which caused a jarring spinner flash on cross-view refresh events).
   const silentRefresh = useCallback(() => {
     if (reviewModal.isOpen) return;
+    // Don't run before the consolidated mount effect has dispatched its first
+    // non-silent load — otherwise an SSE / bus event delivered during init
+    // races the initial load. (Mirrors Calendar.jsx ee73aff.)
+    if (!initialLoadAttemptedRef.current) return;
     return loadMyReservations({ silent: true });
   }, [loadMyReservations, reviewModal.isOpen]);
   // Tighten poll cadence to 30s while SSE is unavailable so staleness is bounded
