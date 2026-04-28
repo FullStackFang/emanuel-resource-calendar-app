@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { computeDetectedChanges, computeApproverChanges, buildEditRequestViewData } from '../../../utils/editRequestUtils';
+import {
+  computeDetectedChanges,
+  computeApproverChanges,
+  buildEditRequestViewData,
+  getRecurrenceChangeBanner,
+} from '../../../utils/editRequestUtils';
 import { buildEditRequestPayload } from '../../../utils/eventPayloadBuilder';
 
 const baseFields = {
@@ -72,6 +77,50 @@ describe('computeApproverChanges — recurrence', () => {
     const delta = computeApproverChanges(current, original);
     expect(delta).not.toBeNull();
     expect(delta.recurrence).toEqual(weeklyMonWed);
+  });
+});
+
+describe('getRecurrenceChangeBanner', () => {
+  it('returns null when both sides are missing', () => {
+    expect(getRecurrenceChangeBanner(null, null)).toBeNull();
+    expect(getRecurrenceChangeBanner(undefined, undefined)).toBeNull();
+  });
+
+  it('returns null when recurrence is unchanged', () => {
+    expect(getRecurrenceChangeBanner(weeklyMonday, { ...weeklyMonday })).toBeNull();
+  });
+
+  it('returns null for permuted daysOfWeek (set-equal)', () => {
+    const a = { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } };
+    const b = { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday', 'monday'] }, range: { type: 'noEnd', startDate: '2026-04-20' } };
+    expect(getRecurrenceChangeBanner(a, b)).toBeNull();
+  });
+
+  it('returns oldText/newText with summaries when pattern changed', () => {
+    const result = getRecurrenceChangeBanner(weeklyMonday, weeklyMonWed);
+    expect(result).not.toBeNull();
+    expect(result.oldText).toContain('Monday');
+    expect(result.newText).toContain('Wednesday');
+  });
+
+  it('returns oldText="(none)" when promoting a non-recurring event', () => {
+    const result = getRecurrenceChangeBanner(null, weeklyMonday);
+    expect(result).not.toBeNull();
+    expect(result.oldText).toBe('(none)');
+    expect(result.newText).toContain('Monday');
+  });
+
+  it('returns newText="(none)" when removing recurrence', () => {
+    const result = getRecurrenceChangeBanner(weeklyMonday, null);
+    expect(result).not.toBeNull();
+    expect(result.oldText).toContain('Monday');
+    expect(result.newText).toBe('(none)');
+  });
+
+  it('detects exclusion-only changes', () => {
+    const before = { ...weeklyMonday, exclusions: [] };
+    const after = { ...weeklyMonday, exclusions: ['2026-04-27'] };
+    expect(getRecurrenceChangeBanner(before, after)).not.toBeNull();
   });
 });
 

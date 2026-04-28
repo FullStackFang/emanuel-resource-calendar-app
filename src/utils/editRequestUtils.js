@@ -316,18 +316,35 @@ export function computeDetectedChanges(originalData, currentData) {
   }
 
   // Recurrence diff (single pseudo-field row with summary text on each side).
-  const oldR = originalData.recurrence || null;
-  const newR = currentData.recurrence || null;
-  if (!recurrenceEquals(oldR, newR)) {
+  const recurrenceBanner = getRecurrenceChangeBanner(originalData.recurrence, currentData.recurrence);
+  if (recurrenceBanner) {
     changes.push({
       field: 'recurrence',
       label: 'Recurrence',
-      oldValue: summarizeRecurrenceShort(oldR) || '(none)',
-      newValue: summarizeRecurrenceShort(newR) || '(none)',
+      oldValue: recurrenceBanner.oldText,
+      newValue: recurrenceBanner.newText,
     });
   }
 
   return changes;
+}
+
+/**
+ * Diff two recurrence objects for the Details-tab change banner.
+ *
+ * Returns null when nothing changed (banner should not render). Returns
+ * { oldText, newText } when the recurrence shape differs — both strings
+ * are pre-formatted via summarizeRecurrenceShort, with '(none)' as the
+ * fallback for null/missing recurrence on either side.
+ */
+export function getRecurrenceChangeBanner(originalRecurrence, currentRecurrence) {
+  const before = originalRecurrence || null;
+  const after = currentRecurrence || null;
+  if (recurrenceEquals(before, after)) return null;
+  return {
+    oldText: summarizeRecurrenceShort(before) || '(none)',
+    newText: summarizeRecurrenceShort(after) || '(none)',
+  };
 }
 
 /**

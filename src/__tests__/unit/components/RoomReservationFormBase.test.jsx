@@ -61,6 +61,7 @@ vi.mock('../../../utils/appTimeUtils', () => ({
 }));
 vi.mock('../../../utils/eventTransformers', () => ({
   getSeriesMasterDisplayDates: () => ({ displayStartDate: '2026-04-01', displayEndDate: '2026-04-30' }),
+  getEventRecurrence: (data) => data?.recurrence || null,
 }));
 vi.mock('../../../utils/timeClampUtils', () => ({
   clampEventTimesToReservation: vi.fn(),
@@ -104,5 +105,77 @@ describe('RoomReservationFormBase', () => {
     expect(() => {
       render(<RoomReservationFormBase />);
     }).not.toThrow();
+  });
+
+  // ─── Recurrence Change Banner (Details tab) ────────────────
+  // When viewing an edit request that modifies the recurrence pattern, the
+  // Details tab must surface that change so the approver doesn't have to
+  // open the Recurrence tab to discover it.
+
+  const weeklyMonday = {
+    pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+    range: { type: 'noEnd', startDate: '2026-04-20' },
+  };
+  const weeklyMonWed = {
+    pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
+    range: { type: 'noEnd', startDate: '2026-04-20' },
+  };
+  const baseEditRequestProps = {
+    initialData: { eventTitle: 'Yoga', startDate: '2026-04-20', endDate: '2026-04-20', startTime: '09:00', endTime: '10:00' },
+    showAllTabs: false,
+    activeTab: 'details',
+    isViewingEditRequest: true,
+  };
+
+  it('renders the recurrence change banner when recurrence differs from original', () => {
+    render(
+      <RoomReservationFormBase
+        {...baseEditRequestProps}
+        initialData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonWed }}
+        originalData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonday }}
+      />
+    );
+    const banner = screen.getByTestId('recurrence-change-banner');
+    expect(banner).toBeTruthy();
+    expect(banner.textContent).toContain('Recurrence');
+    expect(banner.textContent).toContain('Monday');
+    expect(banner.textContent).toContain('Wednesday');
+  });
+
+  it('does not render the banner when recurrence is unchanged', () => {
+    render(
+      <RoomReservationFormBase
+        {...baseEditRequestProps}
+        initialData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonday }}
+        originalData={{ ...baseEditRequestProps.initialData, recurrence: { ...weeklyMonday } }}
+      />
+    );
+    expect(screen.queryByTestId('recurrence-change-banner')).toBeNull();
+  });
+
+  it('does not render the banner outside edit-request modes', () => {
+    render(
+      <RoomReservationFormBase
+        initialData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonWed }}
+        originalData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonday }}
+        showAllTabs={false}
+        activeTab="details"
+        // No isEditRequestMode, no isViewingEditRequest → showDiffMode is false
+      />
+    );
+    expect(screen.queryByTestId('recurrence-change-banner')).toBeNull();
+  });
+
+  it('renders banner with "(none)" old text when promoting a single event to recurring', () => {
+    render(
+      <RoomReservationFormBase
+        {...baseEditRequestProps}
+        initialData={{ ...baseEditRequestProps.initialData, recurrence: weeklyMonday }}
+        originalData={{ ...baseEditRequestProps.initialData, recurrence: null }}
+      />
+    );
+    const banner = screen.getByTestId('recurrence-change-banner');
+    expect(banner.textContent).toContain('(none)');
+    expect(banner.textContent).toContain('Monday');
   });
 });

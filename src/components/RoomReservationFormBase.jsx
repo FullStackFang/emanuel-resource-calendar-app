@@ -19,6 +19,7 @@ import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
 import { getSeriesMasterDisplayDates, getEventRecurrence } from '../utils/eventTransformers';
+import { getRecurrenceChangeBanner } from '../utils/editRequestUtils';
 import {
   clampEventTimesToReservation,
   expandReservationToContainOperationalTimes,
@@ -1190,6 +1191,12 @@ export default function RoomReservationFormBase({
   // Whether to show diff highlighting (both edit request mode and viewing edit request)
   const showDiffMode = isEditRequestMode || isViewingEditRequest;
 
+  // Recurrence-tab edits aren't field-level, so the .field-changed cards below
+  // can't surface them. Compute a separate diff for the Details-tab banner.
+  const recurrenceBannerData = (showDiffMode && originalData)
+    ? getRecurrenceChangeBanner(originalData.recurrence, recurrencePattern)
+    : null;
+
   // Helper to check if a field value has changed from the original (for edit request mode or viewing)
   const hasFieldChanged = useCallback((fieldName) => {
     if (!showDiffMode || !originalData) return false;
@@ -1303,6 +1310,23 @@ export default function RoomReservationFormBase({
                 <div className="rejection-reason-content">
                   <span className="rejection-reason-label">Rejection Reason</span>
                   <span className="rejection-reason-text">{formData.reviewNotes}</span>
+                </div>
+              </div>
+            )}
+
+            {recurrenceBannerData && (
+              <div className="recurrence-change-banner" data-testid="recurrence-change-banner">
+                <span className="recurrence-change-banner-icon" aria-hidden="true">
+                  <RecurringIcon size={18} />
+                </span>
+                <div className="recurrence-change-banner-content">
+                  <span className="recurrence-change-banner-label">Recurrence · Pattern &amp; exceptions changed</span>
+                  <div className="inline-diff">
+                    <span className="diff-old">{recurrenceBannerData.oldText}</span>
+                    <span className="diff-arrow">→</span>
+                    <span className="diff-new">{recurrenceBannerData.newText}</span>
+                  </div>
+                  <span className="recurrence-change-banner-hint">Open the Recurrence tab to inspect specific dates.</span>
                 </div>
               </div>
             )}
