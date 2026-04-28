@@ -34,6 +34,7 @@ const { batchDelete } = require('./utils/batchDelete');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, enrichSeriesMastersWithOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
 
 // Per-occurrence child documents (exception/addition) must never surface as
 // independent targets in the Approval Queue, My Reservations, or the
@@ -2522,9 +2523,19 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       ]
     };
 
-    // Exclude the current reservation if we're checking for updates
+    // Exclude the current reservation if we're checking for updates.
+    // For recurring sources we must exclude the entire series (master + all
+    // exception/addition children) — otherwise a master's children could
+    // surface as conflicts against the master's own first-occurrence window.
+    let excludeObjectIds = [];
     if (excludeId) {
-      query._id = { $ne: new ObjectId(excludeId) };
+      const excludeIdSet = await resolveSeriesExclusionIds(unifiedEventsCollection, excludeId);
+      excludeObjectIds = Array.from(excludeIdSet)
+        .map(id => { try { return new ObjectId(id); } catch (_) { return null; } })
+        .filter(Boolean);
+      if (excludeObjectIds.length > 0) {
+        query._id = { $nin: excludeObjectIds };
+      }
     }
 
     // --- Round 1: Run 4 independent queries in parallel ---
@@ -2534,8 +2545,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       eventType: 'seriesMaster',
       'calendarData.locations': { $in: roomIds },
     };
-    if (excludeId) {
-      recurringQuery._id = { $ne: new ObjectId(excludeId) };
+    if (excludeObjectIds.length > 0) {
+      recurringQuery._id = { $nin: excludeObjectIds };
     }
 
     const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
@@ -13424,12 +13435,21 @@ app.get('/api/rooms/availability', async (req, res) => {
     logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
 
     // Split merged results in-memory (no extra DB queries)
-    const excludeId = excludeEventId ? excludeEventId.toString() : null;
+    // Resolve series-aware exclusion: a recurring series spans master + N
+    // exception/addition children, all of which represent the same logical
+    // event. The form passes a single _id; we expand it to the entire series
+    // so children/master/siblings all get filtered together.
+    const excludeIds = await resolveSeriesExclusionIds(
+      unifiedEventsCollection,
+      excludeEventId,
+      { candidates: [...allEventsAndPending, ...seriesMasters] }
+    );
+    const isExcluded = (e) => e && e._id && excludeIds.has(e._id.toString());
 
-    const allReservations = allEventsAndPending.filter(e => e.status === 'published');
-    const allCalendarEvents = allEventsAndPending.filter(e => !e.status);
+    const allReservations = allEventsAndPending.filter(e => e.status === 'published' && !isExcluded(e));
+    const allCalendarEvents = allEventsAndPending.filter(e => !e.status && !isExcluded(e));
     const pendingReservationEvents = allEventsAndPending.filter(e =>
-      e.status === 'pending' && (!excludeId || e._id.toString() !== excludeId)
+      e.status === 'pending' && !isExcluded(e)
     );
 
     logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length,
@@ -13457,7 +13477,7 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     for (const master of seriesMasters) {
       const masterId = master._id.toString();
-      if (excludeId && masterId === excludeId) continue;
+      if (isExcluded(master)) continue;
 
       const mainQueryHasMaster = mainQueryIdSet.has(masterId);
       const masterExceptionDates = exceptionDatesByMaster[master.eventId];
