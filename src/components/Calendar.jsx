@@ -18,7 +18,7 @@
   import DayTimelineModal from './DayTimelineModal';
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
-  import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
+  import { transformRecurrenceForGraphAPI, expandRecurringSeries, calculateAllSeriesDates } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence } from '../utils/eventTransformers';
   import { isEventInDateRange } from '../utils/calendarRangeUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
@@ -196,6 +196,9 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Memoization cache for recurring event expansion (prevents redundant calculations)
     const expansionCacheRef = useRef(new Map());
+    // Cache for series-absolute occurrence number maps (window-independent — keyed
+    // by master + recurrence content hash; survives date navigation, cleared on force refresh).
+    const seriesNumberCacheRef = useRef(new Map());
     const loadInProgressRef = useRef(false);
     // Set to true when a navigation fires while a load is in progress (skipped guard).
     // The finally block checks this and retries with the latest dateRange.
@@ -204,6 +207,52 @@ import ConflictDialog from './shared/ConflictDialog';
     const locationsInitializedRef = useRef(false);
     const prefSaveTimerRef = useRef(null);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
+
+    // Stable, _version-independent cache key for a recurrence object.
+    // Sorts multi-value fields so order in the source doesn't change the key.
+    function stableHashRecurrence(r) {
+      if (!r) return 'null';
+      const { pattern = {}, range = {}, exclusions = [], additions = [] } = r;
+      return [
+        pattern.type, pattern.interval ?? 1,
+        [...(pattern.daysOfWeek || [])].sort().join(','),
+        pattern.dayOfMonth ?? '', pattern.month ?? '',
+        range.type, range.startDate, range.endDate ?? '',
+        range.numberOfOccurrences ?? '',
+        [...exclusions].sort().join(','),
+        [...additions].sort().join(',')
+      ].join('|');
+    }
+
+    // Build the absolute series number map from a recurrence object.
+    // sortedDates: chronologically sorted YYYY-MM-DD strings (full series, capped per calculateAllSeriesDates).
+    // totalOccurrences: sortedDates.length.
+    // isInfiniteSeries: true if range.type === 'noEnd'.
+    function buildOccurrenceNumberMap(recurrence) {
+      if (!recurrence?.pattern || !recurrence?.range) return null;
+      const sortedDates = calculateAllSeriesDates(recurrence);
+      return {
+        sortedDates,
+        totalOccurrences: sortedDates.length,
+        isInfiniteSeries: recurrence.range?.type === 'noEnd',
+      };
+    }
+
+    // Cache wrapper. Reusing MAX_EXPANSION_CACHE_SIZE * 3 because number map
+    // entries are tiny (string array + 2 scalars) compared to expansion entries.
+    function getOrComputeNumberMap(masterId, recurrence) {
+      const cacheKey = `${masterId}:${stableHashRecurrence(recurrence)}`;
+      if (seriesNumberCacheRef.current.has(cacheKey)) {
+        return seriesNumberCacheRef.current.get(cacheKey);
+      }
+      const map = buildOccurrenceNumberMap(recurrence);
+      seriesNumberCacheRef.current.set(cacheKey, map);
+      if (seriesNumberCacheRef.current.size > MAX_EXPANSION_CACHE_SIZE * 3) {
+        const firstKey = seriesNumberCacheRef.current.keys().next().value;
+        seriesNumberCacheRef.current.delete(firstKey);
+      }
+      return map;
+    }
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events.
     // Uses functional updater for the warn check so this callback has NO state dependencies
@@ -1585,6 +1634,7 @@ import ConflictDialog from './shared/ConflictDialog';
       // are re-expanded with their updated data (locations, times, title, etc.)
       if (forceRefresh) {
         expansionCacheRef.current.clear();
+        seriesNumberCacheRef.current.clear();
       }
 
       if (!silent) setLoading(true);
@@ -1732,11 +1782,28 @@ import ConflictDialog from './shared/ConflictDialog';
             seriesMastersRef.current = masterById;
           }
 
+          // Pre-compute series-absolute occurrence number maps for all masters so
+          // both the exception/addition enrichment loop and the master expansion
+          // loop below can look up positions consistently.
+          const numberMapByMasterId = new Map();
+          for (const [mid, masterDoc] of masterById) {
+            const r = getEventRecurrence(masterDoc);
+            if (r?.pattern && r?.range) {
+              numberMapByMasterId.set(mid, getOrComputeNumberMap(mid, r));
+            }
+          }
+
           if (exceptionIndices.length > 0) {
             eventsToDisplay = eventsToDisplay.slice();
             for (const i of exceptionIndices) {
               const evt = eventsToDisplay[i];
               const masterDoc = masterById.get(evt.seriesMasterEventId);
+              const numMap = numberMapByMasterId.get(evt.seriesMasterEventId) ?? null;
+              const occurrenceDate = evt.occurrenceDate ?? null;
+              const rawIdx = (numMap && occurrenceDate) ? numMap.sortedDates.indexOf(occurrenceDate) : -1;
+              const occurrenceNumber = rawIdx >= 0 ? rawIdx + 1 : null;
+              const totalOccurrences = numMap?.totalOccurrences ?? null;
+              const isInfiniteSeries = numMap?.isInfiniteSeries ?? false;
               eventsToDisplay[i] = {
                 ...evt,
                 isRecurringOccurrence: true,
@@ -1744,10 +1811,10 @@ import ConflictDialog from './shared/ConflictDialog';
                 masterDocId: masterDoc?._id?.toString() || null,
                 hasOccurrenceOverride: true,
                 isAdHocAddition: evt.eventType === 'addition',
-                showOccurrenceNumbers: false,
-                occurrenceNumber: null,
-                totalOccurrences: null,
-                isInfiniteSeries: false,
+                occurrenceNumber,
+                totalOccurrences,
+                isInfiniteSeries,
+                showOccurrenceNumbers: occurrenceNumber !== null && totalOccurrences > 1,
               };
             }
           }
@@ -1849,13 +1916,16 @@ import ConflictDialog from './shared/ConflictDialog';
                   materializedDates
                 );
 
-                // Determine if this is an infinite series (no end date)
-                const isInfiniteSeries = recurrence.range?.type === 'noEnd';
-                const visibleCount = occurrences.length;
-                const showOccurrenceNumbers = visibleCount > 1;
+                // Absolute series position lookup (replaces window-relative counting).
+                // numMap.sortedDates is the full chronological series; indexOf+1 is the displayed badge number.
+                // Falls back to occurrences.length / window-relative behavior only when no map exists
+                // (corrupt/missing recurrence on master — caught earlier at the recurrence?.pattern guard).
+                const numMap = numberMapByMasterId.get(event.eventId) ?? null;
+                const totalOccurrences = numMap?.totalOccurrences ?? occurrences.length;
+                const isInfiniteSeries = numMap?.isInfiniteSeries ?? (recurrence.range?.type === 'noEnd');
+                const showOccurrenceNumbers = totalOccurrences > 1;
 
-                // Convert each occurrence to our event format
-                // Use view-relative counting: position within visible occurrences, not absolute series position
+                // Convert each occurrence to our event format.
                 // Pre-compute edit request scoping (loop-invariant — master doesn't change across iterations).
                 // When editScope === 'thisEvent', only the occurrence matching the target date inherits
                 // the edit request and badge; all others get null/false. Series-level edits propagate to all.
@@ -1866,11 +1936,10 @@ import ConflictDialog from './shared/ConflictDialog';
                   && masterEditRequest.editScope === 'thisEvent'
                   && masterEditRequest.occurrenceDate) || null;
 
-                let visibleIndex = 0;
                 occurrences.forEach(occurrence => {
-                  visibleIndex++;
                   const occurrenceDate = occurrence.start.dateTime.split('T')[0];
-                  const occurrenceNumber = visibleIndex;
+                  const rawIdx = numMap ? numMap.sortedDates.indexOf(occurrenceDate) : -1;
+                  const occurrenceNumber = rawIdx >= 0 ? rawIdx + 1 : null;
 
                   expandedOccurrences.push({
                     ...event,
