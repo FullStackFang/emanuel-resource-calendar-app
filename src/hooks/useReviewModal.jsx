@@ -1202,12 +1202,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleSubmitEditRequest = useCallback(async (computeDetectedChanges) => {
     if (!currentItem) return { success: false, error: 'No item' };
 
-    // Guard: recurring series masters require editScope (set by RecurringScopeDialog in Calendar).
-    // MyReservations has no scope dialog, so block before confirmation to avoid confusing UX.
-    if (currentItem?.eventType === 'seriesMaster' && !editScope) {
-      if (onError) onError('Please edit recurring events from the calendar view to select which occurrence to change.');
-      return { success: false, error: 'Missing editScope for recurring event' };
-    }
+    // Default to 'allEvents' when editing a series master without explicit
+    // scope: backend treats null and 'allEvents' as the equivalent
+    // series-level scope, so this is safe and makes the payload self-describing.
+    const effectiveEditScope = (currentItem?.eventType === 'seriesMaster' && !editScope)
+      ? 'allEvents'
+      : editScope;
 
     // Check for changes (zero-change guard)
     if (computeDetectedChanges) {
@@ -1242,9 +1242,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const eventIdentifier = currentItem.eventId || currentItem._id;
       const payload = buildEditRequestPayload(liveFormData, {
         eventVersion,
-        editScope,
-        occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : undefined,
-        seriesMasterId: editScope
+        editScope: effectiveEditScope,
+        occurrenceDate: effectiveEditScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : undefined,
+        seriesMasterId: effectiveEditScope
           ? (currentItem?.seriesMasterId || currentItem?.graphData?.seriesMasterId || currentItem?.graphData?.id)
           : undefined,
       });

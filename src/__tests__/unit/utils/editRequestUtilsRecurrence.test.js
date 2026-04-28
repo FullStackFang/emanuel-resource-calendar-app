@@ -111,4 +111,27 @@ describe('buildEditRequestPayload — recurrence', () => {
     const payload = buildEditRequestPayload(data, { eventVersion: 1 });
     expect(JSON.parse(JSON.stringify(payload)).recurrence).toBeUndefined();
   });
+
+  // Regression: editing a series master from any entry that bypasses
+  // RecurringScopeDialog (deep link, search/jump, MyReservations,
+  // ReservationRequests) used to be blocked by a frontend guard in
+  // useReviewModal.handleSubmitEditRequest. The fix defaults the scope to
+  // 'allEvents' since editing the master document IS a series-level edit.
+  // This locks the resulting payload contract.
+  it('preserves editScope=allEvents and seriesMasterId for direct series-master edits', () => {
+    const data = {
+      eventTitle: 'Master',
+      startDate: '2026-04-28', startTime: '10:00',
+      endDate: '2026-04-28', endTime: '11:00',
+    };
+    const payload = buildEditRequestPayload(data, {
+      eventVersion: 5,
+      editScope: 'allEvents',
+      seriesMasterId: 'master-graph-id',
+    });
+    const serialized = JSON.parse(JSON.stringify(payload));
+    expect(serialized.editScope).toBe('allEvents');
+    expect(serialized.seriesMasterId).toBe('master-graph-id');
+    expect('occurrenceDate' in serialized).toBe(false);
+  });
 });
