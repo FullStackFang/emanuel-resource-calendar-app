@@ -905,6 +905,7 @@ export default function ReservationRequests({ graphToken }) {
         onTargetCalendarChange={setSelectedTargetCalendar}
         createCalendarEvent={createCalendarEvent}
         onCreateCalendarEventChange={setCreateCalendarEvent}
+        onNavigateToSeriesEvent={reviewModal.navigateToEvent}
         onConflictRefresh={loadReservations}
       />
 

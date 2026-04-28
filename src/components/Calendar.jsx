@@ -4820,7 +4820,17 @@ import ConflictDialog from './shared/ConflictDialog';
     };
 
     /**
-     * Handle navigation to another event in the series (close and reopen modal)
+     * Handle navigation to another event in the series.
+     *
+     * If the review modal is already open, swap the event in place via
+     * navigateToEvent — the modal portal stays mounted, no overlay flicker.
+     * If the eventCreation modal is open instead, close it (no in-place swap
+     * available there) and open the review modal with the target.
+     *
+     * Hot path: target found in allEvents or seriesMastersRef — pass the full
+     * object to skip the network fetch. Cold path: pass the id and let the
+     * hook fetch via the single-doc endpoint.
+     *
      * @param {string} targetEventId - The eventId to navigate to
      */
     const handleNavigateToSeriesEvent = useCallback((targetEventId) => {
@@ -4834,33 +4844,17 @@ import ConflictDialog from './shared/ConflictDialog';
         allEvents.find(event => event.eventId === targetEventId)
         || seriesMastersRef.current.get(targetEventId);
 
-      if (!targetEvent) {
-        logger.error('Could not find target event in allEvents or seriesMastersRef:', targetEventId);
-        showError('Could not find the selected event');
-        return;
-      }
-
-      logger.debug('Found target event, reopening modal:', targetEvent);
-
-      // Determine which modal is open and reopen with new event
       if (eventCreation.isOpen) {
-        // Close creation modal and open in the edit/review modal instead
+        // Creation modal does not support in-place swap; close it and open the
+        // review modal with the target. (Rare path — user navigates to series
+        // master while in the middle of creating an event.)
         eventCreation.close(true);
-        setTimeout(() => {
-          reviewModal.openModal(targetEvent);
-        }, 100);
+        reviewModal.openModal(targetEvent || targetEventId);
       } else if (reviewModal.isOpen) {
-        // Close current modal
-        reviewModal.closeModal();
-
-        // Reopen with new event after a brief delay to ensure clean state
-        setTimeout(() => {
-          reviewModal.openModal(targetEvent);
-        }, 100);
+        // In-place swap — modal stays mounted, no flash.
+        reviewModal.navigateToEvent(targetEvent || targetEventId);
       }
-
-      logger.debug('Modal reopened with new event');
-    }, [allEvents, showError, eventCreation, reviewModal]);
+    }, [allEvents, eventCreation, reviewModal]);
 
     /**
      * Handle deletion of registration events when a TempleEvents event is deleted

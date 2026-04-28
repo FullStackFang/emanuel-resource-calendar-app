@@ -699,6 +699,7 @@ export default function MyReservations() {
         isWithdrawingCancellationRequest={isWithdrawingCancellationRequest}
         isWithdrawCancellationConfirming={isWithdrawCancellationConfirming}
         onCancelWithdrawCancellation={cancelWithdrawCancellationConfirmation}
+        onNavigateToSeriesEvent={reviewModal.navigateToEvent}
         onConflictRefresh={loadMyReservations}
       />
 

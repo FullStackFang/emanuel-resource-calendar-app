@@ -17,6 +17,32 @@ import {
   rejectEditRequest as rejectEditRequestApi,
 } from '../services/editRequestsApi';
 
+// Pure helper: extracts room/date gates from any event format (raw MongoDB,
+// flat, or Graph). Used by openModal and navigateToEvent to gate the content
+// reveal until availability prefetch completes.
+function computeItemGates(item) {
+  const itemRooms = item.locations || item.requestedRooms ||
+    item.roomReservationData?.requestedRooms ||
+    item.calendarData?.locations || [];
+  const itemStartDate = item.startDate || item.calendarData?.startDate ||
+    (item.startDateTime ? item.startDateTime.split('T')[0] : null) ||
+    (item.start?.dateTime ? item.start.dateTime.split('T')[0] : null);
+  const itemStartTime = item.startTime || item.reservationStartTime ||
+    item.calendarData?.startTime || item.calendarData?.reservationStartTime ||
+    (item.startDateTime ? item.startDateTime.split('T')[1]?.substring(0, 5) : null) ||
+    (item.start?.dateTime ? item.start.dateTime.split('T')[1]?.substring(0, 5) : null);
+  const roomIds = itemRooms
+    .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
+    .filter(Boolean);
+  return {
+    itemStartDate,
+    itemStartTime,
+    roomIds,
+    hasRooms: roomIds.length > 0,
+    hasDates: !!(itemStartDate && itemStartTime),
+  };
+}
+
 /**
  * useReviewModal - Custom hook for managing review modal state and API calls
  *
@@ -202,83 +228,41 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, [authFetch, eventVersion]);
 
   /**
-   * Open modal with a reservation or event
-   * @param {Object} item - The reservation or event to open
-   * @param {Object} options - Optional settings
-   * @param {string} options.editScope - For recurring events: 'thisEvent' or 'allEvents'
-   * @param {boolean} options.isDraft - Whether opening a draft for editing
+   * For seriesMaster items, re-fetch via the single-doc endpoint to get the
+   * enriched occurrenceOverrides + recurrence. This makes every entry point
+   * (Calendar, Approval Queue, My Reservations) produce identical modal data
+   * regardless of the list shape they came from.
    */
-  const openModal = useCallback(async (item, options = {}) => {
-    if (!item) return;
-
-    const { editScope: scope = null, isDraft: openAsDraft = false } = options;
-
-    // Set draft state if opening a draft
-    if (openAsDraft || item.status === 'draft') {
-      setIsDraft(true);
-      setDraftId(item._id);
-    } else {
-      setIsDraft(false);
-      setDraftId(null);
-    }
-
-    // Extract room/date info from any event format (raw MongoDB, flat, or Graph).
-    // The item hasn't been through transformEventToFlatStructure yet — fields live in
-    // different places depending on the source (Calendar, MyReservations, etc.).
-    const itemRooms = item.locations || item.requestedRooms ||
-      item.roomReservationData?.requestedRooms ||
-      item.calendarData?.locations || [];
-    // Extract date/time via string operations (timezone-safe — no new Date() on local-time strings)
-    const itemStartDate = item.startDate || item.calendarData?.startDate ||
-      (item.startDateTime ? item.startDateTime.split('T')[0] : null) ||
-      (item.start?.dateTime ? item.start.dateTime.split('T')[0] : null);
-    const itemStartTime = item.startTime || item.reservationStartTime ||
-      item.calendarData?.startTime || item.calendarData?.reservationStartTime ||
-      (item.startDateTime ? item.startDateTime.split('T')[1]?.substring(0, 5) : null) ||
-      (item.start?.dateTime ? item.start.dateTime.split('T')[1]?.substring(0, 5) : null);
-    const roomIds = itemRooms
-      .map(loc => typeof loc === 'string' ? loc : (loc._id || String(loc)))
-      .filter(Boolean);
-    const hasRooms = roomIds.length > 0;
-    const hasDates = !!(itemStartDate && itemStartTime);
-
-    // For seriesMaster items, re-hydrate from the single-doc endpoint BEFORE
-    // opening the modal so RoomReservationReview's init effect sees the enriched
-    // occurrenceOverrides on first render. This makes every entry point (Calendar,
-    // Approval Queue, My Reservations) produce identical modal data.
-    let effectiveItem = item;
-    if (item.eventType === 'seriesMaster' && item._id) {
-      try {
-        const response = await authFetch(
-          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}`,
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-        if (response.ok) {
-          const fresh = await response.json();
-          effectiveItem = {
-            ...item,
-            occurrenceOverrides: fresh.occurrenceOverrides || item.occurrenceOverrides || [],
-            recurrence: fresh.recurrence || item.recurrence || null,
-          };
-        }
-      } catch (err) {
-        logger.debug('Master re-hydrate failed, using list-provided data:', err.message);
+  const hydrateSeriesMaster = useCallback(async (item) => {
+    if (item?.eventType !== 'seriesMaster' || !item._id) return item;
+    try {
+      const response = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}`,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      if (response.ok) {
+        const fresh = await response.json();
+        return {
+          ...item,
+          occurrenceOverrides: fresh.occurrenceOverrides || item.occurrenceOverrides || [],
+          recurrence: fresh.recurrence || item.recurrence || null,
+        };
       }
+    } catch (err) {
+      logger.debug('Master re-hydrate failed, using list-provided data:', err.message);
     }
+    return item;
+  }, [authFetch]);
 
-    // Open modal — blocking fetch above already completed for seriesMasters.
-    setSchedulingConflictInfo(null);
-    setPrefetchedAvailability(null);
-    setPrefetchedSeriesEvents(null);
-    setCurrentItem({ ...effectiveItem, _gateRooms: hasRooms, _gateDates: hasDates });
-    setEditableData(effectiveItem);
-    setEventVersion(effectiveItem._version || null);
-    setHasChanges(false);
-    setEditScope(scope);
-    setIsOpen(true);
-
-    // Prefetch availability and series events in background (non-blocking).
+  /**
+   * Background prefetch of availability + series events. Updates state directly
+   * (setPrefetchedAvailability, setPrefetchedSeriesEvents). Shared between
+   * openModal and navigateToEvent so an in-place swap also re-runs prefetch.
+   */
+  const prefetchModalData = useCallback(async (item, gates) => {
+    const { itemStartDate, roomIds, hasDates, hasRooms } = gates;
     const hasSeriesId = !!item.eventSeriesId;
+
     if ((hasDates && hasRooms) || hasSeriesId) {
       const promises = [];
 
@@ -349,6 +333,52 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, [authFetch]);
 
   /**
+   * Open modal with a reservation or event
+   * @param {Object} item - The reservation or event to open
+   * @param {Object} options - Optional settings
+   * @param {string} options.editScope - For recurring events: 'thisEvent' or 'allEvents'
+   * @param {boolean} options.isDraft - Whether opening a draft for editing
+   */
+  const openModal = useCallback(async (item, options = {}) => {
+    if (!item) return;
+
+    const { editScope: scope = null, isDraft: openAsDraft = false } = options;
+
+    // Set draft state if opening a draft
+    if (openAsDraft || item.status === 'draft') {
+      setIsDraft(true);
+      setDraftId(item._id);
+    } else {
+      setIsDraft(false);
+      setDraftId(null);
+    }
+
+    // Extract room/date info from any event format (raw MongoDB, flat, or Graph).
+    // The item hasn't been through transformEventToFlatStructure yet — fields live in
+    // different places depending on the source (Calendar, MyReservations, etc.).
+    const gates = computeItemGates(item);
+
+    // For seriesMaster items, re-hydrate from the single-doc endpoint BEFORE
+    // opening the modal so RoomReservationReview's init effect sees the enriched
+    // occurrenceOverrides on first render.
+    const effectiveItem = await hydrateSeriesMaster(item);
+
+    // Open modal — blocking fetch above already completed for seriesMasters.
+    setSchedulingConflictInfo(null);
+    setPrefetchedAvailability(null);
+    setPrefetchedSeriesEvents(null);
+    setCurrentItem({ ...effectiveItem, _gateRooms: gates.hasRooms, _gateDates: gates.hasDates });
+    setEditableData(effectiveItem);
+    setEventVersion(effectiveItem._version || null);
+    setHasChanges(false);
+    setEditScope(scope);
+    setIsOpen(true);
+
+    // Prefetch availability and series events in background.
+    await prefetchModalData(effectiveItem, gates);
+  }, [hydrateSeriesMaster, prefetchModalData]);
+
+  /**
    * Close modal
    * @param {boolean} force - If true, close without showing draft dialog
    */
@@ -392,6 +422,78 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setEventVersion(newItem._version || null);
     setReinitKey(prev => prev + 1);
   }, []);
+
+  /**
+   * Navigate to a different event in place — swaps the modal contents without
+   * unmounting. Used by the "Open Series Master" button so the user does not
+   * see the page background flash during a close/reopen cycle.
+   *
+   * Accepts either a full event object (zero-latency hot path when the caller
+   * already has the doc) or an _id string (cold path: hook fetches via the
+   * single-doc endpoint already used for seriesMaster hydration).
+   *
+   * Discards any unsaved edits in the source modal — the form remounts via
+   * reinitKey. This matches the prior close/reopen behavior, which also
+   * dropped edits silently. Callers should ensure that's acceptable.
+   */
+  const navigateToEvent = useCallback(async (target) => {
+    if (!target) return;
+
+    // Resolve string identifier to full doc.
+    let initialItem;
+    if (typeof target === 'string') {
+      try {
+        const response = await authFetch(
+          `${APP_CONFIG.API_BASE_URL}/room-reservations/${target}`,
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        if (!response.ok) {
+          logger.error('navigateToEvent: failed to fetch event', target, response.status);
+          if (onError) onError('Could not load the requested event');
+          return;
+        }
+        initialItem = await response.json();
+      } catch (err) {
+        logger.error('navigateToEvent fetch error:', err);
+        if (onError) onError('Could not load the requested event');
+        return;
+      }
+    } else {
+      initialItem = target;
+    }
+
+    const gates = computeItemGates(initialItem);
+    const effectiveItem = await hydrateSeriesMaster(initialItem);
+
+    // Mirror openModal's draft handling so a master that happens to be a draft
+    // still renders draft UI (defensive — masters are typically not drafts).
+    if (effectiveItem.status === 'draft') {
+      setIsDraft(true);
+      setDraftId(effectiveItem._id);
+    } else {
+      setIsDraft(false);
+      setDraftId(null);
+    }
+
+    // Reset the same state openModal resets — but DO NOT toggle isOpen, so the
+    // modal portal stays mounted and the overlay does not flicker.
+    setSchedulingConflictInfo(null);
+    setPrefetchedAvailability(null);
+    setPrefetchedSeriesEvents(null);
+    setCurrentItem({ ...effectiveItem, _gateRooms: gates.hasRooms, _gateDates: gates.hasDates });
+    setEditableData(effectiveItem);
+    setEventVersion(effectiveItem._version || null);
+    setHasChanges(false);
+    setPendingDeleteConfirmation(false);
+    setPendingApproveConfirmation(false);
+    setPendingRejectConfirmation(false);
+    setPendingSaveConfirmation(false);
+    setEditScope(null);
+    setReinitKey(prev => prev + 1); // Force RoomReservationReview to remount with new item.
+
+    // Re-run prefetch for the new event.
+    await prefetchModalData(effectiveItem, gates);
+  }, [authFetch, hydrateSeriesMaster, prefetchModalData, onError]);
 
   /**
    * Update editable data
@@ -2069,6 +2171,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     // Actions
     openModal,
     closeModal,
+    navigateToEvent, // In-place swap of currentItem (e.g., occurrence -> master) with no overlay flicker
     updateData,
     restoreData, // Update data without marking as changed (for view-only toggles)
     replaceEditableData, // Wholesale data replacement with forced remount (for view-edit-request/restore flows)
