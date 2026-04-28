@@ -1982,7 +1982,7 @@ import ConflictDialog from './shared/ConflictDialog';
                     isAdHocAddition: occurrence.isAdHocAddition || false,
                     // Occurrence position in series (e.g., "2/5" for finite, "2/∞" for infinite)
                     occurrenceNumber,
-                    totalOccurrences: visibleCount,
+                    totalOccurrences,
                     isInfiniteSeries,
                     showOccurrenceNumbers,
                     // Apply any title/description overrides from the expansion
