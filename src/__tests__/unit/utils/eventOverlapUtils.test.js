@@ -468,6 +468,32 @@ describe('getLocationConflictInfo', () => {
     expect(eventResult.overlapCount).toBe(0);
   });
 
+  it('LC-8b: [Hold] drafts (reservation-only times) DO participate in conflict detection', () => {
+    // Regression: pre-fix, drafts with empty event times were treated as "timeless"
+    // and skipped from conflict detection — even when reservation times existed and
+    // the room was actually booked. After the fix, reservation times count as real
+    // timing and must be conflict-checked against other events.
+    const holdDraft = makeEvent('h', '2024-03-15T19:00:00', '2024-03-15T21:00:00', [LOC_SANCTUARY], {
+      status: 'draft',
+      calendarData: {
+        locations: [LOC_SANCTUARY],
+        startTime: null,
+        endTime: null,
+        reservationStartTime: '19:00',
+        reservationEndTime: '21:00',
+      },
+    });
+    const overlappingEvent = makeEvent('b', '2024-03-15T20:00:00', '2024-03-15T22:00:00', [LOC_SANCTUARY]);
+
+    // [Hold] draft as the target event — should see the conflict
+    const holdResult = getLocationConflictInfo(holdDraft, [holdDraft, overlappingEvent]);
+    expect(holdResult.overlapCount).toBe(1);
+
+    // [Hold] draft as a candidate — must count against the other event
+    const otherResult = getLocationConflictInfo(overlappingEvent, [holdDraft, overlappingEvent]);
+    expect(otherResult.overlapCount).toBe(1);
+  });
+
   // --- Self-exclusion ---
 
   it('LC-9: event does not conflict with itself', () => {

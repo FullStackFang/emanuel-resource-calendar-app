@@ -1,5 +1,7 @@
 // src/utils/eventOverlapUtils.js
 
+import { isTimelessDraft } from './timelineUtils';
+
 /**
  * Check if two time ranges overlap
  * @param {Date} start1 - Start time of first event
@@ -447,9 +449,7 @@ export const groupEventsForNestedDisplay = (events) => {
  * @returns {{ overlapCount: number, overlappingEvents: Array, hasParentEvent: boolean, isParentEvent: boolean }}
  */
 export const getLocationConflictInfo = (event, allDayEvents) => {
-  const isTimelessDraft = event.status === 'draft' &&
-    !event.calendarData?.startTime && !event.calendarData?.endTime;
-  if (isTimelessDraft) {
+  if (isTimelessDraft(event)) {
     return { overlapCount: 0, overlappingEvents: [], hasParentEvent: false, isParentEvent: false };
   }
 
@@ -475,9 +475,7 @@ export const getLocationConflictInfo = (event, allDayEvents) => {
     if ((event.eventId && other.eventId === event.eventId) ||
         (event.id && other.id === event.id)) return false;
 
-    const otherIsTimelessDraft = other.status === 'draft' &&
-      !other.calendarData?.startTime && !other.calendarData?.endTime;
-    if (otherIsTimelessDraft) return false;
+    if (isTimelessDraft(other)) return false;
 
     const otherStart = new Date(other.start?.dateTime || other.startDateTime);
     const otherEnd = new Date(other.end?.dateTime || other.endDateTime);

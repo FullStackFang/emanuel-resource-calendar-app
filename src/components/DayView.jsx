@@ -2,6 +2,7 @@
 import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
+import { isTimelessDraft } from '../utils/timelineUtils';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, buildReservationTimeDisplay } from '../utils/timezoneUtils';
 import { sortEventsByStartTime, getEventCategories, isRecurringEvent } from '../utils/eventTransformers';
@@ -279,14 +280,14 @@ const DayView = memo(({
                         const isAllDay = event.calendarData?.isAllDayEvent === true ||
                           (!isMultiDay && duration >= 1440);
 
-                        // Detect drafts without specific times (defaulted to 00:00-23:59)
-                        const isTimelessDraft = event.status === 'draft' &&
-                          !event.calendarData?.startTime && !event.calendarData?.endTime;
+                        // Detect drafts without specific times (no event AND no reservation times).
+                        // [Hold] drafts (reservation-only) DO render with their reservation times.
+                        const eventIsTimelessDraft = isTimelessDraft(event);
 
                         const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
 
                         let timeDisplay;
-                        if (isTimelessDraft) {
+                        if (eventIsTimelessDraft) {
                           timeDisplay = "All day (time TBD)";
                         } else if (isMultiDay && !isAllDay) {
                           // Multi-day event with specific times

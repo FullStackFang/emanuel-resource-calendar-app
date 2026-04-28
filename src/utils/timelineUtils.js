@@ -21,6 +21,24 @@ export const isAllDayEvent = (event) => {
 };
 
 /**
+ * A draft is "timeless" only when it has NO usable times at all —
+ * neither event times (startTime/endTime) nor reservation times
+ * (reservationStartTime/reservationEndTime). Reservation-only drafts
+ * use the [Hold] pattern: the room is booked, but the event time is
+ * not yet confirmed. They must NOT be treated as timeless because
+ * startDateTime/endDateTime are derived from reservation times by
+ * the backend (eventFieldBuilder.computeDateTimes) and represent
+ * real, displayable timing.
+ */
+export const isTimelessDraft = (event) => {
+  if (event?.status !== 'draft') return false;
+  const cd = event.calendarData || {};
+  const hasEventTimes = !!cd.startTime || !!cd.endTime;
+  const hasReservationTimes = !!cd.reservationStartTime || !!cd.reservationEndTime;
+  return !hasEventTimes && !hasReservationTimes;
+};
+
+/**
  * Calculate event block position and height as percentages of 24-hour day.
  * Uses timezone-aware local hours to ensure correct visual placement.
  *
