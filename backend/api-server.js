@@ -23022,8 +23022,26 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
-    // Persist frontend occurrence overrides to exception documents
-    if (Array.isArray(incomingOccurrenceOverrides) && incomingOccurrenceOverrides.length > 0 && event.eventType === 'seriesMaster') {
+    // Persist frontend occurrence overrides to exception documents.
+    //
+    // Two-step reconciliation against the live exception children:
+    //   1. UPDATE entries still present in the incoming array.
+    //   2. SOFT-DELETE exception children whose occurrenceDate is missing from
+    //      the incoming array (the user clicked "Remove customization" on the
+    //      Recurrence tab). Removing a customization MUST NOT add the date to
+    //      recurrence.exclusions — the date should fall back to a virtual
+    //      pattern occurrence. Excluding the date is a separate operation
+    //      handled by DELETE /api/admin/events/:id?editScope=thisEvent.
+    //
+    // Additions follow a separate lifecycle via recurrence.additions and are
+    // intentionally excluded here.
+    if (Array.isArray(incomingOccurrenceOverrides) && event.eventType === 'seriesMaster') {
+      const incomingDateSet = new Set(
+        incomingOccurrenceOverrides
+          .map(o => o && o.occurrenceDate)
+          .filter(Boolean)
+      );
+
       for (const incoming of incomingOccurrenceOverrides) {
         if (!incoming.occurrenceDate) continue;
         const dateKey = incoming.occurrenceDate;
@@ -23042,6 +23060,41 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         } catch (exErr) {
           logger.warn('Non-fatal: failed to persist recurrence tab override to exception doc:', {
             dateKey, error: exErr.message
+          });
+        }
+      }
+
+      // Reconcile orphans: any live exception child whose date is NOT in the
+      // incoming array was removed by the user via "Remove customization".
+      const liveChildren = await getExceptionsForMaster(unifiedEventsCollection, event.eventId);
+      const orphans = liveChildren.filter(child =>
+        child.eventType === 'exception' && !incomingDateSet.has(child.occurrenceDate)
+      );
+      for (const orphan of orphans) {
+        try {
+          // Best-effort Graph cleanup for the linked occurrence event.
+          const orphanGraphId = orphan.graphData && orphan.graphData.id;
+          if (orphanGraphId) {
+            try {
+              await graphApiService.deleteCalendarEvent(
+                orphan.calendarOwner || event.calendarOwner,
+                orphan.calendarId || event.calendarId,
+                orphanGraphId
+              );
+            } catch (graphDelErr) {
+              logger.warn('Non-fatal: failed to delete Graph event for orphan exception:', {
+                date: orphan.occurrenceDate, graphId: orphanGraphId, error: graphDelErr.message
+              });
+            }
+          }
+          await softDeleteException(unifiedEventsCollection, event.eventId, orphan.occurrenceDate, {
+            deletedBy: userEmail,
+            reason: 'Customization removed via Recurrence tab',
+          });
+          logger.info('Soft-deleted orphan exception document:', { date: orphan.occurrenceDate });
+        } catch (orphanErr) {
+          logger.warn('Non-fatal: failed to soft-delete orphan exception:', {
+            date: orphan.occurrenceDate, error: orphanErr.message
           });
         }
       }
