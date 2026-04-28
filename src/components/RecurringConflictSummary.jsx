@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
 import { formatTimeFromDateTimeString } from '../utils/appTimeUtils';
+import { isAbortError } from '../utils/errorUtils';
 import './RecurringConflictSummary.css';
 
 /**
@@ -93,7 +94,7 @@ export default function RecurringConflictSummary({
       const result = await response.json();
       setData(result);
     } catch (err) {
-      if (err.name !== 'AbortError') {
+      if (!isAbortError(err)) {
         setError(err.message);
       }
     } finally {

@@ -20,6 +20,7 @@ import { getStatusBadgeInfo } from '../utils/statusUtils';
 const APPROVAL_QUEUE_COUNTED_STATUSES = new Set(['pending', 'published', 'rejected']);
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
+import { isAbortError } from '../utils/errorUtils';
 import LoadingSpinner from './shared/LoadingSpinner';
 import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
@@ -180,7 +181,7 @@ export default function ReservationRequests({ graphToken }) {
       // Silent success after a prior failure: clear stale banner so the UI recovers.
       if (silent) setError('');
     } catch (err) {
-      if (err.name === 'AbortError') return; // Request superseded by a newer one — not an error
+      if (isAbortError(err)) return; // Superseded by a newer request
       logger.error('Error loading reservations:', err);
       if (!silent) {
         setError('Failed to load reservation requests');

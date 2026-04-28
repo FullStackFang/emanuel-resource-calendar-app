@@ -1,6 +1,7 @@
 // src/components/RoomReservationFormBase.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { logger } from '../utils/logger';
+import { isAbortError } from '../utils/errorUtils';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
@@ -748,10 +749,7 @@ export default function RoomReservationFormBase({
       } else {
       }
     } catch (err) {
-      // Ignore abort errors - request was intentionally cancelled
-      if (err.name === 'AbortError') {
-        return;
-      }
+      if (isAbortError(err)) return;
       logger.error('Error checking day availability:', err);
     } finally {
       // Only clear loading if this is still the latest request

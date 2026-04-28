@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
+import { makeControllableAuthFetch, makeEvents } from '../../__helpers__/mockAuthFetch';
 
 // ─── Static mocks (module-level, evaluated once) ─────────────────────────────
 
@@ -133,64 +134,6 @@ vi.mock('../../../hooks/useEventReviewExperience', () => ({
   }),
 }));
 
-// ─── Controllable signal-respecting authFetch factory ────────────────────────
-//
-// Returns a mock authFetch plus a queue of "resolvers" the test can fire in
-// any order.  Critically, if the AbortSignal passed to authFetch is aborted
-// before the resolver fires, the promise rejects with an AbortError — matching
-// real fetch() behavior and allowing the component's catch block to swallow it.
-
-function makeControllableAuthFetch() {
-  const pendingCalls = [];
-
-  const authFetch = vi.fn().mockImplementation((_url, options = {}) => {
-    const { signal } = options;
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
-
-      const entry = { resolve, reject };
-      pendingCalls.push(entry);
-
-      signal?.addEventListener('abort', () => {
-        reject(new DOMException('Aborted', 'AbortError'));
-      });
-    });
-  });
-
-  // Helper: resolve the Nth pending call (0-indexed) with a given event list.
-  // Backward-compatible wrapper for list-shaped responses.
-  function resolveCall(index, events = []) {
-    const entry = pendingCalls[index];
-    if (!entry) throw new Error(`No pending call at index ${index}`);
-    entry.resolve({
-      ok: true,
-      json: async () => ({ events }),
-    });
-  }
-
-  // Helper: resolve the Nth pending call with an arbitrary response body.
-  // Needed for counts responses like { needsAttention: 35, all: 35 } which
-  // do not conform to the list { events: [...] } shape.
-  function resolveCallWith(index, body) {
-    const entry = pendingCalls[index];
-    if (!entry) throw new Error(`No pending call at index ${index}`);
-    entry.resolve({
-      ok: true,
-      json: async () => body,
-    });
-  }
-
-  // Helper: how many calls are currently pending (not yet resolved/rejected)
-  function pendingCount() {
-    return pendingCalls.length;
-  }
-
-  return { authFetch, resolveCall, resolveCallWith, pendingCount };
-}
-
 // ─── Dynamic mock for useAuthenticatedFetch ───────────────────────────────────
 // We need to swap authFetch between tests, so we use a module-level variable.
 
@@ -199,25 +142,6 @@ let currentAuthFetch = vi.fn();
 vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
   useAuthenticatedFetch: () => currentAuthFetch,
 }));
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeEvents(count) {
-  return Array.from({ length: count }, (_, i) => ({
-    _id: `evt-${i}`,
-    eventId: `evt-${i}`,
-    status: 'pending',
-    eventTitle: `Event ${i}`,
-    startDate: '2026-04-20',
-    startTime: '10:00',
-    endDate: '2026-04-20',
-    endTime: '11:00',
-    requestedRooms: [],
-    locations: [],
-    categories: [],
-    roomReservationData: { requestedBy: { name: 'Test User', email: 'test@test.com' } },
-  }));
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
+import { makeControllableAuthFetch, makeEvents } from '../../__helpers__/mockAuthFetch';
 
 // ─── Static mocks ────────────────────────────────────────────────────────────
 
@@ -131,35 +132,6 @@ vi.mock('../../../hooks/useEventReviewExperience', () => ({
   }),
 }));
 
-// ─── Controllable signal-respecting authFetch factory ────────────────────────
-//
-// If the AbortSignal is aborted before the resolver fires, the promise rejects
-// with AbortError — matching real fetch() behavior.
-function makeControllableAuthFetch() {
-  const pendingCalls = [];
-  const authFetch = vi.fn().mockImplementation((_url, options = {}) => {
-    const { signal } = options;
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
-      pendingCalls.push({ resolve, reject });
-      signal?.addEventListener('abort', () => {
-        reject(new DOMException('Aborted', 'AbortError'));
-      });
-    });
-  });
-
-  function resolveCall(index, events = []) {
-    const entry = pendingCalls[index];
-    if (!entry) throw new Error(`No pending call at index ${index}`);
-    entry.resolve({ ok: true, json: async () => ({ events }) });
-  }
-
-  return { authFetch, resolveCall };
-}
-
 let currentAuthFetch = vi.fn();
 
 vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
@@ -167,22 +139,6 @@ vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeEvents(count) {
-  return Array.from({ length: count }, (_, i) => ({
-    _id: `evt-${i}`,
-    eventId: `evt-${i}`,
-    status: 'pending',
-    eventTitle: `Event ${i}`,
-    startDate: '2026-04-20',
-    startTime: '10:00',
-    endDate: '2026-04-20',
-    endTime: '11:00',
-    locations: [],
-    categories: [],
-    roomReservationData: { requestedBy: { name: 'Test User', email: 'test@test.com' } },
-  }));
-}
 
 function findMyEventsCallIndex(authFetch) {
   return authFetch.mock.calls.findIndex(([url]) => url.includes('view=my-events'));
