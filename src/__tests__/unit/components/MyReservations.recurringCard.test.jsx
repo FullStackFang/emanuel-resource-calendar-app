@@ -200,7 +200,7 @@ describe('MyReservations recurring-series card', () => {
     openModalSpy.mockReset();
   });
 
-  it('renders no recurrence pill or tree section for a singleInstance event', async () => {
+  it('renders no recurrence pill or exceptions section for a singleInstance event', async () => {
     mountWithEvents([singleEvent]);
     render(<MyReservations />);
 
@@ -209,11 +209,11 @@ describe('MyReservations recurring-series card', () => {
     });
 
     expect(document.querySelector('.mr-recurrence-pill')).toBeNull();
-    expect(document.querySelector('.tree-section-label')).toBeNull();
-    expect(document.querySelector('.tree-wrap')).toBeNull();
+    expect(document.querySelector('.exceptions-section')).toBeNull();
+    expect(document.querySelector('.exceptions-table')).toBeNull();
   });
 
-  it('renders pattern pill, anchor label, and series range for a seriesMaster with mixed deviations', async () => {
+  it('renders pattern pill, exceptions header, and series range for a seriesMaster with mixed deviations', async () => {
     mountWithEvents([seriesMasterEvent]);
     render(<MyReservations />);
 
@@ -229,12 +229,14 @@ describe('MyReservations recurring-series card', () => {
     expect(pill.textContent).toMatch(/4\/6\/2026/);
     expect(pill.textContent).toMatch(/6\/29\/2026/);
 
-    // Typographic anchor label inside the master card naming the relationship
+    // Typographic header inside the master card naming the relationship
     // and showing the count of deviations.
-    const label = document.querySelector('.tree-section-label');
-    expect(label).not.toBeNull();
-    expect(label.textContent).toMatch(/Occurrences that differ from this series/);
-    expect(label.textContent).toMatch(/· 3/);
+    const title = document.querySelector('.exceptions-title');
+    const count = document.querySelector('.exceptions-count');
+    expect(title).not.toBeNull();
+    expect(count).not.toBeNull();
+    expect(title.textContent).toMatch(/Recurrence Exceptions/);
+    expect(count.textContent).toBe('3');
 
     // Series range replaces the per-occurrence "When" line on a master.
     // The card shows "Apr 6, 2026 – Jun 29, 2026" instead of "Mon, Apr 6 · 9:00 AM…"
@@ -246,23 +248,19 @@ describe('MyReservations recurring-series card', () => {
     expect(masterWhen).not.toMatch(/Mon,/);
   });
 
-  it('renders the tree always-visible (no toggle), with rows in date order and correct kind classes', async () => {
+  it('renders the exceptions table always-visible (no toggle), with rows in date order and correct kind classes', async () => {
     mountWithEvents([seriesMasterEvent]);
     render(<MyReservations />);
 
-    // Tree section is visible immediately on first paint — no chip click required.
-    const tree = await waitFor(() => {
-      const t = document.querySelector('.tree-wrap');
-      if (!t) throw new Error('tree not yet rendered');
+    // Exceptions table is visible immediately on first paint — no chip click required.
+    const table = await waitFor(() => {
+      const t = document.querySelector('.exceptions-table');
+      if (!t) throw new Error('exceptions table not yet rendered');
       return t;
     });
 
-    const children = tree.querySelectorAll('.tree-child');
+    const rows = table.querySelectorAll('.exceptions-row');
     // 1 modified + 1 cancelled + 1 added
-    expect(children).toHaveLength(3);
-
-    // Each child wraps an .mr-override-row with the appropriate kind class.
-    const rows = tree.querySelectorAll('.mr-override-row');
     expect(rows).toHaveLength(3);
 
     // Sorted by occurrenceDate ascending — Apr 20 (modified), May 25 (cancelled), May 30 (added)
@@ -271,7 +269,6 @@ describe('MyReservations recurring-series card', () => {
     expect(rows[0].textContent).toMatch(/Time changed/);
 
     expect(rows[1].classList.contains('cancelled')).toBe(true);
-    expect(children[1].classList.contains('cancelled-card')).toBe(true);
     expect(rows[1].textContent).toMatch(/May 25/);
     expect(rows[1].textContent).toMatch(/Cancelled/);
 
@@ -285,17 +282,16 @@ describe('MyReservations recurring-series card', () => {
     render(<MyReservations />);
 
     await waitFor(() => {
-      if (!document.querySelector('.tree-wrap')) throw new Error('tree not yet rendered');
+      if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
     });
 
-    const modifiedChild = document.querySelector('.tree-child:not(.cancelled-card)');
-    expect(modifiedChild).not.toBeNull();
-    // Non-cancelled children expose role="button" so they're keyboard-focusable.
-    expect(modifiedChild.getAttribute('role')).toBe('button');
-    expect(modifiedChild.getAttribute('tabindex')).toBe('0');
+    const modifiedRow = document.querySelector('.exceptions-row.modified');
+    expect(modifiedRow).not.toBeNull();
+    // Non-cancelled rows expose role="button" so they're keyboard-focusable.
+    expect(modifiedRow.getAttribute('role')).toBe('button');
+    expect(modifiedRow.getAttribute('tabindex')).toBe('0');
 
-    // The first non-cancelled child in date order is Apr 20 (modified).
-    fireEvent.click(modifiedChild);
+    fireEvent.click(modifiedRow);
 
     expect(openModalSpy).toHaveBeenCalledTimes(1);
     const [item, options] = openModalSpy.mock.calls[0];
@@ -319,13 +315,12 @@ describe('MyReservations recurring-series card', () => {
     render(<MyReservations />);
 
     await waitFor(() => {
-      if (!document.querySelector('.tree-wrap')) throw new Error('tree not yet rendered');
+      if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
     });
 
-    // The added child's row carries class .added inside .tree-child.
-    const addedChild = document.querySelector('.tree-child .mr-override-row.added')?.closest('.tree-child');
-    expect(addedChild).not.toBeNull();
-    fireEvent.click(addedChild);
+    const addedRow = document.querySelector('.exceptions-row.added');
+    expect(addedRow).not.toBeNull();
+    fireEvent.click(addedRow);
 
     expect(openModalSpy).toHaveBeenCalledTimes(1);
     const [item, options] = openModalSpy.mock.calls[0];
@@ -344,20 +339,20 @@ describe('MyReservations recurring-series card', () => {
     render(<MyReservations />);
 
     await waitFor(() => {
-      if (!document.querySelector('.tree-wrap')) throw new Error('tree not yet rendered');
+      if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
     });
 
-    const cancelledChild = document.querySelector('.tree-child.cancelled-card');
-    expect(cancelledChild).not.toBeNull();
-    // Cancelled children do not expose role/tabindex — they're inert.
-    expect(cancelledChild.getAttribute('role')).toBeNull();
-    expect(cancelledChild.getAttribute('tabindex')).toBeNull();
+    const cancelledRow = document.querySelector('.exceptions-row.cancelled');
+    expect(cancelledRow).not.toBeNull();
+    // Cancelled rows do not expose role/tabindex — they're inert.
+    expect(cancelledRow.getAttribute('role')).toBeNull();
+    expect(cancelledRow.getAttribute('tabindex')).toBeNull();
 
-    fireEvent.click(cancelledChild);
+    fireEvent.click(cancelledRow);
     expect(openModalSpy).not.toHaveBeenCalled();
   });
 
-  it('renders the pattern pill but no tree section for a seriesMaster with no deviations', async () => {
+  it('renders the pattern pill but no exceptions section for a seriesMaster with no deviations', async () => {
     const cleanMaster = {
       ...seriesMasterEvent,
       _id: 'evt-clean',
@@ -380,7 +375,7 @@ describe('MyReservations recurring-series card', () => {
     });
 
     expect(document.querySelector('.mr-recurrence-pill')).not.toBeNull();
-    expect(document.querySelector('.tree-section-label')).toBeNull();
-    expect(document.querySelector('.tree-wrap')).toBeNull();
+    expect(document.querySelector('.exceptions-section')).toBeNull();
+    expect(document.querySelector('.exceptions-table')).toBeNull();
   });
 });

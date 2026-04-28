@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Recurrence Exceptions — variant comparison</title>
+<style>
+  :root {
+    --color-primary-100: #dae6ff;
+    --color-primary-500: #3b6eb8;
+    --color-primary-700: #1e4785;
+    --color-neutral-100: #f5f5f4;
+    --color-neutral-200: #e7e5e4;
+    --color-neutral-300: #d6d3d1;
+    --color-neutral-500: #78716c;
+    --color-neutral-600: #57534e;
+    --color-neutral-700: #44403c;
+    --color-success-600: #047857;
+    --color-success-700: #065f46;
+    --color-warning-700: #92400e;
+    --color-info-500: #0284c7;
+    --color-info-700: #075985;
+    --bg-page: #f7f6f4;
+    --bg-card: #ffffff;
+    --text-primary: #1c1917;
+    --text-secondary: var(--color-neutral-600);
+    --text-tertiary: var(--color-neutral-500);
+    --border: var(--color-neutral-200);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    padding: 32px 24px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1 {
+    max-width: 1400px;
+    margin: 0 auto 16px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  p.intro {
+    max-width: 1400px;
+    margin: 0 auto 24px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .variant-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .variant-name {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--color-primary-700);
+    margin-bottom: 4px;
+  }
+  .variant-tagline {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+  }
+  .variant-tagline code {
+    font-family: ui-monospace, monospace;
+    background: var(--color-neutral-100);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  /* — Exceptions section (the actual UI under review) — */
+  .exceptions-section {
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .exceptions-header {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 0 12px 6px;
+  }
+  .exceptions-title {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text-tertiary); margin: 0;
+  }
+  .exceptions-count {
+    font-size: 11px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+  }
+  .exceptions-table { list-style: none; margin: 0; padding: 0; }
+
+  .exceptions-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr 1rem;
+    align-items: baseline;
+    gap: 14px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    transition: background 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .exceptions-row[role='button'] { cursor: pointer; }
+  .exceptions-row[role='button']:hover {
+    background: color-mix(in oklch, var(--color-neutral-100) 65%, transparent);
+  }
+
+  .exceptions-date {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    white-space: nowrap;
+    text-decoration: underline transparent 1px;
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .exceptions-row[role='button']:hover .exceptions-date {
+    text-decoration-color: var(--color-info-500);
+  }
+
+  /* Default: + for added in all variants */
+  .exceptions-row.added .exceptions-date::before {
+    content: '+ ';
+    color: var(--color-success-600);
+    font-weight: 700;
+  }
+
+  /* Variant A — diff (~ for modified, − for cancelled) */
+  [data-variant='diff'] .exceptions-row.modified .exceptions-date::before {
+    content: '~ '; color: var(--color-info-700); font-weight: 700;
+  }
+  [data-variant='diff'] .exceptions-row.cancelled .exceptions-date::before {
+    content: '− '; color: var(--color-warning-700); font-weight: 700;
+  }
+
+  /* Variant B — editorial (∗ for modified, × for cancelled) */
+  [data-variant='editorial'] .exceptions-row.modified .exceptions-date::before {
+    content: '∗ '; color: var(--color-info-700); font-weight: 700;
+  }
+  [data-variant='editorial'] .exceptions-row.cancelled .exceptions-date::before {
+    content: '× '; color: var(--color-warning-700); font-weight: 700;
+  }
+
+  /* Variant C — iconic (small leading SVGs) */
+  [data-variant='iconic'] .exceptions-row {
+    grid-template-columns: 18px auto auto 1fr 1rem;
+  }
+  [data-variant='iconic'] .exceptions-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px;
+  }
+  [data-variant='iconic'] .exceptions-row.added .exceptions-icon { color: var(--color-success-600); }
+  [data-variant='iconic'] .exceptions-row.modified .exceptions-icon { color: var(--color-info-700); }
+  [data-variant='iconic'] .exceptions-row.cancelled .exceptions-icon { color: var(--color-warning-700); }
+  [data-variant='iconic'] .exceptions-row.added .exceptions-date::before { content: ''; }
+
+  .exceptions-kind {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    white-space: nowrap;
+  }
+  .exceptions-row.modified .exceptions-kind { color: var(--color-info-700); }
+  .exceptions-row.cancelled .exceptions-kind { color: var(--color-warning-700); }
+  .exceptions-row.added .exceptions-kind { color: var(--color-success-700); }
+
+  .exceptions-label {
+    color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 14px;
+  }
+
+  .exceptions-arrow {
+    color: var(--text-tertiary);
+    opacity: 0.35;
+    font-size: 18px; line-height: 1;
+    text-align: right; font-weight: 300;
+    transition: opacity 0.2s cubic-bezier(0.32, 0.72, 0, 1),
+                transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .exceptions-row[role='button']:hover .exceptions-arrow {
+    opacity: 1; transform: translateX(4px);
+    color: var(--color-info-700);
+  }
+
+  .exceptions-row.cancelled { cursor: default; opacity: 0.62; }
+  .exceptions-row.cancelled .exceptions-date {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--text-tertiary);
+    color: var(--text-tertiary);
+  }
+  .exceptions-row.cancelled .exceptions-label { color: var(--text-tertiary); }
+  .exceptions-row.cancelled .exceptions-arrow { display: none; }
+
+  /* Hover demo: pre-apply the hover state on the second row of each variant
+     so screenshots reveal the affordance + animated state without requiring
+     mouse interaction. */
+  .demo-hover {
+    background: color-mix(in oklch, var(--color-neutral-100) 65%, transparent);
+  }
+  .demo-hover .exceptions-date {
+    text-decoration-color: var(--color-info-500);
+  }
+  .demo-hover .exceptions-arrow {
+    opacity: 1;
+    transform: translateX(4px);
+    color: var(--color-info-700);
+  }
+  .at-rest-tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 600;
+    color: var(--text-tertiary);
+    margin-left: 8px;
+    letter-spacing: 0.04em;
+  }
+  .hover-tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 600;
+    color: var(--color-info-700);
+    margin-left: 8px;
+    letter-spacing: 0.04em;
+  }
+
+  details {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--color-neutral-100);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  details summary { font-weight: 600; cursor: pointer; color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<h1>Recurrence Exceptions — pick a marker variant</h1>
+<p class="intro">
+  Three variants. Same data, same row interaction model, same hover affordance —
+  only the kind-marker glyph that prefixes each date differs. Hover the
+  highlighted middle row to see the active state. Pick whichever feels right.
+</p>
+
+<div class="grid">
+
+  <!-- Variant A -->
+  <div class="variant-card">
+    <div class="variant-name">Variant A</div>
+    <div class="variant-tagline">Diff-style markers — <code>+</code> <code>~</code> <code>−</code></div>
+    <section class="exceptions-section" data-variant="diff">
+      <div class="exceptions-header">
+        <span class="exceptions-title">Recurrence Exceptions</span>
+        <span class="exceptions-count">3</span>
+      </div>
+      <ul class="exceptions-table">
+        <li class="exceptions-row added" role="button" tabindex="0">
+          <span class="exceptions-date">Sat, May 30</span>
+          <span class="exceptions-kind">Added</span>
+          <span class="exceptions-label">Added occurrence</span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row modified demo-hover" role="button" tabindex="0">
+          <span class="exceptions-date">Mon, Apr 20</span>
+          <span class="exceptions-kind">Modified</span>
+          <span class="exceptions-label">Time changed <span class="hover-tag">[hover state]</span></span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row cancelled">
+          <span class="exceptions-date">Mon, May 25</span>
+          <span class="exceptions-kind">Cancelled</span>
+          <span class="exceptions-label">Cancelled</span>
+          <span class="exceptions-arrow"></span>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- Variant B -->
+  <div class="variant-card">
+    <div class="variant-name">Variant B</div>
+    <div class="variant-tagline">Editorial typographic — <code>+</code> <code>∗</code> <code>×</code></div>
+    <section class="exceptions-section" data-variant="editorial">
+      <div class="exceptions-header">
+        <span class="exceptions-title">Recurrence Exceptions</span>
+        <span class="exceptions-count">3</span>
+      </div>
+      <ul class="exceptions-table">
+        <li class="exceptions-row added" role="button" tabindex="0">
+          <span class="exceptions-date">Sat, May 30</span>
+          <span class="exceptions-kind">Added</span>
+          <span class="exceptions-label">Added occurrence</span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row modified demo-hover" role="button" tabindex="0">
+          <span class="exceptions-date">Mon, Apr 20</span>
+          <span class="exceptions-kind">Modified</span>
+          <span class="exceptions-label">Time changed <span class="hover-tag">[hover state]</span></span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row cancelled">
+          <span class="exceptions-date">Mon, May 25</span>
+          <span class="exceptions-kind">Cancelled</span>
+          <span class="exceptions-label">Cancelled</span>
+          <span class="exceptions-arrow"></span>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- Variant C -->
+  <div class="variant-card">
+    <div class="variant-name">Variant C</div>
+    <div class="variant-tagline">Iconic — leading SVG glyphs (own column)</div>
+    <section class="exceptions-section" data-variant="iconic">
+      <div class="exceptions-header">
+        <span class="exceptions-title">Recurrence Exceptions</span>
+        <span class="exceptions-count">3</span>
+      </div>
+      <ul class="exceptions-table">
+        <li class="exceptions-row added" role="button" tabindex="0">
+          <span class="exceptions-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+              <line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>
+            </svg>
+          </span>
+          <span class="exceptions-date">Sat, May 30</span>
+          <span class="exceptions-kind">Added</span>
+          <span class="exceptions-label">Added occurrence</span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row modified demo-hover" role="button" tabindex="0">
+          <span class="exceptions-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11.5 3.5 L13 5 L5 13 L3 13 L3 11 Z"/>
+            </svg>
+          </span>
+          <span class="exceptions-date">Mon, Apr 20</span>
+          <span class="exceptions-kind">Modified</span>
+          <span class="exceptions-label">Time changed <span class="hover-tag">[hover state]</span></span>
+          <span class="exceptions-arrow">›</span>
+        </li>
+        <li class="exceptions-row cancelled">
+          <span class="exceptions-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+              <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
+            </svg>
+          </span>
+          <span class="exceptions-date">Mon, May 25</span>
+          <span class="exceptions-kind">Cancelled</span>
+          <span class="exceptions-label">Cancelled</span>
+          <span class="exceptions-arrow"></span>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+</div>
+
+<details>
+  <summary>What's the same across all three?</summary>
+  <ul style="margin: 8px 0 0; padding-left: 20px;">
+    <li><strong>Always-visible chevron</strong> at 0.35 opacity (the resting affordance signal). On hover/focus it lifts to full opacity, translates 4px right, and shifts color to info-blue.</li>
+    <li><strong>Hover background</strong> is a warm-stone tint (color-mix on neutral-100), not info-blue. Reads as "you're hovering me," not as "I'm selected."</li>
+    <li><strong>Date underline</strong> is a 1px hairline that fades in on hover (info-500 color, 3px offset). Hyperlink convention.</li>
+    <li><strong>Easing</strong> is cubic-bezier(0.32, 0.72, 0, 1) over 200ms — refined ease-out, no bounce.</li>
+    <li><strong>Cancelled rows</strong> are visibly inert: 0.62 opacity, strikethrough date, no chevron, no hover/click.</li>
+    <li><strong>Reduced motion</strong>: all transitions and translates suppressed under prefers-reduced-motion.</li>
+  </ul>
+</details>
+
+</body>
+</html>

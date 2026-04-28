@@ -25,6 +25,50 @@ import './shared/FilterBar.css';
 import './MyReservations.css';
 
 /**
+ * Inline SVG glyph for a recurrence-exception kind. Three primitives —
+ * plus (added), pencil (modified), x (cancelled) — drawn at 14×16 with
+ * a 1.75px stroke. Color is inherited from the parent .exceptions-icon
+ * cell so each row's kind class drives the hue.
+ */
+function ExceptionIcon({ kind }) {
+  const common = {
+    width: 14,
+    height: 14,
+    viewBox: '0 0 16 16',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+  };
+  if (kind === 'added') {
+    return (
+      <svg {...common}>
+        <line x1="8" y1="3" x2="8" y2="13" />
+        <line x1="3" y1="8" x2="13" y2="8" />
+      </svg>
+    );
+  }
+  if (kind === 'modified') {
+    return (
+      <svg {...common}>
+        <path d="M11.5 3.5 L13 5 L5 13 L3 13 L3 11 Z" />
+      </svg>
+    );
+  }
+  if (kind === 'cancelled') {
+    return (
+      <svg {...common}>
+        <line x1="4" y1="4" x2="12" y2="12" />
+        <line x1="12" y1="4" x2="4" y2="12" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+/**
  * Build a flat virtual-occurrence object suitable for reviewModal.openModal.
  *
  * Mirrors Calendar.jsx's expansion shape (isRecurringOccurrence + masterEventId
@@ -726,17 +770,17 @@ export default function MyReservations() {
                 </div>
               </div>
 
-              {/* Recurring exceptions tree — only renders when the master has
-                  per-occurrence deviations. Regular pattern occurrences are
-                  intentionally NOT enumerated; only modified, cancelled, and
-                  added occurrences appear here. */}
+              {/* Recurrence exceptions — typographic table inside the master
+                  card. Only renders when the master has per-occurrence
+                  deviations. Regular pattern occurrences are NOT enumerated;
+                  only modified, cancelled, and added occurrences appear. */}
               {isSeriesMaster && hasDeviations && (
-                <>
-                  <div className="tree-section-label">
-                    <span>Occurrences that differ from this series</span>
-                    <span className="label-count">· {variants.length}</span>
-                  </div>
-                  <ul className="tree-wrap">
+                <section className="exceptions-section" aria-label="Recurrence exceptions">
+                  <header className="exceptions-header">
+                    <span className="exceptions-title">Recurrence Exceptions</span>
+                    <span className="exceptions-count">{variants.length}</span>
+                  </header>
+                  <ul className="exceptions-table">
                     {variants.map(v => {
                       const isClickable = v.kind !== 'cancelled';
                       const handleClick = isClickable
@@ -747,10 +791,11 @@ export default function MyReservations() {
                             );
                           }
                         : undefined;
+                      const labelText = v.kind === 'modified' ? 'Modified' : v.kind === 'cancelled' ? 'Cancelled' : 'Added';
                       return (
                         <li
                           key={`${v.kind}-${v.occurrenceDate}`}
-                          className={`tree-child ${v.kind === 'cancelled' ? 'cancelled-card' : ''}`}
+                          className={`exceptions-row ${v.kind}`}
                           role={isClickable ? 'button' : undefined}
                           tabIndex={isClickable ? 0 : undefined}
                           onClick={handleClick}
@@ -761,27 +806,22 @@ export default function MyReservations() {
                             }
                           } : undefined}
                         >
-                          <div className={`mr-override-row ${v.kind} ${isClickable ? 'clickable' : ''}`}>
-                            <span className="mr-override-date">
-                              {new Date(v.occurrenceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                            </span>
-                            <span className={`mr-override-kind-pill kind-${v.kind}`}>
-                              {v.kind === 'modified' ? 'Modified' : v.kind === 'cancelled' ? 'Cancelled' : 'Added'}
-                            </span>
-                            <span className="mr-override-label" title={v.label}>
-                              {v.label}
-                            </span>
-                            {isClickable && (
-                              <svg className="mr-override-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="9 18 15 12 9 6" />
-                              </svg>
-                            )}
-                          </div>
+                          <span className="exceptions-icon">
+                            <ExceptionIcon kind={v.kind} />
+                          </span>
+                          <span className="exceptions-date">
+                            {new Date(v.occurrenceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </span>
+                          <span className="exceptions-kind">{labelText}</span>
+                          <span className="exceptions-label" title={v.label}>{v.label}</span>
+                          <span className="exceptions-arrow" aria-hidden="true">
+                            {isClickable ? '›' : ''}
+                          </span>
                         </li>
                       );
                     })}
                   </ul>
-                </>
+                </section>
               )}
 
               {/* Description Preview (if exists) */}

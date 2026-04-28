@@ -256,134 +256,223 @@
   .variant-arrow { color: var(--text-tertiary); opacity: 0.5; }
   .variant-row.clickable:hover .variant-arrow { opacity: 1; }
 
-  /* ───────── L1 (refined): editorial sub-card lineage ─────────
-     Refinements over the original tree:
-       1. A typographic label inside the master's bottom padding zone is the
-          visual anchor. The trunk emerges from this label, not from empty
-          whitespace below the master.
-       2. A hairline divider spans the master content above the label (a
-          full-width rule), echoing how museum exhibits separate primary
-          object info from secondary annotations.
-       3. The trunk is a single continuous mark: it begins inside the master
-          (anchored to the label), crosses the master's bottom border, and
-          continues to the last child. There is no break in the line.
-       4. Branches are L-shapes with rounded corners (border-bottom-left-radius
-          on a partial-border pseudo-element) rather than right-angle stubs.
-          Reads as a soft pen stroke instead of a CAD line.
-       5. Children are quieted: hairline border, subtle tinted background,
-          no shadow. They read as annotations of the master, not standalone
-          cards competing with it.
-  */
+  /* ───────── Exceptions table — typographic, editorial-institutional ─────────
+     Hairline-ruled rows, tabular date column, small uppercase kind markers.
+     Affordance: chevron always visible at low opacity (resting hint that the
+     row is interactive). Hover lifts the chevron, underlines the date, and
+     applies a warm-stone bg tint. Variants only differ in the kind marker
+     (the glyph that prefixes the date) — set via [data-variant] on the
+     <section>.
+     ──────────────────────────────────────────────────────────────────── */
 
-  /* Typographic anchor inside the master, just above the trunk origin */
-  .tree-section-label {
-    margin-top: 18px;
-    padding-top: 14px;
-    padding-left: 12px;
+  .exceptions-section {
+    margin-top: 24px;
+    padding-top: 16px;
     border-top: 1px solid var(--border);
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    position: relative;
-    /* Reserve the row for the label; the trunk threads down through this
-       element's bottom-left and continues into the tree-wrap. */
   }
-  .tree-section-label .label-count {
-    color: var(--text-secondary);
+
+  .variant-tag {
+    display: inline-block;
+    margin: 0 12px 6px 12px;
+    font-size: 10px;
     font-weight: 700;
-    margin-left: 4px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-primary-700);
+    background: var(--color-primary-100);
+    padding: 2px 8px;
+    border-radius: 999px;
   }
 
-  /* The tree-wrap is positioned so its trunk seamlessly continues from the
-     label above. No vertical gap between the master card and the tree wrapper. */
-  .tree-wrap {
-    padding-left: 28px;
-    position: relative;
-    margin-top: 12px;
+  .exceptions-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 0 12px 8px 12px;
   }
 
-  /* Single continuous trunk:
-     - Top: -12px places the trunk's top edge exactly at the label's bottom
-       border, so it reads as descending FROM the label rather than crossing
-       through the label text.
-     - Ends 26px past the tree-wrap's bottom — that's roughly the height of
-       a child row's top half + elbow attachment, so the trunk terminates at
-       the last child's branch point.
-     - Hairline (1.5px), soft neutral. Subtle border-radius rounds the ends
-       so the line never reads as cut-off. */
-  .tree-wrap::before {
-    content: '';
-    position: absolute;
-    left: 13px;
-    top: -12px;
-    bottom: 26px;
-    width: 1.5px;
-    background: var(--color-neutral-300);
-    border-radius: 1px;
+  .exceptions-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-tertiary);
+    margin: 0;
   }
 
-  .tree-child {
-    position: relative;
-    background: color-mix(in oklch, var(--bg-card) 88%, var(--color-neutral-100));
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 16px;
-    margin-bottom: 6px;
-    box-shadow: none;
+  .exceptions-count {
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    letter-spacing: 0;
+  }
+
+  .exceptions-table {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .exceptions-row {
+    display: grid;
+    grid-template-columns: 9rem 6rem 1fr 1rem;
+    align-items: baseline;
+    gap: 16px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    transition: background 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .exceptions-row[role='button'] {
     cursor: pointer;
-    transition: border-color 0.15s ease-out, background 0.15s ease-out, transform 0.15s ease-out;
   }
 
-  /* L-shaped connector with a rounded corner. The pseudo-element is a 14×16
-     box with only the left and bottom borders drawn and a bottom-left radius —
-     so it appears as a soft 'descender' from the trunk into the child's
-     left edge. */
-  .tree-child::before {
+  .exceptions-row[role='button']:hover {
+    background: color-mix(in oklch, var(--color-neutral-100) 65%, transparent);
+  }
+
+  .exceptions-row[role='button']:focus-visible {
+    outline: 2px solid var(--color-info-500);
+    outline-offset: -2px;
+    background: color-mix(in oklch, var(--color-neutral-100) 65%, transparent);
+  }
+
+  .exceptions-date {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    white-space: nowrap;
+    letter-spacing: -0.005em;
+    transition: text-decoration-color 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+    text-decoration: underline transparent 1px;
+    text-underline-offset: 3px;
+  }
+
+  /* Hairline underline on hover — subtle "this is a link" cue */
+  .exceptions-row[role='button']:hover .exceptions-date {
+    text-decoration-color: var(--color-info-500);
+  }
+
+  /* === Kind markers (varies by variant) === */
+  /* Default fallback: + for added (kept across all variants) */
+  .exceptions-row.added .exceptions-date::before {
+    content: '+ ';
+    color: var(--color-success-600);
+    font-weight: 700;
+  }
+
+  /* Variant A: diff-style (+, ~, −) */
+  [data-variant='diff'] .exceptions-row.modified .exceptions-date::before {
+    content: '~ ';
+    color: var(--color-info-700);
+    font-weight: 700;
+  }
+  [data-variant='diff'] .exceptions-row.cancelled .exceptions-date::before {
+    content: '− ';
+    color: var(--color-warning-700);
+    font-weight: 700;
+  }
+
+  /* Variant B: editorial typographic (+, *, ×) */
+  [data-variant='editorial'] .exceptions-row.modified .exceptions-date::before {
+    content: '∗ ';
+    color: var(--color-info-700);
+    font-weight: 700;
+  }
+  [data-variant='editorial'] .exceptions-row.cancelled .exceptions-date::before {
+    content: '× ';
+    color: var(--color-warning-700);
+    font-weight: 700;
+  }
+
+  /* Variant C: iconic — leading SVG icons in a 5th column */
+  [data-variant='iconic'] .exceptions-row {
+    grid-template-columns: 1.25rem 9rem 6rem 1fr 1rem;
+  }
+  [data-variant='iconic'] .exceptions-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+  [data-variant='iconic'] .exceptions-row.added .exceptions-icon { color: var(--color-success-600); }
+  [data-variant='iconic'] .exceptions-row.modified .exceptions-icon { color: var(--color-info-700); }
+  [data-variant='iconic'] .exceptions-row.cancelled .exceptions-icon { color: var(--color-warning-700); }
+  /* Iconic variant suppresses the typographic + prefix in the date col */
+  [data-variant='iconic'] .exceptions-row.added .exceptions-date::before {
     content: '';
-    position: absolute;
-    left: -15px;
-    top: -1px;
-    /* width 15px so the horizontal segment lands flush against the child's
-       left border (no 1px gap). */
-    width: 15px;
-    height: 22px;
-    border-left: 1.5px solid var(--color-neutral-300);
-    border-bottom: 1.5px solid var(--color-neutral-300);
-    border-bottom-left-radius: 10px;
-    pointer-events: none;
   }
 
-  .tree-child:hover {
-    background: var(--bg-card);
-    border-color: var(--color-primary-500);
-    transform: translateX(1px);
-  }
-  .tree-child:hover::before {
-    border-color: var(--color-primary-500);
+  .exceptions-kind {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
   }
 
-  .tree-child .variant-row { padding: 0; }
+  .exceptions-row.modified .exceptions-kind { color: var(--color-info-700); }
+  .exceptions-row.cancelled .exceptions-kind { color: var(--color-warning-700); }
+  .exceptions-row.added .exceptions-kind { color: var(--color-success-700); }
 
-  /* Cancelled children: visibly different, no interaction. */
-  .tree-child.cancelled-card {
+  .exceptions-label {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 14px;
+  }
+
+  /* Always-visible chevron at rest (0.35 opacity) is the affordance signal.
+     It says "this row is interactive" without being loud. Hover lifts to
+     full opacity and translates 4px right with refined ease-out. */
+  .exceptions-arrow {
+    color: var(--text-tertiary);
+    opacity: 0.35;
+    transition: opacity 0.2s cubic-bezier(0.32, 0.72, 0, 1),
+                transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+    font-size: 18px;
+    line-height: 1;
+    text-align: right;
+    font-weight: 300;
+  }
+
+  .exceptions-row[role='button']:hover .exceptions-arrow,
+  .exceptions-row[role='button']:focus-visible .exceptions-arrow {
+    opacity: 1;
+    transform: translateX(4px);
+    color: var(--color-info-700);
+  }
+
+  /* Cancelled rows: muted, struck-through date, no chevron. */
+  .exceptions-row.cancelled {
     cursor: default;
-    background: transparent;
-    border-style: dashed;
-    border-color: var(--color-neutral-200);
+    opacity: 0.62;
   }
-  .tree-child.cancelled-card:hover {
-    transform: none;
-    border-color: var(--color-neutral-200);
-    background: transparent;
+  .exceptions-row.cancelled .exceptions-date {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--text-tertiary);
+    color: var(--text-tertiary);
   }
-  .tree-child.cancelled-card:hover::before { border-color: var(--color-neutral-300); }
+  .exceptions-row.cancelled .exceptions-label {
+    color: var(--text-tertiary);
+  }
+  .exceptions-row.cancelled .exceptions-arrow {
+    display: none;
+  }
 
   @media (prefers-reduced-motion: reduce) {
-    .tree-child, .tree-child::before { transition: none; }
-    .tree-child:hover { transform: none; }
+    .exceptions-row,
+    .exceptions-arrow,
+    .exceptions-date { transition: none; }
+    .exceptions-row[role='button']:hover .exceptions-arrow,
+    .exceptions-row[role='button']:focus-visible .exceptions-arrow {
+      transform: none;
+    }
   }
 
   /* L2: inline section */
@@ -505,9 +594,9 @@
       <div class="cons"><strong>Watch for</strong>Vertical space still grows linearly with the number of overrides &mdash; the stress test below shows how a 10-override series looks.</div>
     </div>
   </div>
-  <div class="scenario-label">Scenario A — 3 deviations</div>
+  <div class="scenario-label">Variant A — Diff-style markers (+, ~, −)</div>
   <div class="mr-card" id="l1a"></div>
-  <div class="scenario-label">Scenario B — 10 deviations (stress)</div>
+  <div class="scenario-label">Variant B — Editorial typographic (+, ∗, ×)</div>
   <div class="mr-card" id="l1b"></div>
 </section>
 
@@ -706,22 +795,97 @@
     children.forEach(c => target.appendChild(c));
   }
 
-  // ─── Layout 1 (refined): editorial sub-card lineage ───────
-  function renderL1(targetId, variants) {
-    const label = el('div', { class: 'tree-section-label' },
-      el('span', { text: 'Occurrences that differ from this series' }),
-      el('span', { class: 'label-count', text: '· ' + variants.length }),
-    );
-    const tree = el('div', { class: 'tree-wrap' });
-    variants.forEach(v => {
-      const card = el('div', { class: 'tree-child' + (v.kind === 'cancelled' ? ' cancelled-card' : '') });
-      card.appendChild(variantRow(v));
-      tree.appendChild(card);
-    });
-    clearAndAppend(document.getElementById(targetId), masterHeader(), masterBody(), label, tree);
+  // ─── Layout 1 (typographic table): exceptions as editorial rows ──
+  function svgIcon(kind) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.75');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    if (kind === 'added') {
+      // plus
+      const a = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      a.setAttribute('x1', '8'); a.setAttribute('y1', '3'); a.setAttribute('x2', '8'); a.setAttribute('y2', '13');
+      const b = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      b.setAttribute('x1', '3'); b.setAttribute('y1', '8'); b.setAttribute('x2', '13'); b.setAttribute('y2', '8');
+      svg.appendChild(a); svg.appendChild(b);
+    } else if (kind === 'modified') {
+      // pencil — slim editorial mark, not a UI clipart pencil
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M11.5 3.5 L13 5 L5 13 L3 13 L3 11 Z');
+      svg.appendChild(path);
+    } else if (kind === 'cancelled') {
+      // x
+      const a = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      a.setAttribute('x1', '4'); a.setAttribute('y1', '4'); a.setAttribute('x2', '12'); a.setAttribute('y2', '12');
+      const b = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      b.setAttribute('x1', '12'); b.setAttribute('y1', '4'); b.setAttribute('x2', '4'); b.setAttribute('y2', '12');
+      svg.appendChild(a); svg.appendChild(b);
+    }
+    return svg;
   }
-  renderL1('l1a', variantsSmall);
-  renderL1('l1b', variantsLarge);
+
+  function exceptionsRow(v, opts = {}) {
+    const isClickable = v.kind !== 'cancelled';
+    const labelText = v.kind === 'modified' ? 'Modified' : v.kind === 'cancelled' ? 'Cancelled' : 'Added';
+    const row = el('li', { class: `exceptions-row ${v.kind}` });
+    if (isClickable) {
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+    }
+    if (opts.iconic) {
+      const iconCell = el('span', { class: 'exceptions-icon' });
+      iconCell.appendChild(svgIcon(v.kind));
+      row.appendChild(iconCell);
+    }
+    row.appendChild(el('span', { class: 'exceptions-date', text: v.date }));
+    row.appendChild(el('span', { class: 'exceptions-kind', text: labelText }));
+    row.appendChild(el('span', { class: 'exceptions-label', text: v.label, title: v.label }));
+    row.appendChild(el('span', { class: 'exceptions-arrow', text: isClickable ? '›' : '' }));
+    return row;
+  }
+
+  function renderExceptionsSection(variant, label, variants) {
+    const section = el('section', { class: 'exceptions-section' });
+    section.setAttribute('data-variant', variant);
+    const tag = el('span', { class: 'variant-tag', text: label });
+    const header = el('div', { class: 'exceptions-header' },
+      el('span', { class: 'exceptions-title', text: 'Recurrence Exceptions' }),
+      el('span', { class: 'exceptions-count', text: String(variants.length) }),
+    );
+    const table = el('ul', { class: 'exceptions-table' });
+    variants.forEach(v => table.appendChild(exceptionsRow(v, { iconic: variant === 'iconic' })));
+    section.appendChild(tag);
+    section.appendChild(header);
+    section.appendChild(table);
+    return section;
+  }
+
+  function renderL1Variant(targetId, variant, label, variants) {
+    clearAndAppend(document.getElementById(targetId),
+      masterHeader(), masterBody(), renderExceptionsSection(variant, label, variants));
+  }
+
+  // Three variant cards under Scenario A
+  renderL1Variant('l1a', 'diff', 'Variant A — Diff-style markers', variantsSmall);
+  renderL1Variant('l1b', 'editorial', 'Variant B — Editorial typographic', variantsSmall);
+  // Layout 1 also gets a third card for Variant C — we'll add it via DOM injection
+  // since the page only had two scenario containers originally.
+  (function addThirdVariantCard() {
+    const section = document.getElementById('layout-1');
+    if (!section) return;
+    const lbl = el('div', { class: 'scenario-label', text: 'Scenario C — variant C (iconic)' });
+    const card = el('div', { class: 'mr-card' });
+    card.id = 'l1c';
+    section.appendChild(lbl);
+    section.appendChild(card);
+    renderL1Variant('l1c', 'iconic', 'Variant C — Iconic (leading SVG glyphs)', variantsSmall);
+  })();
 
   // ─── Layout 2: inline always-visible section ─────────
   function renderL2(targetId, variants, initialLimit) {
