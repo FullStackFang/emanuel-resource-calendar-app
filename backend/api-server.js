@@ -15420,9 +15420,15 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Query from unified events collection
+    // Accept either a Mongo _id (ObjectId-shaped) or an app-level eventId (UUID).
+    // Required because navigateToEvent passes seriesMasterEventId (UUID) when
+    // opening a series master from an exception/addition child.
+    const idClauses = [{ eventId: reservationId }];
+    if (ObjectId.isValid(reservationId)) {
+      idClauses.push({ _id: new ObjectId(reservationId) });
+    }
     const event = await unifiedEventsCollection.findOne({
-      _id: new ObjectId(reservationId),
+      $or: idClauses,
       roomReservationData: { $exists: true, $ne: null }
     });
 
