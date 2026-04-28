@@ -439,8 +439,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const navigateToEvent = useCallback(async (target) => {
     if (!target) return;
 
-    // Resolve string identifier to full doc.
     let initialItem;
+    // Cold path: the single-doc endpoint already returns enriched data
+    // (occurrenceOverrides + recurrence), so hydrateSeriesMaster would
+    // re-fetch the same URL. Track that here to skip the redundant call.
+    let alreadyHydrated = false;
     if (typeof target === 'string') {
       try {
         const response = await authFetch(
@@ -453,6 +456,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           return;
         }
         initialItem = await response.json();
+        alreadyHydrated = true;
       } catch (err) {
         logger.error('navigateToEvent fetch error:', err);
         if (onError) onError('Could not load the requested event');
@@ -463,7 +467,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     const gates = computeItemGates(initialItem);
-    const effectiveItem = await hydrateSeriesMaster(initialItem);
+    const effectiveItem = alreadyHydrated ? initialItem : await hydrateSeriesMaster(initialItem);
 
     // Mirror openModal's draft handling so a master that happens to be a draft
     // still renders draft UI (defensive — masters are typically not drafts).
@@ -489,9 +493,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingRejectConfirmation(false);
     setPendingSaveConfirmation(false);
     setEditScope(null);
-    setReinitKey(prev => prev + 1); // Force RoomReservationReview to remount with new item.
+    setReinitKey(prev => prev + 1);
 
-    // Re-run prefetch for the new event.
     await prefetchModalData(effectiveItem, gates);
   }, [authFetch, hydrateSeriesMaster, prefetchModalData, onError]);
 
