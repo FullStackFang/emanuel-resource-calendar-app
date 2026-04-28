@@ -16,11 +16,55 @@ import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { formatDraftAge } from '../utils/draftAgeUtils';
+import { formatRecurrenceSummaryCompact } from '../utils/recurrenceUtils';
+import { buildOccurrenceVariants } from '../utils/recurrenceOverrideSummary';
 import EventReviewExperience from './shared/EventReviewExperience';
 import LoadingSpinner from './shared/LoadingSpinner';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
 import './MyReservations.css';
+
+/**
+ * Build a flat virtual-occurrence object suitable for reviewModal.openModal.
+ *
+ * Mirrors Calendar.jsx's expansion shape (isRecurringOccurrence + masterEventId
+ * + occurrenceDate + dates rebuilt from override-merged times) so the modal's
+ * existing single-occurrence editing path engages without changes.
+ *
+ * The hook's hydrateSeriesMaster step re-fetches the master with its enriched
+ * occurrenceOverrides, so the virtual we pass only needs to be enough to
+ * identify which occurrence the user clicked. We also spread override fields
+ * eagerly so the optimistic first paint shows the user's customized values.
+ */
+function buildVirtualOccurrence(master, variant) {
+  const override = variant.override || {};
+  const occurrenceDate = variant.occurrenceDate;
+  // Master values first, override fields next (override wins for inheritable fields).
+  const merged = { ...master, ...override };
+  const startTime = merged.startTime || '00:00';
+  const endTime = merged.endTime || '23:59';
+  return {
+    ...merged,
+    eventId: `${master.eventId}-occurrence-${occurrenceDate}`,
+    _id: `${master._id || master.eventId}-occurrence-${occurrenceDate}`,
+    eventType: 'occurrence',
+    isRecurringOccurrence: true,
+    hasOccurrenceOverride: true,
+    isAdHocAddition: variant.kind === 'added',
+    masterEventId: master.eventId,
+    seriesMasterId: master.eventId,
+    seriesMasterEventId: master.eventId,
+    occurrenceDate,
+    startDate: occurrenceDate,
+    endDate: occurrenceDate,
+    startTime,
+    endTime,
+    startDateTime: `${occurrenceDate}T${startTime.length === 5 ? startTime + ':00' : startTime}`,
+    endDateTime: `${occurrenceDate}T${endTime.length === 5 ? endTime + ':00' : endTime}`,
+    recurrence: null,
+    occurrenceOverrides: [],
+  };
+}
 
 export default function MyReservations() {
   const { apiToken } = useAuth();
@@ -43,7 +87,6 @@ export default function MyReservations() {
   // Tracks in-flight silent polling fetches so the empty state doesn't flash
   // if the server momentarily returns an empty result during a background refresh.
   const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
-
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
 
@@ -515,6 +558,21 @@ export default function MyReservations() {
           const contactName = reservation.contactName;
           const isDraft = reservation.status === 'draft';
 
+          // Recurring-series aggregation: for a seriesMaster, the card surfaces
+          // the recurrence pattern (pill) plus an inline "tree" of any per-
+          // occurrence deviations (modified / cancelled / added). Regular
+          // pattern occurrences are NEVER enumerated — buildOccurrenceVariants
+          // only emits rows for entries in occurrenceOverrides[],
+          // recurrence.exclusions[], and recurrence.additions[].
+          const isSeriesMaster = reservation.eventType === 'seriesMaster';
+          const recurrencePattern = reservation.recurrence?.pattern || null;
+          const recurrenceRange = reservation.recurrence?.range || null;
+          const recurrenceSummary = isSeriesMaster && recurrencePattern
+            ? formatRecurrenceSummaryCompact(recurrencePattern, recurrenceRange)
+            : '';
+          const variants = isSeriesMaster ? buildOccurrenceVariants(reservation) : [];
+          const hasDeviations = variants.length > 0;
+
           return (
             <div key={reservation._id} className={`mr-card ${isDraft ? 'mr-card-draft' : ''}`}>
               {/* Card Header - Event Title + Actions */}
@@ -524,6 +582,17 @@ export default function MyReservations() {
                   <span className={`status-badge ${getStatusBadgeInfo(reservation).className}`}>
                     {getStatusBadgeInfo(reservation).label}
                   </span>
+                  {isSeriesMaster && recurrenceSummary && (
+                    <span className="mr-recurrence-pill" title={recurrenceSummary}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="17 1 21 5 17 9" />
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                        <polyline points="7 23 3 19 7 15" />
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                      </svg>
+                      {recurrenceSummary}
+                    </span>
+                  )}
                   {reservation.attendeeCount > 0 && (
                     <span className="mr-attendee-pill">{reservation.attendeeCount} attendees</span>
                   )}
@@ -547,7 +616,26 @@ export default function MyReservations() {
                 <div className="mr-info-block">
                   <span className="mr-info-label">When</span>
                   <div className="mr-info-value mr-datetime">
-                    {reservation.startDate ? (
+                    {isSeriesMaster && recurrenceRange?.startDate ? (
+                      <>
+                        <span className="mr-date">
+                          {new Date(recurrenceRange.startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {recurrenceRange.endDate ? (
+                            <>
+                              {' – '}
+                              {new Date(recurrenceRange.endDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </>
+                          ) : null}
+                        </span>
+                        {reservation.startTime && reservation.endTime ? (
+                          <span className="mr-time">
+                            {new Date(`2000-01-01T${reservation.startTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {' – '}
+                            {new Date(`2000-01-01T${reservation.endTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : reservation.startDate ? (
                       <>
                         <span className="mr-date">
                           {new Date(reservation.startDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
@@ -637,6 +725,64 @@ export default function MyReservations() {
                   </div>
                 </div>
               </div>
+
+              {/* Recurring exceptions tree — only renders when the master has
+                  per-occurrence deviations. Regular pattern occurrences are
+                  intentionally NOT enumerated; only modified, cancelled, and
+                  added occurrences appear here. */}
+              {isSeriesMaster && hasDeviations && (
+                <>
+                  <div className="tree-section-label">
+                    <span>Occurrences that differ from this series</span>
+                    <span className="label-count">· {variants.length}</span>
+                  </div>
+                  <ul className="tree-wrap">
+                    {variants.map(v => {
+                      const isClickable = v.kind !== 'cancelled';
+                      const handleClick = isClickable
+                        ? () => {
+                            reviewModal.openModal(
+                              buildVirtualOccurrence(reservation, v),
+                              { editScope: 'thisEvent' }
+                            );
+                          }
+                        : undefined;
+                      return (
+                        <li
+                          key={`${v.kind}-${v.occurrenceDate}`}
+                          className={`tree-child ${v.kind === 'cancelled' ? 'cancelled-card' : ''}`}
+                          role={isClickable ? 'button' : undefined}
+                          tabIndex={isClickable ? 0 : undefined}
+                          onClick={handleClick}
+                          onKeyDown={isClickable ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleClick();
+                            }
+                          } : undefined}
+                        >
+                          <div className={`mr-override-row ${v.kind} ${isClickable ? 'clickable' : ''}`}>
+                            <span className="mr-override-date">
+                              {new Date(v.occurrenceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            </span>
+                            <span className={`mr-override-kind-pill kind-${v.kind}`}>
+                              {v.kind === 'modified' ? 'Modified' : v.kind === 'cancelled' ? 'Cancelled' : 'Added'}
+                            </span>
+                            <span className="mr-override-label" title={v.label}>
+                              {v.label}
+                            </span>
+                            {isClickable && (
+                              <svg className="mr-override-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
 
               {/* Description Preview (if exists) */}
               {reservation.eventDescription && (

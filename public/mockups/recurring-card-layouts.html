@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>My Reservations — recurring card layout review</title>
+<style>
+  :root {
+    --color-primary-100: #dae6ff;
+    --color-primary-500: #3b6eb8;
+    --color-primary-600: #2d5a9e;
+    --color-primary-700: #1e4785;
+    --color-neutral-50:  #fafaf9;
+    --color-neutral-100: #f5f5f4;
+    --color-neutral-200: #e7e5e4;
+    --color-neutral-300: #d6d3d1;
+    --color-neutral-400: #a8a29e;
+    --color-neutral-500: #78716c;
+    --color-neutral-600: #57534e;
+    --color-neutral-700: #44403c;
+    --color-success-100: #d1fae5;
+    --color-success-500: #059669;
+    --color-success-600: #047857;
+    --color-success-700: #065f46;
+    --color-warning-100: #fef3c7;
+    --color-warning-500: #d97706;
+    --color-warning-700: #92400e;
+    --color-error-100:   #fee2e2;
+    --color-error-500:   #dc2626;
+    --color-error-700:   #991b1b;
+    --color-info-100:    #e0f2fe;
+    --color-info-500:    #0284c7;
+    --color-info-700:    #075985;
+
+    --bg-page:      #f7f6f4;
+    --bg-card:      #ffffff;
+    --bg-tertiary:  var(--color-neutral-100);
+    --text-primary: #1c1917;
+    --text-secondary: var(--color-neutral-600);
+    --text-tertiary:  var(--color-neutral-500);
+    --border:       var(--color-neutral-200);
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 999px;
+
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-pop:  0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .page-header {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: var(--shadow-card);
+  }
+  .page-header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+  .page-header p { margin: 0; color: var(--text-secondary); max-width: 700px; }
+
+  .layout-nav {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .layout-nav a {
+    padding: 4px 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: var(--radius-full);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .layout-nav a:hover { background: var(--color-info-100); color: var(--color-info-700); }
+
+  .layout-section {
+    max-width: 1100px;
+    margin: 32px auto;
+    padding: 0 32px;
+  }
+
+  .layout-header {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .layout-header h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .layout-header .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-primary-500);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .layout-header .desc { color: var(--text-secondary); margin: 6px 0 12px; max-width: 760px; }
+  .pros-cons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    font-size: 13px;
+  }
+  .pros-cons div { padding: 10px 14px; border-radius: var(--radius-md); }
+  .pros-cons .pros { background: var(--color-success-100); color: var(--color-success-700); }
+  .pros-cons .cons { background: var(--color-warning-100); color: var(--color-warning-700); }
+  .pros-cons strong { display: block; margin-bottom: 4px; }
+
+  .scenario-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 16px 0 8px 4px;
+  }
+
+  .mr-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 20px 24px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow-card);
+    position: relative;
+  }
+  .mr-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .mr-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .mr-card-title { margin: 0; font-size: 17px; font-weight: 700; }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .status-badge.published { background: var(--color-success-100); color: var(--color-success-700); }
+  .mr-recurrence-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .mr-recurrence-pill svg { opacity: 0.7; }
+  .mr-btn-primary {
+    padding: 8px 18px;
+    background: var(--color-primary-500);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mr-card-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+  }
+  .mr-info-block { display: flex; flex-direction: column; gap: 4px; }
+  .mr-info-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .mr-info-value { font-size: 13px; color: var(--text-primary); }
+  .mr-date { font-weight: 600; }
+  .mr-time { display: block; color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
+  .mr-room-tag, .mr-category-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--color-primary-100);
+    color: var(--color-primary-700);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    margin-right: 4px;
+  }
+
+  .variant-row {
+    display: grid;
+    grid-template-columns: 130px auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+  }
+  .variant-row.clickable { cursor: pointer; }
+  .variant-row.clickable:hover { background: var(--bg-tertiary); }
+  .variant-date { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+  .variant-row.cancelled .variant-date { text-decoration: line-through; color: var(--text-tertiary); }
+  .variant-row.added .variant-date::before { content: '+ '; color: var(--color-success-600); font-weight: 700; }
+  .variant-pill {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .variant-pill.modified  { background: var(--color-info-100); color: var(--color-info-700); }
+  .variant-pill.cancelled { background: var(--color-warning-100); color: var(--color-warning-700); }
+  .variant-pill.added     { background: var(--color-success-100); color: var(--color-success-700); }
+  .variant-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .variant-arrow { color: var(--text-tertiary); opacity: 0.5; }
+  .variant-row.clickable:hover .variant-arrow { opacity: 1; }
+
+  /* ───────── L1 (refined): editorial sub-card lineage ─────────
+     Refinements over the original tree:
+       1. A typographic label inside the master's bottom padding zone is the
+          visual anchor. The trunk emerges from this label, not from empty
+          whitespace below the master.
+       2. A hairline divider spans the master content above the label (a
+          full-width rule), echoing how museum exhibits separate primary
+          object info from secondary annotations.
+       3. The trunk is a single continuous mark: it begins inside the master
+          (anchored to the label), crosses the master's bottom border, and
+          continues to the last child. There is no break in the line.
+       4. Branches are L-shapes with rounded corners (border-bottom-left-radius
+          on a partial-border pseudo-element) rather than right-angle stubs.
+          Reads as a soft pen stroke instead of a CAD line.
+       5. Children are quieted: hairline border, subtle tinted background,
+          no shadow. They read as annotations of the master, not standalone
+          cards competing with it.
+  */
+
+  /* Typographic anchor inside the master, just above the trunk origin */
+  .tree-section-label {
+    margin-top: 18px;
+    padding-top: 14px;
+    padding-left: 12px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    position: relative;
+    /* Reserve the row for the label; the trunk threads down through this
+       element's bottom-left and continues into the tree-wrap. */
+  }
+  .tree-section-label .label-count {
+    color: var(--text-secondary);
+    font-weight: 700;
+    margin-left: 4px;
+  }
+
+  /* The tree-wrap is positioned so its trunk seamlessly continues from the
+     label above. No vertical gap between the master card and the tree wrapper. */
+  .tree-wrap {
+    padding-left: 28px;
+    position: relative;
+    margin-top: 12px;
+  }
+
+  /* Single continuous trunk:
+     - Top: -12px places the trunk's top edge exactly at the label's bottom
+       border, so it reads as descending FROM the label rather than crossing
+       through the label text.
+     - Ends 26px past the tree-wrap's bottom — that's roughly the height of
+       a child row's top half + elbow attachment, so the trunk terminates at
+       the last child's branch point.
+     - Hairline (1.5px), soft neutral. Subtle border-radius rounds the ends
+       so the line never reads as cut-off. */
+  .tree-wrap::before {
+    content: '';
+    position: absolute;
+    left: 13px;
+    top: -12px;
+    bottom: 26px;
+    width: 1.5px;
+    background: var(--color-neutral-300);
+    border-radius: 1px;
+  }
+
+  .tree-child {
+    position: relative;
+    background: color-mix(in oklch, var(--bg-card) 88%, var(--color-neutral-100));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    box-shadow: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease-out, background 0.15s ease-out, transform 0.15s ease-out;
+  }
+
+  /* L-shaped connector with a rounded corner. The pseudo-element is a 14×16
+     box with only the left and bottom borders drawn and a bottom-left radius —
+     so it appears as a soft 'descender' from the trunk into the child's
+     left edge. */
+  .tree-child::before {
+    content: '';
+    position: absolute;
+    left: -15px;
+    top: -1px;
+    /* width 15px so the horizontal segment lands flush against the child's
+       left border (no 1px gap). */
+    width: 15px;
+    height: 22px;
+    border-left: 1.5px solid var(--color-neutral-300);
+    border-bottom: 1.5px solid var(--color-neutral-300);
+    border-bottom-left-radius: 10px;
+    pointer-events: none;
+  }
+
+  .tree-child:hover {
+    background: var(--bg-card);
+    border-color: var(--color-primary-500);
+    transform: translateX(1px);
+  }
+  .tree-child:hover::before {
+    border-color: var(--color-primary-500);
+  }
+
+  .tree-child .variant-row { padding: 0; }
+
+  /* Cancelled children: visibly different, no interaction. */
+  .tree-child.cancelled-card {
+    cursor: default;
+    background: transparent;
+    border-style: dashed;
+    border-color: var(--color-neutral-200);
+  }
+  .tree-child.cancelled-card:hover {
+    transform: none;
+    border-color: var(--color-neutral-200);
+    background: transparent;
+  }
+  .tree-child.cancelled-card:hover::before { border-color: var(--color-neutral-300); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tree-child, .tree-child::before { transition: none; }
+    .tree-child:hover { transform: none; }
+  }
+
+  /* L2: inline section */
+  .inline-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .inline-section-header {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .count-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    background: var(--color-info-100);
+    color: var(--color-info-700);
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  .show-more {
+    background: none;
+    border: none;
+    color: var(--color-primary-600);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 12px;
+    margin-top: 4px;
+  }
+  .show-more:hover { text-decoration: underline; }
+
+  /* L3: tabs */
+  .tab-strip {
+    display: flex;
+    gap: 0;
+    margin-top: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: -1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab.active {
+    color: var(--color-primary-600);
+    border-bottom-color: var(--color-primary-500);
+  }
+  .tab .count-pill { padding: 0 7px; font-weight: 700; }
+  .tab.active .count-pill { background: var(--color-primary-100); color: var(--color-primary-700); }
+  .tab-panel { padding-top: 12px; }
+  .tab-panel.hidden { display: none; }
+  .tab-panel-empty { padding: 12px 0; color: var(--text-secondary); font-size: 13px; }
+
+  /* L4: collapsible */
+  .collapsible-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    padding: 14px 0 8px;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .collapsible-summary .chevron { transition: transform 0.15s; }
+  .collapsible-summary[aria-expanded='true'] .chevron { transform: rotate(180deg); }
+  .collapsible-content { padding-top: 4px; }
+
+  .pill-stats { display: inline-flex; gap: 4px; margin-left: auto; }
+  .pill-stats span {
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pill-stats .modified { background: var(--color-info-100); color: var(--color-info-700); }
+  .pill-stats .cancelled { background: var(--color-warning-100); color: var(--color-warning-700); }
+  .pill-stats .added { background: var(--color-success-100); color: var(--color-success-700); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>My Reservations — recurring card layouts</h1>
+  <p>Same data shown four ways. Each layout renders the master card plus a recurring series with <strong>1 modified</strong>, <strong>1 cancelled</strong>, and <strong>1 added</strong> occurrence (top), and a stress test with <strong>10 deviations</strong> (bottom) so you can see how each scales. Hover the rows to see clickable affordances.</p>
+  <div class="layout-nav">
+    <a href="#layout-1">1 — Tree of child sub-cards</a>
+    <a href="#layout-2">2 — Always-visible inline section</a>
+    <a href="#layout-3">3 — Tabbed footer</a>
+    <a href="#layout-4">4 — Default-open collapsible panel</a>
+  </div>
+</div>
+
+<section id="layout-1" class="layout-section">
+  <div class="layout-header">
+    <h2><span class="num">1</span> Tree of child sub-cards <span style="font-size: 13px; font-weight: 500; color: var(--color-success-700); margin-left: 8px;">(refined)</span></h2>
+    <p class="desc">A typographic anchor inside the master card (&ldquo;Occurrences that differ from this series · 3&rdquo;) serves as the trunk's origin. The line is now a single continuous mark that crosses the master's bottom border. Branches use rounded L-corners instead of right-angle stubs. Children are quieted: hairline border, soft tinted background, no shadow &mdash; reading as annotations of the master rather than independent cards.</p>
+    <div class="pros-cons">
+      <div class="pros"><strong>What changed</strong>Trunk anchored to a typographic label inside the master (no float). Single continuous spine across the card boundary. Rounded L-corners. Children visually subordinate (no shadow, soft tint). Cancelled rows now use a dashed border to communicate their non-interactive state.</div>
+      <div class="cons"><strong>Watch for</strong>Vertical space still grows linearly with the number of overrides &mdash; the stress test below shows how a 10-override series looks.</div>
+    </div>
+  </div>
+  <div class="scenario-label">Scenario A — 3 deviations</div>
+  <div class="mr-card" id="l1a"></div>
+  <div class="scenario-label">Scenario B — 10 deviations (stress)</div>
+  <div class="mr-card" id="l1b"></div>
+</section>
+
+<section id="layout-2" class="layout-section">
+  <div class="layout-header">
+    <h2><span class="num">2</span> Always-visible inline section</h2>
+    <p class="desc">Permanent &ldquo;Modified Occurrences&rdquo; section inside the master card, separated by a divider. Always visible — zero discovery cost. For series with many deviations, only the first 3 render with a &ldquo;Show all N&rdquo; button.</p>
+    <div class="pros-cons">
+      <div class="pros"><strong>Pros</strong>Most prominent. No clicks required. Stays inside the master card so the connection is implicit.</div>
+      <div class="cons"><strong>Cons</strong>Master card gets taller. &ldquo;Show all&rdquo; mitigates but adds another control.</div>
+    </div>
+  </div>
+  <div class="scenario-label">Scenario A — 3 deviations</div>
+  <div class="mr-card" id="l2a"></div>
+  <div class="scenario-label">Scenario B — 10 deviations (collapsed to first 3)</div>
+  <div class="mr-card" id="l2b"></div>
+</section>
+
+<section id="layout-3" class="layout-section">
+  <div class="layout-header">
+    <h2><span class="num">3</span> Tabbed footer</h2>
+    <p class="desc">Tabs at the bottom of the master card pivot between &ldquo;Details&rdquo; (extra info) and &ldquo;Occurrences (N)&rdquo;. Card height never changes regardless of how many deviations exist.</p>
+    <div class="pros-cons">
+      <div class="pros"><strong>Pros</strong>Card height constant. Count visible in the tab. Works equally well for 1 or 100 deviations.</div>
+      <div class="cons"><strong>Cons</strong>Adds chrome to a card that didn't have any. One click required to discover overrides.</div>
+    </div>
+  </div>
+  <div class="scenario-label">Scenario A — 3 deviations (Occurrences tab active)</div>
+  <div class="mr-card" id="l3a"></div>
+  <div class="scenario-label">Scenario B — 10 deviations (Occurrences tab active)</div>
+  <div class="mr-card" id="l3b"></div>
+</section>
+
+<section id="layout-4" class="layout-section">
+  <div class="layout-header">
+    <h2><span class="num">4</span> Default-open collapsible panel</h2>
+    <p class="desc">Like option 2 but with a header that toggles. Opens by default for masters with overrides, closes if the user collapses it. The summary line stays visible when collapsed so the count is never hidden.</p>
+    <div class="pros-cons">
+      <div class="pros"><strong>Pros</strong>Discoverable by default. User can collapse if they want a tighter list. Compromise between always-visible and dropdown.</div>
+      <div class="cons"><strong>Cons</strong>One more interactive element. Slightly less obvious than option 1's tree if the user has never seen the chevron pattern.</div>
+    </div>
+  </div>
+  <div class="scenario-label">Scenario A — 3 deviations (open)</div>
+  <div class="mr-card" id="l4a"></div>
+  <div class="scenario-label">Scenario B — 10 deviations (open)</div>
+  <div class="mr-card" id="l4b"></div>
+</section>
+
+<script>
+  // ─── Data ─────────────────────────────────────────────
+  const variantsSmall = [
+    { kind: 'modified',  date: 'Mon, Apr 20', label: 'Time changed' },
+    { kind: 'cancelled', date: 'Mon, May 25', label: 'Cancelled' },
+    { kind: 'added',     date: 'Sat, May 30', label: 'Added occurrence' },
+  ];
+  const variantsLarge = [
+    { kind: 'modified',  date: 'Mon, Apr 13', label: 'Time changed' },
+    { kind: 'modified',  date: 'Mon, Apr 20', label: 'Title + Location changed' },
+    { kind: 'cancelled', date: 'Mon, Apr 27', label: 'Cancelled' },
+    { kind: 'modified',  date: 'Mon, May 4',  label: 'Status changed' },
+    { kind: 'added',     date: 'Wed, May 6',  label: 'Added occurrence' },
+    { kind: 'modified',  date: 'Mon, May 11', label: 'Time changed' },
+    { kind: 'cancelled', date: 'Mon, May 18', label: 'Cancelled' },
+    { kind: 'modified',  date: 'Mon, May 25', label: 'Setup time + Door open changed' },
+    { kind: 'added',     date: 'Sat, May 30', label: 'Added occurrence' },
+    { kind: 'modified',  date: 'Mon, Jun 1',  label: 'Categories changed' },
+  ];
+
+  // ─── Safe DOM builders (textContent only — no innerHTML) ─────
+  function el(tag, opts = {}, ...children) {
+    const node = document.createElement(tag);
+    if (opts.class) node.className = opts.class;
+    if (opts.text != null) node.textContent = opts.text;
+    if (opts.title) node.setAttribute('title', opts.title);
+    if (opts.role) node.setAttribute('role', opts.role);
+    if (opts['aria-expanded'] != null) node.setAttribute('aria-expanded', opts['aria-expanded']);
+    if (opts.style) node.setAttribute('style', opts.style);
+    for (const child of children) {
+      if (child == null) continue;
+      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    }
+    return node;
+  }
+
+  function svgRecurrenceIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '11');
+    svg.setAttribute('height', '11');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const paths = [
+      ['polyline', { points: '17 1 21 5 17 9' }],
+      ['path', { d: 'M3 11V9a4 4 0 0 1 4-4h14' }],
+      ['polyline', { points: '7 23 3 19 7 15' }],
+      ['path', { d: 'M21 13v2a4 4 0 0 1-4 4H3' }],
+    ];
+    for (const [tag, attrs] of paths) {
+      const p = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const k in attrs) p.setAttribute(k, attrs[k]);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
+  function svgChevron(cls = 'chevron') {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', cls);
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    p.setAttribute('points', '6 9 12 15 18 9');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  function masterHeader() {
+    const titleRow = el('div', { class: 'mr-card-title-row' },
+      el('h3', { class: 'mr-card-title', text: 'Weekly Yoga' }),
+      el('span', { class: 'status-badge published', text: 'Published' }),
+    );
+    const pill = el('span', { class: 'mr-recurrence-pill' });
+    pill.appendChild(svgRecurrenceIcon());
+    pill.appendChild(document.createTextNode(' Weekly on Mondays, 4/6/2026 – 6/29/2026'));
+    titleRow.appendChild(pill);
+    return el('div', { class: 'mr-card-header' },
+      titleRow,
+      el('button', { class: 'mr-btn-primary', text: 'View Details' }),
+    );
+  }
+
+  function infoBlock(label, dateText, timeText) {
+    const value = el('div', { class: 'mr-info-value' });
+    if (dateText) value.appendChild(el('span', { class: 'mr-date', text: dateText }));
+    if (timeText) value.appendChild(el('span', { class: 'mr-time', text: timeText }));
+    return el('div', { class: 'mr-info-block' },
+      el('span', { class: 'mr-info-label', text: label }),
+      value,
+    );
+  }
+  function infoTagBlock(label, tagText, tagClass) {
+    const value = el('div', { class: 'mr-info-value' });
+    value.appendChild(el('span', { class: tagClass, text: tagText }));
+    return el('div', { class: 'mr-info-block' },
+      el('span', { class: 'mr-info-label', text: label }),
+      value,
+    );
+  }
+
+  function masterBody() {
+    return el('div', { class: 'mr-card-body' },
+      infoBlock('When', 'Apr 6, 2026 – Jun 29, 2026', '9:00 AM – 10:00 AM'),
+      infoTagBlock('Where', 'Sanctuary', 'mr-room-tag'),
+      infoTagBlock('Categories', 'Worship', 'mr-category-tag'),
+      infoBlock('Submitted', 'Apr 15, 2026', '10:00 AM'),
+      infoBlock('Last Modified', 'Apr 20, 2026', '9:30 AM'),
+    );
+  }
+
+  function variantRow(v) {
+    const isClickable = v.kind !== 'cancelled';
+    const labelText = v.kind === 'modified' ? 'Modified' : v.kind === 'cancelled' ? 'Cancelled' : 'Added';
+    const row = el('div', { class: `variant-row ${v.kind}${isClickable ? ' clickable' : ''}` });
+    row.appendChild(el('span', { class: 'variant-date', text: v.date }));
+    row.appendChild(el('span', { class: `variant-pill ${v.kind}`, text: labelText }));
+    row.appendChild(el('span', { class: 'variant-label', text: v.label, title: v.label }));
+    if (isClickable) {
+      row.appendChild(el('span', { class: 'variant-arrow', text: '›' }));
+    } else {
+      row.appendChild(el('span'));
+    }
+    return row;
+  }
+
+  function statsPills(variants) {
+    const stats = { modified: 0, cancelled: 0, added: 0 };
+    variants.forEach(v => stats[v.kind]++);
+    const wrap = el('span', { class: 'pill-stats' });
+    if (stats.modified)  wrap.appendChild(el('span', { class: 'modified',  text: `${stats.modified} modified` }));
+    if (stats.cancelled) wrap.appendChild(el('span', { class: 'cancelled', text: `${stats.cancelled} cancelled` }));
+    if (stats.added)     wrap.appendChild(el('span', { class: 'added',     text: `${stats.added} added` }));
+    return wrap;
+  }
+
+  function clearAndAppend(target, ...children) {
+    while (target.firstChild) target.removeChild(target.firstChild);
+    children.forEach(c => target.appendChild(c));
+  }
+
+  // ─── Layout 1 (refined): editorial sub-card lineage ───────
+  function renderL1(targetId, variants) {
+    const label = el('div', { class: 'tree-section-label' },
+      el('span', { text: 'Occurrences that differ from this series' }),
+      el('span', { class: 'label-count', text: '· ' + variants.length }),
+    );
+    const tree = el('div', { class: 'tree-wrap' });
+    variants.forEach(v => {
+      const card = el('div', { class: 'tree-child' + (v.kind === 'cancelled' ? ' cancelled-card' : '') });
+      card.appendChild(variantRow(v));
+      tree.appendChild(card);
+    });
+    clearAndAppend(document.getElementById(targetId), masterHeader(), masterBody(), label, tree);
+  }
+  renderL1('l1a', variantsSmall);
+  renderL1('l1b', variantsLarge);
+
+  // ─── Layout 2: inline always-visible section ─────────
+  function renderL2(targetId, variants, initialLimit) {
+    const visible = initialLimit ? variants.slice(0, initialLimit) : variants;
+    const remaining = initialLimit ? variants.length - initialLimit : 0;
+    const section = el('div', { class: 'inline-section' });
+    const header = el('div', { class: 'inline-section-header' },
+      el('span', { text: 'Modified Occurrences' }),
+      el('span', { class: 'count-pill', text: String(variants.length) }),
+    );
+    section.appendChild(header);
+    visible.forEach(v => section.appendChild(variantRow(v)));
+    if (remaining > 0) {
+      section.appendChild(el('button', { class: 'show-more', text: `Show all ${variants.length} (+${remaining} more)` }));
+    }
+    clearAndAppend(document.getElementById(targetId), masterHeader(), masterBody(), section);
+  }
+  renderL2('l2a', variantsSmall, null);
+  renderL2('l2b', variantsLarge, 3);
+
+  // ─── Layout 3: tabbed footer ──────────────────────────
+  function renderL3(targetId, variants) {
+    const tabStrip = el('div', { class: 'tab-strip' });
+    const detailsTab = el('button', { class: 'tab', text: 'Details' });
+    const occTab = el('button', { class: 'tab active' });
+    occTab.appendChild(document.createTextNode('Occurrences '));
+    occTab.appendChild(el('span', { class: 'count-pill', text: String(variants.length) }));
+    tabStrip.appendChild(detailsTab);
+    tabStrip.appendChild(occTab);
+
+    const detailsPanel = el('div', { class: 'tab-panel hidden' },
+      el('div', { class: 'tab-panel-empty', text: '(extra detail fields would live here — long description, attachments, internal notes, etc.)' }),
+    );
+    const occPanel = el('div', { class: 'tab-panel' });
+    variants.forEach(v => occPanel.appendChild(variantRow(v)));
+
+    clearAndAppend(document.getElementById(targetId),
+      masterHeader(), masterBody(), tabStrip, detailsPanel, occPanel,
+    );
+  }
+  renderL3('l3a', variantsSmall);
+  renderL3('l3b', variantsLarge);
+
+  // ─── Layout 4: collapsible default-open panel ────────
+  function renderL4(targetId, variants) {
+    const summary = el('div', { class: 'collapsible-summary', 'aria-expanded': 'true' });
+    summary.appendChild(svgChevron('chevron'));
+    summary.appendChild(el('span', { text: `${variants.length} occurrence${variants.length === 1 ? '' : 's'} differ from the series` }));
+    summary.appendChild(statsPills(variants));
+
+    const content = el('div', { class: 'collapsible-content' });
+    variants.forEach(v => content.appendChild(variantRow(v)));
+
+    summary.addEventListener('click', () => {
+      const open = summary.getAttribute('aria-expanded') === 'true';
+      summary.setAttribute('aria-expanded', String(!open));
+      content.style.display = open ? 'none' : '';
+    });
+
+    clearAndAppend(document.getElementById(targetId), masterHeader(), masterBody(), summary, content);
+  }
+  renderL4('l4a', variantsSmall);
+  renderL4('l4b', variantsLarge);
+</script>
+
+</body>
+</html>

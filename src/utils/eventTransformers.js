@@ -386,6 +386,11 @@ export function transformEventToFlatStructure(event) {
     seriesMasterId: getEventField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
     seriesMasterEventId: event.seriesMasterEventId || null,
     recurrence: getEventField(event, 'recurrence') || event.graphData?.recurrence || null,
+    // Per-occurrence overrides synthesized server-side by enrichSeriesMastersWithOverrides
+    // in backend/utils/exceptionDocumentService.js. Each entry is shaped
+    // { occurrenceDate, ...changedFields } where only fields differing from the
+    // master are present. Empty array when no exceptions exist (or for non-master events).
+    occurrenceOverrides: Array.isArray(event.occurrenceOverrides) ? event.occurrenceOverrides : [],
 
     // All-day event flag
     isAllDayEvent: getEventField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,
