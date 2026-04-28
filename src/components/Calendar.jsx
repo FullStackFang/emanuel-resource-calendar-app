@@ -203,6 +203,12 @@ import ConflictDialog from './shared/ConflictDialog';
     // Set to true when a navigation fires while a load is in progress (skipped guard).
     // The finally block checks this and retries with the latest dateRange.
     const pendingReloadRef = useRef(false);
+    // Flipped true the moment the consolidated mount effect dispatches its first
+    // non-silent loadEvents(false). Silent refreshes (SSE/bus/polling) no-op until
+    // this is true, so an SSE 'event-changed' delivered during init cannot race
+    // the initial load and authoritatively empty the calendar via the zero-events
+    // path. Stays true for the lifetime of the component once set.
+    const initialLoadAttemptedRef = useRef(false);
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
     const prefSaveTimerRef = useRef(null);
@@ -2076,12 +2082,17 @@ import ConflictDialog from './shared/ConflictDialog';
         } else {
           // No events returned but no errors
           if (loadResult.count === 0 && loadResult.events?.length === 0) {
-            // Stale-while-revalidate: during a silent background refresh, if events are
-            // currently displayed but the server transiently returned 0, keep the stale
-            // data rather than blanking the calendar. The next poll or a forced refresh
-            // (navigation, manual refresh) will reconcile. Only clear on explicit loads.
-            if (silent && allEventsRef.current.length > 0) {
-              logger.warn(`loadEventsUnified: Silent refresh returned 0 events but ${allEventsRef.current.length} events displayed — keeping stale data (source: ${loadResult.source})`);
+            // Stale-while-revalidate: silent refreshes (SSE/bus/polling) are a
+            // patch-only path — they never authoritatively empty the calendar.
+            // The truth source for "this calendar has 0 events" is an explicit
+            // non-silent load (initial mount, navigation, manual refresh).
+            // Without this, an SSE event-changed delivered during init can race
+            // the consolidated effect and leave allEvents=[] until the user
+            // manually refreshes. The previous guard required allEventsRef to
+            // already be non-empty to skip the clear, which fails open on
+            // initial mount when allEvents starts as [].
+            if (silent) {
+              logger.debug(`loadEventsUnified: Silent refresh returned 0 events — keeping current state (source: ${loadResult.source})`);
               return false;
             }
             setAllEvents([]);
@@ -2138,6 +2149,11 @@ import ConflictDialog from './shared/ConflictDialog';
     // data after a real change) can share the same modal guard without duplication.
     const silentCalendarRefresh = useCallback((forceRefresh = false) => {
       if (reviewModal.isOpen || eventCreation.isOpen) return;
+      // Don't run before the consolidated mount effect has even dispatched its
+      // first non-silent load — otherwise an SSE 'event-changed' delivered
+      // during init races the initial load. The bus event will replay via
+      // dispatchRefresh's debounce buffer if needed.
+      if (!initialLoadAttemptedRef.current) return;
       loadEvents(forceRefresh, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventCreation.isOpen]);
 
@@ -5204,6 +5220,11 @@ import ConflictDialog from './shared/ConflictDialog';
           setChangingCalendar(false);
         }, 30000); // 30 second timeout
 
+        // Mark the first mount load as attempted before dispatching it.
+        // Once true, silentCalendarRefresh is allowed to fire — so any SSE
+        // 'event-changed' debounced by dispatchRefresh during init will
+        // replay against a real in-flight (or completed) load.
+        initialLoadAttemptedRef.current = true;
         // Load events — routine navigation uses cached data; force refresh is
         // reserved for post-save reloads and explicit manual refreshes.
         loadEvents(false)
