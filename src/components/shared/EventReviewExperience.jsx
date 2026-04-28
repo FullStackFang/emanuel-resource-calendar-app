@@ -75,11 +75,22 @@ export default function EventReviewExperience({
 
   // Series-child banner: when the opened item is an occurrence/exception/addition,
   // the approval surface is hidden (via gates above) and the user is guided to
-  // open the series master. Navigation uses seriesMasterEventId (MongoDB eventId
-  // that handleNavigateToSeriesEvent looks up in allEvents) — NOT seriesMasterId
-  // (Graph ID, which will not resolve).
+  // open the series master. Navigation uses the master's MongoDB eventId so
+  // handleNavigateToSeriesEvent can resolve it via allEvents/seriesMastersRef —
+  // NOT seriesMasterId (Graph ID, which will not resolve).
+  //
+  // Field bridge: exception/addition docs carry seriesMasterEventId from the
+  // backend; virtual (non-materialized) occurrences synthesized in Calendar
+  // carry masterEventId (Calendar.jsx normalizes both flavors to set masterEventId,
+  // but seriesMasterEventId is only present on the exception flavor). Read
+  // masterEventId first so the "Open Series Master" affordance works for plain
+  // virtual occurrences too — it is harmless on a series child regardless of
+  // whether an override doc exists.
   const isSeriesChild = gates.isExceptionOrAddition || gates.isOccurrence;
-  const seriesMasterTargetId = exp.currentItem?.seriesMasterEventId || null;
+  const seriesMasterTargetId =
+    exp.currentItem?.masterEventId ||
+    exp.currentItem?.seriesMasterEventId ||
+    null;
   const seriesMasterBanner = isSeriesChild
     ? {
         visible: true,

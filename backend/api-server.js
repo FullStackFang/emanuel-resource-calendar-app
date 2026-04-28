@@ -2203,7 +2203,7 @@ function buildGraphRecurrence(recurrence, timeZone) {
  * @param {string} seriesId - Graph ID of the series master
  * @param {Object} recurrence - Internal recurrence { exclusions, additions, ... }
  * @param {Object} eventData - Graph event data (for building addition events)
- * @returns {Promise<{cancelledOccurrences: Array, additionEventIds: Array}>}
+ * @returns {Promise<{cancelledOccurrences: Array}>}
  */
 async function syncRecurrenceExclusionsToGraph(calendarOwner, calendarId, seriesId, recurrence) {
   const results = { cancelledOccurrences: [] };
@@ -14340,9 +14340,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       );
 
       // Sync exclusions to Graph after series creation
+      let draftRecurrenceSyncResults = null;
       if (draftRecurrence?.exclusions?.length) {
         try {
-          await syncRecurrenceExclusionsToGraph(
+          draftRecurrenceSyncResults = await syncRecurrenceExclusionsToGraph(
             calendarOwner, draft.calendarId || null, createdEvent.id, draftRecurrence
           );
         } catch (syncError) {
@@ -14380,12 +14381,9 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       if (draftRecurrence?.pattern && draftRecurrence?.range) {
         draftPublishSet.eventType = 'seriesMaster';
       }
-      // Persist recurrence exception sync results
-      if (draftSyncResults?.cancelledOccurrences?.length) {
-        draftPublishSet['graphData.cancelledOccurrences'] = draftSyncResults.cancelledOccurrences;
-      }
-      if (draftSyncResults?.additionEventIds?.length) {
-        draftPublishSet.exceptionEventIds = draftSyncResults.additionEventIds;
+      // Persist recurrence exclusion cancellation snapshot
+      if (draftRecurrenceSyncResults?.cancelledOccurrences?.length) {
+        draftPublishSet['graphData.cancelledOccurrences'] = draftRecurrenceSyncResults.cancelledOccurrences;
       }
       // Store recurring conflict snapshot if available
       if (draftRecurringConflicts && draftRecurringConflicts.totalOccurrences > 0) {
@@ -19574,9 +19572,6 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       const syncResults = calendarEventResult?.recurrenceSyncResults;
       if (syncResults?.cancelledOccurrences?.length) {
         mergedEventUpdate.$set['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
-      }
-      if (syncResults?.additionEventIds?.length) {
-        mergedEventUpdate.$set.exceptionEventIds = syncResults.additionEventIds;
       }
       hasEventUpdates = true;
     }
