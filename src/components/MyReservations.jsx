@@ -142,6 +142,12 @@ export default function MyReservations() {
   // non-silent load. Prevents an SSE/bus event delivered during init from
   // racing the initial load. Stays true for the lifetime of the component.
   const initialLoadAttemptedRef = useRef(false);
+  // Tracks the last apiToken we fired a non-silent load for. The mount effect
+  // gates on (apiToken && apiToken !== lastTokenRef.current) so a cold MSAL
+  // warm-up (apiToken null at first render) doesn't permanently miss the load,
+  // and a token refresh (401-retry) triggers exactly one re-load. Mirrors the
+  // pattern in ReservationRequests.jsx.
+  const lastTokenRef = useRef(null);
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
 
@@ -277,15 +283,28 @@ export default function MyReservations() {
   const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
   const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
 
-  // Mark the gate true BEFORE dispatching so any SSE/bus event debounced into
-  // the same tick (useDataRefreshBus has a 500ms buffer) replays correctly
-  // against a real in-flight or completed load.
+  // Fire the initial non-silent load when apiToken first becomes available.
+  // apiToken can arrive AFTER first mount on cold MSAL warm-ups; the previous
+  // version of this effect omitted apiToken from deps and so never re-fired,
+  // leaving the tab blank intermittently. The token-identity guard also makes
+  // 401-retry token refreshes trigger exactly one re-load — same semantics
+  // as ReservationRequests.jsx:307-318.
+  //
+  // initialLoadAttemptedRef is still flipped BEFORE the dispatch so any
+  // SSE/bus event debounced into the same tick (useDataRefreshBus has a 500ms
+  // buffer) replays correctly against a real in-flight or completed load.
+  //
+  // loadMyReservations is intentionally NOT in deps: its identity is stable
+  // across token transitions (deps [authFetch], and authFetch's deps don't
+  // include apiToken — see useAuthenticatedFetch.js). Adding it would be a
+  // no-op churn dep; matching ReservationRequests for consistency.
   useEffect(() => {
-    if (apiToken) {
+    if (apiToken && apiToken !== lastTokenRef.current) {
+      lastTokenRef.current = apiToken;
       initialLoadAttemptedRef.current = true;
       loadMyReservations();
     }
-  }, [loadMyReservations]);
+  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll for updates every 5 min (silent — no loading spinner, skip while modal is open).
   // Declared before useDataRefreshBus so the bus subscription can reuse the same
