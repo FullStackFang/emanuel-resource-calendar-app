@@ -131,8 +131,10 @@ describe('Recurring Event Delete Tests (RD-1 to RD-13)', () => {
     expect(updated.recurrence.exclusions).toContain('2026-03-13');
   });
 
-  // RD-3: thisEvent removes matching occurrenceOverrides entry
-  test('RD-3: thisEvent removes matching occurrenceOverrides entry', async () => {
+  // RD-3: thisEvent on a customized date removes the customization and restores
+  // the pattern (no exclusion added). Two-step delete: a second Delete on the
+  // now-clean pattern date would exclude — see ROR-8.
+  test('RD-3: thisEvent removes matching occurrenceOverrides entry without excluding', async () => {
     const master = createRecurringSeriesMaster({
       status: 'draft',
       recurrence: { ...dailyRecurrence },
@@ -142,11 +144,11 @@ describe('Recurring Event Delete Tests (RD-1 to RD-13)', () => {
         eventTitle: 'Daily with Override',
         startDateTime: '2026-03-11T10:00:00',
         endDateTime: '2026-03-11T11:00:00',
+        occurrenceOverrides: [
+          { occurrenceDate: '2026-03-12', eventTitle: 'Custom Title for 3/12' },
+          { occurrenceDate: '2026-03-13', eventTitle: 'Custom Title for 3/13' },
+        ],
       },
-      occurrenceOverrides: [
-        { occurrenceDate: '2026-03-12', eventTitle: 'Custom Title for 3/12' },
-        { occurrenceDate: '2026-03-13', eventTitle: 'Custom Title for 3/13' },
-      ],
     });
     const inserted = await insertEvent(db, master);
 
@@ -160,13 +162,16 @@ describe('Recurring Event Delete Tests (RD-1 to RD-13)', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.occurrenceExcluded).toBe(true);
+    expect(res.body.customizationRemoved).toBe(true);
+    expect(res.body.restoredDate).toBe('2026-03-12');
 
     const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: inserted._id });
-    expect(updated.recurrence.exclusions).toContain('2026-03-12');
-    // Override for 3/12 should be removed, 3/13 should remain
-    expect(updated.occurrenceOverrides).toHaveLength(1);
-    expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-13');
+    // Date is restored to the pattern — NOT added to exclusions.
+    expect(updated.recurrence.exclusions || []).not.toContain('2026-03-12');
+    // Inline override for 3/12 is removed; 3/13 remains.
+    const inline = updated.calendarData?.occurrenceOverrides || [];
+    expect(inline).toHaveLength(1);
+    expect(inline[0].occurrenceDate).toBe('2026-03-13');
   });
 
   // RD-4: thisEvent adds statusHistory entry with exclusion reason

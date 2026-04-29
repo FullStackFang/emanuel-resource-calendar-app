@@ -129,8 +129,8 @@ describe('Exception Document Delete Tests (ED-1 to ED-11)', () => {
     });
   }
 
-  describe('ED-1: thisEvent on exception → soft-delete + master exclusion added', () => {
-    it('should soft-delete the exception and add occurrenceDate to master.recurrence.exclusions', async () => {
+  describe('ED-1: thisEvent on exception → soft-delete only, no exclusion (restores pattern)', () => {
+    it('should soft-delete the exception and NOT add occurrenceDate to master.recurrence.exclusions', async () => {
       const master = buildPublishedMaster();
       await insertEvents(db, [master]);
 
@@ -152,17 +152,19 @@ describe('Exception Document Delete Tests (ED-1 to ED-11)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.occurrenceDeleted).toBe(true);
-      expect(res.body.masterExclusionAdded).toBe(true);
+      // Per user mental model: deleting the customization restores the pattern.
+      // The date is NOT excluded; the virtual pattern occurrence reappears.
+      expect(res.body.masterExclusionAdded).toBe(false);
 
       // Exception should be soft-deleted
       const deletedException = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exception._id });
       expect(deletedException.isDeleted).toBe(true);
       expect(deletedException.status).toBe('deleted');
 
-      // Master's recurrence.exclusions should include the occurrence date
+      // Master's recurrence.exclusions should NOT include the occurrence date
       const updatedMaster = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
       const exclusions = updatedMaster.recurrence?.exclusions || updatedMaster.calendarData?.recurrence?.exclusions || [];
-      expect(exclusions).toContain('2026-03-19');
+      expect(exclusions).not.toContain('2026-03-19');
     });
   });
 

@@ -461,6 +461,18 @@ export default function RecurrenceTabContent({
 
   const handleRemoveOverride = useCallback((dateStr) => {
     if (!canEdit || !onOccurrenceOverridesChange) return;
+    // Clear any pending detail-view edits for this date BEFORE calling onChange.
+    // RoomReservationReview.getProcessedFormData() flushes commitPendingEdits via
+    // commitPendingOverridesRef on every save; if those refs still point at the
+    // just-removed date, the auto-flush would resurrect the override from the
+    // ref-held edits and overwrite the empty array. Both state setters and refs
+    // must be cleared synchronously since commitPendingEdits reads from refs.
+    if (selectedOccurrenceRef.current === dateStr) {
+      setSelectedOccurrence(null);
+      setOccurrenceEdits({});
+      selectedOccurrenceRef.current = null;
+      occurrenceEditsRef.current = {};
+    }
     onOccurrenceOverridesChange(overrides.filter(o => o.occurrenceDate !== dateStr));
   }, [canEdit, overrides, onOccurrenceOverridesChange]);
 

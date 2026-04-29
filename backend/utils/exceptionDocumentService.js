@@ -151,14 +151,62 @@ function mergeDefaultsWithOverrides(masterEvent, overrides, occurrenceDate) {
 async function _insertOccurrenceDocument(collection, masterEvent, occurrenceDate, data, eventType, eventIdSuffix, options = {}) {
   const masterEventId = masterEvent.eventId;
   const now = new Date();
+  const eventId = `${masterEventId}${eventIdSuffix}${occurrenceDate}`;
 
   const { effectiveFields, effectiveCalendarData } = mergeDefaultsWithOverrides(
     masterEvent, data, occurrenceDate
   );
 
+  // Resurrect-or-insert: the eventId is deterministic per (master, date, kind),
+  // so a soft-deleted predecessor still occupies the slot. Inserting again
+  // would collide with the unique index. If we find a soft-deleted doc with
+  // the same eventId, restore it and apply the new overrides instead of
+  // inserting a fresh document — preserving the audit trail and avoiding
+  // E11000 duplicate-key errors when a user re-customizes a date after delete.
+  const existingByEventId = await collection.findOne({ eventId });
+  if (existingByEventId && existingByEventId.isDeleted === true) {
+    const update = {
+      $set: {
+        eventType,
+        seriesMasterEventId: masterEventId,
+        occurrenceDate,
+        overrides: { ...data },
+        ...effectiveFields,
+        calendarData: effectiveCalendarData,
+        userId: masterEvent.userId,
+        calendarOwner: masterEvent.calendarOwner,
+        calendarId: masterEvent.calendarId,
+        status: masterEvent.status,
+        isDeleted: false,
+        roomReservationData: masterEvent.roomReservationData || null,
+        graphEventId: options.graphEventId || null,
+        graphData: null,
+        lastModifiedDateTime: now,
+        lastModifiedBy: options.createdBy || masterEvent.lastModifiedBy || 'system',
+      },
+      $unset: { deletedAt: '', deletedBy: '' },
+      $inc: { _version: 1 },
+      $push: {
+        statusHistory: {
+          status: masterEvent.status,
+          changedAt: now,
+          changedBy: options.createdBy || masterEvent.createdBy || 'system',
+          changedByEmail: options.createdByEmail || masterEvent.createdByEmail || null,
+          reason: `${eventType === EVENT_TYPE.EXCEPTION ? 'Exception' : 'Addition'} document recreated (resurrected from soft-delete)`,
+        },
+      },
+    };
+    const result = await collection.findOneAndUpdate(
+      { _id: existingByEventId._id },
+      update,
+      { returnDocument: 'after' }
+    );
+    return unwrapFindOneResult(result);
+  }
+
   const doc = {
     _id: new ObjectId(),
-    eventId: `${masterEventId}${eventIdSuffix}${occurrenceDate}`,
+    eventId,
     eventType,
     seriesMasterEventId: masterEventId,
     occurrenceDate,

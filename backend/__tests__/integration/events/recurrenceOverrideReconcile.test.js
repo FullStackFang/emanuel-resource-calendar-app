@@ -249,6 +249,189 @@ describe('Recurrence Override Reconcile (ROR-1 to ROR-5)', () => {
     });
   });
 
+  describe('ROR-6: DELETE editScope=thisEvent on customized date (inline override) restores pattern', () => {
+    it('removes the inline override and does NOT add to recurrence.exclusions', async () => {
+      const master = buildMaster();
+      // Inline override (draft-style storage on calendarData.occurrenceOverrides)
+      master.calendarData.occurrenceOverrides = [
+        { occurrenceDate: '2026-04-22', eventTitle: 'Keep' },
+        { occurrenceDate: '2026-04-23', eventTitle: 'Customized 4/23', startTime: '09:15', endTime: '10:00' },
+      ];
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${master._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-04-23T09:15:00',
+          _version: master._version,
+        });
+
+      expect(res.status).toBe(200);
+
+      const after = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusions = after.recurrence?.exclusions || [];
+      // Date should NOT be excluded — it should reappear as a virtual pattern occurrence.
+      expect(exclusions).not.toContain('2026-04-23');
+      // The inline override for 4/23 should be removed; the kept entry stays.
+      const inline = after.calendarData?.occurrenceOverrides || [];
+      const dates = inline.map(o => o.occurrenceDate);
+      expect(dates).not.toContain('2026-04-23');
+      expect(dates).toContain('2026-04-22');
+    });
+  });
+
+  describe('ROR-7: DELETE editScope=thisEvent on customized date (exception child doc) restores pattern', () => {
+    it('soft-deletes the exception child and does NOT add to recurrence.exclusions', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      const exception = createExceptionDocument(
+        master,
+        '2026-04-23',
+        { eventTitle: 'Customized', startTime: '09:15', endTime: '10:00' }
+      );
+      await db.collection(COLLECTIONS.EVENTS).insertOne(exception);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${master._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-04-23T09:15:00',
+          _version: master._version,
+        });
+
+      expect(res.status).toBe(200);
+
+      const masterAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusions = masterAfter.recurrence?.exclusions || [];
+      expect(exclusions).not.toContain('2026-04-23');
+
+      const exAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exception._id });
+      expect(exAfter.isDeleted).toBe(true);
+    });
+  });
+
+  describe('ROR-8: DELETE editScope=thisEvent on clean pattern date still adds to exclusions', () => {
+    it('preserves existing behavior when no customization exists for the date', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${master._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-04-23T09:00:00',
+          _version: master._version,
+        });
+
+      expect(res.status).toBe(200);
+
+      const after = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusions = after.recurrence?.exclusions || [];
+      expect(exclusions).toContain('2026-04-23');
+    });
+  });
+
+  describe('ROR-10: re-customize a date after delete restores the soft-deleted exception', () => {
+    it('does not throw E11000 when creating an exception for a date previously soft-deleted', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      // First customization → creates exception child doc
+      const ex1 = createExceptionDocument(
+        master,
+        '2026-04-23',
+        { eventTitle: 'First Custom', startTime: '09:15', endTime: '10:00' }
+      );
+      await db.collection(COLLECTIONS.EVENTS).insertOne(ex1);
+
+      // Delete the customization (per new behavior: soft-delete only, no exclusion)
+      const delRes = await request(app)
+        .delete(`/api/admin/events/${master._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-04-23T09:15:00',
+          _version: master._version,
+        });
+      expect(delRes.status).toBe(200);
+
+      // Verify ex1 is now soft-deleted with the same eventId still occupying the slot.
+      const ex1After = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: ex1._id });
+      expect(ex1After.isDeleted).toBe(true);
+      const persistedEventId = ex1After.eventId;
+
+      // Re-customize the same date — must succeed, not throw E11000.
+      // Use the draft thisEvent endpoint which calls createExceptionDocument.
+      // To exercise this we directly target the exception-creation path via a PUT
+      // to /api/admin/events/:id with editScope=thisEvent.
+      const reEditRes = await request(app)
+        .put(`/api/admin/events/${master._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-04-23',
+          eventTitle: 'Second Custom',
+          startTime: '11:00',
+          endTime: '12:00',
+        });
+      expect(reEditRes.status).toBe(200);
+
+      // After re-customization there should be exactly ONE live exception for the date,
+      // and its eventId must still be the deterministic slot (no duplicates in DB).
+      const liveExceptions = await db.collection(COLLECTIONS.EVENTS).find({
+        seriesMasterEventId: master.eventId,
+        occurrenceDate: '2026-04-23',
+        eventType: 'exception',
+        isDeleted: { $ne: true },
+      }).toArray();
+      expect(liveExceptions).toHaveLength(1);
+      expect(liveExceptions[0].eventId).toBe(persistedEventId);
+
+      // Total docs (including deleted) for this slot should still be 1 — the
+      // resurrection must update the existing doc, not insert a new one.
+      const allForSlot = await db.collection(COLLECTIONS.EVENTS).find({
+        eventId: persistedEventId,
+      }).toArray();
+      expect(allForSlot).toHaveLength(1);
+    });
+  });
+
+  describe('ROR-9: DELETE on exception document directly does NOT add to exclusions', () => {
+    it('soft-deletes the exception and leaves recurrence.exclusions untouched', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      const exception = createExceptionDocument(
+        master,
+        '2026-04-23',
+        { eventTitle: 'Customized', startTime: '09:15', endTime: '10:00' }
+      );
+      await db.collection(COLLECTIONS.EVENTS).insertOne(exception);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${exception._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          _version: exception._version,
+        });
+
+      expect(res.status).toBe(200);
+
+      const masterAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusions = masterAfter.recurrence?.exclusions || [];
+      expect(exclusions).not.toContain('2026-04-23');
+
+      const exAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exception._id });
+      expect(exAfter.isDeleted).toBe(true);
+    });
+  });
+
   describe('ROR-5: PUT with unchanged occurrenceOverrides does not soft-delete anything', () => {
     it('round-trip save with same array preserves all exception children', async () => {
       const master = buildMaster();

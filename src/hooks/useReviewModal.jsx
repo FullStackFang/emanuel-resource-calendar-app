@@ -1808,6 +1808,18 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const method = draftId ? 'PUT' : 'POST';
 
+      // [DIAG-RECUR] Temporary diagnostic logging — remove after recurrence override bug is resolved.
+      // eslint-disable-next-line no-console
+      console.log('[DIAG-RECUR] draft save payload', {
+        endpoint,
+        method,
+        editScope,
+        formData_occurrenceOverrides: formData?.occurrenceOverrides,
+        payload_occurrenceOverrides: payload?.occurrenceOverrides,
+        payload_recurrence_exclusions: payload?.recurrence?.exclusions,
+        payload_clearOccurrenceOverrides: payload?.clearOccurrenceOverrides,
+      });
+
       const response = await authFetch(endpoint, {
         method,
         headers: {

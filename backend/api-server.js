@@ -13966,6 +13966,18 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Draft not found' });
     }
 
+    // [DIAG-RECUR] Temporary diagnostic logging — remove after recurrence override bug is resolved.
+    logger.info('[DIAG-RECUR] draft PUT incoming', {
+      draftId,
+      editScope: req.body.editScope,
+      occurrenceDate: req.body.occurrenceDate,
+      body_occurrenceOverrides: req.body.occurrenceOverrides,
+      body_recurrence_exclusions: req.body.recurrence && req.body.recurrence.exclusions,
+      body_clearOccurrenceOverrides: req.body.clearOccurrenceOverrides,
+      existing_calendarData_occurrenceOverrides: existingDraft.calendarData && existingDraft.calendarData.occurrenceOverrides,
+      existing_recurrence_exclusions: existingDraft.recurrence && existingDraft.recurrence.exclusions,
+    });
+
     // Validate ownership
     if (existingDraft.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'You can only edit your own drafts' });
@@ -14126,6 +14138,14 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
     );
 
     const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+
+    // [DIAG-RECUR] Temporary diagnostic logging — remove after recurrence override bug is resolved.
+    logger.info('[DIAG-RECUR] draft PUT after save', {
+      draftId,
+      after_calendarData_occurrenceOverrides: updatedDraft.calendarData && updatedDraft.calendarData.occurrenceOverrides,
+      after_recurrence_exclusions: updatedDraft.recurrence && updatedDraft.recurrence.exclusions,
+      updateData_calendarData_occurrenceOverrides: updateData['calendarData.occurrenceOverrides'],
+    });
 
     logger.log('Draft reservation updated:', {
       draftId,
@@ -23431,32 +23451,13 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         });
       }
 
-      // For 'exception' (NOT 'addition'), add date to master's exclusions.
-      // Skipped if master has no recurrence (log + continue — do not block delete).
-      // Skipped if date is already excluded (avoid no-op version bumps / duplicate
-      // statusHistory entries on delete retries).
-      let masterExclusionAdded = false;
-      if (event.eventType === EVENT_TYPE.EXCEPTION) {
-        const masterRecurrence = masterEvent.recurrence;
-        if (!masterRecurrence) {
-          logger.warn('Master has no recurrence; cannot add exclusion:', masterEvent.eventId);
-        } else if (!(masterRecurrence.exclusions || []).includes(dateKey)) {
-          const recurrencePath = 'recurrence';
-          // Bare updateOne + $addToSet (idempotent under concurrency, no false 409s).
-          await unifiedEventsCollection.updateOne(
-            { _id: masterEvent._id },
-            {
-              $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
-              $inc: { _version: 1 },
-              $set: { lastModifiedDateTime: new Date(), lastModifiedBy: userEmail },
-              $push: {
-                statusHistory: buildStatusHistoryEntry(masterEvent.status, userId, userEmail, `Occurrence ${dateKey} excluded (exception deleted)`)
-              }
-            }
-          );
-          masterExclusionAdded = true;
-        }
-      }
+      // Per user intent ("delete customization → restore pattern"):
+      // Deleting an exception document directly does NOT add the date to
+      // master.recurrence.exclusions. The virtual pattern occurrence reappears.
+      // To exclude the date, the user must Delete again (now on a clean
+      // pattern occurrence), which routes through the master+thisEvent branch
+      // that adds to exclusions when no customization is present.
+      const masterExclusionAdded = false;
 
       return res.json({
         success: true, occurrenceDeleted: true,
@@ -23624,6 +23625,76 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         });
       }
 
+      // Intent split (per user mental model):
+      //   - If the targeted date has a CUSTOMIZATION (inline override on
+      //     calendarData.occurrenceOverrides for drafts, OR a separate
+      //     exception child document for published/pending events), Delete
+      //     means "remove the customization, restore the pattern occurrence"
+      //     and MUST NOT add the date to recurrence.exclusions.
+      //   - If the targeted date is a CLEAN pattern occurrence (no
+      //     customization), Delete means "exclude this date" — the existing
+      //     behavior. Two-step delete: delete a customized date once to
+      //     restore the pattern, then delete again to exclude.
+      const inlineOverrides = event.calendarData?.occurrenceOverrides || [];
+      const inlineOverrideExists = inlineOverrides.some(o => o && o.occurrenceDate === dateKey);
+      const exceptionChild = await findExceptionForDate(
+        unifiedEventsCollection, event.eventId, dateKey
+      );
+      const hasCustomization = inlineOverrideExists || !!exceptionChild;
+
+      if (hasCustomization) {
+        logger.log('🔄 Removing customization for occurrence (no exclusion):', { dateKey });
+
+        // Drop inline override entry, if any.
+        if (inlineOverrideExists) {
+          try {
+            await conditionalUpdate(
+              unifiedEventsCollection,
+              { _id: new ObjectId(id) },
+              {
+                $pull: { 'calendarData.occurrenceOverrides': { occurrenceDate: dateKey } },
+                $push: {
+                  statusHistory: buildStatusHistoryEntry(event.status, userId, userEmail, `Customization removed for ${dateKey}`)
+                },
+                $set: {
+                  lastModifiedDateTime: new Date(),
+                  lastModifiedBy: userId,
+                  lastModifiedByEmail: userEmail
+                }
+              },
+              {
+                expectedVersion: _version || null,
+                modifiedBy: userEmail,
+                snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+              }
+            );
+          } catch (err) {
+            if (err.statusCode === 409) return res.status(409).json(err.toJSON());
+            throw err;
+          }
+        }
+
+        // Soft-delete the exception child document, if any.
+        if (exceptionChild) {
+          await softDeleteException(unifiedEventsCollection, event.eventId, dateKey, {
+            deletedBy: userEmail,
+            reason: reason || `Customization removed for ${dateKey}`,
+          });
+        }
+
+        const finalEvent = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+        return res.json({
+          success: true,
+          customizationRemoved: true,
+          // Reuse occurrenceExcluded for frontend toast compatibility — the user
+          // experiences a single-occurrence change, even though this path does
+          // not add to recurrence.exclusions.
+          occurrenceExcluded: true,
+          restoredDate: dateKey,
+          _version: finalEvent ? finalEvent._version : null,
+        });
+      }
+
       logger.log('🔄 Excluding single occurrence from series:', { dateKey });
 
       // Build the update: add to exclusions, clean up overrides/additions
@@ -23657,12 +23728,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
         throw err;
       }
-
-      // Soft-delete the exception document if one exists for this occurrence
-      await softDeleteException(unifiedEventsCollection, event.eventId, dateKey, {
-        deletedBy: userEmail,
-        reason: reason || `Occurrence ${dateKey} deleted`,
-      });
 
       // Clean up addition date from recurrence.additions if present
       if (recurrence.additions && recurrence.additions.includes(dateKey)) {
