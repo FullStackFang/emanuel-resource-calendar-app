@@ -20,6 +20,7 @@ const {
   cascadeStatusUpdate: svcCascadeStatusUpdate,
   getExceptionsForMaster: svcGetExceptionsForMaster,
   resolveSeriesMaster: svcResolveSeriesMaster,
+  reconcileOccurrenceOverrides: svcReconcileOccurrenceOverrides,
   EVENT_TYPE: SVC_EVENT_TYPE,
   EXCEPTION_TYPES: SVC_EXCEPTION_TYPES,
 } = require('../../utils/exceptionDocumentService');
@@ -979,6 +980,23 @@ function createTestApp(options = {}) {
       updateFields.lastModifiedBy = userId;
 
       await testCollections.events.updateOne(query, { $set: updateFields });
+
+      // Reconcile occurrenceOverrides[] against live exception child documents.
+      // Mirrors production behavior in api-server.js — without this the
+      // recurrenceOverrideReconcileDraftAndOwnerEdit tests cannot exercise
+      // the orphan-soft-delete contract.
+      if (Array.isArray(occurrenceOverrides) && draft.eventType === 'seriesMaster') {
+        await svcReconcileOccurrenceOverrides(
+          testCollections.events,
+          draft,
+          occurrenceOverrides,
+          {
+            modifiedBy: userEmail,
+            extractOverrideData: (incoming, resolvedLocs) => extractOverrideData(incoming, resolvedLocs),
+            resolveLocationOverride: (locs) => resolveLocationOverride(testCollections.locations, locs),
+          }
+        );
+      }
 
       const updatedDraft = await testCollections.events.findOne(query);
 
@@ -3193,6 +3211,23 @@ function createTestApp(options = {}) {
         };
       }
       await testCollections.events.updateOne(query, updateOp);
+
+      // Reconcile occurrenceOverrides[] against live exception child documents.
+      // Mirrors production behavior in api-server.js — owner edit must
+      // soft-delete orphans the same way admin save and draft save do.
+      const incomingOwnerEditOverrides = req.body.occurrenceOverrides;
+      if (Array.isArray(incomingOwnerEditOverrides) && event.eventType === 'seriesMaster') {
+        await svcReconcileOccurrenceOverrides(
+          testCollections.events,
+          event,
+          incomingOwnerEditOverrides,
+          {
+            modifiedBy: userEmail,
+            extractOverrideData: (incoming, resolvedLocs) => extractOverrideData(incoming, resolvedLocs),
+            resolveLocationOverride: (locs) => resolveLocationOverride(testCollections.locations, locs),
+          }
+        );
+      }
 
       const updatedEvent = await testCollections.events.findOne(query);
 

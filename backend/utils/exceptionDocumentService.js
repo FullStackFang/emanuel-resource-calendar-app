@@ -507,6 +507,130 @@ async function resolveSeriesMaster(collection, event) {
 }
 
 /**
+ * Reconcile an incoming `occurrenceOverrides[]` array against the live
+ * exception child documents of a series master.
+ *
+ * This is the shared backend behavior for all save paths that accept the
+ * "Recurrence tab" override array (draft save, owner edit, admin save). It
+ * enforces the rule: the array of exception documents IS the source of truth
+ * for customizations; the inline `calendarData.occurrenceOverrides[]` field on
+ * the master is computed at read time and NEVER persisted.
+ *
+ * Two-step reconciliation:
+ *   1. UPDATE — for each incoming override that already has a live exception
+ *      child, merge the incoming fields onto the existing doc.
+ *   2. SOFT-DELETE — for each live exception child whose `occurrenceDate` is
+ *      missing from the incoming array (the user clicked "Remove
+ *      customization"), soft-delete it. recurrence.exclusions is NOT touched
+ *      — removing a customization restores the virtual pattern occurrence;
+ *      excluding a date is a separate operation handled elsewhere.
+ *
+ * Additions are managed via `recurrence.additions` and intentionally excluded.
+ *
+ * Creation of new exception documents from incoming entries that have no
+ * existing child is intentionally NOT handled here. New customizations are
+ * routed through the `editScope='thisEvent'` path which calls
+ * {@link createExceptionDocument} directly.
+ *
+ * @param {Collection} collection - templeEvents__Events
+ * @param {Object} master - The series master document (must have eventId)
+ * @param {Array<Object>} incomingOverrides - Frontend's filtered overrides
+ *        from the Recurrence tab; each entry MUST have `occurrenceDate`.
+ * @param {Object} [options]
+ * @param {string} [options.modifiedBy] - User identifier for audit trail
+ * @param {string} [options.deleteReason] - Reason for soft-delete (default:
+ *        'Customization removed via Recurrence tab')
+ * @param {Function} [options.extractOverrideData] - Override extraction fn
+ *        (signature: `(incoming, resolvedLocations) => overrideData`)
+ * @param {Function} [options.resolveLocationOverride] - Location resolver fn
+ *        (signature: `(incoming.locations) => Promise<resolvedLocations>`)
+ * @param {Function} [options.deleteGraphEvent] - Optional Graph cleanup fn
+ *        (signature: `(calendarOwner, calendarId, graphId) => Promise<void>`)
+ * @param {Object} [options.logger] - Optional logger with `info`/`warn` methods
+ * @returns {Promise<{ updated: Array<string>, softDeleted: Array<string> }>}
+ *        Arrays of `occurrenceDate` keys that were updated and soft-deleted.
+ */
+async function reconcileOccurrenceOverrides(collection, master, incomingOverrides, options = {}) {
+  const updated = [];
+  const softDeleted = [];
+
+  if (!master || master.eventType !== EVENT_TYPE.SERIES_MASTER) {
+    return { updated, softDeleted };
+  }
+  if (!Array.isArray(incomingOverrides)) {
+    return { updated, softDeleted };
+  }
+
+  const log = options.logger || { info: () => {}, warn: () => {} };
+  const deleteReason = options.deleteReason || 'Customization removed via Recurrence tab';
+
+  const incomingDateSet = new Set(
+    incomingOverrides.map(o => o && o.occurrenceDate).filter(Boolean)
+  );
+
+  for (const incoming of incomingOverrides) {
+    if (!incoming || !incoming.occurrenceDate) continue;
+    const dateKey = incoming.occurrenceDate;
+    const existingException = await findExceptionForDate(collection, master.eventId, dateKey);
+    if (!existingException) continue;
+    try {
+      const resolvedLocs = (incoming.locations && options.resolveLocationOverride)
+        ? await options.resolveLocationOverride(incoming.locations)
+        : null;
+      const overrideData = options.extractOverrideData
+        ? options.extractOverrideData(incoming, resolvedLocs)
+        : incoming;
+      await updateExceptionDocument(
+        collection, existingException, master, overrideData,
+        { modifiedBy: options.modifiedBy }
+      );
+      updated.push(dateKey);
+      log.info?.('Persisted recurrence tab override to exception doc:', { dateKey });
+    } catch (err) {
+      log.warn?.('Non-fatal: failed to persist recurrence tab override:', {
+        dateKey, error: err.message,
+      });
+    }
+  }
+
+  const liveChildren = await getExceptionsForMaster(collection, master.eventId);
+  const orphans = liveChildren.filter(child =>
+    child.eventType === EVENT_TYPE.EXCEPTION && !incomingDateSet.has(child.occurrenceDate)
+  );
+
+  for (const orphan of orphans) {
+    try {
+      const orphanGraphId = orphan.graphData && orphan.graphData.id;
+      if (orphanGraphId && options.deleteGraphEvent) {
+        try {
+          await options.deleteGraphEvent(
+            orphan.calendarOwner || master.calendarOwner,
+            orphan.calendarId || master.calendarId,
+            orphanGraphId
+          );
+        } catch (graphDelErr) {
+          log.warn?.('Non-fatal: failed to delete Graph event for orphan exception:', {
+            date: orphan.occurrenceDate, graphId: orphanGraphId, error: graphDelErr.message,
+          });
+        }
+      }
+      await softDeleteException(collection, master.eventId, orphan.occurrenceDate, {
+        deletedBy: options.modifiedBy,
+        reason: deleteReason,
+      });
+      softDeleted.push(orphan.occurrenceDate);
+      log.info?.('Soft-deleted orphan exception document:', { date: orphan.occurrenceDate });
+    } catch (orphanErr) {
+      log.warn?.('Non-fatal: failed to soft-delete orphan exception:', {
+        date: orphan.occurrenceDate, error: orphanErr.message,
+      });
+    }
+  }
+
+  return { updated, softDeleted };
+}
+
+/**
  * Soft-delete a single exception document (for single-occurrence deletion).
  *
  * @param {Collection} collection
@@ -694,4 +818,5 @@ module.exports = {
   softDeleteException,
   resolveSeriesMaster,
   enrichSeriesMastersWithOverrides,
+  reconcileOccurrenceOverrides,
 };

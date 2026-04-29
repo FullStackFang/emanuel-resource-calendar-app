@@ -33,7 +33,7 @@ const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./
 const { batchDelete } = require('./utils/batchDelete');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, enrichSeriesMastersWithOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
 
 // Per-occurrence child documents (exception/addition) must never surface as
@@ -14137,6 +14137,27 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       }
     );
 
+    // Reconcile occurrenceOverrides[] against live exception child documents.
+    // Same contract as admin save: any live exception whose date is missing
+    // from the incoming array (Recurrence tab "Remove customization") is
+    // soft-deleted. Inline calendarData.occurrenceOverrides is NOT the source
+    // of truth — read enrichment computes the array from child docs.
+    const incomingDraftOverrides = req.body.occurrenceOverrides;
+    if (Array.isArray(incomingDraftOverrides) && existingDraft.eventType === 'seriesMaster') {
+      await reconcileOccurrenceOverrides(
+        unifiedEventsCollection,
+        existingDraft,
+        incomingDraftOverrides,
+        {
+          modifiedBy: userEmail,
+          extractOverrideData: (incoming, resolvedLocs) => extractOverrideData(incoming, resolvedLocs),
+          resolveLocationOverride: (locs) => resolveLocationOverride(locationsCollection, locs),
+          // Drafts have no Graph events yet — no Graph cleanup needed.
+          logger,
+        }
+      );
+    }
+
     const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
 
     // [DIAG-RECUR] Temporary diagnostic logging — remove after recurrence override bug is resolved.
@@ -16025,6 +16046,28 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         return res.status(409).json(err.toJSON());
       }
       throw err;
+    }
+
+    // Reconcile occurrenceOverrides[] against live exception child documents.
+    // Same shared helper used by admin save and draft save — when an owner
+    // clicks "Remove customization" on the Recurrence tab, the orphan
+    // exception child must be soft-deleted so the read enrichment doesn't
+    // re-surface it on next load.
+    const incomingOwnerEditOverrides = req.body.occurrenceOverrides;
+    if (Array.isArray(incomingOwnerEditOverrides) && event.eventType === 'seriesMaster') {
+      await reconcileOccurrenceOverrides(
+        unifiedEventsCollection,
+        event,
+        incomingOwnerEditOverrides,
+        {
+          modifiedBy: userEmail,
+          extractOverrideData: (incoming, resolvedLocs) => extractOverrideData(incoming, resolvedLocs),
+          resolveLocationOverride: (locs) => resolveLocationOverride(locationsCollection, locs),
+          deleteGraphEvent: (calOwner, calId, graphId) =>
+            graphApiService.deleteCalendarEvent(calOwner, calId, graphId),
+          logger,
+        }
+      );
     }
 
     // Log audit entry
@@ -23042,82 +23085,24 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
-    // Persist frontend occurrence overrides to exception documents.
-    //
-    // Two-step reconciliation against the live exception children:
-    //   1. UPDATE entries still present in the incoming array.
-    //   2. SOFT-DELETE exception children whose occurrenceDate is missing from
-    //      the incoming array (the user clicked "Remove customization" on the
-    //      Recurrence tab). Removing a customization MUST NOT add the date to
-    //      recurrence.exclusions — the date should fall back to a virtual
-    //      pattern occurrence. Excluding the date is a separate operation
-    //      handled by DELETE /api/admin/events/:id?editScope=thisEvent.
-    //
-    // Additions follow a separate lifecycle via recurrence.additions and are
-    // intentionally excluded here.
+    // Persist frontend occurrence overrides to exception documents via the
+    // shared reconciliation helper. See {@link reconcileOccurrenceOverrides}
+    // for the full contract — same logic now runs from the draft and owner-
+    // edit paths so all three save endpoints stay in sync.
     if (Array.isArray(incomingOccurrenceOverrides) && event.eventType === 'seriesMaster') {
-      const incomingDateSet = new Set(
-        incomingOccurrenceOverrides
-          .map(o => o && o.occurrenceDate)
-          .filter(Boolean)
-      );
-
-      for (const incoming of incomingOccurrenceOverrides) {
-        if (!incoming.occurrenceDate) continue;
-        const dateKey = incoming.occurrenceDate;
-        const existingException = await findExceptionForDate(unifiedEventsCollection, event.eventId, dateKey);
-        if (!existingException) continue;
-        try {
-          const resolvedLocs = incoming.locations
-            ? await resolveLocationOverride(locationsCollection, incoming.locations)
-            : null;
-          const overrideData = extractOverrideData(incoming, resolvedLocs);
-          await updateExceptionDocument(
-            unifiedEventsCollection, existingException, event, overrideData,
-            { modifiedBy: userEmail }
-          );
-          logger.info('Persisted recurrence tab override to exception doc:', { dateKey });
-        } catch (exErr) {
-          logger.warn('Non-fatal: failed to persist recurrence tab override to exception doc:', {
-            dateKey, error: exErr.message
-          });
+      await reconcileOccurrenceOverrides(
+        unifiedEventsCollection,
+        event,
+        incomingOccurrenceOverrides,
+        {
+          modifiedBy: userEmail,
+          extractOverrideData: (incoming, resolvedLocs) => extractOverrideData(incoming, resolvedLocs),
+          resolveLocationOverride: (locs) => resolveLocationOverride(locationsCollection, locs),
+          deleteGraphEvent: (calOwner, calId, graphId) =>
+            graphApiService.deleteCalendarEvent(calOwner, calId, graphId),
+          logger,
         }
-      }
-
-      // Reconcile orphans: any live exception child whose date is NOT in the
-      // incoming array was removed by the user via "Remove customization".
-      const liveChildren = await getExceptionsForMaster(unifiedEventsCollection, event.eventId);
-      const orphans = liveChildren.filter(child =>
-        child.eventType === 'exception' && !incomingDateSet.has(child.occurrenceDate)
       );
-      for (const orphan of orphans) {
-        try {
-          // Best-effort Graph cleanup for the linked occurrence event.
-          const orphanGraphId = orphan.graphData && orphan.graphData.id;
-          if (orphanGraphId) {
-            try {
-              await graphApiService.deleteCalendarEvent(
-                orphan.calendarOwner || event.calendarOwner,
-                orphan.calendarId || event.calendarId,
-                orphanGraphId
-              );
-            } catch (graphDelErr) {
-              logger.warn('Non-fatal: failed to delete Graph event for orphan exception:', {
-                date: orphan.occurrenceDate, graphId: orphanGraphId, error: graphDelErr.message
-              });
-            }
-          }
-          await softDeleteException(unifiedEventsCollection, event.eventId, orphan.occurrenceDate, {
-            deletedBy: userEmail,
-            reason: 'Customization removed via Recurrence tab',
-          });
-          logger.info('Soft-deleted orphan exception document:', { date: orphan.occurrenceDate });
-        } catch (orphanErr) {
-          logger.warn('Non-fatal: failed to soft-delete orphan exception:', {
-            date: orphan.occurrenceDate, error: orphanErr.message
-          });
-        }
-      }
     }
 
     // Atomically update with version guard
