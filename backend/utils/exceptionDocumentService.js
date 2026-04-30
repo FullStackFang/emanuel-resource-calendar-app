@@ -367,7 +367,11 @@ async function getExceptionsForMaster(collection, seriesMasterEventId, dateRange
     }
   }
 
-  return collection.find(query).sort({ occurrenceDate: 1 }).limit(MAX_EXCEPTIONS_PER_QUERY).toArray();
+  // NOTE: sort is done in JS, not Mongo, because Cosmos DB rejects ORDER BY on
+  // any path not in its indexing policy and `occurrenceDate` is excluded there.
+  const docs = await collection.find(query).limit(MAX_EXCEPTIONS_PER_QUERY).toArray();
+  docs.sort((a, b) => (a.occurrenceDate || '').localeCompare(b.occurrenceDate || ''));
+  return docs;
 }
 
 /**

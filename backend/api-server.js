@@ -6170,8 +6170,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       calendars: {},
       totalEvents: 0,
       errors: [],
+      warnings: [],
       strategy: 'hybrid' // Cache + Graph API
     };
+
+    // Surface unrecognized calendarIds as structured warnings so the frontend can
+    // distinguish 'configuration error' from 'this calendar genuinely has no events
+    // in the date range'. Both produce count: 0 today and look identical in logs.
+    for (const { calendarOwner, calendarId } of calendarsToLoad) {
+      if (!calendarOwner && calendarId) {
+        loadResults.warnings.push({
+          code: 'CALENDAR_NOT_CONFIGURED',
+          calendarId,
+          message: 'Calendar ID is not registered in calendar-config.json'
+        });
+        logger.warn('Events load: unrecognized calendarId', {
+          calendarId,
+          userId: req.user?.userId
+        });
+      }
+    }
 
     // STEP 1: Load from unified events collection (cache) - PARALLEL FETCHING
     let unifiedEvents = [];
@@ -6676,6 +6694,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       events: transformedLoadEvents,
       count: transformedLoadEvents.length,
       source: 'hybrid',
+      warnings: loadResults.warnings || [],
       breakdown: {
         cached: cachedCount,
         fromGraph: graphCount,

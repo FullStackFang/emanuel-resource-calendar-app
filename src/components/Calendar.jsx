@@ -22,6 +22,7 @@
   import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence } from '../utils/eventTransformers';
   import { isEventInDateRange } from '../utils/calendarRangeUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
+  import { selectDefaultCalendar, SELECT_DEFAULT_CALENDAR_REASONS } from '../utils/calendarSelection';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -328,6 +329,10 @@ import ConflictDialog from './shared/ConflictDialog';
     const { generalLocations, loading: locationsLoading } = useLocations();
     const { showSuccess, showWarning, showError } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
+    // Distinguishes a cascade-chosen default calendar (false) from a user-driven
+    // dropdown change (true). Only user-driven changes persist as a saved preference;
+    // otherwise initializeApp's first cascade pick would silently lock itself in.
+    const hasUserExplicitlyChoseCalendar = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
     // Role Simulation permissions - these override hardcoded permissions for UI testing
@@ -1655,32 +1660,23 @@ import ConflictDialog from './shared/ConflictDialog';
         // Use passed calendar data or fallback to state
         const calendarsToUse = calendarsData || availableCalendars;
         
-        // Resolve calendar IDs for sync
-        if (selectedCalendarId) {
-          calendarIds.push(selectedCalendarId);
-          calendarDebug.logApiCall('loadEventsUnified', 'sync', { selectedCalendarId });
-        } else {
-          // If no specific calendar selected, find and use the actual primary calendar ID
-          const primaryCalendar = calendarsToUse.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
-          if (primaryCalendar) {
-            calendarIds.push(primaryCalendar.id);
-          } else if (calendarsToUse.length > 0) {
-            // Fallback to first available calendar
-            calendarIds.push(calendarsToUse[0].id);
-          } else {
-            logger.warn('loadEventsUnified: No available calendars found');
-          }
+        // Resolve calendar IDs for sync.
+        //
+        // selectedCalendarId is the single source of truth for which calendar to
+        // load. It is set by initializeApp's cascade (which never picks the user's
+        // personal Outlook calendar) and the dropdown handler. The previous
+        // fallback path here (cal.isDefaultCalendar || cal.owner?.name === currentUser?.name,
+        // then calendarsToUse[0]) was a parallel cascade that could resolve to the
+        // wrong calendar during init races and silently produce a blank grid.
+        // The consolidated effect at the bottom of this file already guards the
+        // call site on selectedCalendarId, so the early-return below is a
+        // belt-and-suspenders invariant: one cascade, one source of truth.
+        if (!selectedCalendarId) {
+          logger.warn('loadEventsUnified: called without selectedCalendarId — skipping');
+          return false;
         }
-
-        // Final validation of calendar IDs
-        if (calendarIds.length === 0) {
-          logger.error('loadEventsUnified: No calendar IDs resolved', {
-            selectedCalendarId,
-            availableCalendarsCount: availableCalendars?.length || 0,
-            hasCurrentUser: !!currentUser
-          });
-          throw new Error('No valid calendar IDs found for sync');
-        }
+        calendarIds.push(selectedCalendarId);
+        calendarDebug.logApiCall('loadEventsUnified', 'sync', { selectedCalendarId });
         
         // Log which calendars we're actually syncing from
         const calendarDetails = calendarIds.map(id => {
@@ -2095,6 +2091,22 @@ import ConflictDialog from './shared/ConflictDialog';
               logger.debug(`loadEventsUnified: Silent refresh returned 0 events — keeping current state (source: ${loadResult.source})`);
               return false;
             }
+
+            // Distinguish "calendar not in calendar-config.json" from "calendar is
+            // configured but genuinely has zero reservations in this date range".
+            // The backend surfaces the former as a CALENDAR_NOT_CONFIGURED warning
+            // so the frontend can guide the user to pick a different calendar
+            // instead of leaving them staring at a silent blank grid.
+            const unconfigured = (loadResult.warnings || []).find(
+              w => w.code === 'CALENDAR_NOT_CONFIGURED'
+            );
+            if (unconfigured) {
+              showWarning(
+                'This calendar is not set up for reservations. ' +
+                'Pick another calendar from the dropdown above.'
+              );
+            }
+
             setAllEvents([]);
             logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
             return true;
@@ -2424,7 +2436,7 @@ import ConflictDialog from './shared/ConflictDialog';
           if (data.preferences?.hideEmptyGroups != null) {
             setHideEmptyGroups(data.preferences.hideEmptyGroups);
           }
-          return true;
+          return data;
         }
         return false;
       } catch (error) {
@@ -2467,16 +2479,18 @@ import ConflictDialog from './shared/ConflictDialog';
       logger.debug("Starting application initialization...");
       try {
         // Phase 1: Run independent API calls in parallel
-        // - loadUserProfile: fetches /users/current and sets permissions
+        // - loadUserProfile: fetches /users/current and sets permissions; returns the full
+        //   user document so we can read preferences (e.g. selectedCalendarOwner) without
+        //   waiting for setUserPermissions to flush through React.
         // - loadAvailableCalendars: fetches calendars list + allowed config (parallelized internally)
         // - loadSchemaExtensions: fetches Graph schema extensions
-        const [userLoaded, calendarResult] = await Promise.all([
+        const [userResult, calendarResult] = await Promise.all([
           loadUserProfile(),
           loadAvailableCalendars(),
           loadSchemaExtensions()
         ]);
 
-        if (!userLoaded) {
+        if (!userResult) {
           logger.warn("Could not load user profile, continuing with defaults");
         }
 
@@ -2492,38 +2506,44 @@ import ConflictDialog from './shared/ConflictDialog';
           setSelectedCalendarId(null);
         }
 
-        // Set default calendar if none selected
+        // Set default calendar if none selected.
+        //
+        // Delegates the cascade to the pure `selectDefaultCalendar` utility for
+        // testability. The utility intentionally has NO `isDefaultCalendar` or
+        // `calendars[0]` fallback — both could resolve to the user's PERSONAL
+        // Outlook calendar, which produces a legitimate-looking 0-event load and
+        // a silently blank grid (because reservations live only under shared
+        // TempleEvents mailboxes). When no allowed match exists, we hard-fail
+        // with a toast and leave selectedCalendarId === null.
         if (!selectedCalendarId && calendars.length > 0) {
-          let defaultCalToSelect = null;
-
-          // First, try to use the admin-configured default calendar from database
-          // (allowedConfig already fetched by loadAvailableCalendars — no duplicate call)
-          if (allowedConfig?.defaultCalendar) {
-            defaultCalToSelect = calendars.find(cal =>
-              cal.owner?.address?.toLowerCase() === allowedConfig.defaultCalendar.toLowerCase()
-            );
-          }
-
-          // If admin default not found, fallback to APP_CONFIG default
-          if (!defaultCalToSelect) {
-            defaultCalToSelect = calendars.find(cal =>
-              cal.owner?.address?.toLowerCase() === APP_CONFIG.DEFAULT_DISPLAY_CALENDAR.toLowerCase()
-            );
-          }
-
-          // Fallback to Graph API default
-          if (!defaultCalToSelect) {
-            defaultCalToSelect = calendars.find(cal => cal.isDefaultCalendar);
-          }
-
-          // Final fallback to first calendar
-          if (!defaultCalToSelect) {
-            defaultCalToSelect = calendars[0];
-          }
+          const { calendar: defaultCalToSelect, reason } = selectDefaultCalendar({
+            calendars,
+            allowedConfig,
+            savedOwner: userResult?.preferences?.selectedCalendarOwner,
+            appConfigDefault: APP_CONFIG.DEFAULT_DISPLAY_CALENDAR,
+          });
 
           if (defaultCalToSelect) {
+            logger.debug(`Default calendar selected via ${reason}`, {
+              calendarId: defaultCalToSelect.id,
+              owner: defaultCalToSelect.owner?.address
+            });
             calendarDebug.logStateChange('selectedCalendarId', null, defaultCalToSelect.id);
             setSelectedCalendarId(defaultCalToSelect.id);
+          } else {
+            // reason === SELECT_DEFAULT_CALENDAR_REASONS.NONE
+            logger.error('No allowed display calendar available', {
+              availableOwners: calendars.map(c => c.owner?.address),
+              allowedDisplayCalendars: allowedConfig?.allowedDisplayCalendars
+            });
+            showError(
+              'No TempleEvents calendar is available for your account. ' +
+              'Choose a calendar from the dropdown to continue.'
+            );
+            setLoading(false);
+            setInitializing(false);
+            clearTimeout(timeoutId);
+            return;
           }
         }
 
@@ -5244,13 +5264,31 @@ import ConflictDialog from './shared/ConflictDialog';
     useEffect(() => {
     // Only set timezone from user permissions if we haven't set one yet
     // and if the user permissions actually have a timezone preference
-    if (userPermissions.preferredTimeZone && 
+    if (userPermissions.preferredTimeZone &&
         userPermissions.preferredTimeZone !== userTimezone &&
         !hasUserManuallyChangedTimezone.current) {
       // Setting initial timezone from userPermissions
       setUserTimezone(userPermissions.preferredTimeZone);
     }
-  }, [userPermissions.preferredTimeZone, userTimezone]); 
+  }, [userPermissions.preferredTimeZone, userTimezone]);
+
+    // Persist user-driven calendar selections.
+    //
+    // Gated on hasUserExplicitlyChoseCalendar.current so initializeApp's cascade-chosen
+    // default does NOT get written back as the saved preference (which would lock in
+    // the cascade pick on every reload, even when an admin later configures a default
+    // or the user's available-calendars list changes).
+    //
+    // Mirrors the hasUserManuallyChangedTimezone pattern used for timezone above.
+    useEffect(() => {
+      if (!hasUserExplicitlyChoseCalendar.current) return;
+      if (!selectedCalendarId || !availableCalendars?.length) return;
+      const cal = availableCalendars.find(c => c.id === selectedCalendarId);
+      const ownerEmail = cal?.owner?.address?.toLowerCase();
+      if (!ownerEmail) return;
+      updateUserProfilePreferences({ selectedCalendarOwner: ownerEmail });
+    }, [selectedCalendarId, availableCalendars, updateUserProfilePreferences]);
+
 
     // Update selected locations when dynamic locations change - smart merging with stale pruning
     useEffect(() => {
@@ -5422,7 +5460,13 @@ import ConflictDialog from './shared/ConflictDialog';
           }}
           selectedCalendarId={selectedCalendarId}
           availableCalendars={availableCalendars}
-          onCalendarChange={setSelectedCalendarId}
+          onCalendarChange={(newCalendarId) => {
+            // User-driven dropdown change. Mark the ref so the persistence effect
+            // writes selectedCalendarOwner to user preferences (and so initializeApp's
+            // own cascade-chosen default does NOT trigger the same write).
+            hasUserExplicitlyChoseCalendar.current = true;
+            setSelectedCalendarId(newCalendarId);
+          }}
           changingCalendar={changingCalendar}
           calendarAccessError={calendarAccessError}
           updateUserProfilePreferences={updateUserProfilePreferences}
