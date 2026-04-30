@@ -460,4 +460,70 @@ describe('Recurrence Override Reconcile (ROR-1 to ROR-5)', () => {
       expect(ex23After.isDeleted).not.toBe(true);
     });
   });
+
+  describe('ROR-11: PUT with new override entry creates an exception child document', () => {
+    it('creates a new exception doc when an incoming override has no existing child', async () => {
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      // No exception child exists for 2026-04-23 yet.
+      const before = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        occurrenceDate: '2026-04-23',
+        eventType: 'exception',
+      });
+      expect(before).toBeNull();
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          occurrenceOverrides: [
+            { occurrenceDate: '2026-04-23', startTime: '16:00', endTime: '17:00' },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      const exceptionAfter = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        occurrenceDate: '2026-04-23',
+        eventType: 'exception',
+      });
+      expect(exceptionAfter).not.toBeNull();
+      expect(exceptionAfter.isDeleted).not.toBe(true);
+      expect(exceptionAfter.overrides?.startTime).toBe('16:00');
+      expect(exceptionAfter.overrides?.endTime).toBe('17:00');
+    });
+  });
+
+  describe('ROR-12: PUT with empty-marker override (no override fields) creates an exception child', () => {
+    it('persists a bare { occurrenceDate } marker (Customize popover scenario) as an exception doc', async () => {
+      // Reproduces the user-visible bug: clicking "Customize" on the calendar
+      // popover adds { occurrenceDate } with no other fields. Prior to the fix
+      // reconcileOccurrenceOverrides silently dropped this on save, so the
+      // lightning-bolt indicator vanished on reload.
+      const master = buildMaster();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          occurrenceOverrides: [
+            { occurrenceDate: '2026-04-23' },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      const exceptionAfter = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: master.eventId,
+        occurrenceDate: '2026-04-23',
+        eventType: 'exception',
+      });
+      expect(exceptionAfter).not.toBeNull();
+      expect(exceptionAfter.isDeleted).not.toBe(true);
+    });
+  });
 });

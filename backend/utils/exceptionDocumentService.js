@@ -576,7 +576,6 @@ async function reconcileOccurrenceOverrides(collection, master, incomingOverride
     if (!incoming || !incoming.occurrenceDate) continue;
     const dateKey = incoming.occurrenceDate;
     const existingException = await findExceptionForDate(collection, master.eventId, dateKey);
-    if (!existingException) continue;
     try {
       const resolvedLocs = (incoming.locations && options.resolveLocationOverride)
         ? await options.resolveLocationOverride(incoming.locations)
@@ -584,10 +583,22 @@ async function reconcileOccurrenceOverrides(collection, master, incomingOverride
       const overrideData = options.extractOverrideData
         ? options.extractOverrideData(incoming, resolvedLocs)
         : incoming;
-      await updateExceptionDocument(
-        collection, existingException, master, overrideData,
-        { modifiedBy: options.modifiedBy }
-      );
+      if (existingException) {
+        await updateExceptionDocument(
+          collection, existingException, master, overrideData,
+          { modifiedBy: options.modifiedBy }
+        );
+      } else {
+        // Create the exception doc on first sight. Includes the empty-marker
+        // case (entry with only `occurrenceDate`) — the "Customize" popover on
+        // the Recurrence tab adds a bare marker so the date enters the
+        // exceptions list, and that marker must round-trip through save.
+        // _insertOccurrenceDocument handles soft-delete resurrection internally.
+        await createExceptionDocument(
+          collection, master, dateKey, overrideData,
+          { createdBy: options.modifiedBy, createdByEmail: options.modifiedBy }
+        );
+      }
       updated.push(dateKey);
       log.info?.('Persisted recurrence tab override to exception doc:', { dateKey });
     } catch (err) {
