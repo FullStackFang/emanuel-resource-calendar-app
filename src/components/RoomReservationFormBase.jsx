@@ -366,6 +366,32 @@ export default function RoomReservationFormBase({
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
 
+  // Floor plan placeholder (UI only — does not persist to formData/backend)
+  const [floorPlanPreview, setFloorPlanPreview] = useState(null);
+  const [floorPlanFileName, setFloorPlanFileName] = useState('');
+  const floorPlanInputRef = useRef(null);
+
+  const handleFloorPlanSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (floorPlanPreview) URL.revokeObjectURL(floorPlanPreview);
+    setFloorPlanPreview(URL.createObjectURL(file));
+    setFloorPlanFileName(file.name);
+  };
+
+  const handleFloorPlanClear = () => {
+    if (floorPlanPreview) URL.revokeObjectURL(floorPlanPreview);
+    setFloorPlanPreview(null);
+    setFloorPlanFileName('');
+    if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
+  };
+
+  useEffect(() => {
+    return () => {
+      if (floorPlanPreview) URL.revokeObjectURL(floorPlanPreview);
+    };
+  }, [floorPlanPreview]);
+
   // Services state
   const [selectedServices, setSelectedServices] = useState(
     initialData?.services || {}
@@ -2114,8 +2140,55 @@ export default function RoomReservationFormBase({
       {/* Additional Information Section */}
       {(showAllTabs || activeTab === 'additional') && (
         <div className="section-row-2col">
-          {/* Left Column: Additional Information */}
-          <section className="form-section">
+          {/* Left Column: Submitter Information + Additional Information stacked */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <section className="form-section">
+              <h2>Submitter Information</h2>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label htmlFor="requesterName">Requester Name</label>
+                  <input
+                    type="text"
+                    id="requesterName"
+                    name="requesterName"
+                    value={formData.requesterName}
+                    readOnly
+                    className="readonly-field"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="requesterEmail">Requester Email</label>
+                  <input
+                    type="email"
+                    id="requesterEmail"
+                    name="requesterEmail"
+                    value={formData.requesterEmail}
+                    readOnly
+                    className="readonly-field"
+                  />
+                </div>
+              </div>
+
+              {formData.isOnBehalfOf && formData.contactName && (
+                <div className="form-grid" style={{ marginTop: '15px' }}>
+                  <div className="form-group">
+                    <label>Contact Person</label>
+                    <input
+                      type="text"
+                      value={`${formData.contactName} (${formData.contactEmail})`}
+                      readOnly
+                      className="readonly-field"
+                    />
+                    <div className="delegation-info" style={{ marginTop: '8px' }}>
+                      📋 This request was submitted on behalf of this person
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="form-section">
             <h2>Additional Information</h2>
 
             {/* Internal Notes Section (Staff Use Only) */}
@@ -2190,56 +2263,76 @@ export default function RoomReservationFormBase({
             )}
 
           </section>
-
-          {/* Right Column: Submitter Information */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <section className="form-section">
-              <h2>Submitter Information</h2>
-              <div className="form-grid">
-                <div className="form-group">
-                  <label htmlFor="requesterName">Requester Name</label>
-                  <input
-                    type="text"
-                    id="requesterName"
-                    name="requesterName"
-                    value={formData.requesterName}
-                    readOnly
-                    className="readonly-field"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="requesterEmail">Requester Email</label>
-                  <input
-                    type="email"
-                    id="requesterEmail"
-                    name="requesterEmail"
-                    value={formData.requesterEmail}
-                    readOnly
-                    className="readonly-field"
-                  />
-                </div>
-              </div>
-
-              {formData.isOnBehalfOf && formData.contactName && (
-                <div className="form-grid" style={{ marginTop: '15px' }}>
-                  <div className="form-group">
-                    <label>Contact Person</label>
-                    <input
-                      type="text"
-                      value={`${formData.contactName} (${formData.contactEmail})`}
-                      readOnly
-                      className="readonly-field"
-                    />
-                    <div className="delegation-info" style={{ marginTop: '8px' }}>
-                      📋 This request was submitted on behalf of this person
-                    </div>
-                  </div>
-                </div>
-              )}
-            </section>
-
           </div>
+
+          {/* Right Column: Floor Plan Upload (placeholder, UI only) */}
+          <section className="form-section">
+            <h2>Floor Plan</h2>
+            <div className="form-group">
+              <label htmlFor="floorPlanUpload">Upload Floor Plan</label>
+              <input
+                ref={floorPlanInputRef}
+                id="floorPlanUpload"
+                name="floorPlanUpload"
+                type="file"
+                accept="image/*,.pdf"
+                onChange={handleFloorPlanSelect}
+                disabled={fieldsDisabled}
+              />
+              <div style={{ fontSize: '12px', color: 'var(--color-text-secondary, #666)', marginTop: '6px' }}>
+                Upload a floor plan image to visualize room setup. (Preview only — not yet saved.)
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: '12px',
+                border: '1px dashed var(--color-border, #ccc)',
+                borderRadius: '6px',
+                padding: '12px',
+                minHeight: '220px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--color-surface-subtle, #fafafa)'
+              }}
+            >
+              {floorPlanPreview ? (
+                <div style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--color-text-secondary, #555)' }}>
+                      {floorPlanFileName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleFloorPlanClear}
+                      disabled={fieldsDisabled}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid var(--color-border, #ccc)',
+                        borderRadius: '4px',
+                        padding: '4px 10px',
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <img
+                    src={floorPlanPreview}
+                    alt="Floor plan preview"
+                    style={{ maxWidth: '100%', maxHeight: '480px', display: 'block', margin: '0 auto', borderRadius: '4px' }}
+                  />
+                </div>
+              ) : (
+                <span style={{ color: 'var(--color-text-secondary, #888)', fontSize: '13px', textAlign: 'center' }}>
+                  No floor plan uploaded.<br />
+                  Choose an image or PDF above to preview here.
+                </span>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
