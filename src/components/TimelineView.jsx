@@ -348,22 +348,37 @@ export default function TimelineView({
   const scrollRef = useRef(null);
 
   // ── Tooltip state + smart positioning ───────────────────────────────
+  // Position is computed synchronously in render (single-pass) instead of
+  // via a useLayoutEffect imperative-write pass — this eliminates any race
+  // between React's style commit and the effect, and works correctly with
+  // React 19 strict-mode double-effect invocation. Edge-flip uses the last
+  // measured tooltip rect (cached in a ref); first-frame uses a reasonable
+  // approximation (rare to be at the exact viewport edge on the first move).
   const [tooltipInfo, setTooltipInfo] = useState(null);
   const tooltipRef = useRef(null);
+  const tooltipSizeRef = useRef({ width: 200, height: 80 });
 
   useLayoutEffect(() => {
     if (!tooltipRef.current || !tooltipInfo) return;
-    const el = tooltipRef.current;
-    const { x, y } = tooltipInfo;
-    const rect = el.getBoundingClientRect();
-    const offset = 12;
-    el.style.top = (y + rect.height + offset > window.innerHeight)
-      ? `${y - rect.height - offset}px`
-      : `${y + offset}px`;
-    el.style.left = (x + rect.width + offset > window.innerWidth)
-      ? `${x - rect.width - offset}px`
-      : `${x + offset}px`;
+    const rect = tooltipRef.current.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      tooltipSizeRef.current = { width: rect.width, height: rect.height };
+    }
   }, [tooltipInfo]);
+
+  const tooltipPosition = (() => {
+    if (!tooltipInfo) return null;
+    const { x, y } = tooltipInfo;
+    const { width, height } = tooltipSizeRef.current;
+    const offset = 12;
+    const top = (y + height + offset > window.innerHeight)
+      ? y - height - offset
+      : y + offset;
+    const left = (x + width + offset > window.innerWidth)
+      ? x - width - offset
+      : x + offset;
+    return { top, left };
+  })();
 
   // ── All-day event list modal ────────────────────────────────────────
   const [showAllDayList, setShowAllDayList] = useState(null);
@@ -599,11 +614,17 @@ export default function TimelineView({
           A non-`none` transform on any ancestor turns that ancestor into the
           containing block for `position: fixed` descendants, which would
           otherwise displace the tooltip and scale it with the calendar zoom. */}
-      {tooltipInfo && createPortal(
+      {tooltipInfo && tooltipPosition && createPortal(
         <div
           ref={tooltipRef}
           className="timeline-tooltip"
-          style={{ position: 'fixed', zIndex: 1000, pointerEvents: 'none', top: -9999, left: -9999 }}
+          style={{
+            position: 'fixed',
+            zIndex: 1000,
+            pointerEvents: 'none',
+            top: `${tooltipPosition.top}px`,
+            left: `${tooltipPosition.left}px`,
+          }}
         >
           <div className="timeline-tooltip-title">{tooltipInfo.title}</div>
           <div className="timeline-tooltip-time">{tooltipInfo.time}</div>
