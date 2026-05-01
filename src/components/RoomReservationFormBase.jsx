@@ -2118,33 +2118,6 @@ export default function RoomReservationFormBase({
           <section className="form-section">
             <h2>Additional Information</h2>
 
-            {/* Event Notes & Special Requirements */}
-            <div className="form-group">
-              <label htmlFor="eventNotes">Event Notes</label>
-              <textarea
-                id="eventNotes"
-                name="eventNotes"
-                value={formData.eventNotes}
-                onChange={handleInputChange}
-                rows="2"
-                disabled={fieldsDisabled}
-                placeholder="General notes about this event..."
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="specialRequirements">Special Requirements</label>
-              <textarea
-                id="specialRequirements"
-                name="specialRequirements"
-                value={formData.specialRequirements}
-                onChange={handleInputChange}
-                rows="2"
-                disabled={fieldsDisabled}
-                placeholder="Special requirements (AV equipment, catering, etc.)..."
-              />
-            </div>
-
             {/* Internal Notes Section (Staff Use Only) */}
             <div className="internal-notes-section">
               <h4>
