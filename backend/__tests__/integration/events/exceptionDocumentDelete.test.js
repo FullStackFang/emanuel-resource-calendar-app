@@ -129,10 +129,11 @@ describe('Exception Document Delete Tests (ED-1 to ED-11)', () => {
     });
   }
 
-  describe('ED-1: thisEvent on exception → soft-delete only, no exclusion (restores pattern)', () => {
-    it('should soft-delete the exception and NOT add occurrenceDate to master.recurrence.exclusions', async () => {
+  describe('ED-1: thisEvent on exception → soft-delete + master exclusion added (DL-1)', () => {
+    it('should soft-delete the exception AND add occurrenceDate to master.recurrence.exclusions', async () => {
       const master = buildPublishedMaster();
       await insertEvents(db, [master]);
+      const masterVersionBefore = master._version || 1;
 
       const exception = createExceptionDocument(
         master,
@@ -152,19 +153,74 @@ describe('Exception Document Delete Tests (ED-1 to ED-11)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.occurrenceDeleted).toBe(true);
-      // Per user mental model: deleting the customization restores the pattern.
-      // The date is NOT excluded; the virtual pattern occurrence reappears.
-      expect(res.body.masterExclusionAdded).toBe(false);
+      // DL-1 (spec §7.2): deleting a single occurrence ALWAYS adds the date
+      // to master.recurrence.exclusions so it disappears from the series —
+      // Outlook semantics. The exception is soft-deleted but its overrides
+      // are preserved so DL-9/DL-10 can resurrect on later restore.
+      expect(res.body.masterExclusionAdded).toBe(true);
 
       // Exception should be soft-deleted
       const deletedException = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exception._id });
       expect(deletedException.isDeleted).toBe(true);
       expect(deletedException.status).toBe('deleted');
 
-      // Master's recurrence.exclusions should NOT include the occurrence date
+      // Master's recurrence.exclusions SHOULD include the occurrence date
       const updatedMaster = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
       const exclusions = updatedMaster.recurrence?.exclusions || updatedMaster.calendarData?.recurrence?.exclusions || [];
-      expect(exclusions).not.toContain('2026-03-19');
+      expect(exclusions).toContain('2026-03-19');
+
+      // Master's _version should have incremented (the exclusion-add bumps it)
+      expect(updatedMaster._version).toBeGreaterThan(masterVersionBefore);
+
+      // Master's statusHistory should have a new entry recording the exclusion
+      const exclusionEntry = updatedMaster.statusHistory?.find(h =>
+        h.reason && h.reason.includes('2026-03-19') && h.reason.includes('excluded')
+      );
+      expect(exclusionEntry).toBeDefined();
+    });
+  });
+
+  describe('ED-1a: re-delete after successful delete → 409 AlreadyDeleted (DL-8 idempotency)', () => {
+    it('should return 409 AlreadyDeleted on a second delete of the same exception', async () => {
+      const master = buildPublishedMaster();
+      await insertEvents(db, [master]);
+
+      const exception = createExceptionDocument(
+        master,
+        '2026-03-19',
+        { startTime: '16:00', endTime: '17:00' },
+        { graphEventId: 'AAMkExceptionGraph' }
+      );
+      await db.collection(COLLECTIONS.EVENTS).insertOne(exception);
+
+      // First delete — should succeed and add the exclusion
+      const firstRes = await request(app)
+        .delete(ENDPOINTS.DELETE_EVENT(exception._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ editScope: 'thisEvent', _version: 1 });
+      expect(firstRes.status).toBe(200);
+      expect(firstRes.body.masterExclusionAdded).toBe(true);
+
+      // Capture master state — should have the exclusion exactly once
+      const masterAfterFirst = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusionsAfterFirst = masterAfterFirst.recurrence?.exclusions || [];
+      const countAfterFirst = exclusionsAfterFirst.filter(d => d === '2026-03-19').length;
+      expect(countAfterFirst).toBe(1);
+
+      // Second delete — should return 409 AlreadyDeleted (DL-8)
+      const secondRes = await request(app)
+        .delete(ENDPOINTS.DELETE_EVENT(exception._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ editScope: 'thisEvent', _version: 1 });
+      expect(secondRes.status).toBe(409);
+      expect(secondRes.body.error).toBe('AlreadyDeleted');
+
+      // $addToSet should keep the exclusions array deduplicated; even if the
+      // re-delete somehow ran, the date would not appear twice.
+      const masterAfterSecond = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      const exclusionsAfterSecond = masterAfterSecond.recurrence?.exclusions || [];
+      const countAfterSecond = exclusionsAfterSecond.filter(d => d === '2026-03-19').length;
+      expect(countAfterSecond).toBe(1);
     });
   });
 

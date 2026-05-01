@@ -2061,16 +2061,16 @@ function createTestApp(options = {}) {
           });
         }
 
-        // thisEvent or null: soft-delete this exception only
+        // thisEvent or null: DL-1 — exclude date + soft-delete doc (atomic via order)
         const dateKey = event.occurrenceDate;
         if (!dateKey) {
           return res.status(400).json({
             error: 'MissingOccurrenceDate',
-            message: 'Exception document is missing occurrenceDate field'
+            message: 'Occurrence document is missing occurrenceDate field'
           });
         }
 
-        // Already-deleted idempotency check (before Graph delete — avoid double-call)
+        // DL-8 idempotency pre-check (mirrors production handler).
         if (event.isDeleted) {
           return res.status(409).json({
             error: 'AlreadyDeleted',
@@ -2090,6 +2090,35 @@ function createTestApp(options = {}) {
           });
         }
 
+        const nowEx = new Date();
+
+        // DL-1: exclusion add comes BEFORE the soft-delete and graph delete,
+        // matching production order. This makes failure modes retry-safe via
+        // $addToSet idempotency.
+        let masterExclusionAdded = false;
+        if (event.eventType === SVC_EVENT_TYPE.EXCEPTION) {
+          const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
+          if (masterRecurrence && !(masterRecurrence.exclusions || []).includes(dateKey)) {
+            const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
+            await testCollections.events.updateOne(
+              { _id: masterEvent._id },
+              {
+                $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
+                $inc: { _version: 1 },
+                $set: { lastModifiedDateTime: nowEx, lastModifiedBy: userId, lastModifiedByEmail: userEmail },
+                $push: {
+                  statusHistory: {
+                    status: masterEvent.status, changedAt: nowEx,
+                    changedBy: userId, changedByEmail: userEmail,
+                    reason: `Occurrence ${dateKey} excluded (exception deleted)`,
+                  }
+                }
+              }
+            );
+            masterExclusionAdded = true;
+          }
+        }
+
         // Delete exception's own graphEventId (NOT master's graphData.id)
         let exGraphDeleted = false;
         if (event.graphEventId && event.calendarOwner) {
@@ -2101,8 +2130,8 @@ function createTestApp(options = {}) {
           } catch (_) { exGraphDeleted = true; }
         }
 
-        const nowEx = new Date();
-        const softDeleteRes = await testCollections.events.updateOne(
+        // Soft-delete the exception/addition document.
+        await testCollections.events.updateOne(
           { _id: new ObjectId(eventId), isDeleted: { $ne: true } },
           {
             $set: {
@@ -2119,39 +2148,6 @@ function createTestApp(options = {}) {
             }
           }
         );
-
-        if (softDeleteRes.modifiedCount === 0) {
-          return res.status(409).json({
-            error: 'AlreadyDeleted',
-            details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
-          });
-        }
-
-        // Exclusion only for 'exception' type, not 'addition'.
-        // Skip if date already excluded (avoid no-op version bumps on retries).
-        let masterExclusionAdded = false;
-        if (event.eventType === SVC_EVENT_TYPE.EXCEPTION) {
-          const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
-          if (masterRecurrence && !(masterRecurrence.exclusions || []).includes(dateKey)) {
-            const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
-            await testCollections.events.updateOne(
-              { _id: masterEvent._id },
-              {
-                $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
-                $inc: { _version: 1 },
-                $set: { lastModifiedDateTime: nowEx, lastModifiedBy: userEmail },
-                $push: {
-                  statusHistory: {
-                    status: masterEvent.status, changedAt: nowEx,
-                    changedBy: userId, changedByEmail: userEmail,
-                    reason: `Occurrence ${dateKey} excluded (exception deleted)`,
-                  }
-                }
-              }
-            );
-            masterExclusionAdded = true;
-          }
-        }
 
         const finalDoc = await testCollections.events.findOne({ _id: new ObjectId(eventId) });
         return res.json({

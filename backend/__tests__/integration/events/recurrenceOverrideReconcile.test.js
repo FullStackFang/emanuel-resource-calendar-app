@@ -401,8 +401,8 @@ describe('Recurrence Override Reconcile (ROR-1 to ROR-5)', () => {
     });
   });
 
-  describe('ROR-9: DELETE on exception document directly does NOT add to exclusions', () => {
-    it('soft-deletes the exception and leaves recurrence.exclusions untouched', async () => {
+  describe('ROR-9: DELETE on exception document directly DOES add to exclusions (DL-1)', () => {
+    it('soft-deletes the exception AND adds the date to recurrence.exclusions', async () => {
       const master = buildMaster();
       await insertEvents(db, [master]);
 
@@ -422,10 +422,17 @@ describe('Recurrence Override Reconcile (ROR-1 to ROR-5)', () => {
         });
 
       expect(res.status).toBe(200);
+      // DL-1 (spec §7.2): explicit DELETE on an exception adds the date to
+      // master.recurrence.exclusions so the date disappears from the series
+      // entirely (Outlook semantics). Distinct from the Recurrence-tab
+      // "remove customization" path which is `reconcileOccurrenceOverrides`
+      // (covered by ROR-1 above) — that path correctly leaves exclusions
+      // untouched and lets the virtual pattern occurrence return.
+      expect(res.body.masterExclusionAdded).toBe(true);
 
       const masterAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
       const exclusions = masterAfter.recurrence?.exclusions || [];
-      expect(exclusions).not.toContain('2026-04-23');
+      expect(exclusions).toContain('2026-04-23');
 
       const exAfter = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: exception._id });
       expect(exAfter.isDeleted).toBe(true);

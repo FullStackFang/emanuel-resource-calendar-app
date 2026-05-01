@@ -23551,13 +23551,17 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       hasEventId: !!event.eventId
     });
 
-    // ─── EXCEPTION/ADDITION DELETE BRANCH (Bug A fix) ──────────────────────
+    // ─── EXCEPTION/ADDITION DELETE BRANCH (Bug A fix + DL-1 alignment) ─────
     // When the document itself is an exception or addition (not a series master),
     // route through dedicated logic that understands the parent master link.
     //   - editScope: 'allEvents' → cascade delete master + all children + Graph events
-    //   - editScope: 'thisEvent' (or null) → soft-delete this doc; for exceptions,
-    //     also add occurrenceDate to master's recurrence.exclusions so the virtual
-    //     slot does not re-appear (additions skip this since they were never in pattern).
+    //   - editScope: 'thisEvent' (or null) → DL-1: soft-delete the doc, AND for
+    //     exceptions also add occurrenceDate to master's recurrence.exclusions
+    //     so the virtual slot does not re-appear (Outlook semantics). Additions
+    //     skip the exclusion add since their dates were never in the pattern.
+    //     The soft-deleted exception's `overrides` are preserved verbatim, so a
+    //     later DL-9 restore (removing the date from exclusions on the master)
+    //     resurrects the customization automatically via undeleteExceptionForRestore.
     const isExceptionDocInput = event.eventType === EVENT_TYPE.EXCEPTION
       || event.eventType === EVENT_TYPE.ADDITION;
 
@@ -23635,12 +23639,90 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         });
       }
 
-      // ── editScope: 'thisEvent' or null — soft-delete this exception only ──
+      // ── editScope: 'thisEvent' or null — DL-1: exclude date + soft-delete doc ──
       const dateKey = event.occurrenceDate;
       if (!dateKey) {
         return res.status(400).json({
           error: 'MissingOccurrenceDate',
-          message: 'Exception document is missing occurrenceDate field'
+          message: 'Occurrence document is missing occurrenceDate field'
+        });
+      }
+
+      // DL-8 idempotency pre-check: surface a clean 'already_actioned' 409 for
+      // the re-delete case BEFORE any conditionalUpdate call. Otherwise the
+      // utility throws ApiError.conflict({ code: 'VERSION_CONFLICT' }) when its
+      // isDeleted filter excludes the doc — and the wrong code is the spec
+      // violation that ED-10 was failing on.
+      if (event.isDeleted) {
+        return res.status(409).json({
+          error: 'AlreadyDeleted',
+          details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
+        });
+      }
+
+      // Master must have _version after the OCC migration. A versionless master
+      // is an invariant violation — fail loud rather than silently degrading
+      // the master-update OCC check below to no-OCC.
+      if (!masterEvent._version) {
+        return res.status(500).json({
+          error: 'CorruptMaster',
+          message: 'Master document missing _version — invariant violation'
+        });
+      }
+
+      // DL-1 (spec §7.2): For exception docs, add the date to master's
+      // recurrence.exclusions BEFORE soft-deleting the exception. This order
+      // is retry-safe — if the soft-delete fails, the exception is still alive
+      // and renders as itself; user retry is idempotent because $addToSet is
+      // a no-op when the date is already in the set. Reverse order would
+      // briefly leave the date as a bare virtual occurrence with master
+      // defaults — the regression DL-1 is meant to prevent.
+      //
+      // Skipped for additions: their dates are not pattern dates, so an
+      // exclusion entry has no effect on rendering.
+      let masterExclusionAdded = false;
+      const isExceptionType = event.eventType === EVENT_TYPE.EXCEPTION;
+      const masterRecurrence = masterEvent.recurrence || masterEvent.calendarData?.recurrence;
+      if (isExceptionType && masterRecurrence) {
+        const alreadyExcluded = (masterRecurrence.exclusions || []).includes(dateKey);
+        if (!alreadyExcluded) {
+          const recurrencePath = masterEvent.recurrence ? 'recurrence' : 'calendarData.recurrence';
+          try {
+            await conditionalUpdate(
+              unifiedEventsCollection,
+              { _id: masterEvent._id },
+              {
+                $addToSet: { [`${recurrencePath}.exclusions`]: dateKey },
+                $set: {
+                  lastModifiedDateTime: new Date(),
+                  lastModifiedBy: userId,
+                  lastModifiedByEmail: userEmail
+                },
+                $push: {
+                  statusHistory: buildStatusHistoryEntry(
+                    masterEvent.status, userId, userEmail,
+                    `Occurrence ${dateKey} excluded (exception deleted)`
+                  )
+                }
+              },
+              {
+                expectedVersion: masterEvent._version,
+                modifiedBy: userEmail,
+                snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+              }
+            );
+            masterExclusionAdded = true;
+          } catch (err) {
+            if (err.statusCode === 409) return res.status(409).json(err.toJSON());
+            throw err;
+          }
+        }
+      } else if (isExceptionType && !masterRecurrence) {
+        // Edge case: master concurrently edited to non-recurring. Soft-delete
+        // proceeds but rendering is already correct (non-recurring master emits
+        // no virtual occurrences). Flag the orphan so the caller can surface it.
+        logger.warn('Exception delete: master is non-recurring (orphaned exception); skipping exclusion add', {
+          masterId: String(masterEvent._id), exceptionId: id, dateKey
         });
       }
 
@@ -23658,7 +23740,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
       }
 
-      // Soft-delete with OCC + isDeleted guard (idempotency).
+      // Soft-delete the exception/addition document with OCC.
       let deletedExDoc;
       try {
         deletedExDoc = await conditionalUpdate(
@@ -23680,26 +23762,13 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         throw err;
       }
 
-      if (!deletedExDoc) {
-        // Filter excluded the doc — already deleted.
-        return res.status(409).json({
-          error: 'AlreadyDeleted',
-          details: { code: 'already_actioned', message: 'This occurrence was already deleted' }
-        });
-      }
-
-      // Per user intent ("delete customization → restore pattern"):
-      // Deleting an exception document directly does NOT add the date to
-      // master.recurrence.exclusions. The virtual pattern occurrence reappears.
-      // To exclude the date, the user must Delete again (now on a clean
-      // pattern occurrence), which routes through the master+thisEvent branch
-      // that adds to exclusions when no customization is present.
-      const masterExclusionAdded = false;
+      const orphanedMaster = isExceptionType && !masterRecurrence;
 
       return res.json({
         success: true, occurrenceDeleted: true,
         deletedDate: dateKey, eventType: event.eventType,
         masterExclusionAdded, graphDeleted: exGraphDeleted,
+        orphanedMaster,
         _version: deletedExDoc._version,
       });
     }
