@@ -1,8 +1,10 @@
 // src/__tests__/unit/components/ReservationRequests.recurrenceParity.test.jsx
 //
-// R-13 (entry-point parity): ReservationRequests must present the same
-// RecurringScopeDialog as Calendar when the user clicks View Details on a
-// recurring series master in the Approval Queue. Mirrors R-12 (MyReservations).
+// R-13 (intentional divergence from Calendar/MyReservations parity):
+// In the Approval Queue, approval is always a series-level action, and pending
+// masters have no published children to override. So clicking View Details on
+// a recurring series master MUST skip the RecurringScopeDialog and open the
+// review modal directly with editScope: 'allEvents'.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -171,7 +173,7 @@ describe('ReservationRequests recurrence-parity (R-13)', () => {
     openModalSpy.mockReset();
   });
 
-  it('R-13: View Details on a seriesMaster opens the RecurringScopeDialog (NOT the modal directly)', async () => {
+  it("R-13: View Details on a seriesMaster opens the modal directly with editScope: 'allEvents' (no scope dialog)", async () => {
     mountWithEvents([seriesMasterEvent]);
     render(<ReservationRequests />);
 
@@ -181,10 +183,40 @@ describe('ReservationRequests recurrence-parity (R-13)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
-    expect(openModalSpy).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument();
+      expect(openModalSpy).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText('All events in the series')).toBeInTheDocument();
+    const [openedEvent, openedOptions] = openModalSpy.mock.calls[0];
+    expect(openedEvent._id).toBe('evt-rr-series');
+    expect(openedOptions).toEqual({ editScope: 'allEvents' });
+
+    expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('All events in the series')).not.toBeInTheDocument();
+    expect(screen.queryByText(/this event is part of a series/i)).not.toBeInTheDocument();
+  });
+
+  it('R-13b: View Details on a non-recurring reservation opens the modal directly with no editScope option', async () => {
+    const nonRecurring = {
+      ...seriesMasterEvent,
+      _id: 'evt-rr-single',
+      eventId: 'evt-rr-single',
+      eventType: 'singleInstance',
+      eventTitle: 'Approval Queue Single Event',
+      recurrence: undefined,
+    };
+    mountWithEvents([nonRecurring]);
+    render(<ReservationRequests />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Approval Queue Single Event')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(openModalSpy).toHaveBeenCalledTimes(1);
+    });
+    const [, openedOptions] = openModalSpy.mock.calls[0];
+    expect(openedOptions).toBeUndefined();
   });
 });

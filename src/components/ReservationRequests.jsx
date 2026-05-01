@@ -23,7 +23,6 @@ import { deleteEvent } from '../utils/eventPayloadBuilder';
 import { isAbortError } from '../utils/errorUtils';
 import LoadingSpinner from './shared/LoadingSpinner';
 import EventReviewExperience from './shared/EventReviewExperience';
-import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import './shared/FilterBar.css';
@@ -249,15 +248,6 @@ export default function ReservationRequests({ graphToken }) {
     loadCounts();
     dispatchRefresh('approval-queue', 'navigation-counts');
   }, [loadReservations, loadCounts]);
-
-  // --- Recurring scope dialog (parity with Calendar — DL-0/E-0 enforcement) ---
-  // Without this gate, recurring-series clicks defaulted to allEvents scope
-  // and the restore-via-Recurrence-tab UI was inconsistent with Calendar.
-  const [recurringScopeDialog, setRecurringScopeDialog] = useState({
-    isOpen: false,
-    pendingEvent: null,
-    isLoading: false,
-  });
 
   // --- Unified review modal experience (replaces useReviewModal + satellite state) ---
   const reviewModal = useEventReviewExperience({
@@ -530,40 +520,29 @@ export default function ReservationRequests({ graphToken }) {
     }, 100);
   };
 
-  // --- Recurring scope dialog handlers (parity with Calendar) ---
-  // Mirrors Calendar.jsx scope dialog flow. Required so approvers viewing a
-  // recurring series master from the approval queue get the same scope choice
-  // they get from Calendar — and so the restore UI on the Recurrence tab is
-  // reachable via the allEvents path.
+  // Approval is always a series-level action; pending masters have no published
+  // children to override, so we open recurring series directly with editScope:
+  // 'allEvents' and skip the scope-choice dialog used in other entry points.
   const isRecurringSeriesMaster = useCallback((reservation) => {
     if (!reservation) return false;
     return reservation.eventType === 'seriesMaster'
       || (!!reservation.recurrence?.pattern && !!reservation.recurrence?.range);
   }, []);
 
-  const openReviewWithScopeDialog = useCallback((reservation) => {
-    if (isRecurringSeriesMaster(reservation)) {
-      setRecurringScopeDialog({ isOpen: true, pendingEvent: reservation, isLoading: false });
-    } else {
-      reviewModal.openModal(reservation);
-    }
-  }, [isRecurringSeriesMaster, reviewModal]);
-
-  const handleRecurringScopeSelected = useCallback(async (scope) => {
-    const event = recurringScopeDialog.pendingEvent;
-    if (!event) return;
-    setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
+  const openReviewForReservation = useCallback(async (reservation) => {
+    const options = isRecurringSeriesMaster(reservation)
+      ? { editScope: 'allEvents' }
+      : undefined;
     try {
-      await reviewModal.openModal(event, { editScope: scope });
+      await reviewModal.openModal(reservation, options);
     } catch (err) {
-      logger.error('Error opening review modal from ReservationRequests scope dialog:', err);
-      showError(err, { context: 'ReservationRequests.handleRecurringScopeSelected', userMessage: 'Failed to open review modal' });
+      logger.error('Error opening review modal from ReservationRequests:', err);
+      showError(err, {
+        context: 'ReservationRequests.openReviewForReservation',
+        userMessage: 'Failed to open review modal',
+      });
     }
-  }, [recurringScopeDialog.pendingEvent, reviewModal, showError]);
-
-  const handleRecurringScopeClose = useCallback(() => {
-    setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
-  }, []);
+  }, [isRecurringSeriesMaster, reviewModal, showError]);
 
   // Card-level delete handlers (separate from modal delete via hook)
   const handleDeleteClick = (reservation) => {
@@ -780,7 +759,7 @@ export default function ReservationRequests({ graphToken }) {
                 <div className="rr-card-actions">
                   <button
                     className="rr-btn rr-btn-primary"
-                    onClick={() => openReviewWithScopeDialog(reservation)}
+                    onClick={() => openReviewForReservation(reservation)}
                   >
                     View Details
                   </button>
@@ -938,25 +917,6 @@ export default function ReservationRequests({ graphToken }) {
         </div>
       )}
 
-
-      {/* Recurring Event Scope Selection Dialog (parity with Calendar) */}
-      <RecurringScopeDialog
-        isOpen={recurringScopeDialog.isOpen}
-        onClose={handleRecurringScopeClose}
-        onSelectScope={handleRecurringScopeSelected}
-        eventSubject={
-          recurringScopeDialog.pendingEvent?.eventTitle
-          || recurringScopeDialog.pendingEvent?.calendarData?.eventTitle
-          || 'Recurring Event'
-        }
-        eventDate={recurringScopeDialog.pendingEvent?.startDate
-          ? new Date(recurringScopeDialog.pendingEvent.startDate + 'T12:00:00').toLocaleDateString('en-US', {
-              weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-            })
-          : ''
-        }
-        isLoading={recurringScopeDialog.isLoading}
-      />
 
       {/* Unified ReviewModal experience (shared hook + component) */}
       <EventReviewExperience
