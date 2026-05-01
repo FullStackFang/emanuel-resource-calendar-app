@@ -147,10 +147,6 @@ export default function ReviewModal({
   isWithdrawCancellationConfirming = false,
   onCancelWithdrawCancellation = null,
   // Requester action buttons (opt-in, for MyReservations)
-  // Delete reason (for owner-pending delete)
-  deleteReason = '',
-  onDeleteReasonChange = null,
-  deleteInputRef = null,
   // Resubmit (requester, rejected events)
   onResubmit = null,
   isResubmitting = false,
@@ -243,12 +239,6 @@ export default function ReviewModal({
       requestAnimationFrame(() => rejectInputRef.current?.focus());
     }
   }, [isRejectConfirming, rejectInputRef]);
-
-  useEffect(() => {
-    if (isDeleteConfirming && deleteInputRef?.current) {
-      requestAnimationFrame(() => deleteInputRef.current?.focus());
-    }
-  }, [isDeleteConfirming, deleteInputRef]);
 
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -881,37 +871,8 @@ export default function ReviewModal({
                     </div>
                   )}
 
-                  {/* Withdraw Request — requester, pending (delete with reason) */}
-                  {isRequesterOnly && itemStatus === 'pending' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
-                    <div className="confirm-button-group">
-                      {isDeleteConfirming && (
-                        <input
-                          type="text"
-                          className="inline-reason-input"
-                          placeholder="Why are you withdrawing?"
-                          value={deleteReason}
-                          onChange={(e) => onDeleteReasonChange?.(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' && deleteReason?.trim()) onDelete(); }}
-                          disabled={isDeleting}
-                          ref={deleteInputRef}
-                        />
-                      )}
-                      <button
-                        type="button"
-                        className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
-                        onClick={onDelete}
-                        disabled={isDeleting || (isDeleteConfirming && !deleteReason?.trim()) || (anyConfirming && !isDeleteConfirming)}
-                      >
-                        {isDeleting ? 'Withdrawing...' : (isDeleteConfirming ? 'Confirm Withdraw?' : 'Withdraw Request')}
-                      </button>
-                      {isDeleteConfirming && onCancelDelete && (
-                        <button type="button" className="confirm-cancel-x delete-cancel-x" onClick={onCancelDelete}>✕</button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Delete Draft — requester, draft (no reason required, matches admin label) */}
-                  {isRequesterOnly && itemStatus === 'draft' && onDelete && !isEditRequestMode && !isViewingEditRequest && (
+                  {/* Delete — requester, own draft or own pending (unified, no reason required) */}
+                  {isRequesterOnly && (itemStatus === 'draft' || itemStatus === 'pending') && onDelete && !isEditRequestMode && !isViewingEditRequest && (
                     <div className="confirm-button-group">
                       <button
                         type="button"

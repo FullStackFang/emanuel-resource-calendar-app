@@ -23515,10 +23515,10 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Role-based scoping: Admins can delete anything, others have restrictions
     if (!isAdminUser) {
       if (!isApprover) {
-        // Requesters: can delete own drafts, or withdraw own pending events (with reason)
+        // Requesters: can delete own drafts or own pending events
         const allowedStatus = event.status === 'pending' || event.status === 'draft';
         if (!isOwner || !allowedStatus) {
-          return res.status(403).json({ error: 'You can only delete your own drafts or withdraw your own pending requests' });
+          return res.status(403).json({ error: 'You can only delete your own drafts or pending requests' });
         }
       } else {
         // Approvers: own events (any status) or any published event
@@ -23526,13 +23526,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           return res.status(403).json({ error: 'Approvers can only delete their own events or published events' });
         }
       }
-    }
-
-    // Reason required when a requester (not admin or approver) withdraws their own pending event.
-    // Admins and approvers use the 'Delete' button which has no reason UI — skip check for them.
-    const isRequesterDelete = isOwner && !isAdminUser && !isApprover;
-    if (isRequesterDelete && event.status === 'pending' && (!reason || !reason.trim())) {
-      return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
     }
 
     // Validate seriesMasterId matches stored event to prevent targeting arbitrary Graph events
@@ -24110,7 +24103,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             deletedByEmail: userEmail,
           },
           $push: {
-            statusHistory: buildStatusHistoryEntry('deleted', userId, userEmail, reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Withdrawn by requester')))
+            statusHistory: buildStatusHistoryEntry('deleted', userId, userEmail, reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Deleted by requester')))
           }
         },
         {

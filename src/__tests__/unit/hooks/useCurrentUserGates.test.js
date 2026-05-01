@@ -232,7 +232,7 @@ describe('deriveGates — invariants', () => {
   });
 
   describe('canDelete / canRestore', () => {
-    it('requester CAN delete their OWN PENDING event (withdraw)', () => {
+    it('requester CAN delete their OWN PENDING event', () => {
       const event = makeEvent({ status: 'pending', eventType: 'singleInstance', isOwner: true });
       const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
       expect(gates.canDelete).toBe(true);

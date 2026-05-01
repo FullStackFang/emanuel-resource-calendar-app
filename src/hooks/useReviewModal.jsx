@@ -93,8 +93,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
-  // Delete reason (required for owner deleting own pending)
-  const [deleteReason, setDeleteReason] = useState('');
 
   // Inline confirmation state for approve/reject actions
   const [pendingApproveConfirmation, setPendingApproveConfirmation] = useState(false);
@@ -116,7 +114,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Refs for inline reason inputs — more reliable than autoFocus on re-renders
   const rejectInputRef = useRef(null);
-  const deleteInputRef = useRef(null);
 
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
@@ -398,7 +395,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setSchedulingConflictInfo(null); // Clear scheduling conflict state
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
-    setDeleteReason(''); // Reset delete reason
     setPendingDraftConfirmation(false); // Reset draft confirmation
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
@@ -1095,8 +1091,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           occurrenceDate: editScope === 'thisEvent' ? getOccurrenceDateKey(currentItem) : null,
           seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
           calendarId: currentItem.calendarId,
-          _version: eventVersion,
-          reason: deleteReason?.trim() || undefined
+          _version: eventVersion
         })
       });
 
@@ -1135,7 +1130,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, authFetch, graphToken, editScope, eventVersion, notifySuccess, onError, closeModal, pendingDeleteConfirmation, deleteReason]);
+  }, [currentItem, authFetch, graphToken, editScope, eventVersion, notifySuccess, onError, closeModal, pendingDeleteConfirmation]);
 
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
@@ -2170,11 +2165,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setRejectionReason,
     rejectInputRef,
 
-    // Delete reason state (for owner-pending delete)
-    deleteReason,
-    setDeleteReason,
-    deleteInputRef,
-
     // Draft-specific state
     isDraft,
     isDraftOccurrenceEdit,
@@ -2317,11 +2307,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       rejectionReason,
       onRejectionReasonChange: setRejectionReason,
       rejectInputRef,
-
-      // Delete reason
-      deleteReason,
-      onDeleteReasonChange: setDeleteReason,
-      deleteInputRef,
 
       // Draft workflow
       isDraft,

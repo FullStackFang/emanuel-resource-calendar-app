@@ -1972,9 +1972,10 @@ function createTestApp(options = {}) {
       // Role-based scoping: Admins can delete anything, others have restrictions
       if (!isAdminUser) {
         if (!isApprover) {
-          // Requesters: can only delete (withdraw) their own pending events
-          if (!isOwner || event.status !== 'pending') {
-            return res.status(403).json({ error: 'You can only withdraw your own pending requests' });
+          // Requesters: can delete own drafts or own pending events
+          const allowedStatus = event.status === 'pending' || event.status === 'draft';
+          if (!isOwner || !allowedStatus) {
+            return res.status(403).json({ error: 'You can only delete your own drafts or pending requests' });
           }
         } else {
           // Approvers: own events (any status) or any published event
@@ -1988,13 +1989,6 @@ function createTestApp(options = {}) {
       // branch can return a proper 409 AlreadyDeleted for exception re-deletes.
 
       const { editScope, occurrenceDate, _version, reason } = req.body;
-
-      // Reason required when a requester (not admin or approver) withdraws their own pending event.
-      // Admins and approvers use the 'Delete' button which has no reason UI — skip check for them.
-      const isRequesterDelete = isOwner && !isAdminUser && !isApprover;
-      if (isRequesterDelete && event.status === 'pending' && (!reason || !reason.trim())) {
-        return res.status(400).json({ error: 'Reason is required when withdrawing your own pending request' });
-      }
 
       // ─── EXCEPTION/ADDITION DELETE BRANCH (Bug A fix, mirrors production) ───
       const isExceptionDocInput = event.eventType === SVC_EVENT_TYPE.EXCEPTION
@@ -2313,7 +2307,7 @@ function createTestApp(options = {}) {
             changedAt: now,
             changedBy: userId,
             changedByEmail: userEmail,
-            reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Withdrawn by requester'))
+            reason: reason?.trim() || (isAdminUser ? 'Deleted by admin' : (isApprover ? 'Deleted by approver' : 'Deleted by requester'))
           }
         }
       });

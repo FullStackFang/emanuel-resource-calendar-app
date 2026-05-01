@@ -287,12 +287,12 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-9: Requester CAN withdraw own pending', () => {
+  describe('R-9: Requester CAN delete own pending', () => {
     it('should soft delete own pending event when reason is provided', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Withdraw Me',
+        eventTitle: 'Delete Me',
       });
       const [savedPending] = await insertEvents(db, [pending]);
 
@@ -311,7 +311,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
       expect(deletedEvent.status).toBe(STATUS.DELETED);
     });
 
-    it('should return 400 when reason is missing', async () => {
+    it('should soft delete own pending event when reason is missing', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -322,12 +322,17 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .delete(`/api/admin/events/${savedPending._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({})
-        .expect(400);
+        .expect(200);
 
-      expect(res.body.error).toMatch(/reason.*required/i);
+      expect(res.body.success).toBe(true);
+
+      const deletedEvent = await db.collection(COLLECTIONS.EVENTS).findOne({
+        _id: savedPending._id,
+      });
+      expect(deletedEvent.status).toBe(STATUS.DELETED);
     });
 
-    it('should return 400 when reason is whitespace-only', async () => {
+    it('should soft delete own pending event when reason is whitespace-only', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -338,9 +343,14 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .delete(`/api/admin/events/${savedPending._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({ reason: '   ' })
-        .expect(400);
+        .expect(200);
 
-      expect(res.body.error).toMatch(/reason.*required/i);
+      expect(res.body.success).toBe(true);
+
+      const deletedEvent = await db.collection(COLLECTIONS.EVENTS).findOne({
+        _id: savedPending._id,
+      });
+      expect(deletedEvent.status).toBe(STATUS.DELETED);
     });
 
     it('should return 403 when trying to delete other requester\'s pending', async () => {
@@ -353,10 +363,10 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
       const res = await request(app)
         .delete(`/api/admin/events/${savedPending._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .send({ reason: 'Trying to withdraw someone else\'s' })
+        .send({ reason: 'Trying to delete someone else\'s' })
         .expect(403);
 
-      expect(res.body.error).toMatch(/your own pending/i);
+      expect(res.body.error).toMatch(/your own/i);
     });
 
     it('should return 403 when trying to delete own published event', async () => {
@@ -372,7 +382,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .send({ reason: 'Want to delete published' })
         .expect(403);
 
-      expect(res.body.error).toMatch(/your own pending/i);
+      expect(res.body.error).toMatch(/your own/i);
     });
   });
 
@@ -435,7 +445,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(403);
 
-      expect(res.body.error).toMatch(/your own pending/i);
+      expect(res.body.error).toMatch(/your own/i);
     });
   });
 

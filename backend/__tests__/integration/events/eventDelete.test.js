@@ -309,7 +309,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
     });
   });
 
-  describe('Deletion Notification (DN-1 to DN-5)', () => {
+  describe('Deletion Notification (DN-1 to DN-11)', () => {
     it('DN-1: should trigger deletion notification when deleting a published event', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
@@ -518,6 +518,26 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(res.body.emailNotification).toBeDefined();
       expect(res.body.emailNotification.sent).toBe(false);
     });
+
+    it('DN-11: requester deleting own pending without reason does NOT trigger deletion notification email', async () => {
+      const requesterToken = await createMockToken(requesterUser);
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Self-Delete Pending No Email',
+      });
+      const [savedPending] = await insertEvents(db, [pending]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(200);
+
+      // Requester self-deleting own pending — no notification fires (status is pending, not published; not third-party).
+      // Mirrors DN-10 pattern: assert response.emailNotification.sent is false.
+      expect(res.body.emailNotification).toBeDefined();
+      expect(res.body.emailNotification.sent).toBe(false);
+    });
   });
 
   describe('Delete idempotency', () => {
@@ -578,7 +598,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('AD-3: Approver can delete own pending without reason (uses Delete button, not Withdraw)', async () => {
+    it('AD-3: Approver can delete own pending without reason', async () => {
       const pending = createPendingEvent({
         userId: approverUser.odataId,
         requesterEmail: approverUser.email,
@@ -668,7 +688,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .expect(403);
     });
 
-    it('AD-9: Requester cannot delete own pending without reason', async () => {
+    it('AD-9: Requester can delete own pending without reason', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -679,9 +699,11 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       const res = await request(app)
         .delete(`/api/admin/events/${saved._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(400);
+        .expect(200);
 
-      expect(res.body.error).toMatch(/reason.*required/i);
+      expect(res.body.success).toBe(true);
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(event.status).toBe('deleted');
     });
 
     it('AD-10: Delete with reason stores reason in statusHistory', async () => {
@@ -809,7 +831,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       expect(lastHistory.changedByEmail).toBe(requesterUser.email);
     });
 
-    it('RD-4: Requester pending-withdraw still requires reason (regression guard)', async () => {
+    it('RD-4: Requester delete own pending succeeds without reason; statusHistory says "Deleted by requester"', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -820,9 +842,16 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
       const res = await request(app)
         .delete(`/api/admin/events/${saved._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .expect(400);
+        .expect(200);
 
-      expect(res.body.error).toMatch(/reason.*required/i);
+      expect(res.body.success).toBe(true);
+
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(event.status).toBe('deleted');
+      const lastHistory = event.statusHistory[event.statusHistory.length - 1];
+      expect(lastHistory.status).toBe('deleted');
+      expect(lastHistory.reason).toBe('Deleted by requester');
+      expect(lastHistory.changedByEmail).toBe(requesterUser.email);
     });
   });
 });
