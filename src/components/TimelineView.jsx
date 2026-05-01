@@ -2,6 +2,7 @@
 // Inline 3-day+ all-locations timeline view for "Group by Time" mode.
 // Shows all events across all locations, color-coded by location, positioned by time.
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   HOUR_LABELS,
   isAllDayEvent,
@@ -593,8 +594,12 @@ export default function TimelineView({
         })}
       </div>
 
-      {/* Cursor-following tooltip */}
-      {tooltipInfo && (
+      {/* Cursor-following tooltip — portaled to <body> so it escapes the
+          .calendar-grid `transform: scale(...)` ancestor in Calendar.jsx.
+          A non-`none` transform on any ancestor turns that ancestor into the
+          containing block for `position: fixed` descendants, which would
+          otherwise displace the tooltip and scale it with the calendar zoom. */}
+      {tooltipInfo && createPortal(
         <div
           ref={tooltipRef}
           className="timeline-tooltip"
@@ -612,7 +617,8 @@ export default function TimelineView({
           {tooltipInfo.allLocations && (
             <div className="timeline-tooltip-multi">All locations: {tooltipInfo.allLocations}</div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* All-day event list modal */}
