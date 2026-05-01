@@ -4702,6 +4702,7 @@ function createTestApp(options = {}) {
         || (updates.endDate && updates.endTime ? `${updates.endDate}T${updates.endTime}:00` : null)
         || cd.endDateTime || event.endDateTime;
 
+
       // Graph sync gate - uses graphData.id + calendarOwner (app-only auth via graphApiService)
       let graphSynced = false;
       let graphSyncResult = null;

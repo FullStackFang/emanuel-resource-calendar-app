@@ -12,6 +12,10 @@ import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
+import EventReviewExperience from './shared/EventReviewExperience';
+import RecurringScopeDialog from './shared/RecurringScopeDialog';
+import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
+import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
 import { formatTimeString } from '../utils/appTimeUtils';
@@ -86,6 +90,17 @@ export default function EventManagement() {
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
+  // --- Recurring scope dialog (parity with Calendar/MyReservations/ReservationRequests) ---
+  // Restore-via-Recurrence-tab is unreachable from EventManagement unless the
+  // user can route a series master through useEventReviewExperience with a
+  // chosen scope. This wires that path without disturbing the existing
+  // em-details-modal which still handles non-recurring view+restore actions.
+  const [recurringScopeDialog, setRecurringScopeDialog] = useState({
+    isOpen: false,
+    pendingEvent: null,
+    isLoading: false,
+  });
+
   const anyConfirming = confirmDeleteId !== null || confirmRestoreId !== null;
 
   const searchTimeoutRef = useRef(null);
@@ -157,6 +172,53 @@ export default function EventManagement() {
 
   // Listen for refresh events from other views
   useDataRefreshBus('event-management', silentRefresh, !!apiToken);
+
+  // --- Unified review modal experience (parity with Calendar et al.) ---
+  // Used only when the user clicks a recurring series master. Non-recurring
+  // events keep the existing em-details-modal flow with its dedicated
+  // soft-deleted-master Restore action (a different operation that targets
+  // PUT /api/admin/events/:id/restore — preserved on purpose).
+  const reviewModal = useEventReviewExperience({
+    apiToken,
+    authFetch,
+    onRefresh: () => {
+      fetchEvents();
+      fetchCounts();
+    },
+    onError: (error) => { showError(error, { context: 'EventManagement.reviewModal' }); },
+  });
+
+  const isRecurringSeriesMaster = useCallback((evt) => {
+    if (!evt) return false;
+    return evt.eventType === 'seriesMaster'
+      || (!!evt.recurrence?.pattern && !!evt.recurrence?.range);
+  }, []);
+
+  const openReviewWithScopeDialog = useCallback((evt) => {
+    if (isRecurringSeriesMaster(evt)) {
+      setRecurringScopeDialog({ isOpen: true, pendingEvent: evt, isLoading: false });
+    } else {
+      // Non-recurring: keep the existing em-details-modal path (preserves
+      // status history view, deletion info, soft-deleted-master Restore, etc.)
+      setSelectedEvent(evt);
+    }
+  }, [isRecurringSeriesMaster]);
+
+  const handleRecurringScopeSelected = useCallback(async (scope) => {
+    const evt = recurringScopeDialog.pendingEvent;
+    if (!evt) return;
+    setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
+    try {
+      await reviewModal.openModal(evt, { editScope: scope });
+    } catch (err) {
+      logger.error('Error opening review modal from EventManagement scope dialog:', err);
+      showError(err, { context: 'EventManagement.handleRecurringScopeSelected', userMessage: 'Failed to open review modal' });
+    }
+  }, [recurringScopeDialog.pendingEvent, reviewModal, showError]);
+
+  const handleRecurringScopeClose = useCallback(() => {
+    setRecurringScopeDialog({ isOpen: false, pendingEvent: null, isLoading: false });
+  }, []);
 
   // Manual refresh handler for FreshnessIndicator
   const handleManualRefresh = useCallback(async () => {
@@ -500,7 +562,7 @@ export default function EventManagement() {
                     </div>
                     <button
                       className="em-view-details-btn"
-                      onClick={() => setSelectedEvent(event)}
+                      onClick={() => openReviewWithScopeDialog(event)}
                     >
                       View Details
                     </button>
@@ -859,6 +921,33 @@ export default function EventManagement() {
           staleData={conflictDialog.staleData}
         />
       )}
+
+      {/* Recurring Event Scope Selection Dialog (parity with Calendar et al.) */}
+      <RecurringScopeDialog
+        isOpen={recurringScopeDialog.isOpen}
+        onClose={handleRecurringScopeClose}
+        onSelectScope={handleRecurringScopeSelected}
+        eventSubject={
+          recurringScopeDialog.pendingEvent?.calendarData?.eventTitle
+          || recurringScopeDialog.pendingEvent?.eventTitle
+          || 'Recurring Event'
+        }
+        eventDate={recurringScopeDialog.pendingEvent?.calendarData?.startDate
+          ? new Date(recurringScopeDialog.pendingEvent.calendarData.startDate + 'T12:00:00').toLocaleDateString('en-US', {
+              weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+            })
+          : ''
+        }
+        isLoading={recurringScopeDialog.isLoading}
+      />
+
+      {/* Unified Review Modal (used only for recurring series masters; non-recurring
+          events use the em-details-modal above which preserves status history,
+          deletion info, and the dedicated soft-deleted-master Restore button) */}
+      <EventReviewExperience
+        experience={reviewModal}
+        title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
+      />
     </div>
   );
 }

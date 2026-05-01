@@ -179,11 +179,19 @@ When an `allEvents`-scope edit changes pattern or range such that some exception
 
 - **DL-5**: Restoring a master soft-deleted at `allEvents` scope undoes the master's soft-delete AND undoes the cascade on all children. Children return to the status they held immediately before the delete (tracked via `statusHistory[]`).
 - **DL-6**: Restoring a master does NOT remove entries from `exclusions[]`. Exclusions added BEFORE the delete stay excluded.
-- **DL-7**: There is no UI to restore a single occurrence that was deleted via `thisEvent` scope. Restoring would require removing the exclusion and undeleting the exception doc — out of scope for V1. If needed later, specify separately.
+- **DL-7**: Single-occurrence restore is supported. See section 7.7 (DL-9 / DL-10 / DL-11).
 
 ### 7.6 Idempotency
 
 - **DL-8**: Deleting an already-deleted document returns `200` with a no-op indicator, not `409`. Users should never see an error for re-deleting.
+
+### 7.7 Restoring a single occurrence
+
+- **DL-9**: A user with master-edit permission (`allEvents` scope) MAY restore a previously-excluded occurrence by removing its date from `master.recurrence.exclusions[]` via the Recurrence tab on the master. The operation flows through the standard master-update endpoint (`PUT /api/admin/events/:id` with `editScope: 'allEvents'`); no dedicated restore endpoint exists. Department-edit users (thisEvent scope only, per 6.3) MUST NOT be able to restore — the existing approver-or-higher gate on the admin PUT endpoint enforces this. If restoring would create a scheduling conflict on the restored date (a room booking made during the exclusion window), the operation MUST fail with HTTP `409` `SchedulingConflict` unless the requester is an admin and supplies `forceUpdate: true`. **Entry-point parity:** restore MUST be initiable identically from Calendar, MyReservations, ReservationRequests, and EventManagement; all four entry points route through the shared `EventReviewExperience` modal stack and present the same `RecurringScopeDialog` (per E-0 in section 6.1). Behavioral divergence between entry points is a bug.
+- **DL-10**: When an exclusion is removed via DL-9 AND a soft-deleted exception document exists for that date (i.e., the date was deleted via `thisEvent` scope per DL-1), the exception document MUST be auto-resurrected: `isDeleted` flips to `false`, `deletedAt` and `deletedBy` are unset, `_version` increments, and a `statusHistory[]` entry is pushed. The exception's `overrides` are preserved verbatim — prior customizations carry forward. This is symmetric with the resurrect-on-re-customize pattern in `_insertOccurrenceDocument` (`backend/utils/exceptionDocumentService.js:166-204`). If no soft-deleted exception exists for the date, the date returns to a plain virtual occurrence with no document materialized.
+- **DL-11**: Restore is idempotent. Removing a date that is not currently in `exclusions[]` is a `200` no-op; restoring twice is safe. Mirrors DL-8's idempotency guarantee for delete.
+
+The edit-request submit path (`POST /api/edit-requests`) retains its `EXCLUSION_REMOVAL_NOT_SUPPORTED` guard (`backend/api-server.js:20304-20314`) — requesters cannot un-cancel occurrences via edit requests. Only direct admin-PUT (DL-9) supports exclusion removal.
 
 ---
 
@@ -262,7 +270,7 @@ Each of the rules above translates to a concrete code check. Priority candidates
 - `thisAndFollowing` scope — explicitly not supported. Do not add without a new spec.
 - Per-occurrence approval / rejection — explicitly not supported (A-1).
 - Per-occurrence edit requests — explicitly not supported (A-2).
-- Single-occurrence restore UI — out of scope for V1 (DL-7).
+- (Single-occurrence restore UI moved IN scope. See section 7.7 for DL-9 / DL-10 / DL-11.)
 
 ---
 
@@ -271,3 +279,4 @@ Each of the rules above translates to a concrete code check. Priority candidates
 | Date | Change |
 |---|---|
 | 2026-04-24 | Initial spec. Decisions locked: D-0 = always add exclusion; E-1 = delete orphans (with warning); A-2 = edit requests master-only, never on exceptions; A-1 = series-atomic approval. |
+| 2026-04-30 | Added section 7.7 (DL-9, DL-10, DL-11) — single-occurrence restore via exclusion removal. DL-7 replaced with pointer. Section 11 updated. Plan: `floofy-dancing-fountain.md`. |

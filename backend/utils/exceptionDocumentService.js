@@ -689,6 +689,60 @@ async function softDeleteException(collection, seriesMasterEventId, occurrenceDa
 }
 
 /**
+ * Undelete a soft-deleted exception document for single-occurrence restore (DL-10).
+ *
+ * Symmetric counterpart to {@link softDeleteException}. Used by the master-update
+ * endpoint when an `allEvents`-scope edit removes a date from
+ * `master.recurrence.exclusions[]`. Crucially, this does NOT touch `overrides`
+ * or denormalized effective fields — the prior customization is preserved
+ * verbatim, which is what users expect when "restoring" a date.
+ *
+ * Distinct from the resurrect branch in `_insertOccurrenceDocument` (which is
+ * coupled to "I have new override data to apply"). This helper is for pure
+ * restore, where the user is undoing a delete, not re-customizing.
+ *
+ * @param {Collection} collection
+ * @param {Object} masterEvent - Series master (used for eventId derivation + status lookup)
+ * @param {string} occurrenceDate - YYYY-MM-DD
+ * @param {Object} [options]
+ * @param {string} [options.restoredBy]
+ * @param {string} [options.restoredByEmail]
+ * @returns {Promise<Object|null>} The restored document, or null if no soft-deleted exception existed
+ */
+async function undeleteExceptionForRestore(collection, masterEvent, occurrenceDate, options = {}) {
+  const now = new Date();
+  const result = await collection.findOneAndUpdate(
+    {
+      seriesMasterEventId: masterEvent.eventId,
+      occurrenceDate,
+      eventType: { $in: EXCEPTION_TYPES },
+      isDeleted: true,
+    },
+    {
+      $set: {
+        isDeleted: false,
+        status: masterEvent.status,
+        lastModifiedDateTime: now,
+        lastModifiedBy: options.restoredBy || 'system',
+      },
+      $unset: { deletedAt: '', deletedBy: '' },
+      $push: {
+        statusHistory: {
+          status: masterEvent.status,
+          changedAt: now,
+          changedBy: options.restoredBy || 'system',
+          changedByEmail: options.restoredByEmail || null,
+          reason: 'Single-occurrence restore (exclusion removed)',
+        },
+      },
+      $inc: { _version: 1 },
+    },
+    { returnDocument: 'after' }
+  );
+  return unwrapFindOneResult(result) || null;
+}
+
+/**
  * Build an override entry for a single exception/addition document.
  *
  * Preferred source: the nested `overrides` field populated by
@@ -831,6 +885,7 @@ module.exports = {
   cascadeDeleteExceptions,
   cascadeStatusUpdate,
   softDeleteException,
+  undeleteExceptionForRestore,
   resolveSeriesMaster,
   enrichSeriesMastersWithOverrides,
   reconcileOccurrenceOverrides,

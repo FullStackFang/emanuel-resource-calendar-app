@@ -33,7 +33,7 @@ const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./
 const { batchDelete } = require('./utils/batchDelete');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
 
 // Per-occurrence child documents (exception/addition) must never surface as
@@ -2239,6 +2239,117 @@ async function syncRecurrenceExclusionsToGraph(calendarOwner, calendarId, series
 
   // Addition dates are handled by syncExceptionDocumentsToGraph (addition docs)
   return results;
+}
+
+/**
+ * Best-effort Graph reconciliation for single-occurrence restore (DL-9 / DL-10).
+ *
+ * Counterpart to {@link syncRecurrenceExclusionsToGraph} — when the master's
+ * `recurrence.exclusions[]` is shrunk (a date is restored), this function
+ * attempts to bring the corresponding Graph occurrence back. Three cases:
+ *
+ *  1. No resurrected exception (clean virtual occurrence restore):
+ *     Microsoft Graph's `cancelledOccurrences` is read-only and sticky — there
+ *     is no direct "uncancel" API. Hardening this is Plan 3's responsibility.
+ *     For V1 we log a warning and return non-fatal; MongoDB state is correct
+ *     and the next master-update or pattern-change will reconcile the Graph side.
+ *
+ *  2. Resurrected exception with stored graphEventId:
+ *     Attempt to PATCH the original instance ID with the override payload. If
+ *     the instance is still addressable, success. If Graph returns 404 (the
+ *     cancellation made it unreachable), log and treat as non-fatal — Plan 3.
+ *
+ *  3. Resurrected exception without graphEventId:
+ *     Locate the Graph instance for the date via getRecurringEventInstances and
+ *     PATCH it with the override payload, persisting the new graphEventId on
+ *     the exception doc. Mirrors the discovery branch in
+ *     {@link syncExceptionDocumentsToGraph} (lines 2328-2347).
+ *
+ * NEVER throws. Always returns `{ restored, graphId?, error? }`.
+ *
+ * @param {string} calendarOwner
+ * @param {string|null} calendarId
+ * @param {string} seriesGraphId - Master's Graph event ID
+ * @param {string} occurrenceDate - YYYY-MM-DD
+ * @param {Object|null} exceptionDoc - Resurrected exception document, or null
+ * @param {string} [graphTimezone='America/New_York']
+ * @returns {Promise<{restored: boolean, graphId?: string, error?: string}>}
+ */
+async function restoreGraphOccurrence(calendarOwner, calendarId, seriesGraphId, occurrenceDate, exceptionDoc, graphTimezone = 'America/New_York') {
+  // Case 1: clean virtual restore — no exception to recreate. Graph's cancellation
+  // persists; defer to Plan 3 (Graph Sync Hardening).
+  if (!exceptionDoc) {
+    logger.warn('[restoreGraphOccurrence] clean virtual restore — Graph un-cancel deferred to Plan 3', {
+      seriesGraphId, occurrenceDate,
+    });
+    return { restored: false, error: 'graph_uncancel_clean_not_supported_v1' };
+  }
+
+  // Build the patch from the resurrected exception's effective fields/overrides
+  // (mirrors the EXCEPTION branch in syncExceptionDocumentsToGraph)
+  const patch = {};
+  const overrides = exceptionDoc.overrides || {};
+  if (overrides.eventTitle) patch.subject = overrides.eventTitle;
+  if (overrides.eventDescription !== undefined) {
+    patch.body = { contentType: 'html', content: overrides.eventDescription || '' };
+  }
+  if (exceptionDoc.startDateTime) {
+    patch.start = { dateTime: ensureSeconds(exceptionDoc.startDateTime), timeZone: graphTimezone };
+  }
+  if (exceptionDoc.endDateTime) {
+    patch.end = { dateTime: ensureSeconds(exceptionDoc.endDateTime), timeZone: graphTimezone };
+  }
+  if (overrides.categories !== undefined) patch.categories = overrides.categories;
+  if (overrides.locationDisplayNames !== undefined) {
+    const locDispName = overrides.locationDisplayNames || '';
+    patch.location = { displayName: locDispName, locationType: 'default' };
+    patch.locations = locDispName.split('; ').filter(Boolean)
+      .map(name => ({ displayName: name, locationType: 'default' }));
+  }
+
+  // Case 2: stored graphEventId — try direct PATCH
+  if (exceptionDoc.graphEventId) {
+    try {
+      await graphApiService.updateCalendarEvent(calendarOwner, calendarId, exceptionDoc.graphEventId, patch);
+      return { restored: true, graphId: exceptionDoc.graphEventId };
+    } catch (err) {
+      logger.warn('[restoreGraphOccurrence] PATCH on stored graphEventId failed (likely cancelled-instance unreachable; defer to Plan 3)', {
+        seriesGraphId, occurrenceDate, graphEventId: exceptionDoc.graphEventId, error: err.message,
+      });
+      return { restored: false, error: err.message };
+    }
+  }
+
+  // Case 3: discover instance and PATCH
+  try {
+    const dayStart = `${occurrenceDate}T00:00:00`;
+    const dayEnd = `${occurrenceDate}T23:59:59`;
+    const instances = await graphApiService.getRecurringEventInstances(
+      calendarOwner, calendarId, seriesGraphId, dayStart, dayEnd
+    );
+    const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+    const match = instanceList.find(inst => inst.start?.dateTime?.startsWith(occurrenceDate));
+    if (!match) {
+      logger.warn('[restoreGraphOccurrence] no Graph instance found for restored date (cancellation likely sticky; defer to Plan 3)', {
+        seriesGraphId, occurrenceDate,
+      });
+      return { restored: false, error: 'no_matching_graph_instance' };
+    }
+    if (Object.keys(patch).length > 0) {
+      await graphApiService.updateCalendarEvent(calendarOwner, calendarId, match.id, patch);
+    }
+    // Persist the discovered graphEventId so future syncs go through Case 2
+    await unifiedEventsCollection.updateOne(
+      { _id: exceptionDoc._id },
+      { $set: { graphEventId: match.id } }
+    );
+    return { restored: true, graphId: match.id };
+  } catch (err) {
+    logger.warn('[restoreGraphOccurrence] discover-and-PATCH failed', {
+      seriesGraphId, occurrenceDate, error: err.message,
+    });
+    return { restored: false, error: err.message };
+  }
 }
 
 // syncOccurrenceOverridesToGraph — REMOVED
@@ -13993,8 +14104,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       body_occurrenceOverrides: req.body.occurrenceOverrides,
       body_recurrence_exclusions: req.body.recurrence && req.body.recurrence.exclusions,
       body_clearOccurrenceOverrides: req.body.clearOccurrenceOverrides,
+      existing_eventType: existingDraft.eventType,
       existing_calendarData_occurrenceOverrides: existingDraft.calendarData && existingDraft.calendarData.occurrenceOverrides,
       existing_recurrence_exclusions: existingDraft.recurrence && existingDraft.recurrence.exclusions,
+      willCallReconcile: Array.isArray(req.body.occurrenceOverrides)
+                          && existingDraft.eventType === 'seriesMaster',
     });
 
     // Validate ownership
@@ -22363,6 +22477,124 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // ─── Restore block (DL-9 / DL-10 / DL-11) ───────────────────────────────
+    // When an `allEvents`-scope edit shrinks `recurrence.exclusions[]`, detect
+    // the removed dates and run the restore sequence atomically:
+    //   1. Compute removed dates via exclusionsRemoved()
+    //   2. Drop dates no longer in the new pattern range (R-10 / C-3)
+    //   3. Detect soft-deleted exceptions per date
+    //   4. Run conflict detection on each restored date's effective times
+    //   5. If any conflict and !forceUpdate: 409, NO state mutated (atomic)
+    //   6. For each remaining date: call undeleteExceptionForRestore() (DL-10)
+    //   7. Best-effort Graph reconcile (Plan 3 hardens to transactional)
+    //   8. Push statusHistory entries on master per restored date
+    //   9. Track restoredOccurrences for response
+    let restoredOccurrences = [];
+    const isAllEventsMasterRestore = event.eventType === 'seriesMaster'
+      && (editScope === 'allEvents' || !editScope)
+      && updates.recurrence?.pattern && updates.recurrence?.range
+      && event.recurrence;
+    if (isAllEventsMasterRestore) {
+      const removedDates = exclusionsRemoved(event.recurrence, updates.recurrence);
+      if (removedDates.length > 0) {
+        const newRange = updates.recurrence.range;
+        const inRangeRemovedDates = removedDates.filter(d =>
+          (!newRange.startDate || d >= newRange.startDate)
+          && (!newRange.endDate || d <= newRange.endDate)
+        );
+
+        // Detect soft-deleted exceptions per date (used for both conflict detection and resurrection)
+        const exceptionByDate = {};
+        for (const date of inRangeRemovedDates) {
+          const exc = await unifiedEventsCollection.findOne({
+            seriesMasterEventId: event.eventId,
+            occurrenceDate: date,
+            eventType: { $in: ['exception', 'addition'] },
+            isDeleted: true,
+          });
+          if (exc) exceptionByDate[date] = exc;
+        }
+
+        // Conflict detection — atomic pre-check (no state mutated yet)
+        if (!updates.forceUpdate) {
+          const conflictDates = [];
+          for (const date of inRangeRemovedDates) {
+            const exc = exceptionByDate[date];
+            const startTime = exc?.overrides?.startTime || cd.startTime;
+            const endTime = exc?.overrides?.endTime || cd.endTime;
+            if (!startTime || !endTime) continue;
+            const startDt = `${date}T${startTime}:00`;
+            const endDt = `${date}T${endTime}:00`;
+            const rawLocs = exc?.overrides?.locations || cd.locations || [];
+            const locs = rawLocs.map(r => r instanceof ObjectId
+              ? r
+              : (ObjectId.isValid(r) ? new ObjectId(r) : r));
+            if (locs.length === 0) continue;
+            const reservationForConflict = {
+              startDateTime: startDt,
+              endDateTime: endDt,
+              setupTimeMinutes: cd.setupTimeMinutes ?? 0,
+              teardownTimeMinutes: cd.teardownTimeMinutes ?? 0,
+              calendarData: { locations: locs },
+              isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+              categories: cd.categories || [],
+            };
+            try {
+              const { hardConflicts } = await checkRoomConflicts(reservationForConflict, id);
+              if (hardConflicts && hardConflicts.length > 0) {
+                conflictDates.push({ date, hardConflicts });
+              }
+            } catch (err) {
+              logger.warn('Non-fatal: conflict check failed during restore pre-check', { date, error: err.message });
+            }
+          }
+          if (conflictDates.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'hard',
+              message: `Cannot restore: ${conflictDates.length} date(s) have scheduling conflicts`,
+              conflicts: conflictDates,
+              canForce: true,
+              forceField: 'forceUpdate',
+              _version: event._version,
+            });
+          }
+        }
+
+        // Apply: undelete + best-effort Graph reconcile per date
+        for (const date of inRangeRemovedDates) {
+          const restoredExc = await undeleteExceptionForRestore(
+            unifiedEventsCollection, event, date,
+            { restoredBy: userEmail, restoredByEmail: userEmail }
+          );
+          let graphReconciled = false;
+          if (restoredExc && event.graphData?.id) {
+            const graphResult = await restoreGraphOccurrence(
+              event.calendarOwner, event.calendarId, event.graphData.id,
+              date, restoredExc, event.graphData?.start?.timeZone || 'America/New_York'
+            );
+            graphReconciled = graphResult.restored;
+          }
+          restoredOccurrences.push({ date, hadException: !!restoredExc, graphReconciled });
+        }
+
+        // Master statusHistory entries — one per restored date
+        if (inRangeRemovedDates.length > 0) {
+          const now = new Date();
+          const historyEntries = inRangeRemovedDates.map(d => ({
+            status: event.status,
+            changedAt: now,
+            changedBy: userEmail,
+            reason: `Occurrence restored: ${d}`,
+          }));
+          await unifiedEventsCollection.updateOne(
+            { _id: event._id },
+            { $push: { statusHistory: { $each: historyEntries } } }
+          );
+        }
+      }
+    }
+
     // DEBUG: Always log Graph sync decision
     logger.info('=== GRAPH SYNC GATE CHECK ===', {
       storedGraphEventId: storedGraphEventId || 'MISSING',
@@ -23211,7 +23443,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       changeKey: newChangeKey,
       _version: updatedEventDoc._version,
       graphSynced: !!graphSyncResult,
-      message: 'Event updated successfully'
+      message: 'Event updated successfully',
+      ...(restoredOccurrences.length > 0 ? { restoredOccurrences } : {}),
     });
 
     broadcastEventChange({

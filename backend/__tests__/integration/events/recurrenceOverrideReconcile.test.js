@@ -526,4 +526,75 @@ describe('Recurrence Override Reconcile (ROR-1 to ROR-5)', () => {
       expect(exceptionAfter.isDeleted).not.toBe(true);
     });
   });
+
+  describe('ROR-13: full draft round-trip — POST recurring draft, PUT with bare-marker override', () => {
+    it('persists the customization through the real /draft endpoints (user-reported flow)', async () => {
+      // End-to-end repro of the user-reported bug:
+      //   1. Create a recurring draft via POST /api/room-reservations/draft
+      //   2. PUT the draft with occurrenceOverrides: [{ occurrenceDate: 'YYYY-MM-DD' }]
+      //      (the bare-marker payload from the [DIAG-RECUR] diagnostic — what
+      //      the Recurrence-tab "Customize" popover sends).
+      //   3. Assert an exception document exists for that date.
+      //
+      // Failure of this test signals the gate at api-server.js:14165 is
+      // bypassing reconcileOccurrenceOverrides and the customization is being
+      // silently dropped on save.
+      const requesterToken = await createMockToken(requesterUser);
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1 },
+        range: { type: 'endDate', startDate: '2026-04-20', endDate: '2026-04-25' },
+        additions: [],
+        exclusions: [],
+      };
+
+      const createRes = await request(app)
+        .post('/api/room-reservations/draft')
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          eventTitle: 'User-Reported Bug Repro',
+          startDate: '2026-04-20',
+          endDate: '2026-04-20',
+          startTime: '14:00',
+          endTime: '15:00',
+          attendeeCount: 5,
+          requestedRooms: [String(locationA._id)],
+          categories: ['Meeting'],
+          recurrence,
+        });
+
+      expect(createRes.status).toBe(201);
+      const draft = createRes.body;
+      expect(draft._id).toBeDefined();
+
+      const putRes = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'User-Reported Bug Repro',
+          startDate: '2026-04-20',
+          endDate: '2026-04-20',
+          startTime: '14:00',
+          endTime: '15:00',
+          attendeeCount: 5,
+          requestedRooms: [String(locationA._id)],
+          categories: ['Meeting'],
+          recurrence,
+          occurrenceOverrides: [
+            { occurrenceDate: '2026-04-23' },
+          ],
+        });
+
+      expect(putRes.status).toBe(200);
+
+      const exceptionAfter = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: draft.eventId,
+        occurrenceDate: '2026-04-23',
+        eventType: 'exception',
+      });
+      expect(exceptionAfter).not.toBeNull();
+      expect(exceptionAfter.isDeleted).not.toBe(true);
+    });
+  });
 });

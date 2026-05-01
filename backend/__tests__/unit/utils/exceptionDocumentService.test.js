@@ -23,6 +23,7 @@ const {
   cascadeDeleteExceptions,
   cascadeStatusUpdate,
   softDeleteException,
+  undeleteExceptionForRestore,
   enrichSeriesMastersWithOverrides,
 } = require('../../../utils/exceptionDocumentService');
 
@@ -392,6 +393,112 @@ describe('softDeleteException', () => {
   it('EDS-22: should return null when no exception exists for date', async () => {
     const result = await softDeleteException(collection, master.eventId, '2026-03-17');
     expect(result).toBeNull();
+  });
+});
+
+// ─── undeleteExceptionForRestore (DL-10 sequel — single-occurrence restore) ──
+
+describe('undeleteExceptionForRestore', () => {
+  it('EDS-RES-1: returns null when no exception document exists for the date', async () => {
+    const result = await undeleteExceptionForRestore(
+      collection,
+      master,
+      '2026-03-17',
+      { restoredBy: 'admin', restoredByEmail: 'admin@emanuelnyc.org' }
+    );
+    expect(result).toBeNull();
+  });
+
+  it('EDS-RES-2: returns null when the exception exists but is not soft-deleted (idempotent)', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { eventTitle: 'Special' });
+
+    const result = await undeleteExceptionForRestore(
+      collection,
+      master,
+      '2026-03-17',
+      { restoredBy: 'admin', restoredByEmail: 'admin@emanuelnyc.org' }
+    );
+
+    expect(result).toBeNull();
+
+    // Document should remain untouched — overrides intact, isDeleted still false
+    const stored = await findExceptionForDate(collection, master.eventId, '2026-03-17');
+    expect(stored.isDeleted).not.toBe(true);
+    expect(stored.overrides.eventTitle).toBe('Special');
+  });
+
+  it('EDS-RES-3: resurrects a soft-deleted exception, preserves overrides, increments version, pushes audit', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', {
+      eventTitle: 'Special',
+      startTime: '14:00',
+    });
+    const beforeDelete = await findExceptionForDate(collection, master.eventId, '2026-03-17');
+    const versionBeforeDelete = beforeDelete._version;
+
+    // Simulate the post-DL-1 state: exception soft-deleted
+    await softDeleteException(collection, master.eventId, '2026-03-17', {
+      deletedBy: 'admin@emanuelnyc.org',
+      reason: 'thisEvent delete',
+    });
+
+    const restored = await undeleteExceptionForRestore(
+      collection,
+      master,
+      '2026-03-17',
+      { restoredBy: 'admin', restoredByEmail: 'admin@emanuelnyc.org' }
+    );
+
+    expect(restored).not.toBeNull();
+    expect(restored.isDeleted).toBe(false);
+    expect(restored.deletedAt).toBeUndefined();
+    expect(restored.deletedBy).toBeUndefined();
+
+    // Overrides preserved verbatim
+    expect(restored.overrides.eventTitle).toBe('Special');
+    expect(restored.overrides.startTime).toBe('14:00');
+
+    // Version monotonically increased across delete + restore
+    expect(restored._version).toBeGreaterThan(versionBeforeDelete);
+
+    // Audit trail records the restore
+    const lastEntry = restored.statusHistory[restored.statusHistory.length - 1];
+    expect(lastEntry.changedByEmail).toBe('admin@emanuelnyc.org');
+    expect(lastEntry.reason).toMatch(/restore/i);
+  });
+
+  it('EDS-RES-4: does NOT mutate denormalized effective fields when resurrecting', async () => {
+    await createExceptionDocument(collection, master, '2026-03-17', { eventTitle: 'Special' });
+    const beforeDelete = await findExceptionForDate(collection, master.eventId, '2026-03-17');
+    const cdBeforeDelete = beforeDelete.calendarData;
+    const titleBeforeDelete = beforeDelete.eventTitle;
+
+    await softDeleteException(collection, master.eventId, '2026-03-17', { deletedBy: 'admin' });
+
+    const restored = await undeleteExceptionForRestore(
+      collection,
+      master,
+      '2026-03-17',
+      { restoredBy: 'admin', restoredByEmail: 'admin@emanuelnyc.org' }
+    );
+
+    // calendarData and top-level eventTitle untouched
+    expect(restored.calendarData).toEqual(cdBeforeDelete);
+    expect(restored.eventTitle).toBe(titleBeforeDelete);
+  });
+
+  it('EDS-RES-5: status returns to the previous (pre-delete) status, recorded via statusHistory', async () => {
+    // Master is `published` (set in beforeEach), so the resurrected status should be `published`
+    await createExceptionDocument(collection, master, '2026-03-17', { eventTitle: 'Special' });
+    await softDeleteException(collection, master.eventId, '2026-03-17', { deletedBy: 'admin' });
+
+    const restored = await undeleteExceptionForRestore(
+      collection,
+      master,
+      '2026-03-17',
+      { restoredBy: 'admin', restoredByEmail: 'admin@emanuelnyc.org' }
+    );
+
+    expect(restored.status).toBe('published');
   });
 });
 
