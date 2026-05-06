@@ -1,15 +1,16 @@
 // src/__tests__/unit/components/MyReservations.recurrenceParity.test.jsx
 //
-// R-12 (entry-point parity): MyReservations must present the same
-// RecurringScopeDialog as Calendar when the user clicks View Details on a
-// recurring series master. Without this gate, list-view clicks silently
-// defaulted to `allEvents` scope, hiding the thisEvent path and breaking
-// parity with Calendar's well-tested flow.
+// R-12 (entry-point parity): MyReservations operates at the request/series
+// level. View Details on a recurring series master MUST open the review modal
+// directly with editScope: 'allEvents' — the RecurringScopeDialog does NOT
+// appear here. The thisEvent scope is reachable only through the inline
+// Recurrence Exceptions table on the same card (covered separately in
+// MyReservations.recurringCard.test.jsx).
 //
-// Companion tests for ReservationRequests and EventManagement live alongside
-// (recurrenceParity.test.jsx in each). The isRecurringSeriesMaster helper is
-// duplicated identically across the three components — a future refactor can
-// hoist it into a shared util once the audit-plan's Plan 2 lands.
+// This mirrors the parity contract enforced by ReservationRequests.jsx (R-13).
+// Only Calendar (where users click an occurrence on a date cell) presents the
+// thisEvent vs allEvents choice — that ambiguity does not exist when clicking
+// a request from a list.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -193,7 +194,7 @@ describe('MyReservations recurrence-parity (R-12)', () => {
     openModalSpy.mockReset();
   });
 
-  it('R-12a: View Details on a singleInstance event opens the modal directly (no scope dialog)', async () => {
+  it('R-12a: View Details on a singleInstance event opens the modal directly with no editScope option', async () => {
     mountWithEvents([singleEvent]);
     render(<MyReservations />);
 
@@ -201,64 +202,69 @@ describe('MyReservations recurrence-parity (R-12)', () => {
       expect(screen.getByText('One-Off Concert')).toBeInTheDocument();
     });
 
-    const viewDetailsBtn = screen.getByRole('button', { name: /view details/i });
-    fireEvent.click(viewDetailsBtn);
-
-    // Modal opened directly with the reservation; no scope dialog rendered
-    expect(openModalSpy).toHaveBeenCalledTimes(1);
-    expect(openModalSpy).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-single' }));
-    // RecurringScopeDialog should NOT be open — its dialog has role=dialog or contains 'Edit Recurring Event'
-    expect(screen.queryByText(/this event only/i)).toBeNull();
-    expect(screen.queryByText(/all events in the series/i)).toBeNull();
-  });
-
-  it('R-12b: View Details on a seriesMaster opens the RecurringScopeDialog instead of calling openModal directly', async () => {
-    mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Weekly Yoga')).toBeInTheDocument();
-    });
-
-    const viewDetailsBtn = screen.getByRole('button', { name: /view details/i });
-    fireEvent.click(viewDetailsBtn);
-
-    // Critical parity assertion: modal NOT opened directly
-    expect(openModalSpy).not.toHaveBeenCalled();
-
-    // Scope dialog now visible — assert by the unique "Continue" button which
-    // only the RecurringScopeDialog renders.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument();
-    });
-    // And the radio options for both scopes are present
-    expect(screen.getByText('This event only')).toBeInTheDocument();
-    expect(screen.getByText('All events in the series')).toBeInTheDocument();
-  });
-
-  it('R-12c: choosing All Events in the dialog calls openModal with editScope: allEvents', async () => {
-    mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Weekly Yoga')).toBeInTheDocument();
-    });
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^continue$/i })).toBeInTheDocument();
-    });
-
-    // Select "All events in the series" then click Continue
-    const allEventsRadio = screen.getByRole('radio', { name: /all events in the series/i });
-    fireEvent.click(allEventsRadio);
-    fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
 
     await waitFor(() => {
       expect(openModalSpy).toHaveBeenCalledTimes(1);
     });
-    expect(openModalSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ eventId: 'evt-series' }),
-      expect.objectContaining({ editScope: 'allEvents' })
-    );
+    const [openedEvent, openedOptions] = openModalSpy.mock.calls[0];
+    expect(openedEvent.eventId).toBe('evt-single');
+    expect(openedOptions).toBeUndefined();
+
+    // No scope dialog rendered
+    expect(screen.queryByText(/this event only/i)).toBeNull();
+    expect(screen.queryByText(/all events in the series/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+  });
+
+  it('R-12b: View Details on a seriesMaster opens the modal directly with editScope: allEvents (no scope dialog)', async () => {
+    mountWithEvents([seriesMasterEvent]);
+    render(<MyReservations />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Weekly Yoga')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    // Critical parity assertion: modal opens directly with editScope: 'allEvents'
+    await waitFor(() => {
+      expect(openModalSpy).toHaveBeenCalledTimes(1);
+    });
+    const [openedEvent, openedOptions] = openModalSpy.mock.calls[0];
+    expect(openedEvent._id).toBe('evt-series');
+    expect(openedOptions).toEqual({ editScope: 'allEvents' });
+
+    // The instance-level choice is NOT presented at the master level
+    expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('This event only')).not.toBeInTheDocument();
+    expect(screen.queryByText('All events in the series')).not.toBeInTheDocument();
+  });
+
+  it('R-12c: View Details on a recurring event detected via recurrence.pattern (no eventType) also opens with editScope: allEvents', async () => {
+    // Defensive case: legacy/edge events that lack eventType but have a
+    // populated recurrence block must still be treated as series masters by
+    // the isRecurringSeriesMaster helper.
+    const legacyMaster = {
+      ...seriesMasterEvent,
+      _id: 'evt-legacy',
+      eventId: 'evt-legacy',
+      eventTitle: 'Legacy Recurring Class',
+      eventType: undefined,
+    };
+    mountWithEvents([legacyMaster]);
+    render(<MyReservations />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Legacy Recurring Class')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(openModalSpy).toHaveBeenCalledTimes(1);
+    });
+    const [, openedOptions] = openModalSpy.mock.calls[0];
+    expect(openedOptions).toEqual({ editScope: 'allEvents' });
   });
 });
