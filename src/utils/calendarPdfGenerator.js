@@ -519,10 +519,6 @@ export function generateCalendarPdf({
     }
 
     y += rowHeight;
-
-    doc.setDrawColor(...colors.border);
-    doc.setLineWidth(0.1);
-    doc.line(spacing.margin, y - 1, pageWidth - spacing.margin, y - 1);
   }
 
   // Total results

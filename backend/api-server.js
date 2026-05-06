@@ -47,6 +47,7 @@ const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 let graphApiService = require('./services/graphApiService');
+const rschedImportService = require('./services/rschedImportService');
 const sseService = require('./services/sseService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true (see utils/performanceMetrics.js)
 const crypto = require('crypto');
@@ -417,6 +418,7 @@ let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 let editRequestsCollection; // First-class change requests against published events
+let rschedImportStagingCollection; // Staging rows for admin-driven rsched CSV imports
 
 // --- Test injection: allows tests to provide a MongoDB Memory Server db ---
 function setDatabase(injectedDb) {
@@ -438,6 +440,7 @@ function setDatabase(injectedDb) {
   reservationAttachmentsCollection = injectedDb.collection('templeEvents__ReservationAttachments');
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
   editRequestsCollection = injectedDb.collection('templeEvents__EditRequests');
+  rschedImportStagingCollection = injectedDb.collection(rschedImportService.STAGING_COLLECTION);
   filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
   emailService.setDbConnection(injectedDb);
   emailTemplates.setDbConnection(injectedDb);
@@ -3323,6 +3326,7 @@ async function connectToDatabase() {
     reservationAttachmentsCollection = withRetryCollection(db.collection('templeEvents__ReservationAttachments'));
     systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
     editRequestsCollection = withRetryCollection(db.collection('templeEvents__EditRequests'));
+    rschedImportStagingCollection = withRetryCollection(db.collection(rschedImportService.STAGING_COLLECTION));
 
     // Initialize email service with database connection
     emailService.setDbConnection(db);
@@ -11737,6 +11741,583 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
     } catch (resError) {
       logger.error('Error writing error response:', resError);
     }
+  }
+});
+
+// =============================================================================
+// rsched CSV Import — admin-driven, staged, idempotent, app-only Graph publish.
+// Service module: backend/services/rschedImportService.js
+// Frontend page:  src/components/admin/RschedImport.jsx
+// =============================================================================
+
+const RSCHED_STAGING_INDEXES_DEFERRED = { ensured: false };
+async function ensureRschedStagingIndexes() {
+  if (RSCHED_STAGING_INDEXES_DEFERRED.ensured) return;
+  if (!rschedImportStagingCollection) return;
+  try {
+    await rschedImportStagingCollection.createIndex({ sessionId: 1 });
+    await rschedImportStagingCollection.createIndex({ sessionId: 1, status: 1 });
+    await rschedImportStagingCollection.createIndex(
+      { uploadedAt: 1 },
+      { expireAfterSeconds: 30 * 24 * 60 * 60 },
+    );
+    RSCHED_STAGING_INDEXES_DEFERRED.ensured = true;
+  } catch (err) {
+    logger.warn('Failed to create rsched staging indexes:', err.message);
+  }
+}
+
+async function requireAdminUser(req, res) {
+  const userId = req.user.userId;
+  const userEmail = req.user.email;
+  const user = await getCachedUser(userId);
+  if (!isAdmin(user, userEmail)) {
+    res.status(403).json({ error: 'Admin access required' });
+    return null;
+  }
+  return { userId, userEmail };
+}
+
+/**
+ * Upload a CSV — parses, resolves locations, persists staging rows.
+ * multipart: file, calendarOwner, dateRangeStart, dateRangeEnd
+ */
+app.post('/api/admin/rsched-import/upload', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    if (!req.file) return res.status(400).json({ error: 'No CSV file uploaded' });
+
+    const { calendarOwner, calendarId, dateRangeStart, dateRangeEnd } = req.body;
+    if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
+    if (!dateRangeStart || !dateRangeEnd) {
+      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required' });
+    }
+    if (!isAllowedCalendarOwner(calendarOwner)) {
+      return res.status(403).json({ error: 'Access to this calendar is not permitted' });
+    }
+
+    await ensureRschedStagingIndexes();
+
+    const calendarIdResolved = calendarId || getCalendarConfig()[calendarOwner] || null;
+    const { rows: parsed, parseErrors } = await rschedImportService.parseCsv(req.file.buffer);
+    const { rows, unmatchedKeys } = await rschedImportService.resolveLocations(parsed, locationsCollection);
+
+    const sessionId = `rsched-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const uploadedAt = new Date();
+    const ctx = {
+      sessionId,
+      uploadedBy: auth.userId,
+      uploadedAt,
+      calendarOwner: calendarOwner.toLowerCase(),
+      calendarId: calendarIdResolved,
+      csvFilename: req.file.originalname || 'upload.csv',
+      dateRangeStart,
+      dateRangeEnd,
+    };
+
+    const stagingDocs = rows.map((row) => rschedImportService.buildStagingDoc(row, ctx));
+    if (stagingDocs.length > 0) {
+      await rschedImportStagingCollection.insertMany(stagingDocs, { ordered: false });
+    }
+
+    const statusBreakdown = stagingDocs.reduce((acc, d) => {
+      acc[d.status] = (acc[d.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      sessionId,
+      rowCount: stagingDocs.length,
+      statusBreakdown,
+      unmatchedLocationCodes: [...unmatchedKeys],
+      parseErrors,
+      filename: ctx.csvFilename,
+    });
+  } catch (err) {
+    logger.error('rsched-import upload error:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload CSV' });
+  }
+});
+
+/**
+ * List sessions (most recent first) with summary counts.
+ */
+app.get('/api/admin/rsched-import/sessions', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+
+    const sessions = await rschedImportStagingCollection
+      .aggregate([
+        {
+          $group: {
+            _id: '$sessionId',
+            uploadedAt: { $first: '$uploadedAt' },
+            uploadedBy: { $first: '$uploadedBy' },
+            calendarOwner: { $first: '$calendarOwner' },
+            calendarId: { $first: '$calendarId' },
+            csvFilename: { $first: '$csvFilename' },
+            dateRangeStart: { $first: '$dateRangeStart' },
+            dateRangeEnd: { $first: '$dateRangeEnd' },
+            rowCount: { $sum: 1 },
+            statuses: { $push: '$status' },
+          },
+        },
+        { $sort: { uploadedAt: -1 } },
+        { $limit: 50 },
+      ])
+      .toArray();
+
+    const formatted = sessions.map((s) => {
+      const breakdown = s.statuses.reduce((acc, st) => {
+        acc[st] = (acc[st] || 0) + 1;
+        return acc;
+      }, {});
+      const { statuses, _id, ...rest } = s;
+      return { sessionId: _id, statusBreakdown: breakdown, ...rest };
+    });
+    res.json({ sessions: formatted });
+  } catch (err) {
+    logger.error('rsched-import sessions list error:', err);
+    res.status(500).json({ error: 'Failed to list sessions' });
+  }
+});
+
+/**
+ * Get a single session's metadata.
+ */
+app.get('/api/admin/rsched-import/sessions/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const sample = await rschedImportStagingCollection.findOne({ sessionId });
+    if (!sample) return res.status(404).json({ error: 'Session not found' });
+    const rowCount = await rschedImportStagingCollection.countDocuments({ sessionId });
+    const breakdownAgg = await rschedImportStagingCollection
+      .aggregate([{ $match: { sessionId } }, { $group: { _id: '$status', count: { $sum: 1 } } }])
+      .toArray();
+    const statusBreakdown = breakdownAgg.reduce((acc, b) => {
+      acc[b._id] = b.count;
+      return acc;
+    }, {});
+    res.json({
+      sessionId,
+      uploadedAt: sample.uploadedAt,
+      uploadedBy: sample.uploadedBy,
+      calendarOwner: sample.calendarOwner,
+      calendarId: sample.calendarId,
+      csvFilename: sample.csvFilename,
+      dateRangeStart: sample.dateRangeStart,
+      dateRangeEnd: sample.dateRangeEnd,
+      rowCount,
+      statusBreakdown,
+    });
+  } catch (err) {
+    logger.error('rsched-import session detail error:', err);
+    res.status(500).json({ error: 'Failed to load session' });
+  }
+});
+
+/**
+ * Get rows for a session — supports search, status filter, pagination.
+ */
+app.get('/api/admin/rsched-import/sessions/:sessionId/rows', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const { search = '', status = '', page = '1', pageSize = '50' } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const pageSz = Math.min(200, Math.max(1, parseInt(pageSize, 10)));
+    const filter = { sessionId };
+    if (status) filter.status = status;
+    if (search) {
+      filter.$or = [
+        { eventTitle: { $regex: search, $options: 'i' } },
+        { eventDescription: { $regex: search, $options: 'i' } },
+        { locationDisplayNames: { $regex: search, $options: 'i' } },
+        { rsKey: { $regex: search, $options: 'i' } },
+      ];
+    }
+    const total = await rschedImportStagingCollection.countDocuments(filter);
+    const rows = await rschedImportStagingCollection
+      .find(filter)
+      .sort({ rowNumber: 1 })
+      .skip((pageNum - 1) * pageSz)
+      .limit(pageSz)
+      .toArray();
+    res.json({ total, page: pageNum, pageSize: pageSz, rows });
+  } catch (err) {
+    logger.error('rsched-import rows list error:', err);
+    res.status(500).json({ error: 'Failed to list rows' });
+  }
+});
+
+const EDITABLE_ROW_FIELDS = [
+  'eventTitle',
+  'eventDescription',
+  'startDate',
+  'startTime',
+  'endDate',
+  'endTime',
+  'isAllDay',
+  'categories',
+  'locationIds',
+  'locationDisplayNames',
+  'requesterEmail',
+  'requesterName',
+  'forceApply',
+];
+
+/**
+ * Edit a staging row.
+ */
+app.put('/api/admin/rsched-import/sessions/:sessionId/rows/:rowId', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId, rowId } = req.params;
+    if (!ObjectId.isValid(rowId)) return res.status(400).json({ error: 'Invalid rowId' });
+
+    const update = {};
+    for (const f of EDITABLE_ROW_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(req.body, f)) {
+        if (f === 'locationIds' && Array.isArray(req.body[f])) {
+          update[f] = req.body[f]
+            .map((id) => (ObjectId.isValid(id) ? new ObjectId(id) : null))
+            .filter(Boolean);
+        } else {
+          update[f] = req.body[f];
+        }
+      }
+    }
+
+    // Recompute startDateTime/endDateTime if any of the date/time pieces moved.
+    const existing = await rschedImportStagingCollection.findOne({
+      _id: new ObjectId(rowId),
+      sessionId,
+    });
+    if (!existing) return res.status(404).json({ error: 'Row not found' });
+
+    const sd = update.startDate ?? existing.startDate;
+    const st = update.startTime ?? existing.startTime;
+    const ed = update.endDate ?? existing.endDate;
+    const et = update.endTime ?? existing.endTime;
+    update.startDateTime = `${sd}T${st}:00`;
+    update.endDateTime = `${ed}T${et}:00`;
+    update.editedAt = new Date();
+    update.editedBy = auth.userId;
+
+    await rschedImportStagingCollection.updateOne(
+      { _id: new ObjectId(rowId), sessionId },
+      { $set: update },
+    );
+    const updated = await rschedImportStagingCollection.findOne({ _id: new ObjectId(rowId) });
+    res.json({ success: true, row: updated });
+  } catch (err) {
+    logger.error('rsched-import row edit error:', err);
+    res.status(500).json({ error: 'Failed to edit row' });
+  }
+});
+
+/**
+ * Mark a row as skipped (or restore it from skipped to staged).
+ */
+app.put('/api/admin/rsched-import/sessions/:sessionId/rows/:rowId/skip', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId, rowId } = req.params;
+    const { skip } = req.body; // boolean — true to skip, false to unskip
+    if (!ObjectId.isValid(rowId)) return res.status(400).json({ error: 'Invalid rowId' });
+    const targetStatus = skip
+      ? rschedImportService.STAGING_STATUS.SKIPPED
+      : rschedImportService.STAGING_STATUS.STAGED;
+    await rschedImportStagingCollection.updateOne(
+      { _id: new ObjectId(rowId), sessionId },
+      { $set: { status: targetStatus, editedAt: new Date(), editedBy: auth.userId } },
+    );
+    const updated = await rschedImportStagingCollection.findOne({ _id: new ObjectId(rowId) });
+    res.json({ success: true, row: updated });
+  } catch (err) {
+    logger.error('rsched-import row skip error:', err);
+    res.status(500).json({ error: 'Failed to skip row' });
+  }
+});
+
+/**
+ * Validate session — runs conflict detection and removal detection.
+ */
+app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const sample = await rschedImportStagingCollection.findOne({ sessionId });
+    if (!sample) return res.status(404).json({ error: 'Session not found' });
+
+    const rows = await rschedImportStagingCollection
+      .find({
+        sessionId,
+        status: {
+          $in: [
+            rschedImportService.STAGING_STATUS.STAGED,
+            rschedImportService.STAGING_STATUS.CONFLICT,
+            rschedImportService.STAGING_STATUS.UNMATCHED_LOCATION,
+          ],
+        },
+      })
+      .toArray();
+
+    let conflictCount = 0;
+    let resetCount = 0;
+    for (const row of rows) {
+      const hadConflict = row.status === rschedImportService.STAGING_STATUS.CONFLICT;
+      if (!row.locationIds || row.locationIds.length === 0) {
+        if (hadConflict) {
+          await rschedImportStagingCollection.updateOne(
+            { _id: row._id },
+            { $set: { status: rschedImportService.STAGING_STATUS.STAGED, conflictReason: null, conflictDetails: null } },
+          );
+          resetCount++;
+        }
+        continue;
+      }
+      const candidate = {
+        startDateTime: row.startDateTime,
+        endDateTime: row.endDateTime,
+        calendarData: {
+          startDateTime: row.startDateTime,
+          endDateTime: row.endDateTime,
+          locations: row.locationIds,
+        },
+      };
+      const conflictResult = await checkRoomConflicts(candidate, null);
+      const hardConflicts = (conflictResult?.hardConflicts || []).filter(
+        (c) => c.eventId !== `rssched-${row.rsId}`,
+      );
+      if (hardConflicts.length > 0) {
+        await rschedImportStagingCollection.updateOne(
+          { _id: row._id },
+          {
+            $set: {
+              status: rschedImportService.STAGING_STATUS.CONFLICT,
+              conflictReason: `${hardConflicts.length} hard conflict(s)`,
+              conflictDetails: hardConflicts.map((c) => ({
+                eventId: c.eventId,
+                eventTitle: c.eventTitle || c.calendarData?.eventTitle,
+                startDateTime: c.startDateTime || c.calendarData?.startDateTime,
+                endDateTime: c.endDateTime || c.calendarData?.endDateTime,
+              })),
+            },
+          },
+        );
+        conflictCount++;
+      } else if (hadConflict) {
+        await rschedImportStagingCollection.updateOne(
+          { _id: row._id },
+          { $set: { status: rschedImportService.STAGING_STATUS.STAGED, conflictReason: null, conflictDetails: null } },
+        );
+        resetCount++;
+      }
+    }
+
+    const presentRsIds = await rschedImportStagingCollection
+      .find({ sessionId, status: { $ne: rschedImportService.STAGING_STATUS.SKIPPED } })
+      .project({ rsId: 1 })
+      .toArray();
+    const removed = await rschedImportService.detectRemovedRsIds(
+      db,
+      {
+        calendarOwner: sample.calendarOwner,
+        dateRangeStart: sample.dateRangeStart,
+        dateRangeEnd: sample.dateRangeEnd,
+      },
+      presentRsIds.map((r) => r.rsId),
+    );
+
+    res.json({ success: true, conflictCount, resetCount, removedCandidates: removed });
+  } catch (err) {
+    logger.error('rsched-import validate error:', err);
+    res.status(500).json({ error: 'Failed to validate session' });
+  }
+});
+
+/**
+ * Commit session — apply all non-skipped rows, optionally delete listed events.
+ * body: { forceConflicts?: boolean, deleteRsIds?: number[] }
+ */
+app.post('/api/admin/rsched-import/sessions/:sessionId/commit', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const { forceConflicts = false, deleteRsIds = [] } = req.body || {};
+    const sample = await rschedImportStagingCollection.findOne({ sessionId });
+    if (!sample) return res.status(404).json({ error: 'Session not found' });
+
+    const ctx = {
+      sessionId,
+      calendarOwner: sample.calendarOwner,
+      calendarId: sample.calendarId,
+      importUserId: auth.userId,
+      importUserEmail: auth.userEmail,
+    };
+
+    const eligible = await rschedImportStagingCollection
+      .find({
+        sessionId,
+        status: { $nin: [rschedImportService.STAGING_STATUS.SKIPPED] },
+      })
+      .toArray();
+
+    let applied = 0;
+    let skipped = 0;
+    let humanEditConflicts = 0;
+    let failed = 0;
+    let noOp = 0;
+
+    for (const row of eligible) {
+      const rowToApply =
+        forceConflicts && row.status === rschedImportService.STAGING_STATUS.CONFLICT
+          ? { ...row, forceApply: true }
+          : row;
+      const outcome = await rschedImportService.applyStagingRow(db, rowToApply, ctx);
+      const update = {
+        appliedEventId: outcome.eventId,
+        appliedAt: new Date(),
+        applyError: outcome.error || null,
+      };
+      switch (outcome.outcome) {
+        case rschedImportService.APPLY_OUTCOME.INSERTED:
+        case rschedImportService.APPLY_OUTCOME.UPDATED:
+          applied++;
+          update.status = rschedImportService.STAGING_STATUS.APPLIED;
+          break;
+        case rschedImportService.APPLY_OUTCOME.NO_OP:
+          noOp++;
+          update.status = rschedImportService.STAGING_STATUS.APPLIED;
+          break;
+        case rschedImportService.APPLY_OUTCOME.SKIPPED:
+          skipped++;
+          break;
+        case rschedImportService.APPLY_OUTCOME.HUMAN_EDIT_CONFLICT:
+          humanEditConflicts++;
+          update.status = rschedImportService.STAGING_STATUS.HUMAN_EDIT_CONFLICT;
+          update.conflictDetails = outcome.conflictDetails || null;
+          break;
+        case rschedImportService.APPLY_OUTCOME.FAILED:
+        default:
+          failed++;
+          update.status = rschedImportService.STAGING_STATUS.FAILED;
+          break;
+      }
+      await rschedImportStagingCollection.updateOne({ _id: row._id }, { $set: update });
+    }
+
+    let removed = 0;
+    if (Array.isArray(deleteRsIds) && deleteRsIds.length > 0) {
+      const numericIds = deleteRsIds.map(Number).filter((n) => Number.isFinite(n));
+      if (numericIds.length > 0) {
+        const deletedAt = new Date();
+        const result = await unifiedEventsCollection.updateMany(
+          {
+            source: rschedImportService.RSCHED_SOURCE,
+            calendarOwner: sample.calendarOwner,
+            'rschedData.rsId': { $in: numericIds },
+            isDeleted: { $ne: true },
+          },
+          {
+            $set: { isDeleted: true, status: 'deleted', lastModifiedDateTime: deletedAt },
+            $push: {
+              statusHistory: {
+                status: 'deleted',
+                changedAt: deletedAt,
+                changedBy: auth.userId,
+                reason: 'Removed during rsched re-import — absent from CSV',
+              },
+            },
+            $inc: { _version: 1 },
+          },
+        );
+        removed = result.modifiedCount || 0;
+      }
+    }
+
+    res.json({
+      success: true,
+      applied,
+      noOp,
+      skipped,
+      humanEditConflicts,
+      failed,
+      removed,
+    });
+    invalidateCountsCacheTargeted();
+  } catch (err) {
+    logger.error('rsched-import commit error:', err);
+    res.status(500).json({ error: 'Failed to commit session' });
+  }
+});
+
+/**
+ * Publish session — push committed rows to Outlook via app-only Graph auth.
+ */
+app.post('/api/admin/rsched-import/sessions/:sessionId/publish', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const stagingRows = await rschedImportStagingCollection
+      .find({ sessionId, status: rschedImportService.STAGING_STATUS.APPLIED })
+      .toArray();
+
+    let published = 0;
+    let updated = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const row of stagingRows) {
+      if (!row.appliedEventId) {
+        skipped++;
+        continue;
+      }
+      const eventDoc = await unifiedEventsCollection.findOne({ eventId: row.appliedEventId });
+      if (!eventDoc) {
+        skipped++;
+        continue;
+      }
+      const result = await rschedImportService.publishOrUpdateOutlookEvent(db, eventDoc, {
+        graphApiService,
+      });
+      if (result.outcome === 'published') published++;
+      else if (result.outcome === 'updated') updated++;
+      else if (result.outcome === 'skipped') skipped++;
+      else failed++;
+    }
+    res.json({ success: true, published, updated, failed, skipped });
+  } catch (err) {
+    logger.error('rsched-import publish error:', err);
+    res.status(500).json({ error: 'Failed to publish session' });
+  }
+});
+
+/**
+ * Discard a session — deletes all staging rows for it.
+ */
+app.delete('/api/admin/rsched-import/sessions/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const result = await rschedImportStagingCollection.deleteMany({ sessionId });
+    res.json({ success: true, deleted: result.deletedCount });
+  } catch (err) {
+    logger.error('rsched-import discard error:', err);
+    res.status(500).json({ error: 'Failed to discard session' });
   }
 });
 

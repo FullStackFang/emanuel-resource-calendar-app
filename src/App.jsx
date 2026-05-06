@@ -87,6 +87,7 @@ const EmailTestAdmin = lazy(() => import('./components/EmailTestAdmin'));
 const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
 const EventManagement = lazy(() => import('./components/EventManagement'));
 const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
+const RschedImport = lazy(() => import('./components/RschedImport'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 // Admin-only wrapper — uses effectivePermissions so role simulation also hides the chat
@@ -345,6 +346,7 @@ function App() {
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
                   <Route path="/admin/events" element={<EventManagement />} />
                   <Route path="/admin/rsched-mapper" element={<RSchedMapper apiToken={apiToken} />} />
+                  <Route path="/admin/rsched-import" element={<RschedImport />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Suspense>
