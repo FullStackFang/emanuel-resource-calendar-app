@@ -51,10 +51,8 @@ export default function RschedImport() {
   const { showSuccess, showError } = useNotification();
   const authFetch = useAuthenticatedFetch();
 
-  const [view, setView] = useState('list'); // 'list' | 'session'
-  const [sessions, setSessions] = useState([]);
-  const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
+  const activeSessionId = activeSession?.sessionId || null;
   const [rows, setRows] = useState([]);
   const [rowTotal, setRowTotal] = useState(0);
   const [rowPage, setRowPage] = useState(1);
@@ -66,26 +64,24 @@ export default function RschedImport() {
   const [validating, setValidating] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [discarding, setDiscarding] = useState(false);
 
   // Two-step confirm state — IDs of which row/action is in confirm state.
   const [confirmCommit, setConfirmCommit] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmSkipRowId, setConfirmSkipRowId] = useState(null);
   const [confirmForceRowId, setConfirmForceRowId] = useState(null);
 
-  const [removedCandidates, setRemovedCandidates] = useState([]);
   const [selectedRemovals, setSelectedRemovals] = useState(new Set());
 
   const searchTimerRef = useRef(null);
 
-  const fetchSessions = useCallback(async () => {
+  const loadActive = useCallback(async () => {
     try {
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions`);
-      if (!res.ok) throw new Error(`Failed to load sessions (${res.status})`);
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/active`);
+      if (!res.ok) throw new Error(`Failed to load active staging (${res.status})`);
       const data = await res.json();
-      setSessions(data.sessions || []);
+      setActiveSession(data.active || null);
+      setSelectedRemovals(new Set());
     } catch (err) {
       showError(err);
     }
@@ -129,39 +125,20 @@ export default function RschedImport() {
     [authFetch, showError],
   );
 
-  // Initial sessions load.
+  // Auto-resume the user's in-flight staging on mount.
   useEffect(() => {
-    if (isAdmin) fetchSessions();
-  }, [isAdmin, fetchSessions]);
+    if (isAdmin) loadActive();
+  }, [isAdmin, loadActive]);
 
-  // Load rows when entering a session view, changing tab/page, or after edits.
+  // Load rows when staging changes or table filters change.
   useEffect(() => {
-    if (view === 'session' && activeSessionId) {
+    if (activeSessionId) {
       fetchRows(activeSessionId, rowPage, statusFilter, search);
+    } else {
+      setRows([]);
+      setRowTotal(0);
     }
-  }, [view, activeSessionId, rowPage, statusFilter, search, fetchRows]);
-
-  const openSession = useCallback(
-    async (sessionId) => {
-      setActiveSessionId(sessionId);
-      setView('session');
-      setRowPage(1);
-      setStatusFilter('');
-      setSearch('');
-      setRemovedCandidates([]);
-      setSelectedRemovals(new Set());
-      await fetchSession(sessionId);
-    },
-    [fetchSession],
-  );
-
-  const backToList = useCallback(() => {
-    setView('list');
-    setActiveSessionId(null);
-    setActiveSession(null);
-    setRows([]);
-    fetchSessions();
-  }, [fetchSessions]);
+  }, [activeSessionId, rowPage, statusFilter, search, fetchRows]);
 
   const handleSearchChange = (e) => {
     const value = e.target.value;
@@ -216,8 +193,12 @@ export default function RschedImport() {
           : '';
         throw new Error((data.error || `Upload failed (${res.status})`) + sample);
       }
-      showSuccess(`Staged ${data.rowCount} rows. Session ${data.sessionId}.`);
-      await openSession(data.sessionId);
+      showSuccess(`Staged ${data.rowCount} rows.`);
+      setRowPage(1);
+      setStatusFilter('');
+      setSearch('');
+      setSelectedRemovals(new Set());
+      await loadActive();
     } catch (err) {
       showError(err);
     } finally {
@@ -235,7 +216,6 @@ export default function RschedImport() {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Validate failed (${res.status})`);
-      setRemovedCandidates(data.removedCandidates || []);
       setSelectedRemovals(new Set());
       showSuccess(
         `Validation done. ${data.conflictCount} new conflict(s), ` +
@@ -276,7 +256,6 @@ export default function RschedImport() {
           `${data.humanEditConflicts} human-edit conflicts, ${data.failed} failed, ${data.removed} removed.`,
       );
       setConfirmCommit(false);
-      setRemovedCandidates([]);
       setSelectedRemovals(new Set());
       await fetchSession(activeSessionId);
       await fetchRows(activeSessionId, rowPage, statusFilter, search);
@@ -310,30 +289,6 @@ export default function RschedImport() {
       showError(err);
     } finally {
       setPublishing(false);
-    }
-  };
-
-  const handleDiscard = async () => {
-    if (!activeSessionId) return;
-    if (!confirmDiscard) {
-      setConfirmDiscard(true);
-      return;
-    }
-    setDiscarding(true);
-    try {
-      const res = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}`,
-        { method: 'DELETE' },
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Discard failed (${res.status})`);
-      showSuccess(`Discarded session (${data.deleted} rows removed).`);
-      setConfirmDiscard(false);
-      backToList();
-    } catch (err) {
-      showError(err);
-    } finally {
-      setDiscarding(false);
     }
   };
 
@@ -388,12 +343,11 @@ export default function RschedImport() {
     }
   };
 
-  // Click anywhere outside to reset confirm states.
+  // Esc resets two-step confirm states.
   useEffect(() => {
     const reset = () => {
       setConfirmCommit(false);
       setConfirmPublish(false);
-      setConfirmDiscard(false);
       setConfirmSkipRowId(null);
       setConfirmForceRowId(null);
     };
@@ -419,26 +373,16 @@ export default function RschedImport() {
     <div className="rsi-page">
       <header className="rsi-header">
         <h1>Resource Scheduler Import</h1>
-        {view === 'session' && (
-          <button type="button" className="rsi-btn-secondary" onClick={backToList}>
-            ← Back to sessions
-          </button>
-        )}
       </header>
 
-      {view === 'list' && (
-        <>
-          <StageCsvCard
-            uploading={uploading}
-            onSubmit={handleUpload}
-            authFetch={authFetch}
-            showError={showError}
-          />
-          <SessionsList sessions={sessions} onOpen={openSession} />
-        </>
-      )}
+      <StageCsvCard
+        uploading={uploading}
+        onSubmit={handleUpload}
+        authFetch={authFetch}
+        showError={showError}
+      />
 
-      {view === 'session' && activeSession && (
+      {activeSession ? (
         <SessionView
           session={activeSession}
           rows={rows}
@@ -452,74 +396,76 @@ export default function RschedImport() {
           validating={validating}
           committing={committing}
           publishing={publishing}
-          discarding={discarding}
           confirmCommit={confirmCommit}
           confirmPublish={confirmPublish}
-          confirmDiscard={confirmDiscard}
           confirmSkipRowId={confirmSkipRowId}
           confirmForceRowId={confirmForceRowId}
-          removedCandidates={removedCandidates}
           selectedRemovals={selectedRemovals}
           setSelectedRemovals={setSelectedRemovals}
           onValidate={handleValidate}
           onCommit={handleCommit}
           onPublish={handlePublish}
-          onDiscard={handleDiscard}
           onSkipRow={handleSkipRow}
           onForceRow={handleForceApply}
         />
+      ) : (
+        <section className="rsi-card">
+          <p className="rsi-muted" style={{ margin: 0 }}>
+            Nothing staged yet — pick a CSV above to see a preview of what
+            would change.
+          </p>
+        </section>
       )}
-
     </div>
   );
 }
 
-function SessionsList({ sessions, onOpen }) {
+function PreviewSummary({ session, preview }) {
+  if (!preview) return null;
+  const e = preview.existingInRange || {};
+  const p = preview.plannedActions || {};
   return (
-    <section className="rsi-card">
-      <h2>Past import sessions</h2>
-      {sessions.length === 0 ? (
-        <p className="rsi-muted">No sessions yet. Stage a CSV above to begin.</p>
-      ) : (
-        <table className="rsi-table">
-          <thead>
-            <tr>
-              <th>Uploaded</th>
-              <th>Calendar</th>
-              <th>File</th>
-              <th>Range</th>
-              <th>Rows</th>
-              <th>Breakdown</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((s) => (
-              <tr key={s.sessionId}>
-                <td>{new Date(s.uploadedAt).toLocaleString()}</td>
-                <td>{s.calendarOwner}</td>
-                <td>{s.csvFilename || '—'}</td>
-                <td>
-                  {s.dateRangeStart} → {s.dateRangeEnd}
-                </td>
-                <td>{s.rowCount}</td>
-                <td>
-                  <BreakdownChips breakdown={s.statusBreakdown} />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="rsi-btn-secondary"
-                    onClick={() => onOpen(s.sessionId)}
-                  >
-                    Open
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <section className="rsi-card rsi-preview">
+      <div className="rsi-preview-meta">
+        <div><strong>Calendar:</strong> {session.calendarOwner}</div>
+        <div><strong>CSV:</strong> {session.csvFilename || '—'}</div>
+        <div>
+          <strong>Date range:</strong>{' '}
+          {preview.dateRange?.start} → {preview.dateRange?.end}{' '}
+          <span className="rsi-muted">({preview.dateRange?.days} days)</span>
+        </div>
+      </div>
+
+      <div className="rsi-preview-grid">
+        <div className="rsi-preview-block">
+          <h3>Currently in calendar</h3>
+          <ul>
+            <li><span className="rsi-num">{e.total ?? 0}</span> total events in range</li>
+            <li><span className="rsi-num">{e.fromRsched ?? 0}</span> from rsched</li>
+            <li>
+              <span className="rsi-num">{e.manual ?? 0}</span> manually created
+              <span className="rsi-muted"> (won't be touched)</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="rsi-preview-block">
+          <h3>After commit, this CSV will</h3>
+          <ul>
+            <li><span className="rsi-num rsi-num-good">{p.willCreate ?? 0}</span> create new event(s)</li>
+            <li>
+              <span className="rsi-num">{p.willMatchExisting ?? 0}</span> match existing event(s)
+              <span className="rsi-muted"> (no-op or update)</span>
+            </li>
+            <li>
+              <span className="rsi-num rsi-num-warn">{p.willRemove ?? 0}</span> remove rsched event(s)
+              <span className="rsi-muted"> — opt-in per row below</span>
+            </li>
+            <li><span className="rsi-num rsi-num-muted">{p.willSkipConflict ?? 0}</span> skip — conflicts</li>
+            <li><span className="rsi-num rsi-num-muted">{p.willSkipUnmatched ?? 0}</span> skip — unmatched location</li>
+          </ul>
+        </div>
+      </div>
     </section>
   );
 }
@@ -555,46 +501,30 @@ function SessionView(props) {
     validating,
     committing,
     publishing,
-    discarding,
     confirmCommit,
     confirmPublish,
-    confirmDiscard,
     confirmSkipRowId,
     confirmForceRowId,
-    removedCandidates,
     selectedRemovals,
     setSelectedRemovals,
     onValidate,
     onCommit,
     onPublish,
-    onDiscard,
     onSkipRow,
     onForceRow,
   } = props;
 
   const totalPages = Math.max(1, Math.ceil(rowTotal / PAGE_SIZE));
+  const preview = session.preview || null;
   const breakdown = session.statusBreakdown || {};
   const hasApplied = (breakdown.applied || 0) > 0;
+  const removedCandidates = preview?.removalCandidates || [];
 
   return (
     <>
-      <section className="rsi-card">
-        <div className="rsi-session-summary">
-          <div>
-            <strong>Calendar:</strong> {session.calendarOwner}
-          </div>
-          <div>
-            <strong>File:</strong> {session.csvFilename || '—'}
-          </div>
-          <div>
-            <strong>Range:</strong> {session.dateRangeStart} → {session.dateRangeEnd}
-          </div>
-          <div>
-            <strong>Rows:</strong> {session.rowCount}
-          </div>
-        </div>
-        <BreakdownChips breakdown={breakdown} />
+      <PreviewSummary session={session} preview={preview} />
 
+      <section className="rsi-card">
         <div className="rsi-actions">
           <button
             type="button"
@@ -602,7 +532,7 @@ function SessionView(props) {
             onClick={onValidate}
             disabled={validating}
           >
-            {validating ? 'Validating…' : 'Validate'}
+            {validating ? 'Validating…' : 'Re-validate preview'}
           </button>
           <button
             type="button"
@@ -621,15 +551,11 @@ function SessionView(props) {
           >
             {publishing ? 'Publishing…' : confirmPublish ? 'Confirm publish' : 'Publish to Outlook'}
           </button>
-          <button
-            type="button"
-            className={`rsi-btn-danger ${confirmDiscard ? 'rsi-confirm' : ''}`}
-            onClick={onDiscard}
-            disabled={discarding}
-          >
-            {discarding ? 'Discarding…' : confirmDiscard ? 'Confirm discard' : 'Discard session'}
-          </button>
         </div>
+        <p className="rsi-muted" style={{ margin: '8px 0 0 0', fontSize: '0.85em' }}>
+          Tip: stage a different CSV or date range above at any time — your
+          current preview will be replaced.
+        </p>
       </section>
 
       {removedCandidates.length > 0 && (

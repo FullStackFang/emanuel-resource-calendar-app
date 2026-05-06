@@ -11757,6 +11757,10 @@ async function ensureRschedStagingIndexes() {
   try {
     await rschedImportStagingCollection.createIndex({ sessionId: 1 });
     await rschedImportStagingCollection.createIndex({ sessionId: 1, status: 1 });
+    // Cosmos DB Mongo API requires an index for any field used in .sort().
+    // Rows endpoint filters by sessionId (+ optional status) and sorts by
+    // rowNumber; this compound index serves both in one walk.
+    await rschedImportStagingCollection.createIndex({ sessionId: 1, rowNumber: 1 });
     await rschedImportStagingCollection.createIndex(
       { uploadedAt: 1 },
       { expireAfterSeconds: 30 * 24 * 60 * 60 },
@@ -11809,6 +11813,10 @@ async function runRschedStagingPipeline(csvBuffer, ctx) {
   if (stagingDocs.length === 0) {
     throw new EmptyStagingError(parseErrors);
   }
+  // Single-staging-per-user: clear any prior in-flight staging owned by
+  // this user before inserting the new batch. Lets admins iterate freely
+  // (try a date range, change it, restage) without managing sessions.
+  await rschedImportStagingCollection.deleteMany({ uploadedBy: ctx.uploadedBy });
   await rschedImportStagingCollection.insertMany(stagingDocs, { ordered: false });
   const statusBreakdown = stagingDocs.reduce((acc, d) => {
     acc[d.status] = (acc[d.status] || 0) + 1;
@@ -11998,35 +12006,68 @@ app.get('/api/admin/rsched-import/sessions', verifyToken, async (req, res) => {
 });
 
 /**
- * Get a single session's metadata.
+ * Build the full session+preview response shared by /sessions/:id and /active.
+ * Returns null if the session has no rows (caller decides 404 vs {active:null}).
+ */
+async function buildSessionResponse(sessionId) {
+  const sample = await rschedImportStagingCollection.findOne({ sessionId });
+  if (!sample) return null;
+  const rowCount = await rschedImportStagingCollection.countDocuments({ sessionId });
+  const preview = await rschedImportService.computePreview(db, {
+    sessionId,
+    calendarOwner: sample.calendarOwner,
+    dateRangeStart: sample.dateRangeStart,
+    dateRangeEnd: sample.dateRangeEnd,
+  });
+  return {
+    sessionId,
+    uploadedAt: sample.uploadedAt,
+    uploadedBy: sample.uploadedBy,
+    calendarOwner: sample.calendarOwner,
+    calendarId: sample.calendarId,
+    csvFilename: sample.csvFilename,
+    dateRangeStart: sample.dateRangeStart,
+    dateRangeEnd: sample.dateRangeEnd,
+    rowCount,
+    statusBreakdown: preview.csvStaging.byStatus,
+    preview,
+  };
+}
+
+/**
+ * Get the calling user's currently-staged session, if any. Powers the
+ * single-staging-per-user UX — the page calls this on mount to auto-resume.
+ */
+app.get('/api/admin/rsched-import/active', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    await ensureRschedStagingIndexes();
+    const sample = await rschedImportStagingCollection
+      .find({ uploadedBy: auth.userId })
+      .sort({ uploadedAt: -1 })
+      .limit(1)
+      .toArray();
+    if (sample.length === 0) return res.json({ active: null });
+    const session = await buildSessionResponse(sample[0].sessionId);
+    res.json({ active: session });
+  } catch (err) {
+    logger.error('rsched-import active session error:', err);
+    res.status(500).json({ error: 'Failed to load active session' });
+  }
+});
+
+/**
+ * Get a single session's metadata + preview.
  */
 app.get('/api/admin/rsched-import/sessions/:sessionId', verifyToken, async (req, res) => {
   try {
     const auth = await requireAdminUser(req, res);
     if (!auth) return;
     const { sessionId } = req.params;
-    const sample = await rschedImportStagingCollection.findOne({ sessionId });
-    if (!sample) return res.status(404).json({ error: 'Session not found' });
-    const rowCount = await rschedImportStagingCollection.countDocuments({ sessionId });
-    const breakdownAgg = await rschedImportStagingCollection
-      .aggregate([{ $match: { sessionId } }, { $group: { _id: '$status', count: { $sum: 1 } } }])
-      .toArray();
-    const statusBreakdown = breakdownAgg.reduce((acc, b) => {
-      acc[b._id] = b.count;
-      return acc;
-    }, {});
-    res.json({
-      sessionId,
-      uploadedAt: sample.uploadedAt,
-      uploadedBy: sample.uploadedBy,
-      calendarOwner: sample.calendarOwner,
-      calendarId: sample.calendarId,
-      csvFilename: sample.csvFilename,
-      dateRangeStart: sample.dateRangeStart,
-      dateRangeEnd: sample.dateRangeEnd,
-      rowCount,
-      statusBreakdown,
-    });
+    const session = await buildSessionResponse(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    res.json(session);
   } catch (err) {
     logger.error('rsched-import session detail error:', err);
     res.status(500).json({ error: 'Failed to load session' });
@@ -12040,6 +12081,9 @@ app.get('/api/admin/rsched-import/sessions/:sessionId/rows', verifyToken, async 
   try {
     const auth = await requireAdminUser(req, res);
     if (!auth) return;
+    // Ensure the (sessionId, rowNumber) index exists before sorting — Cosmos
+    // DB rejects unindexed sorts. Idempotent and short-circuits after first call.
+    await ensureRschedStagingIndexes();
     const { sessionId } = req.params;
     const { search = '', status = '', page = '1', pageSize = '50' } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -12237,21 +12281,20 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, a
       }
     }
 
-    const presentRsIds = await rschedImportStagingCollection
-      .find({ sessionId, status: { $ne: rschedImportService.STAGING_STATUS.SKIPPED } })
-      .project({ rsId: 1 })
-      .toArray();
-    const removed = await rschedImportService.detectRemovedRsIds(
-      db,
-      {
-        calendarOwner: sample.calendarOwner,
-        dateRangeStart: sample.dateRangeStart,
-        dateRangeEnd: sample.dateRangeEnd,
-      },
-      presentRsIds.map((r) => r.rsId),
-    );
+    const preview = await rschedImportService.computePreview(db, {
+      sessionId,
+      calendarOwner: sample.calendarOwner,
+      dateRangeStart: sample.dateRangeStart,
+      dateRangeEnd: sample.dateRangeEnd,
+    });
 
-    res.json({ success: true, conflictCount, resetCount, removedCandidates: removed });
+    res.json({
+      success: true,
+      conflictCount,
+      resetCount,
+      removedCandidates: preview.removalCandidates,
+      preview,
+    });
   } catch (err) {
     logger.error('rsched-import validate error:', err);
     res.status(500).json({ error: 'Failed to validate session' });

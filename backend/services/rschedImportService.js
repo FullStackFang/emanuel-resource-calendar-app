@@ -729,6 +729,124 @@ function parseRsIdFromEventId(eventId) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/**
+ * Build a single visual snapshot of what's in the calendar within the
+ * staging context's date range, the staging row breakdown, and the
+ * resulting planned actions a commit would produce.
+ *
+ * Designed for the "visual preview" UI — one read, all counts.
+ *
+ * @param {Db} db
+ * @param {{ sessionId: string, calendarOwner: string, dateRangeStart: string, dateRangeEnd: string }} ctx
+ */
+async function computePreview(db, ctx) {
+  const eventsCollection = db.collection(EVENTS_COLLECTION);
+  const stagingCollection = db.collection(STAGING_COLLECTION);
+
+  const startStr = `${ctx.dateRangeStart}T00:00:00`;
+  const endStr = `${ctx.dateRangeEnd}T23:59:59`;
+  const calendarOwner = (ctx.calendarOwner || '').toLowerCase();
+
+  // Existing events in range, with enough info to bucket as rsched/manual
+  // and to look up matches by rsId.
+  const existingCursor = eventsCollection.find(
+    {
+      calendarOwner,
+      isDeleted: { $ne: true },
+      'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
+    },
+    { projection: { source: 1, eventId: 1, 'rschedData.rsId': 1 } },
+  );
+
+  let existingTotal = 0;
+  let existingFromRsched = 0;
+  const existingRsIds = new Set();
+  for await (const ev of existingCursor) {
+    existingTotal++;
+    if (ev.source === RSCHED_SOURCE) {
+      existingFromRsched++;
+      const rsId = ev.rschedData?.rsId ?? parseRsIdFromEventId(ev.eventId);
+      if (rsId != null) existingRsIds.add(Number(rsId));
+    }
+  }
+
+  // Staging breakdown by status — single aggregate.
+  const breakdownAgg = await stagingCollection
+    .aggregate([
+      { $match: { sessionId: ctx.sessionId } },
+      { $group: { _id: '$status', n: { $sum: 1 } } },
+    ])
+    .toArray();
+  const byStatus = Object.fromEntries(
+    Object.values(STAGING_STATUS).map((s) => [s, 0]),
+  );
+  for (const b of breakdownAgg) byStatus[b._id] = b.n;
+
+  // Match split: which staged rsIds correspond to existing rsched events?
+  const stagedRsIds = await stagingCollection
+    .find(
+      { sessionId: ctx.sessionId, status: { $ne: STAGING_STATUS.SKIPPED } },
+      { projection: { rsId: 1 } },
+    )
+    .toArray();
+  let willMatchExisting = 0;
+  let willCreate = 0;
+  for (const r of stagedRsIds) {
+    if (existingRsIds.has(Number(r.rsId))) willMatchExisting++;
+    else willCreate++;
+  }
+
+  // Removal candidates — reuse existing helper.
+  const removalCandidates = await detectRemovedRsIds(
+    db,
+    {
+      calendarOwner,
+      dateRangeStart: ctx.dateRangeStart,
+      dateRangeEnd: ctx.dateRangeEnd,
+    },
+    stagedRsIds.map((r) => r.rsId),
+  );
+
+  const days = Math.max(
+    1,
+    Math.round(
+      (Date.parse(`${ctx.dateRangeEnd}T00:00:00`) -
+        Date.parse(`${ctx.dateRangeStart}T00:00:00`)) /
+        (1000 * 60 * 60 * 24),
+    ) + 1,
+  );
+
+  const stagingTotal = (byStatus[STAGING_STATUS.STAGED] || 0)
+    + (byStatus[STAGING_STATUS.CONFLICT] || 0)
+    + (byStatus[STAGING_STATUS.UNMATCHED_LOCATION] || 0)
+    + (byStatus[STAGING_STATUS.HUMAN_EDIT_CONFLICT] || 0);
+
+  return {
+    dateRange: {
+      start: ctx.dateRangeStart,
+      end: ctx.dateRangeEnd,
+      days,
+    },
+    existingInRange: {
+      total: existingTotal,
+      fromRsched: existingFromRsched,
+      manual: existingTotal - existingFromRsched,
+    },
+    csvStaging: {
+      total: stagingTotal,
+      byStatus,
+    },
+    plannedActions: {
+      willCreate,
+      willMatchExisting,
+      willRemove: removalCandidates.length,
+      willSkipConflict: byStatus[STAGING_STATUS.CONFLICT] || 0,
+      willSkipUnmatched: byStatus[STAGING_STATUS.UNMATCHED_LOCATION] || 0,
+    },
+    removalCandidates,
+  };
+}
+
 // =============================================================================
 // Outlook publish
 // =============================================================================
@@ -853,5 +971,6 @@ module.exports = {
   // Workflow operations
   applyStagingRow,
   detectRemovedRsIds,
+  computePreview,
   publishOrUpdateOutlookEvent,
 };
