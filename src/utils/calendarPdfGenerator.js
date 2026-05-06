@@ -118,19 +118,6 @@ export function generateCalendarPdf({
     doc.setFontSize(fontSize.subtitle);
     doc.setTextColor(...colors.secondary);
     doc.text('Calendar Events Report', pageWidth / 2, y, { align: 'center' });
-    y += 8;
-
-    doc.setDrawColor(...colors.border);
-    doc.setLineWidth(0.3);
-    doc.line(spacing.margin + 40, y, pageWidth - spacing.margin - 40, y);
-    y += 6;
-
-    doc.setFontSize(fontSize.small);
-    doc.setTextColor(...colors.muted);
-    const metaLeft = `Generated ${formatDate(currentDate.toISOString())}`;
-    const metaRight = `Timezone: ${timezone.replace('_', ' ')}`;
-    doc.text(metaLeft, spacing.margin, y);
-    doc.text(metaRight, pageWidth - spacing.margin, y, { align: 'right' });
     y += 10;
 
     return y;
@@ -264,7 +251,8 @@ export function generateCalendarPdf({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(fontSize.tiny);
     doc.setTextColor(...colors.muted);
-    doc.text('Congregation Emanu-El of the City of New York', spacing.margin, y);
+    doc.text(`Generated ${formatDate(currentDate.toISOString())}`, spacing.margin, y);
+    doc.text('Congregation Emanu-El of the City of New York', pageWidth / 2, y, { align: 'center' });
     doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - spacing.margin, y, { align: 'right' });
   };
 
