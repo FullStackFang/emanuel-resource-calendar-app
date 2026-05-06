@@ -11778,6 +11778,138 @@ async function requireAdminUser(req, res) {
   return { userId, userEmail };
 }
 
+// On-disk CSV library lives under backend/csv-imports/. Files there are
+// available as a dropdown source so admins don't have to re-upload the same
+// reference exports. Listing/reading is admin-only and confined to that dir.
+const RSCHED_LIBRARY_DIR = path.join(__dirname, 'csv-imports');
+
+function resolveLibraryPath(filename) {
+  const safeName = path.basename(String(filename || ''));
+  if (!safeName || !safeName.toLowerCase().endsWith('.csv')) return null;
+  const fullPath = path.join(RSCHED_LIBRARY_DIR, safeName);
+  const resolved = path.resolve(fullPath);
+  const root = path.resolve(RSCHED_LIBRARY_DIR);
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) return null;
+  return resolved;
+}
+
+class EmptyStagingError extends Error {
+  constructor(parseErrors) {
+    super('CSV produced no usable rows. Expected an rsched export with columns including rsId, StartDate, EndDate, StartTime, EndTime.');
+    this.code = 'EMPTY_STAGING';
+    this.parseErrors = parseErrors || [];
+  }
+}
+
+async function runRschedStagingPipeline(csvBuffer, ctx) {
+  await ensureRschedStagingIndexes();
+  const { rows: parsed, parseErrors } = await rschedImportService.parseCsv(csvBuffer);
+  const { rows, unmatchedKeys } = await rschedImportService.resolveLocations(parsed, locationsCollection);
+  const stagingDocs = rows.map((row) => rschedImportService.buildStagingDoc(row, ctx));
+  if (stagingDocs.length === 0) {
+    throw new EmptyStagingError(parseErrors);
+  }
+  await rschedImportStagingCollection.insertMany(stagingDocs, { ordered: false });
+  const statusBreakdown = stagingDocs.reduce((acc, d) => {
+    acc[d.status] = (acc[d.status] || 0) + 1;
+    return acc;
+  }, {});
+  return {
+    rowCount: stagingDocs.length,
+    statusBreakdown,
+    unmatchedLocationCodes: [...unmatchedKeys],
+    parseErrors,
+  };
+}
+
+/**
+ * List CSV files available in the on-disk csv-imports library so admins can
+ * pick a previously-prepared file instead of uploading one each time.
+ */
+app.get('/api/admin/rsched-import/library', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    let dirents;
+    try {
+      dirents = await fs.promises.readdir(RSCHED_LIBRARY_DIR, { withFileTypes: true });
+    } catch (err) {
+      if (err.code === 'ENOENT') return res.json({ files: [] });
+      throw err;
+    }
+    const files = [];
+    for (const d of dirents) {
+      if (!d.isFile()) continue;
+      // Only surface files that match the rsched export naming convention.
+      // Other CSVs in this folder (location-mapping-*.csv etc.) are working
+      // artifacts from prior matching runs and would fail the parser.
+      if (!/^Rsched_.+\.csv$/i.test(d.name)) continue;
+      const full = path.join(RSCHED_LIBRARY_DIR, d.name);
+      const stat = await fs.promises.stat(full);
+      files.push({
+        filename: d.name,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      });
+    }
+    files.sort((a, b) => a.filename.localeCompare(b.filename));
+    res.json({ files });
+  } catch (err) {
+    logger.error('rsched-import library list error:', err);
+    res.status(500).json({ error: err.message || 'Failed to list library' });
+  }
+});
+
+/**
+ * Stage a CSV from the on-disk library. JSON body: filename, calendarOwner,
+ * calendarId, dateRangeStart, dateRangeEnd. Mirrors /upload but reads the
+ * named library file instead of accepting a multipart upload.
+ */
+app.post('/api/admin/rsched-import/upload-from-library', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { filename, calendarOwner, calendarId, dateRangeStart, dateRangeEnd } = req.body || {};
+    if (!filename) return res.status(400).json({ error: 'filename is required' });
+    if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
+    if (!dateRangeStart || !dateRangeEnd) {
+      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required' });
+    }
+    if (!isAllowedCalendarOwner(calendarOwner)) {
+      return res.status(403).json({ error: 'Access to this calendar is not permitted' });
+    }
+    const resolved = resolveLibraryPath(filename);
+    if (!resolved) return res.status(400).json({ error: 'Invalid library filename' });
+    let buffer;
+    try {
+      buffer = await fs.promises.readFile(resolved);
+    } catch (err) {
+      if (err.code === 'ENOENT') return res.status(404).json({ error: 'Library file not found' });
+      throw err;
+    }
+    const calendarIdResolved = calendarId || getCalendarConfig()[calendarOwner] || null;
+    const sessionId = `rsched-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const ctx = {
+      sessionId,
+      uploadedBy: auth.userId,
+      uploadedAt: new Date(),
+      calendarOwner: calendarOwner.toLowerCase(),
+      calendarId: calendarIdResolved,
+      csvFilename: path.basename(resolved),
+      dateRangeStart,
+      dateRangeEnd,
+    };
+    const result = await runRschedStagingPipeline(buffer, ctx);
+    res.json({ success: true, sessionId, filename: ctx.csvFilename, ...result });
+  } catch (err) {
+    if (err instanceof EmptyStagingError) {
+      return res.status(400).json({ error: err.message, code: err.code, parseErrors: err.parseErrors });
+    }
+    logger.error('rsched-import upload-from-library error:', err);
+    res.status(500).json({ error: err.message || 'Failed to stage library CSV' });
+  }
+});
+
 /**
  * Upload a CSV — parses, resolves locations, persists staging rows.
  * multipart: file, calendarOwner, dateRangeStart, dateRangeEnd
@@ -11797,18 +11929,12 @@ app.post('/api/admin/rsched-import/upload', verifyToken, upload.single('csvFile'
       return res.status(403).json({ error: 'Access to this calendar is not permitted' });
     }
 
-    await ensureRschedStagingIndexes();
-
     const calendarIdResolved = calendarId || getCalendarConfig()[calendarOwner] || null;
-    const { rows: parsed, parseErrors } = await rschedImportService.parseCsv(req.file.buffer);
-    const { rows, unmatchedKeys } = await rschedImportService.resolveLocations(parsed, locationsCollection);
-
     const sessionId = `rsched-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const uploadedAt = new Date();
     const ctx = {
       sessionId,
       uploadedBy: auth.userId,
-      uploadedAt,
+      uploadedAt: new Date(),
       calendarOwner: calendarOwner.toLowerCase(),
       calendarId: calendarIdResolved,
       csvFilename: req.file.originalname || 'upload.csv',
@@ -11816,26 +11942,12 @@ app.post('/api/admin/rsched-import/upload', verifyToken, upload.single('csvFile'
       dateRangeEnd,
     };
 
-    const stagingDocs = rows.map((row) => rschedImportService.buildStagingDoc(row, ctx));
-    if (stagingDocs.length > 0) {
-      await rschedImportStagingCollection.insertMany(stagingDocs, { ordered: false });
-    }
-
-    const statusBreakdown = stagingDocs.reduce((acc, d) => {
-      acc[d.status] = (acc[d.status] || 0) + 1;
-      return acc;
-    }, {});
-
-    res.json({
-      success: true,
-      sessionId,
-      rowCount: stagingDocs.length,
-      statusBreakdown,
-      unmatchedLocationCodes: [...unmatchedKeys],
-      parseErrors,
-      filename: ctx.csvFilename,
-    });
+    const result = await runRschedStagingPipeline(req.file.buffer, ctx);
+    res.json({ success: true, sessionId, filename: ctx.csvFilename, ...result });
   } catch (err) {
+    if (err instanceof EmptyStagingError) {
+      return res.status(400).json({ error: err.message, code: err.code, parseErrors: err.parseErrors });
+    }
     logger.error('rsched-import upload error:', err);
     res.status(500).json({ error: err.message || 'Failed to upload CSV' });
   }

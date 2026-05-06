@@ -1,0 +1,3 @@
+﻿rsId,Subject,StartDate,StartTime,StartDateTime,EndDate,EndTime,EndDateTime,AllDayEvent,Location,Description,Categories,Deleted,AttendeeEmails,AttendeeNames
+-9999999999,Test Other #1,10/27/2025,15:00:00,2025-10-27T15:00:00,10/27/2025,18:00:00,2025-10-27T18:00:00,0,Blumenthal Hall,,Museum,0,stephen.fang@emanuelnyc.org,Stephen Fang
+-9999999998,Test Other #2,10/27/2025,9:00:00,2025-10-27T09:00:00,10/27/2025,13:00:00,2025-10-27T13:00:00,0,Leventritt Room - 402,Temple offices are closed,Museum,0,stephen.fang@emanuelnyc.org,Stephen Fang

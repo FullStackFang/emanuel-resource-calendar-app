@@ -1,6 +1,11 @@
-# Ignore all CSV files
+# Ignore all CSV files by default
 *.csv
 
 # But keep this folder in git
 !.gitignore
 !README.md
+
+# Allow rsched reference exports to ship with the repo so admins can pick them
+# from the on-disk library in /admin/rsched-import. Keep ad-hoc working files
+# (location-matches-*.csv, locations-*.csv, etc.) excluded.
+!Rsched_*.csv

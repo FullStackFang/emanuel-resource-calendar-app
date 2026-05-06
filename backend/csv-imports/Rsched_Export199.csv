@@ -1,0 +1,562 @@
+﻿rsId,Subject,StartDate,StartTime,StartDateTime,EndDate,EndTime,EndDateTime,AllDayEvent,Location,Description,Categories,Deleted,AttendeeEmails,AttendeeNames
+-1999853271,Museum closed for Summer,9/1/2025,0:00:00,2025-09-01T00:00:00,9/2/2025,0:00:00,2025-09-02T00:00:00,1,Museum,,Museum,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999867378,Labor Day,9/1/2025,9:00:00,2025-09-01T09:00:00,9/1/2025,17:00:00,2025-09-01T17:00:00,0,Note1,Temple offices are closed,Browning,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999853432,Senior Staff Meeting Cancelled,9/1/2025,11:00:00,2025-09-01T11:00:00,9/1/2025,12:00:00,2025-09-01T12:00:00,0,6th Floor Lounge - 602,"Hollow square, coffee, soft drinks, water as in past.",Staff Meeting,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852590,Religious School Mitzvah Mondays,9/1/2025,15:00:00,2025-09-01T15:00:00,9/1/2025,18:00:00,2025-09-01T18:00:00,0,Blumenthal Hall,,Tikkun Olam,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851807,N/S First Staff Meeting,9/2/2025,9:00:00,2025-09-02T09:00:00,9/2/2025,13:00:00,2025-09-02T13:00:00,0,Leventritt Room - 402,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851551,Women of Emanu-El Canasta Tuesdays,9/2/2025,10:00:00,2025-09-02T10:00:00,9/2/2025,13:00:00,2025-09-02T13:00:00,0,6th Floor Lounge - 602,Classes are 10 am to 12 pm and Canasta free play overlaps them from 11 am to 1 pm. See Dionne Gorbea for details (ext.355). ,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853202,Capital Budget Meeting,9/2/2025,13:00:00,2025-09-02T13:00:00,9/2/2025,14:00:00,2025-09-02T14:00:00,0,405,Setup for 6. Soda and Water.  ,Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851451,HHD Meeting,9/2/2025,14:00:00,2025-09-02T14:00:00,9/2/2025,15:00:00,2025-09-02T15:00:00,0,6th Floor Lounge - 602,Set for 12. Pads and Pencils. ,Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851806,N/S Classroom Visits,9/3/2025,9:00:00,2025-09-03T09:00:00,9/3/2025,11:00:00,2025-09-03T11:00:00,0,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851864,B/M Reh Elle Philips HOLD;SA,9/3/2025,16:00:00,2025-09-03T16:00:00,9/3/2025,16:45:00,2025-09-03T16:45:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851860,B/M Reh Hayden Pessin HOLD,9/3/2025,16:45:00,2025-09-03T16:45:00,9/3/2025,17:30:00,2025-09-03T17:30:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851805,N/S Classroom Visits,9/4/2025,9:00:00,2025-09-04T09:00:00,9/4/2025,11:00:00,2025-09-04T11:00:00,0,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851751,Samantha Algaze,9/4/2025,15:00:00,2025-09-04T15:00:00,9/4/2025,20:00:00,2025-09-04T20:00:00,0,"6th Floor Lounge - 602, Leventritt Room - 402, 9th Floor Rooftop",Begins at 6. Baby shower. Challah baking.,Bris/Baby Naming,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852630,Streicker: Katz + Stephens,9/4/2025,16:00:00,2025-09-04T16:00:00,9/4/2025,20:00:00,2025-09-04T20:00:00,0,Leon Lowenstein,,Streicker Event,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852421,Elle Phillips 1st BM Reh,9/4/2025,16:30:00,2025-09-04T16:30:00,9/4/2025,17:30:00,2025-09-04T17:30:00,0,Main Sanctuary,with Amy,Bar/Bas Mitzvah,0,grace.guterman@emanuelnyc.org,Grace Guterman
+-1999851804,N/S Classroom Visits,9/5/2025,9:00:00,2025-09-05T09:00:00,9/5/2025,11:00:00,2025-09-05T11:00:00,0,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999855747,Shabbat Services + Rabbinic Yahrzeit,9/5/2025,18:00:00,2025-09-05T18:00:00,9/5/2025,19:00:00,2025-09-05T19:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Samuel H. Goldenson. (light candles). ,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999855743,Shabbat Services + Rabbinic Yahrzeit,9/6/2025,10:30:00,2025-09-06T10:30:00,9/6/2025,12:00:00,2025-09-06T12:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Samuel H. Goldenson. (light candles). ,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999856560,Gruenberg Wedding,9/6/2025,13:00:00,2025-09-06T13:00:00,9/6/2025,18:30:00,2025-09-06T18:30:00,0,Main Sanctuary,Rabbi Ehrlich  doors open at 530  wedding at 6  150 guests.    ,Weddings,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853721,Sunday Lunch Program,9/7/2025,9:00:00,2025-09-07T09:00:00,9/7/2025,12:00:00,2025-09-07T12:00:00,0,IMW Kitchen,,Tikkun Olam,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852196,R/S Teacher Orientation,9/7/2025,9:30:00,2025-09-07T09:30:00,9/7/2025,12:00:00,2025-09-07T12:00:00,0,Leventritt Room - 402,,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851713,Young Families: Rooftop Party,9/7/2025,9:30:00,2025-09-07T09:30:00,9/7/2025,11:00:00,2025-09-07T11:00:00,0,9th Floor Rooftop,See Grace for details: Ext:303,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851786,B/M Austin Itskowitch Reh,9/7/2025,11:15:00,2025-09-07T11:15:00,9/7/2025,12:00:00,2025-09-07T12:00:00,0,Main Sanctuary,Cantor Anderson  ,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851858,B/M Reh HOLD Melissa Silverman; SA,9/7/2025,12:00:00,2025-09-07T12:00:00,9/7/2025,12:45:00,2025-09-07T12:45:00,0,Main Sanctuary,Cantor Anderson,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851573,Teen Mixer,9/7/2025,12:30:00,2025-09-07T12:30:00,9/7/2025,14:30:00,2025-09-07T14:30:00,0,Religious School Classroom,"Teen Lounge, Room 429 ",Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851863,HOLD B/M SydneyBea Albertson,9/7/2025,13:00:00,2025-09-07T13:00:00,9/7/2025,13:30:00,2025-09-07T13:30:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851859,B/M Maya Singer Reh,9/7/2025,13:30:00,2025-09-07T13:30:00,9/7/2025,14:00:00,2025-09-07T14:00:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851782,HOLD B/M Jacob Weiner Reh,9/7/2025,14:00:00,2025-09-07T14:00:00,9/7/2025,15:00:00,2025-09-07T15:00:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851785,HOLD B/M Luca Santacruz,9/7/2025,15:00:00,2025-09-07T15:00:00,9/7/2025,15:30:00,2025-09-07T15:30:00,0,Main Sanctuary,Cantor Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999853270,Museum closed for Summer,9/8/2025,0:00:00,2025-09-08T00:00:00,9/9/2025,0:00:00,2025-09-09T00:00:00,1,Museum,,Museum,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852153,Executive Committee Meeting,9/8/2025,8:30:00,2025-09-08T08:30:00,9/8/2025,10:00:00,2025-09-08T10:00:00,0,Virtual 1,,Board of Trustees,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851803,N/S Classroom Visits,9/8/2025,9:00:00,2025-09-08T09:00:00,9/8/2025,11:00:00,2025-09-08T11:00:00,0,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851848,HHD Choir Rehearsal,9/8/2025,9:30:00,2025-09-08T09:30:00,9/8/2025,14:00:00,2025-09-08T14:00:00,0,Main Sanctuary,"Rehearsal begins at 10. Cantor Glazman, Cantor Anderson, Choir.",Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853431,Senior Staff Meeting,9/8/2025,11:00:00,2025-09-08T11:00:00,9/8/2025,12:00:00,2025-09-08T12:00:00,0,6th Floor Lounge - 602,"Hollow square, coffee, soft drinks, water as in past.",Staff Meeting,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851639,HHD Meeting,9/8/2025,14:00:00,2025-09-08T14:00:00,9/8/2025,15:00:00,2025-09-08T15:00:00,0,6th Floor Lounge - 602,"Set for 12, pads and pencils.",Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851599,R/S Teacher Orientation,9/8/2025,16:00:00,2025-09-08T16:00:00,9/8/2025,18:00:00,2025-09-08T18:00:00,0,Blumenthal Hall,,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852154,Sydney Bea Albertson B/M Reh #1,9/8/2025,16:00:00,2025-09-08T16:00:00,9/8/2025,17:15:00,2025-09-08T17:15:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999852998,Streicker: Antisemitism in America,9/8/2025,16:00:00,2025-09-08T16:00:00,9/8/2025,21:00:00,2025-09-08T21:00:00,0,"Leventritt Room - 402, Leon Lowenstein",Event begins at 6:30PM.,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999851773,W.O.E Bridge: Advanced,9/8/2025,16:30:00,2025-09-08T16:30:00,9/8/2025,18:30:00,2025-09-08T18:30:00,0,6th Floor Lounge - 602,See Dionne for details. Ext:355,Women of Emanu-El,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851855,B/M Reh Jack Pantzer HOLD,9/8/2025,17:15:00,2025-09-08T17:15:00,9/8/2025,18:00:00,2025-09-08T18:00:00,0,Main Sanctuary,Cantor Glazman,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851789,B/M Sydney Fritz Reh; DE,9/8/2025,18:00:00,2025-09-08T18:00:00,9/8/2025,18:30:00,2025-09-08T18:30:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851503,NS  Cocktail,9/8/2025,18:00:00,2025-09-08T18:00:00,9/8/2025,20:00:00,2025-09-08T20:00:00,0,"Isaac Mayer Wise Hall, 9th Floor Rooftop",,Nursery School,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852489,Parents Night,9/8/2025,18:30:00,2025-09-08T18:30:00,9/8/2025,20:00:00,2025-09-08T20:00:00,0,Nursery School,"Rooms 321, 323, 325, 326, 327",Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852523,Young Members Circle Committee,9/8/2025,18:30:00,2025-09-08T18:30:00,9/8/2025,20:30:00,2025-09-08T20:30:00,0,Ivan M. Stettenheim Library,Cantor Anderson will provide details.,Young Members,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851501,Claims Conference Board Meeting,9/9/2025,8:00:00,2025-09-09T08:00:00,9/9/2025,17:00:00,2025-09-09T17:00:00,0,Isaac Mayer Wise Hall,Expect 100. U shape for 35 with extra chairs on the outside. 2 screens. Zoom. Microphones. Maybe a camera operator. Lunch served on the kitchen side of Wise Hall.,Outside Groups,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851500,Hold Claims Conference,9/9/2025,8:00:00,2025-09-09T08:00:00,9/9/2025,17:00:00,2025-09-09T17:00:00,0,Ivan M. Stettenheim Library,,Outside Groups,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851802,N/S Classroom Visits,9/9/2025,9:00:00,2025-09-09T09:00:00,9/9/2025,11:00:00,2025-09-09T11:00:00,0,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851743,W.O.E Board Meeting,9/9/2025,10:30:00,2025-09-09T10:30:00,9/9/2025,12:30:00,2025-09-09T12:30:00,0,6th Floor Lounge - 602,See Dionne for details. Ext:355,Women of Emanu-El,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851534,HHD Vocal rehearsal,9/9/2025,11:15:00,2025-09-09T11:15:00,9/9/2025,13:30:00,2025-09-09T13:30:00,0,Main Sanctuary,,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853002,Streicker: Bengingi & Small Bites,9/9/2025,16:00:00,2025-09-09T16:00:00,9/9/2025,21:00:00,2025-09-09T21:00:00,0,"Blumenthal Hall, Leon Lowenstein",Event begins at 6:30PM.,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999852359,HOLD Hayden Pessin B/M Reh #1,9/9/2025,17:00:00,2025-09-09T17:00:00,9/9/2025,18:15:00,2025-09-09T18:15:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999853077,Intro to Judaism,9/9/2025,18:30:00,2025-09-09T18:30:00,9/9/2025,20:30:00,2025-09-09T20:30:00,0,Leventritt Room - 402,With Rabbi Peter Weintraub. 22 attendees. Hollow square for 22. White board. Coffee/tea set up on side. Pretzels.,Skirball,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851502,Bengingi & Small Bites Reception,9/9/2025,19:00:00,2025-09-09T19:00:00,9/9/2025,21:00:00,2025-09-09T21:00:00,0,Isaac Mayer Wise Hall,,Streicker Event,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852488,First Day of School,9/10/2025,0:00:00,2025-09-10T00:00:00,9/11/2025,0:00:00,2025-09-11T00:00:00,1,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851724,CAF Brunch,9/10/2025,9:30:00,2025-09-10T09:30:00,9/10/2025,12:00:00,2025-09-10T12:00:00,0,Ivan M. Stettenheim Library,See Grace for details. Ext:303,Community as Family,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851843,Shir Chaddash Full band rehearsal,9/10/2025,11:30:00,2025-09-10T11:30:00,9/10/2025,14:30:00,2025-09-10T14:30:00,0,Main Sanctuary,HHD rehearsal with Hadar,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851852,Cindy Cutler and Gregg Rechler,9/10/2025,12:00:00,2025-09-10T12:00:00,9/10/2025,13:00:00,2025-09-10T13:00:00,0,405,,Special,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851526,RH Family Service Rehearsal,9/10/2025,14:30:00,2025-09-10T14:30:00,9/10/2025,16:00:00,2025-09-10T16:00:00,0,Main Sanctuary,Mike Witman will provide details. This is a rehearsal with the clergy.,Religious School,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852679,Streicker Hold,9/10/2025,16:00:00,2025-09-10T16:00:00,9/10/2025,21:00:00,2025-09-10T21:00:00,0,Isaac Mayer Wise Hall,,Streicker Event,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999853001,Streicker: Horowitz/Horn/Wolpe/Pograbin,9/10/2025,16:00:00,2025-09-10T16:00:00,9/10/2025,21:00:00,2025-09-10T21:00:00,0,Leon Lowenstein,Event begins at 6:30PM.,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999851811,B/M Melissa Silverman,9/10/2025,16:00:00,2025-09-10T16:00:00,9/10/2025,17:00:00,2025-09-10T17:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851814,B/M Blair Aaronson Reh; SA,9/10/2025,17:00:00,2025-09-10T17:00:00,9/10/2025,17:45:00,2025-09-10T17:45:00,0,Main Sanctuary,Cantor Anderson,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851890,B/M Blair Aaronson First Rabbi Reh,9/10/2025,17:45:00,2025-09-10T17:45:00,9/10/2025,18:45:00,2025-09-10T18:45:00,0,Main Sanctuary,Rabbi Emma Dubin,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851590,Teen Philanthropic Committee,9/10/2025,18:00:00,2025-09-10T18:00:00,9/10/2025,20:00:00,2025-09-10T20:00:00,0,Religious School Classroom,"Teen Lounge, Room 429. ",Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852755,"AJC PANEL - David Hennes, Richard Rosen",9/10/2025,18:00:00,2025-09-10T18:00:00,9/10/2025,21:00:00,2025-09-10T21:00:00,0,Leventritt Room - 402,"6:30 strt, doors open at 6. 3 panelists. 1 moderator. 4 chairs little tables in between water. microphones. podium. audience seating. buffet table, 1 table for bar.  ",Outside Groups,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851903,Streicker: WOTM Luncheon,9/11/2025,8:00:00,2025-09-11T08:00:00,9/11/2025,14:00:00,2025-09-11T14:00:00,0,Leventritt Room - 402,,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999851494,Ramblin' Dan,9/11/2025,9:30:00,2025-09-11T09:30:00,9/11/2025,12:30:00,2025-09-11T12:30:00,0,"Young Families Suite, Room 423",See Grace for details. Ext:303,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999853483,Molly Jung Fast (Zibby Presents),9/11/2025,10:00:00,2025-09-11T10:00:00,9/11/2025,13:00:00,2025-09-11T13:00:00,0,Leon Lowenstein,Event begins at 11:30AM. ,Streicker Event,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851525,RH Family Service Rehearsal,9/11/2025,13:00:00,2025-09-11T13:00:00,9/11/2025,15:00:00,2025-09-11T15:00:00,0,Main Sanctuary,Mike Witman will provide details. This is a rehearsal with the clergy.,Religious School,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851904,Streicker: Russ & Daughters,9/11/2025,16:00:00,2025-09-11T16:00:00,9/11/2025,21:00:00,2025-09-11T21:00:00,0,"Blumenthal Hall, Leon Lowenstein",,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999852678,Streicker Hold,9/11/2025,16:00:00,2025-09-11T16:00:00,9/11/2025,21:00:00,2025-09-11T21:00:00,0,Isaac Mayer Wise Hall,,Streicker Event,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852146,Board of Trustees Meeting,9/11/2025,16:00:00,2025-09-11T16:00:00,9/11/2025,18:00:00,2025-09-11T18:00:00,0,Board of Trustees Room,,Board of Trustees,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851838,Young Families: Baby Shabbat,9/12/2025,9:00:00,2025-09-12T09:00:00,9/12/2025,9:45:00,2025-09-12T09:45:00,0,Ivan M. Stettenheim Library,See Grace for Details. Ext:303.,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852487,N/S Class REP Meeting,9/12/2025,9:15:00,2025-09-12T09:15:00,9/12/2025,11:15:00,2025-09-12T11:15:00,0,Leventritt Room - 402,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852195,Teacher Shabbat Dinner,9/12/2025,18:00:00,2025-09-12T18:00:00,9/12/2025,20:00:00,2025-09-12T20:00:00,0,Ivan M. Stettenheim Library,,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999855746,Welcome Back Shabbat/Rabbinic Yahrzeit,9/12/2025,18:00:00,2025-09-12T18:00:00,9/12/2025,19:00:00,2025-09-12T19:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Julius Mark. (light candles). ,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852491,Welcome Back Shabbat Oneg,9/12/2025,19:00:00,2025-09-12T19:00:00,9/12/2025,21:00:00,2025-09-12T21:00:00,0,Isaac Mayer Wise Hall,,Services,0,vivien.hoexter@emanuelnyc.org,Vivien Hoexter
+-1999855742,Shabbat Services + Rabbinic Yahrzeit,9/13/2025,10:30:00,2025-09-13T10:30:00,9/13/2025,12:00:00,2025-09-13T12:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Julius Mark. (light candles). ,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999867376,Do not book B/M after morning services,9/13/2025,12:00:00,2025-09-13T12:00:00,9/13/2025,20:00:00,2025-09-13T20:00:00,0,"Beth-El Chapel, Main Sanctuary",,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999867377,Selichot Services,9/13/2025,20:00:00,2025-09-13T20:00:00,9/13/2025,21:00:00,2025-09-13T21:00:00,0,Beth-El Chapel,,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999853720,Sunday Lunch Program,9/14/2025,9:00:00,2025-09-14T09:00:00,9/14/2025,12:00:00,2025-09-14T12:00:00,0,IMW Kitchen,,Tikkun Olam,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851787,B/M Austin Itskowitch Reh,9/14/2025,9:00:00,2025-09-14T09:00:00,9/14/2025,9:45:00,2025-09-14T09:45:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852274,Religious School,9/14/2025,9:30:00,2025-09-14T09:30:00,9/14/2025,12:00:00,2025-09-14T12:00:00,0,"Isaac Mayer Wise Hall, Ivan M. Stettenheim Library, Leventritt Room - 402, 9th Floor Rooftop, Lowenstein Lobby, Blumenthal Hall, GLB Playroom, Leon Lowenstein, Religious School Classroom",See Sophie's Memo for set-up details. ,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852186,Confirmation Class,9/14/2025,10:00:00,2025-09-14T10:00:00,9/14/2025,12:00:00,2025-09-14T12:00:00,0,"4th Floor Conf. Room, 66th St",,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999853030,Stitch n Time,9/14/2025,10:00:00,2025-09-14T10:00:00,9/14/2025,13:00:00,2025-09-14T13:00:00,0,6th Floor Lounge - 602,,Stitch 'N Time,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852350,Luca Santacruz B/M Reh #1,9/14/2025,12:00:00,2025-09-14T12:00:00,9/14/2025,13:15:00,2025-09-14T13:15:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999851866,B/M Maya Singer First Reh,9/14/2025,13:30:00,2025-09-14T13:30:00,9/14/2025,14:30:00,2025-09-14T14:30:00,0,Main Sanctuary,Rabbi Dubin,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851788,B/M Sydney Fritz Reh; DE,9/14/2025,15:30:00,2025-09-14T15:30:00,9/14/2025,16:00:00,2025-09-14T16:00:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851862,B/M SydneyBea Albertson Reh,9/14/2025,16:00:00,2025-09-14T16:00:00,9/14/2025,16:30:00,2025-09-14T16:30:00,0,Main Sanctuary,David Esptein  ,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851801,N/S Class Meeting,9/15/2025,9:15:00,2025-09-15T09:15:00,9/15/2025,11:15:00,2025-09-15T11:15:00,0,Leventritt Room - 402,For Class 302 and 324. ,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851847,HHD Choir Rehearsal,9/15/2025,9:30:00,2025-09-15T09:30:00,9/15/2025,14:00:00,2025-09-15T14:00:00,0,Main Sanctuary,"Rehearsal begins at 10. Cantor Glazman, Cantor Anderson, Choir.",Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853268,180th anniversary exhibition,9/15/2025,10:00:00,2025-09-15T10:00:00,9/15/2025,16:00:00,2025-09-15T16:00:00,0,Museum,Opens to Public,Museum,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853430,Senior Staff Meeting,9/15/2025,11:00:00,2025-09-15T11:00:00,9/15/2025,12:00:00,2025-09-15T12:00:00,0,6th Floor Lounge - 602,"Hollow square, coffee, soft drinks, water as in past.",Staff Meeting,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851840,Young Family Rehearsal,9/15/2025,12:00:00,2025-09-15T12:00:00,9/15/2025,15:00:00,2025-09-15T15:00:00,0,Isaac Mayer Wise Hall,"With Hadar, clergy. Full setup - platform.",Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851638,HHD Meeting,9/15/2025,14:00:00,2025-09-15T14:00:00,9/15/2025,15:00:00,2025-09-15T15:00:00,0,6th Floor Lounge - 602,"Set for 12, pads and pencils.",Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852235,Religious School,9/15/2025,15:30:00,2025-09-15T15:30:00,9/15/2025,18:00:00,2025-09-15T18:00:00,0,"Ivan M. Stettenheim Library, Leventritt Room - 402, 9th Floor Rooftop, Blumenthal Hall, GLB Playroom, Religious School, Leon Lowenstein, Religious School Classroom",See Sophies Memo for Details. ,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852105,Executive Committee Meeting,9/15/2025,16:00:00,2025-09-15T16:00:00,9/15/2025,17:00:00,2025-09-15T17:00:00,0,Virtual 1,,Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852666,Elle Phillips Final BM Reh,9/15/2025,16:00:00,2025-09-15T16:00:00,9/15/2025,17:00:00,2025-09-15T17:00:00,0,Main Sanctuary,with Rabbi Ehrlich,Bar/Bas Mitzvah,0,grace.guterman@emanuelnyc.org,Grace Guterman
+-1999851772,W.O.E Bridge: Advanced,9/15/2025,16:30:00,2025-09-15T16:30:00,9/15/2025,18:30:00,2025-09-15T18:30:00,0,6th Floor Lounge - 602,See Dionne for details. Ext:355,Women of Emanu-El,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852355,Melissa Silverman B/M Reh #1,9/15/2025,17:15:00,2025-09-15T17:15:00,9/15/2025,18:30:00,2025-09-15T18:30:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999851531,Heritage Society cocktail reception,9/15/2025,18:00:00,2025-09-15T18:00:00,9/15/2025,19:00:00,2025-09-15T19:00:00,0,Museum,"Rabbi Davidson will offer brief remarks around 6:15 PM, followed by Warren, who will introduce and explain the exhibit. Livia will provide details.",Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852137,Streicker: Museum opening program,9/15/2025,18:30:00,2025-09-15T18:30:00,9/15/2025,20:00:00,2025-09-15T20:00:00,0,"Main Sanctuary, Greenwald Hall",,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999852676,180th Anniversary Reception,9/15/2025,19:00:00,2025-09-15T19:00:00,9/15/2025,21:00:00,2025-09-15T21:00:00,0,Museum,,Streicker Event,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851809,HHD Clergy Walkthrough,9/16/2025,9:00:00,2025-09-16T09:00:00,9/16/2025,17:00:00,2025-09-16T17:00:00,0,Main Sanctuary,,Clergy,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852486,N/S Class Meeting,9/16/2025,9:15:00,2025-09-16T09:15:00,9/16/2025,11:15:00,2025-09-16T11:15:00,0,Leventritt Room - 402,Rooms 321 and 326,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851549,Women of Emanu-El Canasta Tuesdays,9/16/2025,10:00:00,2025-09-16T10:00:00,9/16/2025,13:00:00,2025-09-16T13:00:00,0,6th Floor Lounge - 602,Classes are 10 am to 12 pm and Canasta free play overlaps them from 11 am to 1 pm. See Dionne Gorbea for details (ext.355). ,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853482,Streicker: Met Opera,9/16/2025,15:00:00,2025-09-16T15:00:00,9/16/2025,22:00:00,2025-09-16T22:00:00,0,"Isaac Mayer Wise Hall, Leon Lowenstein",Event begins at 7PM. ,Streicker Event,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853076,Intro to Judaism,9/16/2025,18:30:00,2025-09-16T18:30:00,9/16/2025,20:30:00,2025-09-16T20:30:00,0,Leventritt Room - 402,With Rabbi Peter Weintraub. 22 attendees. Hollow square for 22. White board. Coffee/tea set up on side. Pretzels.,Skirball,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851845,Family Service HHD Rehearsal,9/17/2025,10:30:00,2025-09-17T10:30:00,9/17/2025,12:30:00,2025-09-17T12:30:00,0,Main Sanctuary,"Cantor Glazman, Cantor Anderson, Hadar, choir.",Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851844,Teen HHD Rehearsal,9/17/2025,13:00:00,2025-09-17T13:00:00,9/17/2025,15:00:00,2025-09-17T15:00:00,0,Leon Lowenstein,With Hadar,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851808,HHD Clergy Walkthrough,9/17/2025,13:00:00,2025-09-17T13:00:00,9/17/2025,16:00:00,2025-09-17T16:00:00,0,Main Sanctuary,,Clergy,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852672,Sydney Fritz 1st BM Reh,9/17/2025,16:00:00,2025-09-17T16:00:00,9/17/2025,17:00:00,2025-09-17T17:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,grace.guterman@emanuelnyc.org,Grace Guterman
+-1999853481,Streicker: HOLD,9/17/2025,16:00:00,2025-09-17T16:00:00,9/17/2025,21:00:00,2025-09-17T21:00:00,0,"Isaac Mayer Wise Hall, Leon Lowenstein",,Streicker Event,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852356,HOLD Hayden Pessin B/M Reh #2,9/17/2025,17:15:00,2025-09-17T17:15:00,9/17/2025,18:30:00,2025-09-17T18:30:00,0,"Beth-El Chapel, Main Sanctuary",Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999852736,Rose on Roof,9/17/2025,18:00:00,2025-09-17T18:00:00,9/17/2025,22:00:00,2025-09-17T22:00:00,0,"Leventritt Room - 402, 9th Floor Rooftop",,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851493,Ramblin' Dan,9/18/2025,9:30:00,2025-09-18T09:30:00,9/18/2025,12:30:00,2025-09-18T12:30:00,0,"Young Families Suite, Room 423",See Grace for details. Ext:303,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851841,Hadar HHD Rehearsal,9/18/2025,12:00:00,2025-09-18T12:00:00,9/18/2025,15:00:00,2025-09-18T15:00:00,0,Main Sanctuary,Shir Hadash rehearsal,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851856,B/M HOLD Reh Jack Pantzer; MG,9/18/2025,16:00:00,2025-09-18T16:00:00,9/18/2025,16:45:00,2025-09-18T16:45:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852100,Board of Trustees Meeting,9/18/2025,16:00:00,2025-09-18T16:00:00,9/18/2025,18:00:00,2025-09-18T18:00:00,0,Board of Trustees Room,,Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852999,Streicker hold Fall Welcome Week,9/18/2025,16:00:00,2025-09-18T16:00:00,9/18/2025,21:00:00,2025-09-18T21:00:00,0,"Isaac Mayer Wise Hall, Leon Lowenstein",,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999852138,Sydney Bea Albertson B/M Reh #2,9/18/2025,17:30:00,2025-09-18T17:30:00,9/18/2025,18:45:00,2025-09-18T18:45:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999852735,Rose on Roof,9/18/2025,18:00:00,2025-09-18T18:00:00,9/18/2025,22:00:00,2025-09-18T22:00:00,0,"Leventritt Room - 402, 9th Floor Rooftop",,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852566,Shofar Shabbat,9/19/2025,16:00:00,2025-09-19T16:00:00,9/19/2025,19:00:00,2025-09-19T19:00:00,0,Downtown,,Programming,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999853647,R/S Family Shabbat,9/19/2025,16:00:00,2025-09-19T16:00:00,9/19/2025,21:00:00,2025-09-19T21:00:00,0,"Isaac Mayer Wise Hall, Lowenstein Lobby, Blumenthal Hall, Leon Lowenstein",,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999855745,Shabbat Services,9/19/2025,18:00:00,2025-09-19T18:00:00,9/19/2025,19:00:00,2025-09-19T19:00:00,0,"Main Sanctuary, Livestream 1",,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852753,No Events May be Scheduled,9/20/2025,0:00:00,2025-09-20T00:00:00,9/21/2025,0:00:00,2025-09-21T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851707,Young Families: Tot Shabbat,9/20/2025,9:00:00,2025-09-20T09:00:00,9/20/2025,10:00:00,2025-09-20T10:00:00,0,Leventritt Room - 402,,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999865041,Shabbat Services. B/M Elle Phillips,9/20/2025,10:30:00,2025-09-20T10:30:00,9/20/2025,12:00:00,2025-09-20T12:00:00,0,"Main Sanctuary, Livestream 1",,Bar/Bas Mitzvah,0,rsadmin@no.edu,rsadmin
+-1999853309,B/M SydneyBea Murphy,9/20/2025,12:30:00,2025-09-20T12:30:00,9/20/2025,13:30:00,2025-09-20T13:30:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999866960,B/M Hayden Pessin,9/20/2025,16:30:00,2025-09-20T16:30:00,9/20/2025,17:30:00,2025-09-20T17:30:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,rsadmin@no.edu,rsadmin
+-1999852751,No Events May be Scheduled,9/21/2025,0:00:00,2025-09-21T00:00:00,9/22/2025,0:00:00,2025-09-22T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853719,Sunday Lunch Program,9/21/2025,9:00:00,2025-09-21T09:00:00,9/21/2025,12:00:00,2025-09-21T12:00:00,0,IMW Kitchen,,Tikkun Olam,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852273,Religious School,9/21/2025,9:30:00,2025-09-21T09:30:00,9/21/2025,12:00:00,2025-09-21T12:00:00,0,"Isaac Mayer Wise Hall, Ivan M. Stettenheim Library, Leventritt Room - 402, 9th Floor Rooftop, Lowenstein Lobby, Blumenthal Hall, GLB Playroom, Leon Lowenstein, Religious School Classroom",See Sophie's Memo for set-up details. ,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852353,Jack Pantzer B/M Reh #1,9/21/2025,11:00:00,2025-09-21T11:00:00,9/21/2025,12:15:00,2025-09-21T12:15:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999851857,B/M Reh Maya Singer; DE,9/21/2025,12:30:00,2025-09-21T12:30:00,9/21/2025,13:00:00,2025-09-21T13:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851745,HHD Teen Rehearsal,9/21/2025,12:30:00,2025-09-21T12:30:00,9/21/2025,13:30:00,2025-09-21T13:30:00,0,Leon Lowenstein,Em Besthoff will provide details.,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851813,Hold B/M Melissa Silverman; SA,9/21/2025,13:00:00,2025-09-21T13:00:00,9/21/2025,13:45:00,2025-09-21T13:45:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851790,B/M Blair Aaronson Reh,9/21/2025,13:45:00,2025-09-21T13:45:00,9/21/2025,14:30:00,2025-09-21T14:30:00,0,Main Sanctuary,Cantor Anderson,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851706,Eve of Rosh Hashanah,9/22/2025,0:00:00,2025-09-22T00:00:00,9/23/2025,0:00:00,2025-09-23T00:00:00,1,Note1,,Services,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852542,Streicker: YP Rosh Hashana Eve Dinner,9/22/2025,10:00:00,2025-09-22T10:00:00,9/22/2025,22:00:00,2025-09-22T22:00:00,0,Blumenthal Hall,,Streicker Outreach,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999853267,180th anniversary exhibition,9/22/2025,10:00:00,2025-09-22T10:00:00,9/22/2025,16:00:00,2025-09-22T16:00:00,0,Museum,Sunday-Thursday 10:00am-4:00pm,Museum,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853429,Senior Staff Meeting,9/22/2025,11:00:00,2025-09-22T11:00:00,9/22/2025,12:00:00,2025-09-22T12:00:00,0,6th Floor Lounge - 602,"Hollow square, coffee, soft drinks, water as in past.",Staff Meeting,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999855873,Change Mantels to white,9/22/2025,13:00:00,2025-09-22T13:00:00,9/22/2025,17:00:00,2025-09-22T17:00:00,0,Main Sanctuary,,Police,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851448,HHD Meeting,9/22/2025,14:00:00,2025-09-22T14:00:00,9/22/2025,15:00:00,2025-09-22T15:00:00,0,6th Floor Lounge - 602,Set for 12. Pads and Pencils. ,Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999867375,Eve of Rosh Hashanah,9/22/2025,17:00:00,2025-09-22T17:00:00,9/22/2025,22:00:00,2025-09-22T22:00:00,0,"Isaac Mayer Wise Hall, Main Sanctuary, Leon Lowenstein, Livestream 1",YP Service before dinner in GLB,Streicker Outreach,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999852483,School Closed- Rosh Hashanah,9/23/2025,0:00:00,2025-09-23T00:00:00,9/24/2025,0:00:00,2025-09-24T00:00:00,1,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999867374,Rosh Hashanah,9/23/2025,8:00:00,2025-09-23T08:00:00,9/23/2025,18:00:00,2025-09-23T18:00:00,0,"Isaac Mayer Wise Hall, Main Sanctuary, Leon Lowenstein, Livestream 1",,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999851548,Women of Emanu-El Canasta Tuesdays,9/23/2025,10:00:00,2025-09-23T10:00:00,9/23/2025,13:00:00,2025-09-23T13:00:00,0,6th Floor Lounge - 602,Classes are 10 am to 12 pm and Canasta free play overlaps them from 11 am to 1 pm. See Dionne Gorbea for details (ext.355). ,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852748,No Events May be Scheduled,9/24/2025,0:00:00,2025-09-24T00:00:00,9/25/2025,0:00:00,2025-09-25T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852354,Melissa Silverman B/M Reh #2,9/24/2025,17:15:00,2025-09-24T17:15:00,9/24/2025,18:30:00,2025-09-24T18:30:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999851797,HHD Clergy Walkthrough,9/25/2025,9:00:00,2025-09-25T09:00:00,9/25/2025,16:00:00,2025-09-25T16:00:00,0,Main Sanctuary,,Clergy,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852485,N/S Class Meeting,9/25/2025,9:15:00,2025-09-25T09:15:00,9/25/2025,11:15:00,2025-09-25T11:15:00,0,Leventritt Room - 402,Room 323,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851492,Ramblin' Dan,9/25/2025,9:30:00,2025-09-25T09:30:00,9/25/2025,12:30:00,2025-09-25T12:30:00,0,"Young Families Suite, Room 423",See Grace for details. Ext:303,Young Families,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852352,Jack Pantzer B/M Reh #2,9/25/2025,16:00:00,2025-09-25T16:00:00,9/25/2025,17:15:00,2025-09-25T17:15:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999852351,Austin Itskowitch B/M Reh #1,9/25/2025,17:15:00,2025-09-25T17:15:00,9/25/2025,18:30:00,2025-09-25T18:30:00,0,Main Sanctuary,Rabbi Davidson,Bar/Bas Mitzvah,0,SeniorRabbiStudy@emanuelnyc.org,Senior Rabbi Study
+-1999851865,B/M Maya Singer Final Reh,9/25/2025,18:30:00,2025-09-25T18:30:00,9/25/2025,19:30:00,2025-09-25T19:30:00,0,Main Sanctuary,Rabbi Dubin,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852484,N/S Class Meeting,9/26/2025,9:15:00,2025-09-26T09:15:00,9/26/2025,11:15:00,2025-09-26T11:15:00,0,Leventritt Room - 402,Rooms 325 and 327 ,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999855744,Shabbat Services + Rabbinic Yahrzeit,9/26/2025,18:00:00,2025-09-26T18:00:00,9/26/2025,19:00:00,2025-09-26T19:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Leo Merzbacher. (light candles). ,Services,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999868559,Shabbat Services BM Melissa Silverman,9/27/2025,10:30:00,2025-09-27T10:30:00,9/27/2025,12:00:00,2025-09-27T12:00:00,0,"Main Sanctuary, Livestream 1",Yahrzeit for Rabbi Leo Merzbacher. (light candles). ,Bar/Bas Mitzvah,0,rsadmin@no.edu,rsadmin
+-1999864153,B/M Maya Singer,9/27/2025,12:30:00,2025-09-27T12:30:00,9/27/2025,13:30:00,2025-09-27T13:30:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,rsadmin@no.edu,rsadmin
+-1999865197,B/M Jack Pantzer,9/27/2025,18:00:00,2025-09-27T18:00:00,9/27/2025,19:00:00,2025-09-27T19:00:00,0,Main Sanctuary,Contract sent 6/28/22    Special start with RJD permission. ,Bar/Bas Mitzvah,0,rsadmin@no.edu,rsadmin
+-1999853718,Sunday Lunch Program,9/28/2025,9:00:00,2025-09-28T09:00:00,9/28/2025,12:00:00,2025-09-28T12:00:00,0,IMW Kitchen,,Tikkun Olam,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851781,B/M Emma Fabian Reh;SA,9/28/2025,9:00:00,2025-09-28T09:00:00,9/28/2025,9:45:00,2025-09-28T09:45:00,0,Main Sanctuary,Cantor Anderson,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852272,Religious School,9/28/2025,9:30:00,2025-09-28T09:30:00,9/28/2025,12:00:00,2025-09-28T12:00:00,0,"Isaac Mayer Wise Hall, Ivan M. Stettenheim Library, Leventritt Room - 402, 9th Floor Rooftop, Lowenstein Lobby, Blumenthal Hall, GLB Playroom, Leon Lowenstein, Religious School Classroom",See Sophie's Memo for set-up details. ,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852565,Tashlich at the Carousel,9/28/2025,11:00:00,2025-09-28T11:00:00,9/28/2025,14:00:00,2025-09-28T14:00:00,0,Downtown,,Programming,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851653,R/S Fire Drill,9/28/2025,11:00:00,2025-09-28T11:00:00,9/28/2025,11:15:00,2025-09-28T11:15:00,0,Note1,,Religious School,0,brambali@emanuelnyc.org,Bobby Rambali
+-1999851784,HOLD B/M Luca Santacruz,9/28/2025,12:00:00,2025-09-28T12:00:00,9/28/2025,12:45:00,2025-09-28T12:45:00,0,Main Sanctuary,David Epstein  ,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851744,HHD Teen Rehearsal,9/28/2025,12:30:00,2025-09-28T12:30:00,9/28/2025,13:30:00,2025-09-28T13:30:00,0,Leon Lowenstein,,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851572,Teen Executive Board Lunch,9/28/2025,12:30:00,2025-09-28T12:30:00,9/28/2025,14:30:00,2025-09-28T14:30:00,0,Religious School Classroom,"Teen Lounge, Room 429 ",Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851783,HOLD B/M Jacob Weiner Reh,9/28/2025,12:45:00,2025-09-28T12:45:00,9/28/2025,13:15:00,2025-09-28T13:15:00,0,Main Sanctuary,David Epstein,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999851690,HOLD B/M Payton Taitz Reh; MG,9/28/2025,13:30:00,2025-09-28T13:30:00,9/28/2025,14:00:00,2025-09-28T14:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852752,No Events may be scheduled,9/29/2025,0:00:00,2025-09-29T00:00:00,9/30/2025,0:00:00,2025-09-30T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851846,HHD Choir Rehearsal,9/29/2025,9:30:00,2025-09-29T09:30:00,9/29/2025,14:00:00,2025-09-29T14:00:00,0,Main Sanctuary,"Rehearsal begins at 10. Cantor Glazman, Cantor Anderson, Choir.",Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853266,180th anniversary exhibition,9/29/2025,10:00:00,2025-09-29T10:00:00,9/29/2025,16:00:00,2025-09-29T16:00:00,0,Museum,Sunday-Thursday 10:00am-4:00pm,Museum,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999853428,Senior Staff Meeting,9/29/2025,11:00:00,2025-09-29T11:00:00,9/29/2025,12:00:00,2025-09-29T12:00:00,0,6th Floor Lounge - 602,"Hollow square, coffee, soft drinks, water as in past.",Staff Meeting,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851636,HHD Meeting,9/29/2025,14:00:00,2025-09-29T14:00:00,9/29/2025,15:00:00,2025-09-29T15:00:00,0,6th Floor Lounge - 602,"Set for 12, pads and pencils.",Staff Meeting,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999854351,Build Baby Succah Frame,9/29/2025,15:00:00,2025-09-29T15:00:00,9/29/2025,18:00:00,2025-09-29T18:00:00,0,3rd Fl Play Roof,,Police,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852234,Religious School,9/29/2025,15:30:00,2025-09-29T15:30:00,9/29/2025,18:00:00,2025-09-29T18:00:00,0,"Ivan M. Stettenheim Library, Leventritt Room - 402, Lowenstein Lobby, Blumenthal Hall, GLB Playroom, Religious School, Leon Lowenstein, Religious School Classroom",See Sophies Memo for Details. ,Religious School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852663,Sydney Fritz 1st BM Reh,9/29/2025,16:00:00,2025-09-29T16:00:00,9/29/2025,17:00:00,2025-09-29T17:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,grace.guterman@emanuelnyc.org,Grace Guterman
+-1999851771,W.O.E Bridge: Advanced,9/29/2025,16:30:00,2025-09-29T16:30:00,9/29/2025,18:30:00,2025-09-29T18:30:00,0,6th Floor Lounge - 602,See Dionne for details. Ext:355,Women of Emanu-El,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999851889,B/M Blair Aaronson Final Reh,9/29/2025,17:00:00,2025-09-29T17:00:00,9/29/2025,18:00:00,2025-09-29T18:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,Rosa.Olguin@emanuelnyc.org,Rosa Olguin
+-1999852747,No Events may be scheduled,9/30/2025,0:00:00,2025-09-30T00:00:00,10/1/2025,0:00:00,2025-10-01T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851796,HHD Clergy Walkthrough,9/30/2025,9:00:00,2025-09-30T09:00:00,9/30/2025,16:00:00,2025-09-30T16:00:00,0,Main Sanctuary,,Clergy,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851547,Women of Emanu-El Canasta Tuesdays,9/30/2025,10:00:00,2025-09-30T10:00:00,9/30/2025,13:00:00,2025-09-30T13:00:00,0,6th Floor Lounge - 602,Classes are 10 am to 12 pm and Canasta free play overlaps them from 11 am to 1 pm. See Dionne Gorbea for details (ext.355). ,Women of Emanu-El,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852673,Emma Fabian Final BM Reh,9/30/2025,16:00:00,2025-09-30T16:00:00,9/30/2025,17:00:00,2025-09-30T17:00:00,0,Main Sanctuary,,Bar/Bas Mitzvah,0,grace.guterman@emanuelnyc.org,Grace Guterman
+-1999852343,Interfaith:Defense Against the Dark Arts,9/30/2025,18:15:00,2025-09-30T18:15:00,9/30/2025,19:15:00,2025-09-30T19:15:00,0,"4th Floor Conf. Room, 66th St",Will need Hot Water for Tea. ,Interfaith,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999852746,No Events may be scheduled,10/1/2025,0:00:00,2025-10-01T00:00:00,10/2/2025,0:00:00,2025-10-02T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999851849,Rehearsal Choir/Hadar,10/1/2025,16:00:00,2025-10-01T16:00:00,10/1/2025,17:00:00,2025-10-01T17:00:00,0,Main Sanctuary,,Choir,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999867373,Eve of Yom Kippur - Kol Nidrei,10/1/2025,17:00:00,2025-10-01T17:00:00,10/1/2025,22:00:00,2025-10-01T22:00:00,0,"Isaac Mayer Wise Hall, Main Sanctuary, Leon Lowenstein, Livestream 1",,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999852745,No Events may be scheduled,10/2/2025,0:00:00,2025-10-02T00:00:00,10/3/2025,0:00:00,2025-10-03T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852482,School Closed- Yom Kippur,10/2/2025,0:00:00,2025-10-02T00:00:00,10/3/2025,0:00:00,2025-10-03T00:00:00,1,Nursery School,,Nursery School,0,jpalusevic@emanuelnyc.org,Joseph Palusevic
+-1999867372,Yom Kippur,10/2/2025,8:00:00,2025-10-02T08:00:00,10/2/2025,18:00:00,2025-10-02T18:00:00,0,"Isaac Mayer Wise Hall, Main Sanctuary, Leon Lowenstein, Livestream 1",,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999854355,Sukkah Materials,10/2/2025,18:00:00,2025-10-02T18:00:00,10/2/2025,20:00:00,2025-10-02T20:00:00,0,Beth-El Chapel,Materials brought to chapel for building frame. Bobby for details.,Police,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852744,No Events may be scheduled,10/3/2025,0:00:00,2025-10-03T00:00:00,10/4/2025,0:00:00,2025-10-04T00:00:00,1,Note1,,Other,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999867288,Sabbath Services,10/3/2025,18:00:00,2025-10-03T18:00:00,10/3/2025,19:00:00,2025-10-03T19:00:00,0,Beth-El Chapel,Services in Chapel while building Sukkah.,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999855386,Danielle Rubin,10/3/2025,19:00:00,2025-10-03T19:00:00,10/3/2025,20:00:00,2025-10-03T20:00:00,0,Leventritt Room - 402,Reception after Aufruf,Weddings,0,john.ohara@emanuelnyc.org,John O'Hara
+-1999852925,Streicker: Jake Cohen event,10/4/2025,9:00:00,2025-10-04T09:00:00,10/4/2025,23:00:00,2025-10-04T23:00:00,0,Isaac Mayer Wise Hall,,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+-1999867287,Sabbath Services + B/M Sydney Fritz,10/4/2025,10:30:00,2025-10-04T10:30:00,10/4/2025,12:00:00,2025-10-04T12:00:00,0,Main Sanctuary,,Police,0,mheutlinger@emanuelnyc.org,Mark Heutlinger
+-1999853003,Streicker: Jake Cohen event,10/4/2025,11:00:00,2025-10-04T11:00:00,10/4/2025,21:00:00,2025-10-04T21:00:00,0,"Blumenthal Hall, Leon Lowenstein",,Streicker Event,0,erika@emanuelstreickernyc.org,Erika Resnick
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,

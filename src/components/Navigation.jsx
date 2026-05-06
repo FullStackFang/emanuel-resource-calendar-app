@@ -252,6 +252,15 @@ export default function Navigation() {
                     RSched Mapper
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/admin/rsched-import"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    RSched Import
+                  </NavLink>
+                </li>
               </ul>
             )}
           </li>

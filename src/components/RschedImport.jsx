@@ -62,7 +62,6 @@ export default function RschedImport() {
   const [search, setSearch] = useState('');
 
   const [uploading, setUploading] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
 
   const [validating, setValidating] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -183,20 +182,41 @@ export default function RschedImport() {
     e.preventDefault();
     const form = e.target;
     const fd = new FormData(form);
-    if (!fd.get('csvFile') || !fd.get('csvFile').name) {
-      showError(new Error('Please select a CSV file'));
-      return;
-    }
+    const mode = fd.get('sourceMode') || 'upload';
     setUploading(true);
     try {
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/upload`, {
-        method: 'POST',
-        body: fd,
-      });
+      let res;
+      if (mode === 'library') {
+        const filename = fd.get('libraryFilename');
+        if (!filename) throw new Error('Please choose a library file');
+        res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/upload-from-library`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename,
+            calendarOwner: fd.get('calendarOwner'),
+            calendarId: fd.get('calendarId') || undefined,
+            dateRangeStart: fd.get('dateRangeStart'),
+            dateRangeEnd: fd.get('dateRangeEnd'),
+          }),
+        });
+      } else {
+        if (!fd.get('csvFile') || !fd.get('csvFile').name) {
+          throw new Error('Please select a CSV file');
+        }
+        res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/upload`, {
+          method: 'POST',
+          body: fd,
+        });
+      }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
-      showSuccess(`Uploaded ${data.rowCount} rows. Session ${data.sessionId}.`);
-      setShowUpload(false);
+      if (!res.ok) {
+        const sample = Array.isArray(data.parseErrors) && data.parseErrors.length > 0
+          ? ` First issue: ${data.parseErrors[0].reason || JSON.stringify(data.parseErrors[0])}`
+          : '';
+        throw new Error((data.error || `Upload failed (${res.status})`) + sample);
+      }
+      showSuccess(`Staged ${data.rowCount} rows. Session ${data.sessionId}.`);
       await openSession(data.sessionId);
     } catch (err) {
       showError(err);
@@ -407,11 +427,15 @@ export default function RschedImport() {
       </header>
 
       {view === 'list' && (
-        <SessionsList
-          sessions={sessions}
-          onOpenUpload={() => setShowUpload(true)}
-          onOpen={openSession}
-        />
+        <>
+          <StageCsvCard
+            uploading={uploading}
+            onSubmit={handleUpload}
+            authFetch={authFetch}
+            showError={showError}
+          />
+          <SessionsList sessions={sessions} onOpen={openSession} />
+        </>
       )}
 
       {view === 'session' && activeSession && (
@@ -446,28 +470,16 @@ export default function RschedImport() {
         />
       )}
 
-      {showUpload && (
-        <UploadModal
-          uploading={uploading}
-          onClose={() => setShowUpload(false)}
-          onSubmit={handleUpload}
-        />
-      )}
     </div>
   );
 }
 
-function SessionsList({ sessions, onOpenUpload, onOpen }) {
+function SessionsList({ sessions, onOpen }) {
   return (
     <section className="rsi-card">
-      <div className="rsi-row-flex">
-        <h2>Import sessions</h2>
-        <button type="button" className="rsi-btn-primary" onClick={onOpenUpload}>
-          + Upload CSV
-        </button>
-      </div>
+      <h2>Past import sessions</h2>
       {sessions.length === 0 ? (
-        <p className="rsi-muted">No sessions yet. Upload a CSV to begin.</p>
+        <p className="rsi-muted">No sessions yet. Stage a CSV above to begin.</p>
       ) : (
         <table className="rsi-table">
           <thead>
@@ -777,77 +789,183 @@ function SessionView(props) {
   );
 }
 
-function UploadModal({ uploading, onClose, onSubmit }) {
-  const [calendarOwner, setCalendarOwner] = useState('templeeventssandbox@emanuelnyc.org');
+function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
+  const [calendarOwner, setCalendarOwner] = useState(APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR);
   const [calendarId, setCalendarId] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(addDaysIso(todayIso(), 90));
+  const [sourceMode, setSourceMode] = useState('library');
+  const [libraryFiles, setLibraryFiles] = useState([]);
+  const [libraryFilename, setLibraryFilename] = useState('');
+  const [loadingLibrary, setLoadingLibrary] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoadingLibrary(true);
+      try {
+        const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/library`);
+        if (!res.ok) throw new Error(`Failed to list library (${res.status})`);
+        const data = await res.json();
+        if (cancelled) return;
+        const files = data.files || [];
+        setLibraryFiles(files);
+        if (files.length > 0) setLibraryFilename((prev) => prev || files[0].filename);
+        if (files.length === 0) setSourceMode('upload');
+      } catch (err) {
+        if (!cancelled) showError(err);
+      } finally {
+        if (!cancelled) setLoadingLibrary(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const formatBytes = (n) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  };
 
   return (
-    <div className="rsi-modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="rsi-modal">
-        <h2>Upload rsched CSV</h2>
-        <form onSubmit={onSubmit}>
-          <label>
-            Calendar owner email
+    <section className="rsi-card">
+      <h2>Stage a CSV</h2>
+      <p className="rsi-muted" style={{ marginTop: 0 }}>
+        Pick a saved Rsched export from the library or upload a new one, set the
+        calendar and date range, then preview what will be added, updated, or
+        removed before committing.
+      </p>
+      <form className="rsi-stage-form" onSubmit={onSubmit}>
+        <input type="hidden" name="sourceMode" value={sourceMode} />
+
+        <div className="rsi-row-flex" style={{ gap: '1rem', marginBottom: '0.5rem' }}>
+          <label style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
             <input
-              type="email"
-              name="calendarOwner"
-              value={calendarOwner}
-              onChange={(e) => setCalendarOwner(e.target.value)}
+              type="radio"
+              checked={sourceMode === 'library'}
+              onChange={() => setSourceMode('library')}
+              disabled={libraryFiles.length === 0}
+            />
+            From library{libraryFiles.length === 0 && !loadingLibrary ? ' (empty)' : ''}
+          </label>
+          <label style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="radio"
+              checked={sourceMode === 'upload'}
+              onChange={() => setSourceMode('upload')}
+            />
+            Upload new
+          </label>
+        </div>
+
+        {sourceMode === 'library' ? (
+          <label>
+            Library file
+            <select
+              name="libraryFilename"
+              value={libraryFilename}
+              onChange={(e) => setLibraryFilename(e.target.value)}
+              disabled={loadingLibrary}
+              required
+            >
+              {loadingLibrary && <option value="">Loading…</option>}
+              {!loadingLibrary && libraryFiles.length === 0 && (
+                <option value="">No Rsched_*.csv files in backend/csv-imports/</option>
+              )}
+              {libraryFiles.map((f) => (
+                <option key={f.filename} value={f.filename}>
+                  {f.filename} — {formatBytes(f.sizeBytes)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <label>
+            CSV file
+            <input
+              type="file"
+              name="csvFile"
+              accept=".csv,text/csv"
+              required={sourceMode === 'upload'}
+            />
+          </label>
+        )}
+
+        <label>
+          Calendar owner
+          <select
+            name="calendarOwner"
+            value={calendarOwner}
+            onChange={(e) => setCalendarOwner(e.target.value)}
+            required
+          >
+            <option value={APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR}>
+              {APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR} (sandbox)
+            </option>
+            <option value={APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR}>
+              {APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR} (production)
+            </option>
+          </select>
+        </label>
+
+        <div className="rsi-row-flex">
+          <label style={{ flex: 1 }}>
+            Date range start
+            <input
+              type="date"
+              name="dateRangeStart"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
               required
             />
           </label>
+          <label style={{ flex: 1 }}>
+            Date range end
+            <input
+              type="date"
+              name="dateRangeEnd"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              required
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          className="rsi-btn-link"
+          onClick={() => setShowAdvanced((v) => !v)}
+          style={{ alignSelf: 'flex-start', padding: 0 }}
+        >
+          {showAdvanced ? '▾' : '▸'} Advanced
+        </button>
+        {showAdvanced && (
           <label>
-            Calendar ID (optional — leave blank to auto-resolve)
+            Calendar ID
             <input
               type="text"
               name="calendarId"
               value={calendarId}
               onChange={(e) => setCalendarId(e.target.value)}
+              placeholder="Leave blank to use the configured default"
             />
+            <span className="rsi-muted" style={{ fontSize: '0.85em' }}>
+              Optional Outlook calendar GUID inside the chosen mailbox. Most
+              imports leave this blank — the system auto-resolves to the
+              calendar configured for the selected owner.
+            </span>
           </label>
-          <div className="rsi-row-flex">
-            <label style={{ flex: 1 }}>
-              Date range start
-              <input
-                type="date"
-                name="dateRangeStart"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                required
-              />
-            </label>
-            <label style={{ flex: 1 }}>
-              Date range end
-              <input
-                type="date"
-                name="dateRangeEnd"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                required
-              />
-            </label>
-          </div>
-          <label>
-            CSV file
-            <input type="file" name="csvFile" accept=".csv,text/csv" required />
-          </label>
-          <div className="rsi-modal-actions">
-            <button
-              type="button"
-              className="rsi-btn-secondary"
-              onClick={onClose}
-              disabled={uploading}
-            >
-              Cancel
-            </button>
-            <button type="submit" className="rsi-btn-primary" disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Upload'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        )}
+
+        <div className="rsi-row-flex" style={{ justifyContent: 'flex-end' }}>
+          <button type="submit" className="rsi-btn-primary" disabled={uploading}>
+            {uploading ? 'Staging…' : sourceMode === 'library' ? 'Stage from library' : 'Upload & stage'}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
