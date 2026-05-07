@@ -256,17 +256,17 @@ button:disabled {
   margin: 0 0 16px 0;
 }
 
-.rsi-modal label,
-.rsi-stage-form label {
+/* ------------------------------------------------------------------
+   Modal form (legacy — kept narrow so we don't regress other modals)
+   ------------------------------------------------------------------ */
+.rsi-modal label {
   display: block;
   margin-bottom: 12px;
   font-size: 0.9rem;
   color: var(--color-text, #374151);
 }
 
-.rsi-modal label input,
-.rsi-stage-form label input,
-.rsi-stage-form label select {
+.rsi-modal label input {
   display: block;
   width: 100%;
   margin-top: 4px;
@@ -277,9 +277,292 @@ button:disabled {
   background: white;
 }
 
+/* ------------------------------------------------------------------
+   Stage CSV form — refined editorial admin styling
+   ------------------------------------------------------------------ */
+.rsi-stage-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rsi-stage-header {
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--color-neutral-200, #e7e5e4);
+  background: linear-gradient(
+    to bottom,
+    var(--color-neutral-50, #fafaf9),
+    var(--color-neutral-0, #ffffff)
+  );
+}
+
+.rsi-stage-header h2 {
+  margin: 0 0 4px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-neutral-900, #1c1917);
+}
+
+.rsi-stage-header p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-neutral-600, #57534e);
+  max-width: 60ch;
+}
+
 .rsi-stage-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  padding: 22px 24px;
+}
+
+/* Field primitives ------------------------------------------------ */
+.rsi-field {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rsi-field-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500, #78716c);
+}
+
+.rsi-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.rsi-field-hint {
+  margin: 4px 0 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-neutral-500, #78716c);
+}
+
+/* Generic field input styling */
+.rsi-stage-form input[type='text'],
+.rsi-stage-form input[type='date'],
+.rsi-stage-form input[type='email'],
+.rsi-stage-form input[type='file'],
+.rsi-stage-form select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-neutral-300, #d6d3d1);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--color-neutral-0, #ffffff);
+  color: var(--color-neutral-900, #1c1917);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.rsi-stage-form input:focus,
+.rsi-stage-form select:focus {
+  outline: none;
+  border-color: var(--color-primary-500, #3b6eb8);
+  box-shadow: 0 0 0 3px var(--color-primary-100, #dae6ff);
+}
+
+.rsi-stage-form input:disabled,
+.rsi-stage-form select:disabled {
+  background: var(--color-neutral-100, #f5f5f4);
+  color: var(--color-neutral-500, #78716c);
+  cursor: not-allowed;
+}
+
+/* Custom-chevron select wrapper */
+.rsi-select-wrap {
+  position: relative;
+}
+
+.rsi-select-wrap select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.rsi-select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7rem;
+  color: var(--color-neutral-500, #78716c);
+  pointer-events: none;
+}
+
+/* Segmented control --------------------------------------------- */
+.rsi-segmented {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--color-neutral-100, #f5f5f4);
+  border: 1px solid var(--color-neutral-200, #e7e5e4);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  width: fit-content;
+}
+
+.rsi-segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 18px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-neutral-600, #57534e);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+  white-space: nowrap;
+}
+
+.rsi-segmented-btn:hover:not(:disabled):not(.active) {
+  color: var(--color-neutral-900, #1c1917);
+}
+
+.rsi-segmented-btn.active {
+  background: var(--color-neutral-0, #ffffff);
+  color: var(--color-neutral-900, #1c1917);
+  box-shadow:
+    0 1px 2px rgba(28, 25, 23, 0.06),
+    0 0 0 1px rgba(28, 25, 23, 0.04);
+}
+
+.rsi-segmented-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rsi-segmented-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 9px;
+  background: var(--color-neutral-200, #e7e5e4);
+  color: var(--color-neutral-600, #57534e);
+}
+
+.rsi-segmented-btn.active .rsi-segmented-count {
+  background: var(--color-primary-100, #dae6ff);
+  color: var(--color-primary-700, #1e4785);
+}
+
+/* File input — make it less default-browser ugly */
+.rsi-file-input {
+  cursor: pointer;
+}
+
+.rsi-file-input::file-selector-button {
+  margin-right: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-neutral-300, #d6d3d1);
+  border-radius: 4px;
+  background: var(--color-neutral-50, #fafaf9);
+  color: var(--color-neutral-700, #44403c);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.rsi-file-input::file-selector-button:hover {
+  background: var(--color-neutral-100, #f5f5f4);
+}
+
+/* Advanced expander --------------------------------------------- */
+.rsi-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.rsi-expander {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--color-neutral-600, #57534e);
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.rsi-expander:hover {
+  color: var(--color-neutral-900, #1c1917);
+}
+
+.rsi-expander-icon {
+  display: inline-block;
+  font-size: 0.7rem;
+  transition: transform 0.18s ease;
+  width: 10px;
+  text-align: center;
+  color: var(--color-neutral-500, #78716c);
+}
+
+.rsi-expander-icon.open {
+  transform: rotate(90deg);
+}
+
+.rsi-advanced-field {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-neutral-200, #e7e5e4);
+}
+
+/* Footer action bar --------------------------------------------- */
+.rsi-stage-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin: 6px -24px -22px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-neutral-200, #e7e5e4);
+  background: var(--color-neutral-50, #fafaf9);
+}
+
+.rsi-btn-lg {
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  border-radius: 7px;
+  box-shadow:
+    0 1px 2px rgba(28, 25, 23, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+}
+
+.rsi-btn-lg:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--color-primary-100, #dae6ff),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
 }
 
 .rsi-preview-meta {

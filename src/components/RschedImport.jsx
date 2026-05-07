@@ -756,141 +756,173 @@ function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
     return `${(n / 1024 / 1024).toFixed(1)} MB`;
   };
 
+  const submitLabel = uploading
+    ? 'Staging…'
+    : sourceMode === 'library'
+      ? 'Stage from library'
+      : 'Upload & stage';
+
   return (
-    <section className="rsi-card">
-      <h2>Stage a CSV</h2>
-      <p className="rsi-muted" style={{ marginTop: 0 }}>
-        Pick a saved Rsched export from the library or upload a new one, set the
-        calendar and date range, then preview what will be added, updated, or
-        removed before committing.
-      </p>
+    <section className="rsi-card rsi-stage-card">
+      <header className="rsi-stage-header">
+        <h2>Stage a CSV</h2>
+        <p>
+          Pick a saved Rsched export or upload a new one. Set the calendar and
+          date range, then preview what will change before committing.
+        </p>
+      </header>
+
       <form className="rsi-stage-form" onSubmit={onSubmit}>
         <input type="hidden" name="sourceMode" value={sourceMode} />
 
-        <div className="rsi-row-flex" style={{ gap: '1rem', marginBottom: '0.5rem' }}>
-          <label style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="radio"
-              checked={sourceMode === 'library'}
-              onChange={() => setSourceMode('library')}
+        <div className="rsi-field">
+          <span className="rsi-field-label">Source</span>
+          <div className="rsi-segmented" role="tablist" aria-label="CSV source">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sourceMode === 'library'}
+              className={`rsi-segmented-btn ${sourceMode === 'library' ? 'active' : ''}`}
+              onClick={() => setSourceMode('library')}
               disabled={libraryFiles.length === 0}
-            />
-            From library{libraryFiles.length === 0 && !loadingLibrary ? ' (empty)' : ''}
-          </label>
-          <label style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="radio"
-              checked={sourceMode === 'upload'}
-              onChange={() => setSourceMode('upload')}
-            />
-            Upload new
-          </label>
+            >
+              From library
+              {libraryFiles.length > 0 && (
+                <span className="rsi-segmented-count">{libraryFiles.length}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sourceMode === 'upload'}
+              className={`rsi-segmented-btn ${sourceMode === 'upload' ? 'active' : ''}`}
+              onClick={() => setSourceMode('upload')}
+            >
+              Upload new
+            </button>
+          </div>
         </div>
 
         {sourceMode === 'library' ? (
-          <label>
-            Library file
-            <select
-              name="libraryFilename"
-              value={libraryFilename}
-              onChange={(e) => setLibraryFilename(e.target.value)}
-              disabled={loadingLibrary}
-              required
-            >
-              {loadingLibrary && <option value="">Loading…</option>}
-              {!loadingLibrary && libraryFiles.length === 0 && (
-                <option value="">No Rsched_*.csv files in backend/csv-imports/</option>
-              )}
-              {libraryFiles.map((f) => (
-                <option key={f.filename} value={f.filename}>
-                  {f.filename} — {formatBytes(f.sizeBytes)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="rsi-field">
+            <label className="rsi-field-label" htmlFor="rsi-library">Library file</label>
+            <div className="rsi-select-wrap">
+              <select
+                id="rsi-library"
+                name="libraryFilename"
+                value={libraryFilename}
+                onChange={(e) => setLibraryFilename(e.target.value)}
+                disabled={loadingLibrary}
+                required
+              >
+                {loadingLibrary && <option value="">Loading…</option>}
+                {!loadingLibrary && libraryFiles.length === 0 && (
+                  <option value="">No Rsched_*.csv files in backend/csv-imports/</option>
+                )}
+                {libraryFiles.map((f) => (
+                  <option key={f.filename} value={f.filename}>
+                    {f.filename} — {formatBytes(f.sizeBytes)}
+                  </option>
+                ))}
+              </select>
+              <span className="rsi-select-chevron" aria-hidden="true">▾</span>
+            </div>
+          </div>
         ) : (
-          <label>
-            CSV file
+          <div className="rsi-field">
+            <label className="rsi-field-label" htmlFor="rsi-file">CSV file</label>
             <input
+              id="rsi-file"
               type="file"
               name="csvFile"
               accept=".csv,text/csv"
               required={sourceMode === 'upload'}
+              className="rsi-file-input"
             />
-          </label>
+          </div>
         )}
 
-        <label>
-          Calendar owner
-          <select
-            name="calendarOwner"
-            value={calendarOwner}
-            onChange={(e) => setCalendarOwner(e.target.value)}
-            required
-          >
-            <option value={APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR}>
-              {APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR} (sandbox)
-            </option>
-            <option value={APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR}>
-              {APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR} (production)
-            </option>
-          </select>
-        </label>
+        <div className="rsi-field">
+          <label className="rsi-field-label" htmlFor="rsi-calendar-owner">Calendar owner</label>
+          <div className="rsi-select-wrap">
+            <select
+              id="rsi-calendar-owner"
+              name="calendarOwner"
+              value={calendarOwner}
+              onChange={(e) => setCalendarOwner(e.target.value)}
+              required
+            >
+              <option value={APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR}>
+                Sandbox · {APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR}
+              </option>
+              <option value={APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR}>
+                Production · {APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR}
+              </option>
+            </select>
+            <span className="rsi-select-chevron" aria-hidden="true">▾</span>
+          </div>
+        </div>
 
-        <div className="rsi-row-flex">
-          <label style={{ flex: 1 }}>
-            Date range start
+        <div className="rsi-field-row">
+          <div className="rsi-field">
+            <label className="rsi-field-label" htmlFor="rsi-from">Start date</label>
             <input
+              id="rsi-from"
               type="date"
               name="dateRangeStart"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               required
             />
-          </label>
-          <label style={{ flex: 1 }}>
-            Date range end
+          </div>
+          <div className="rsi-field">
+            <label className="rsi-field-label" htmlFor="rsi-to">End date</label>
             <input
+              id="rsi-to"
               type="date"
               name="dateRangeEnd"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               required
             />
-          </label>
+          </div>
         </div>
 
-        <button
-          type="button"
-          className="rsi-btn-link"
-          onClick={() => setShowAdvanced((v) => !v)}
-          style={{ alignSelf: 'flex-start', padding: 0 }}
-        >
-          {showAdvanced ? '▾' : '▸'} Advanced
-        </button>
-        {showAdvanced && (
-          <label>
-            Calendar ID
-            <input
-              type="text"
-              name="calendarId"
-              value={calendarId}
-              onChange={(e) => setCalendarId(e.target.value)}
-              placeholder="Leave blank to use the configured default"
-            />
-            <span className="rsi-muted" style={{ fontSize: '0.85em' }}>
-              Optional Outlook calendar GUID inside the chosen mailbox. Most
-              imports leave this blank — the system auto-resolves to the
-              calendar configured for the selected owner.
-            </span>
-          </label>
-        )}
-
-        <div className="rsi-row-flex" style={{ justifyContent: 'flex-end' }}>
-          <button type="submit" className="rsi-btn-primary" disabled={uploading}>
-            {uploading ? 'Staging…' : sourceMode === 'library' ? 'Stage from library' : 'Upload & stage'}
+        <div className="rsi-advanced">
+          <button
+            type="button"
+            className="rsi-expander"
+            onClick={() => setShowAdvanced((v) => !v)}
+            aria-expanded={showAdvanced}
+          >
+            <span className={`rsi-expander-icon ${showAdvanced ? 'open' : ''}`} aria-hidden="true">▸</span>
+            Advanced
           </button>
+          {showAdvanced && (
+            <div className="rsi-field rsi-advanced-field">
+              <label className="rsi-field-label" htmlFor="rsi-calendar-id">Calendar ID</label>
+              <input
+                id="rsi-calendar-id"
+                type="text"
+                name="calendarId"
+                value={calendarId}
+                onChange={(e) => setCalendarId(e.target.value)}
+                placeholder="Leave blank to auto-resolve"
+              />
+              <p className="rsi-field-hint">
+                Optional Outlook calendar GUID inside the chosen mailbox. Most
+                imports leave this blank — the system auto-resolves to the
+                calendar configured for the selected owner.
+              </p>
+            </div>
+          )}
         </div>
+
+        <footer className="rsi-stage-footer">
+          <button type="submit" className="rsi-btn-primary rsi-btn-lg" disabled={uploading}>
+            {submitLabel}
+          </button>
+        </footer>
       </form>
     </section>
   );

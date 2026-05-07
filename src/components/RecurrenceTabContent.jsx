@@ -859,8 +859,8 @@ export default function RecurrenceTabContent({
             <input
               type="text"
               value={getEffectiveValue(selectedOccurrence, 'eventTitle')}
-              onChange={(e) => handleOccurrenceFieldChange('eventTitle', e.target.value)}
-              disabled={!canEdit}
+              readOnly
+              disabled
               className="recurrence-detail-input"
             />
           </div>
@@ -910,8 +910,8 @@ export default function RecurrenceTabContent({
             <label>Description</label>
             <textarea
               value={getEffectiveValue(selectedOccurrence, 'eventDescription')}
-              onChange={(e) => handleOccurrenceFieldChange('eventDescription', e.target.value)}
-              disabled={!canEdit}
+              readOnly
+              disabled
               className="recurrence-detail-input recurrence-detail-textarea"
               placeholder="Event description"
             />
@@ -938,8 +938,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'reservationStartTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('reservationStartTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -948,8 +948,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'reservationEndTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('reservationEndTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -960,8 +960,8 @@ export default function RecurrenceTabContent({
                   <input
                     type="time"
                     value={getEffectiveValue(selectedOccurrence, 'startTime')}
-                    onChange={(e) => handleOccurrenceFieldChange('startTime', e.target.value)}
-                    disabled={!canEdit}
+                    readOnly
+                    disabled
                     className="recurrence-detail-input"
                   />
                 </div>
@@ -970,8 +970,8 @@ export default function RecurrenceTabContent({
                   <input
                     type="time"
                     value={getEffectiveValue(selectedOccurrence, 'endTime')}
-                    onChange={(e) => handleOccurrenceFieldChange('endTime', e.target.value)}
-                    disabled={!canEdit}
+                    readOnly
+                    disabled
                     className="recurrence-detail-input"
                   />
                 </div>
@@ -982,8 +982,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'setupTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('setupTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -992,8 +992,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'teardownTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('teardownTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -1002,8 +1002,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'doorOpenTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('doorOpenTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -1012,8 +1012,8 @@ export default function RecurrenceTabContent({
                       <input
                         type="time"
                         value={getEffectiveValue(selectedOccurrence, 'doorCloseTime')}
-                        onChange={(e) => handleOccurrenceFieldChange('doorCloseTime', e.target.value)}
-                        disabled={!canEdit}
+                        readOnly
+                        disabled
                         className="recurrence-detail-input"
                       />
                     </div>
@@ -1065,9 +1065,10 @@ export default function RecurrenceTabContent({
                 </span>
 
                 {canEdit && occ.type !== 'excluded' && (
-                  <span className="recurrence-occ-edit-hint" title="Edit this occurrence">
+                  <span className="recurrence-occ-edit-hint" title="View this occurrence">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+                      <circle cx="12" cy="12" r="3" />
                     </svg>
                   </span>
                 )}
