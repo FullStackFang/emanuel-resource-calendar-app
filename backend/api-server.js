@@ -11835,7 +11835,10 @@ async function runRschedStagingPipeline(csvBuffer, ctx) {
   // this user before inserting the new batch. Lets admins iterate freely
   // (try a date range, change it, restage) without managing sessions.
   await rschedImportStagingCollection.deleteMany({ uploadedBy: ctx.uploadedBy });
-  await rschedImportStagingCollection.insertMany(stagingDocs, { ordered: false });
+  await rschedImportService.batchInsertStagingDocs(
+    rschedImportStagingCollection,
+    stagingDocs,
+  );
   const statusBreakdown = stagingDocs.reduce((acc, d) => {
     acc[d.status] = (acc[d.status] || 0) + 1;
     return acc;

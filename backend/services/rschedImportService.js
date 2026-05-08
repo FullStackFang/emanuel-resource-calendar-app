@@ -22,6 +22,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const { ObjectId } = require('mongodb');
 const ApiError = require('../utils/ApiError');
+const { retryWithBackoff } = require('../utils/retryWithBackoff');
 
 const RSCHED_SOURCE = 'rsSched';
 const NOTE_RSKEY_SENTINELS = new Set(['Note1', 'Note2', 'Note3']);
@@ -333,6 +334,54 @@ function buildStagingDoc(parsed, ctx) {
     editedAt: null,
     editedBy: null,
   };
+}
+
+// =============================================================================
+// Staging persistence
+// =============================================================================
+
+/**
+ * Insert staging documents in batches with retry-aware Cosmos protection.
+ *
+ * Single insertMany() of 80k+ rows is rate-limit suicide on Cosmos DB —
+ * Error 16500 (RequestRateTooLarge) trips before the operation completes.
+ * Batching at 500 rows/page with a small inter-batch pause and the shared
+ * retryWithBackoff utility keeps RU consumption bounded and survives
+ * transient throttling.
+ *
+ * Pure function: takes the collection as a parameter so unit tests can pass
+ * a fake { insertMany } object and assert call counts directly.
+ *
+ * @param {Object} stagingCollection - any object with .insertMany(docs, opts)
+ * @param {Array<Object>} docs - staging documents from buildStagingDoc()
+ * @param {Object} [options]
+ * @param {number} [options.batchSize=500] - rows per insertMany call
+ * @param {number} [options.delayMs=250] - pause between batches (skipped on last)
+ * @param {Object} [options.retryOptions] - passed through to retryWithBackoff
+ * @returns {Promise<number>} count of inserted documents
+ */
+async function batchInsertStagingDocs(stagingCollection, docs, options = {}) {
+  const {
+    batchSize = 500,
+    delayMs = 250,
+    retryOptions = { maxAttempts: 5, initialDelayMs: 500 },
+  } = options;
+
+  if (!Array.isArray(docs) || docs.length === 0) return 0;
+
+  let inserted = 0;
+  for (let i = 0; i < docs.length; i += batchSize) {
+    const batch = docs.slice(i, i + batchSize);
+    await retryWithBackoff(
+      () => stagingCollection.insertMany(batch, { ordered: false }),
+      retryOptions,
+    );
+    inserted += batch.length;
+    if (i + batchSize < docs.length && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return inserted;
 }
 
 /**
@@ -962,6 +1011,7 @@ module.exports = {
   parseCategories,
   resolveLocations,
   buildStagingDoc,
+  batchInsertStagingDocs,
   buildEventDocFromStaging,
   buildGraphPayload,
   detectMaterialDifferences,
