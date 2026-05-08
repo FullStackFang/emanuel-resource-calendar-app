@@ -748,12 +748,29 @@ async function detectRemovedRsIds(db, ctx, presentRsIds) {
   const endStr = `${ctx.dateRangeEnd}T23:59:59`;
   const presentSet = new Set(presentRsIds.map(Number));
 
-  const cursor = eventsCollection.find({
-    source: RSCHED_SOURCE,
-    calendarOwner: (ctx.calendarOwner || '').toLowerCase(),
-    isDeleted: { $ne: true },
-    'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
-  });
+  // Tight projection — without it the cursor returns full event documents
+  // including graphData blobs (potentially KBs each). At 80k+ rsched events
+  // that scaled to >100MB unnecessary read traffic on Cosmos.
+  const cursor = eventsCollection
+    .find(
+      {
+        source: RSCHED_SOURCE,
+        calendarOwner: (ctx.calendarOwner || '').toLowerCase(),
+        isDeleted: { $ne: true },
+        'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
+      },
+      {
+        projection: {
+          eventId: 1,
+          'rschedData.rsId': 1,
+          eventTitle: 1,
+          startDateTime: 1,
+          'calendarData.eventTitle': 1,
+          'calendarData.startDateTime': 1,
+        },
+      },
+    )
+    .batchSize(500);
 
   const removed = [];
   for await (const ev of cursor) {
@@ -797,15 +814,19 @@ async function computePreview(db, ctx) {
   const calendarOwner = (ctx.calendarOwner || '').toLowerCase();
 
   // Existing events in range, with enough info to bucket as rsched/manual
-  // and to look up matches by rsId.
-  const existingCursor = eventsCollection.find(
-    {
-      calendarOwner,
-      isDeleted: { $ne: true },
-      'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
-    },
-    { projection: { source: 1, eventId: 1, 'rschedData.rsId': 1 } },
-  );
+  // and to look up matches by rsId. batchSize(500) keeps each Cosmos page
+  // request bounded — without it, all-time scope (commit 3) would request
+  // a single ~80k-doc page and exceed RU caps.
+  const existingCursor = eventsCollection
+    .find(
+      {
+        calendarOwner,
+        isDeleted: { $ne: true },
+        'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
+      },
+      { projection: { source: 1, eventId: 1, 'rschedData.rsId': 1 } },
+    )
+    .batchSize(500);
 
   let existingTotal = 0;
   let existingFromRsched = 0;
