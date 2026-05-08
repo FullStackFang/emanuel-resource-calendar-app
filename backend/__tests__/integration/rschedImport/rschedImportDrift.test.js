@@ -35,6 +35,8 @@ const {
   detectRemovedRsIds,
   bulkComputeDrift,
   computeStagingRowDrift,
+  buildDriftReport,
+  renderDriftReportCsv,
   STAGING_COLLECTION,
   STAGING_STATUS,
   RSCHED_SOURCE,
@@ -205,6 +207,10 @@ describe('rsched import drift detection (DR-1 through DR-11)', () => {
 
     beforeEach(async () => {
       await clearCollections(db);
+      // STAGING_COLLECTION isn't in the shared COLLECTIONS constant, so
+      // clearCollections leaves it dirty. Wipe explicitly to avoid cross-
+      // test contamination via the shared sessionId pattern.
+      await db.collection(STAGING_COLLECTION).deleteMany({});
     });
 
     test('DR-1: computePreview in all-time mode finds events outside any date range', async () => {
@@ -352,6 +358,10 @@ describe('rsched import drift detection (DR-1 through DR-11)', () => {
 
     beforeEach(async () => {
       await clearCollections(db);
+      // STAGING_COLLECTION isn't in the shared COLLECTIONS constant, so
+      // clearCollections leaves it dirty. Wipe explicitly to avoid cross-
+      // test contamination via the shared sessionId pattern.
+      await db.collection(STAGING_COLLECTION).deleteMany({});
     });
 
     // Helper: build a staging-row + matching-event pair where both encode the
@@ -562,10 +572,244 @@ describe('rsched import drift detection (DR-1 through DR-11)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Placeholders for commit 5.
+  // Drift report endpoint (DR-5, DR-6).
   // -------------------------------------------------------------------------
-  describe.skip('drift report endpoint (filled in commit 5)', () => {
-    test('DR-5: drift report JSON returns correct buckets', () => {});
-    test('DR-6: drift report CSV is valid long-format', () => {});
+  describe('drift report (DR-5, DR-6)', () => {
+    let mongoClient;
+    let db;
+
+    beforeAll(async () => {
+      ({ db, client: mongoClient } = await connectToGlobalServer('rschedImportDriftReport'));
+    });
+
+    afterAll(async () => {
+      await disconnectFromGlobalServer(mongoClient, db);
+    });
+
+    beforeEach(async () => {
+      await clearCollections(db);
+      // STAGING_COLLECTION isn't in the shared COLLECTIONS constant, so
+      // clearCollections leaves it dirty. Wipe explicitly to avoid cross-
+      // test contamination via the shared sessionId pattern.
+      await db.collection(STAGING_COLLECTION).deleteMany({});
+    });
+
+    async function seedReportFixture() {
+      const eventsCol = db.collection(COLLECTIONS.EVENTS);
+      const stagingCol = db.collection(STAGING_COLLECTION);
+      const sessionId = 'test-session-report';
+      const calendarOwner = TEST_CALENDAR_OWNER.toLowerCase();
+
+      // Existing events: one will be a no_op (matches CSV exactly), one will
+      // be an update (diff exists), one is "extra" (will be a removal candidate
+      // because no staging row references its rsId).
+      await eventsCol.insertMany([
+        {
+          eventId: 'rssched-5001',
+          source: RSCHED_SOURCE,
+          calendarOwner,
+          isDeleted: false,
+          eventTitle: 'Existing Match',
+          eventDescription: 'desc',
+          startDateTime: '2026-06-01T10:00:00',
+          endDateTime: '2026-06-01T11:00:00',
+          isAllDayEvent: false,
+          locations: [],
+          categories: [],
+          calendarData: {
+            eventTitle: 'Existing Match',
+            eventDescription: 'desc',
+            startDateTime: '2026-06-01T10:00:00',
+            endDateTime: '2026-06-01T11:00:00',
+            isAllDay: false,
+            locations: [],
+            categories: [],
+          },
+          rschedData: { rsId: 5001 },
+          lastModifiedBy: IMPORT_USER_ID,
+        },
+        {
+          eventId: 'rssched-5002',
+          source: RSCHED_SOURCE,
+          calendarOwner,
+          isDeleted: false,
+          eventTitle: 'Old Title',
+          eventDescription: 'desc',
+          startDateTime: '2026-06-02T10:00:00',
+          endDateTime: '2026-06-02T11:00:00',
+          isAllDayEvent: false,
+          locations: [],
+          categories: [],
+          calendarData: {
+            eventTitle: 'Old Title',
+            eventDescription: 'desc',
+            startDateTime: '2026-06-02T10:00:00',
+            endDateTime: '2026-06-02T11:00:00',
+            isAllDay: false,
+            locations: [],
+            categories: [],
+          },
+          rschedData: { rsId: 5002 },
+          lastModifiedBy: IMPORT_USER_ID,
+        },
+        {
+          eventId: 'rssched-5099',
+          source: RSCHED_SOURCE,
+          calendarOwner,
+          isDeleted: false,
+          eventTitle: 'Orphaned Event',
+          startDateTime: '2026-06-09T10:00:00',
+          endDateTime: '2026-06-09T11:00:00',
+          isAllDayEvent: false,
+          locations: [],
+          categories: [],
+          calendarData: {
+            eventTitle: 'Orphaned Event',
+            startDateTime: '2026-06-09T10:00:00',
+            endDateTime: '2026-06-09T11:00:00',
+            isAllDay: false,
+            locations: [],
+            categories: [],
+          },
+          rschedData: { rsId: 5099 },
+          lastModifiedBy: IMPORT_USER_ID,
+        },
+      ]);
+
+      // Staging rows:
+      //   rsId 5001 — matches existing (no_op)
+      //   rsId 5002 — same rsId but new title (update, with diff)
+      //   rsId 5003 — new (no existing event → create)
+      const baseStaging = (rsId, overrides = {}) => ({
+        sessionId,
+        uploadedBy: IMPORT_USER_ID,
+        uploadedAt: new Date(),
+        calendarOwner,
+        rsId,
+        rowNumber: rsId,
+        rawCsv: { rsId: String(rsId) },
+        eventTitle: `Title ${rsId}`,
+        eventDescription: 'desc',
+        categories: [],
+        startDate: '2026-06-01',
+        endDate: '2026-06-01',
+        startTime: '10:00',
+        endTime: '11:00',
+        startDateTime: '2026-06-01T10:00:00',
+        endDateTime: '2026-06-01T11:00:00',
+        isAllDay: false,
+        rsKey: '602',
+        rsKeys: ['602'],
+        locationIds: [],
+        locationDisplayNames: '',
+        locationStatus: 'matched',
+        requesterEmail: '',
+        requesterName: '',
+        status: STAGING_STATUS.STAGED,
+        ...overrides,
+      });
+      await stagingCol.insertMany([
+        baseStaging(5001, {
+          eventTitle: 'Existing Match',
+          eventDescription: 'desc',
+          driftType: DRIFT_TYPE.NO_OP,
+          materialDiffs: [],
+          driftComputedAt: new Date(),
+        }),
+        baseStaging(5002, {
+          eventTitle: 'New Title',
+          eventDescription: 'desc',
+          startDateTime: '2026-06-02T10:00:00',
+          endDateTime: '2026-06-02T11:00:00',
+          driftType: DRIFT_TYPE.UPDATE,
+          materialDiffs: [
+            { field: 'eventTitle', previous: 'Old Title', csv: 'New Title', truncated: false },
+          ],
+          driftComputedAt: new Date(),
+        }),
+        baseStaging(5003, {
+          eventTitle: 'Brand New',
+          driftType: DRIFT_TYPE.CREATE,
+          materialDiffs: null,
+          driftComputedAt: new Date(),
+        }),
+      ]);
+
+      const sample = await stagingCol.findOne({ sessionId });
+      return { sessionId, sample };
+    }
+
+    test('DR-5: buildDriftReport returns correct buckets and summary', async () => {
+      const { sessionId, sample } = await seedReportFixture();
+
+      const report = await buildDriftReport(db, sessionId, sample);
+
+      expect(report.sessionId).toBe(sessionId);
+      expect(report.summary).toEqual({
+        willCreate: 1,
+        willUpdate: 1,
+        willStayUnchanged: 1,
+        willConflictHumanEdit: 0,
+        willRemove: 1, // rsId 5099 is in Mongo but not in staging
+        errors: 0,
+        unclassified: 0,
+      });
+      expect(report.created).toHaveLength(1);
+      expect(report.created[0].rsId).toBe(5003);
+      expect(report.updated).toHaveLength(1);
+      expect(report.updated[0].rsId).toBe(5002);
+      // Diffs rehydrated from live event — should include eventTitle change.
+      const titleDiff = report.updated[0].materialDiffs.find((d) => d.field === 'eventTitle');
+      expect(titleDiff).toBeDefined();
+      expect(titleDiff.previous).toBe('Old Title');
+      expect(titleDiff.csv).toBe('New Title');
+      expect(report.removed).toHaveLength(1);
+      expect(report.removed[0].rsId).toBe(5099);
+      expect(report.streamError).toBeNull();
+    });
+
+    test('DR-6: renderDriftReportCsv produces valid long-format CSV', async () => {
+      const { sessionId, sample } = await seedReportFixture();
+      const report = await buildDriftReport(db, sessionId, sample);
+      const csv = renderDriftReportCsv(report);
+
+      const lines = csv.trim().split('\n');
+      expect(lines[0]).toBe('rsId,kind,eventTitle,fieldName,previousValue,csvValue');
+
+      // 1 create row + (1 update with at least 1 diff field) + 1 removed row = at least 3 data rows
+      const createRows = lines.filter((l) => l.includes(',create,'));
+      const updateRows = lines.filter((l) => l.includes(',update,'));
+      const removedRows = lines.filter((l) => l.includes(',removed,'));
+      expect(createRows).toHaveLength(1);
+      expect(removedRows).toHaveLength(1);
+      // Update emits one row per differing field — verify eventTitle row exists.
+      expect(updateRows.some((l) => l.includes('eventTitle') && l.includes('Old Title') && l.includes('New Title'))).toBe(true);
+
+      // Validate CSV structure (commas don't break on values without special chars).
+      for (const line of lines) {
+        const cells = line.split(',');
+        // Header has 6 columns; data rows should match (some may have quoted cells with commas)
+        expect(cells.length).toBeGreaterThanOrEqual(6);
+      }
+    });
+
+    test('DR-6: CSV escapes quotes and newlines correctly', async () => {
+      // Build a minimal report fixture with a tricky title containing a comma + quote.
+      const fixtureReport = {
+        sessionId: 'test',
+        calendarOwner: 'a',
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        summary: {},
+        created: [{ rsId: 9001, eventTitle: 'Foo, "Bar" baz', startDateTime: null, endDateTime: null, locationDisplayNames: null }],
+        updated: [],
+        removed: [],
+        humanEditConflicts: [],
+        errors: [],
+        streamError: null,
+      };
+      const csv = renderDriftReportCsv(fixtureReport);
+      // Title should be quoted with escaped inner quotes
+      expect(csv).toContain('"Foo, ""Bar"" baz"');
+    });
   });
 });

@@ -12354,6 +12354,51 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, a
 });
 
 /**
+ * Drift report — downloadable JSON or CSV summarizing what a commit would do
+ * (creates / updates with field-level diffs / removals / human-edit conflicts).
+ *
+ * Validate must be run first to populate driftType + materialDiffs on rows.
+ * Diff values are rehydrated from live events (NOT the truncated values
+ * persisted on staging rows) so the report is exhaustive.
+ */
+app.get('/api/admin/rsched-import/sessions/:sessionId/drift-report', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const format = (req.query.format || 'json').toLowerCase();
+    if (format !== 'json' && format !== 'csv') {
+      return res.status(400).json({ error: "format must be 'json' or 'csv'" });
+    }
+
+    const sample = await rschedImportStagingCollection.findOne({ sessionId });
+    if (!sample) return res.status(404).json({ error: 'Session not found' });
+
+    const report = await rschedImportService.buildDriftReport(db, sessionId, sample);
+
+    const filename = `rsched-drift-${sessionId}.${format}`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.send(rschedImportService.renderDriftReportCsv(report));
+    } else {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.json(report);
+    }
+  } catch (err) {
+    logger.error('rsched-import drift-report error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to build drift report' });
+    } else {
+      // Headers already sent — append a stream-error marker so the client
+      // can detect partial failure. Best-effort; don't crash the handler.
+      try { res.write('\n{"streamError":"report aborted"}'); } catch { /* swallow */ }
+      res.end();
+    }
+  }
+});
+
+/**
  * Commit session — apply all non-skipped rows, optionally delete listed events.
  * body: { forceConflicts?: boolean, deleteRsIds?: number[] }
  */

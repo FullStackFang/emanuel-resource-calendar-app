@@ -1162,6 +1162,209 @@ async function computePreview(db, ctx) {
 }
 
 // =============================================================================
+// Drift report (downloadable JSON / CSV)
+// =============================================================================
+
+/**
+ * Serialize a material-diff value for the report. Unlike truncateDiffValue
+ * (which caps for persistence), this returns the full string so admins see
+ * complete diff context in their downloaded report.
+ */
+function serializeDiffValueFull(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return String(value);
+}
+
+/**
+ * Build the full drift report for a session: create / update / no_op /
+ * human_edit_conflict / removed / errors. Recomputes diffs from live events +
+ * staging rawCsv so report values are NOT truncated (UI uses persisted
+ * truncated diffs; the report should be exhaustive).
+ *
+ * @param {Db} db
+ * @param {string} sessionId
+ * @param {Object} sample - any staging row from the session (for ctx)
+ * @returns {Promise<Object>} drift report shape (see endpoint docstring)
+ */
+async function buildDriftReport(db, sessionId, sample) {
+  const stagingCollection = db.collection(STAGING_COLLECTION);
+  const eventsCollection = db.collection(EVENTS_COLLECTION);
+
+  // Stream staging rows page-by-page via batchSize cursor. For 80k rows this
+  // is materialized via .toArray() but each Cosmos page request is bounded.
+  const stagingRows = await stagingCollection
+    .find({ sessionId })
+    .batchSize(500)
+    .toArray();
+
+  const buckets = {
+    [DRIFT_TYPE.CREATE]: [],
+    [DRIFT_TYPE.UPDATE]: [],
+    [DRIFT_TYPE.NO_OP]: [],
+    [DRIFT_TYPE.HUMAN_EDIT_CONFLICT]: [],
+    unclassified: [],
+    errors: [],
+  };
+  for (const row of stagingRows) {
+    if (row.applyError) {
+      buckets.errors.push(row);
+      continue;
+    }
+    const t = row.driftType;
+    if (t && buckets[t]) buckets[t].push(row);
+    else buckets.unclassified.push(row);
+  }
+
+  // Re-fetch full event docs for update + human-edit-conflict rows so we can
+  // recompute diffs with full (untruncated) values. detectMaterialDifferences
+  // is reused unchanged.
+  const eventIdsToFetch = [...buckets[DRIFT_TYPE.UPDATE], ...buckets[DRIFT_TYPE.HUMAN_EDIT_CONFLICT]]
+    .map((r) => `rssched-${r.rsId}`);
+  let liveEventByEventId = new Map();
+  if (eventIdsToFetch.length > 0) {
+    const liveEvents = await eventsCollection
+      .find({ eventId: { $in: eventIdsToFetch } })
+      .batchSize(500)
+      .toArray();
+    liveEventByEventId = new Map(liveEvents.map((e) => [e.eventId, e]));
+  }
+
+  function rehydrateDiffs(row) {
+    const eventId = `rssched-${row.rsId}`;
+    const live = liveEventByEventId.get(eventId);
+    if (!live) return row.materialDiffs || [];
+    const candidate = buildEventDocFromStaging(row, {
+      calendarOwner: sample.calendarOwner,
+      calendarId: sample.calendarId,
+      importUserId: row.uploadedBy,
+    });
+    const diffs = detectMaterialDifferences(candidate, live);
+    return diffs.map((d) => ({
+      field: d.field,
+      previous: serializeDiffValueFull(d.existing),
+      csv: serializeDiffValueFull(d.candidate),
+    }));
+  }
+
+  // Removal candidates — events present in Mongo but absent from this CSV.
+  const removalCandidates = await detectRemovedRsIds(
+    db,
+    {
+      calendarOwner: sample.calendarOwner,
+      dateRangeStart: sample.dateRangeStart,
+      dateRangeEnd: sample.dateRangeEnd,
+    },
+    stagingRows
+      .filter((r) => r.status !== STAGING_STATUS.SKIPPED)
+      .map((r) => r.rsId),
+  );
+
+  return {
+    sessionId,
+    calendarOwner: sample.calendarOwner,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      willCreate: buckets[DRIFT_TYPE.CREATE].length,
+      willUpdate: buckets[DRIFT_TYPE.UPDATE].length,
+      willStayUnchanged: buckets[DRIFT_TYPE.NO_OP].length,
+      willConflictHumanEdit: buckets[DRIFT_TYPE.HUMAN_EDIT_CONFLICT].length,
+      willRemove: removalCandidates.length,
+      errors: buckets.errors.length,
+      unclassified: buckets.unclassified.length,
+    },
+    created: buckets[DRIFT_TYPE.CREATE].map((r) => ({
+      rsId: r.rsId,
+      eventTitle: r.eventTitle,
+      startDateTime: r.startDateTime,
+      endDateTime: r.endDateTime,
+      locationDisplayNames: r.locationDisplayNames,
+    })),
+    updated: buckets[DRIFT_TYPE.UPDATE].map((r) => ({
+      rsId: r.rsId,
+      eventId: `rssched-${r.rsId}`,
+      eventTitle: r.eventTitle,
+      materialDiffs: rehydrateDiffs(r),
+    })),
+    removed: removalCandidates.map((c) => ({
+      rsId: c.rsId,
+      eventId: c.eventId,
+      eventTitle: c.eventTitle,
+      startDateTime: c.startDateTime,
+    })),
+    humanEditConflicts: buckets[DRIFT_TYPE.HUMAN_EDIT_CONFLICT].map((r) => {
+      const live = liveEventByEventId.get(`rssched-${r.rsId}`);
+      return {
+        rsId: r.rsId,
+        eventId: `rssched-${r.rsId}`,
+        eventTitle: r.eventTitle,
+        lastModifiedBy: live?.lastModifiedBy || null,
+        materialDiffs: rehydrateDiffs(r),
+      };
+    }),
+    errors: buckets.errors.map((r) => ({
+      rsId: r.rsId,
+      rowNumber: r.rowNumber,
+      reason: r.applyError || 'unknown',
+    })),
+    streamError: null,
+  };
+}
+
+/**
+ * Render a drift report as long-format CSV. One row per drift entry; each
+ * "update" emits one row per field that differs.
+ *
+ * Header: rsId,kind,eventTitle,fieldName,previousValue,csvValue
+ */
+function renderDriftReportCsv(report) {
+  const lines = ['rsId,kind,eventTitle,fieldName,previousValue,csvValue'];
+  const escape = (val) => {
+    if (val == null) return '';
+    const s = String(val);
+    if (/[",\n\r]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const emitRow = (rsId, kind, eventTitle, fieldName, previousValue, csvValue) => {
+    lines.push(
+      [rsId, kind, escape(eventTitle), escape(fieldName), escape(previousValue), escape(csvValue)].join(','),
+    );
+  };
+
+  for (const r of report.created) {
+    emitRow(r.rsId, 'create', r.eventTitle, '', '', '');
+  }
+  for (const r of report.updated) {
+    if (r.materialDiffs.length === 0) {
+      emitRow(r.rsId, 'update', r.eventTitle, '', '', '');
+    } else {
+      for (const d of r.materialDiffs) {
+        emitRow(r.rsId, 'update', r.eventTitle, d.field, d.previous, d.csv);
+      }
+    }
+  }
+  for (const r of report.removed) {
+    emitRow(r.rsId, 'removed', r.eventTitle, '', '', '');
+  }
+  for (const r of report.humanEditConflicts) {
+    if (r.materialDiffs.length === 0) {
+      emitRow(r.rsId, 'human_edit_conflict', r.eventTitle, '', '', '');
+    } else {
+      for (const d of r.materialDiffs) {
+        emitRow(r.rsId, 'human_edit_conflict', r.eventTitle, d.field, d.previous, d.csv);
+      }
+    }
+  }
+  for (const r of report.errors) {
+    emitRow(r.rsId, 'error', '', 'reason', '', r.reason);
+  }
+  return lines.join('\n') + '\n';
+}
+
+// =============================================================================
 // Outlook publish
 // =============================================================================
 
@@ -1293,5 +1496,7 @@ module.exports = {
   computePreview,
   bulkComputeDrift,
   persistDriftResults,
+  buildDriftReport,
+  renderDriftReportCsv,
   publishOrUpdateOutlookEvent,
 };
