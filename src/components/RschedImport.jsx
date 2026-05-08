@@ -294,6 +294,31 @@ export default function RschedImport() {
     }
   };
 
+  const handleDownloadDriftReport = async (format) => {
+    if (!activeSessionId) return;
+    try {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}/drift-report?format=${format}`,
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rsched-drift-${activeSessionId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showSuccess(`Drift report downloaded as ${format.toUpperCase()}`);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   const handleSkipRow = async (row) => {
     if (confirmSkipRowId !== row._id) {
       setConfirmSkipRowId(row._id);
@@ -409,6 +434,7 @@ export default function RschedImport() {
           onPublish={handlePublish}
           onSkipRow={handleSkipRow}
           onForceRow={handleForceApply}
+          onDownloadDriftReport={handleDownloadDriftReport}
         />
       ) : (
         <section className="rsi-card">
@@ -461,10 +487,30 @@ function PreviewSummary({ session, preview }) {
           <h3>After commit, this CSV will</h3>
           <ul>
             <li><span className="rsi-num rsi-num-good">{p.willCreate ?? 0}</span> create new event(s)</li>
-            <li>
-              <span className="rsi-num">{p.willMatchExisting ?? 0}</span> match existing event(s)
-              <span className="rsi-muted"> (no-op or update)</span>
-            </li>
+            {p.willUpdate != null && p.willUpdate > 0 ? (
+              <li>
+                <span className="rsi-num rsi-num-warn">{p.willUpdate}</span> update existing event(s)
+                <span className="rsi-muted"> — field-level diffs visible below</span>
+              </li>
+            ) : null}
+            {p.willStayUnchanged != null && p.willStayUnchanged > 0 ? (
+              <li>
+                <span className="rsi-num rsi-num-muted">{p.willStayUnchanged}</span> match existing — no changes
+              </li>
+            ) : null}
+            {p.willConflictHumanEdit != null && p.willConflictHumanEdit > 0 ? (
+              <li>
+                <span className="rsi-num rsi-num-warn">{p.willConflictHumanEdit}</span> human-edited event(s)
+                <span className="rsi-muted"> — review before committing</span>
+              </li>
+            ) : null}
+            {/* Pre-validate, willUpdate/willStayUnchanged are zero. Show legacy total in that case. */}
+            {(p.willUpdate ?? 0) === 0 && (p.willStayUnchanged ?? 0) === 0 && (p.willConflictHumanEdit ?? 0) === 0 ? (
+              <li>
+                <span className="rsi-num">{p.willMatchExisting ?? 0}</span> match existing event(s)
+                <span className="rsi-muted"> (run validate for field-level drift)</span>
+              </li>
+            ) : null}
             <li>
               <span className="rsi-num rsi-num-warn">{p.willRemove ?? 0}</span> remove rsched event(s)
               <span className="rsi-muted"> — opt-in per row below</span>
@@ -496,6 +542,16 @@ function BreakdownChips({ breakdown = {} }) {
 }
 
 function SessionView(props) {
+  const [expandedRowIds, setExpandedRowIds] = useState(() => new Set());
+  const toggleRowExpanded = (rowId) => {
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  };
+
   const {
     session,
     rows,
@@ -520,6 +576,7 @@ function SessionView(props) {
     onPublish,
     onSkipRow,
     onForceRow,
+    onDownloadDriftReport,
   } = props;
 
   const totalPages = Math.max(1, Math.ceil(rowTotal / PAGE_SIZE));
@@ -559,6 +616,26 @@ function SessionView(props) {
           >
             {publishing ? 'Publishing…' : confirmPublish ? 'Confirm publish' : 'Publish to Outlook'}
           </button>
+          {onDownloadDriftReport ? (
+            <span className="rsi-download-group">
+              <button
+                type="button"
+                className="rsi-btn-secondary"
+                onClick={() => onDownloadDriftReport('json')}
+                title="Download drift report as JSON for offline review"
+              >
+                Download report (JSON)
+              </button>
+              <button
+                type="button"
+                className="rsi-btn-secondary"
+                onClick={() => onDownloadDriftReport('csv')}
+                title="Download drift report as long-format CSV"
+              >
+                Download report (CSV)
+              </button>
+            </span>
+          ) : null}
         </div>
         <p className="rsi-muted" style={{ margin: '8px 0 0 0', fontSize: '0.85em' }}>
           Tip: stage a different CSV or date range above at any time — your
@@ -635,6 +712,7 @@ function SessionView(props) {
         <table className="rsi-table">
           <thead>
             <tr>
+              <th aria-label="expand"></th>
               <th>Status</th>
               <th>Title</th>
               <th>Start</th>
@@ -650,49 +728,113 @@ function SessionView(props) {
               const cfg = STATUS_BADGE[r.status] || { className: 'rsi-badge-muted', label: r.status };
               const isSkipConfirm = confirmSkipRowId === r._id;
               const isForceConfirm = confirmForceRowId === r._id;
+              const hasDiffs = Array.isArray(r.materialDiffs) && r.materialDiffs.length > 0;
+              const isExpanded = expandedRowIds.has(r._id);
+              const driftBadge =
+                r.driftType === 'update'
+                  ? { className: 'rsi-badge-warn', label: 'Drift' }
+                  : r.driftType === 'human_edit_conflict'
+                    ? { className: 'rsi-badge-warn', label: 'Human-edited' }
+                    : null;
               return (
-                <tr key={r._id}>
-                  <td>
-                    <span className={`rsi-badge ${cfg.className}`}>{cfg.label}</span>
-                  </td>
-                  <td>{r.eventTitle}</td>
-                  <td>{r.startDateTime}</td>
-                  <td>{r.endDateTime}</td>
-                  <td>{r.locationDisplayNames || '—'}</td>
-                  <td>{r.rsKey}</td>
-                  <td className="rsi-reason">{r.conflictReason || (r.applyError ? r.applyError : '')}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className={`rsi-btn-link ${isSkipConfirm ? 'rsi-confirm' : ''}`}
-                      onClick={() => onSkipRow(r)}
-                    >
-                      {r.status === 'skipped'
-                        ? isSkipConfirm
-                          ? 'Confirm unskip'
-                          : 'Unskip'
-                        : isSkipConfirm
-                          ? 'Confirm skip'
-                          : 'Skip'}
-                    </button>
-                    {r.status === 'conflict' && (
+                <React.Fragment key={r._id}>
+                  <tr>
+                    <td>
+                      {hasDiffs ? (
+                        <button
+                          type="button"
+                          className="rsi-btn-link rsi-expand-btn"
+                          onClick={() => toggleRowExpanded(r._id)}
+                          aria-expanded={isExpanded}
+                          title={isExpanded ? 'Collapse diff' : 'Show field diffs'}
+                        >
+                          {isExpanded ? '▾' : '▸'}
+                        </button>
+                      ) : null}
+                    </td>
+                    <td>
+                      <span className={`rsi-badge ${cfg.className}`}>{cfg.label}</span>
+                      {driftBadge ? (
+                        <span
+                          className={`rsi-badge ${driftBadge.className}`}
+                          style={{ marginLeft: 6 }}
+                        >
+                          {driftBadge.label}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>{r.eventTitle}</td>
+                    <td>{r.startDateTime}</td>
+                    <td>{r.endDateTime}</td>
+                    <td>{r.locationDisplayNames || '—'}</td>
+                    <td>{r.rsKey}</td>
+                    <td className="rsi-reason">{r.conflictReason || (r.applyError ? r.applyError : '')}</td>
+                    <td>
                       <button
                         type="button"
-                        className={`rsi-btn-link ${isForceConfirm ? 'rsi-confirm' : ''}`}
-                        onClick={() => onForceRow(r)}
-                        style={{ marginLeft: 8 }}
+                        className={`rsi-btn-link ${isSkipConfirm ? 'rsi-confirm' : ''}`}
+                        onClick={() => onSkipRow(r)}
                       >
-                        {r.forceApply
-                          ? isForceConfirm
-                            ? 'Confirm clear force'
-                            : 'Clear force'
-                          : isForceConfirm
-                            ? 'Confirm force'
-                            : 'Force'}
+                        {r.status === 'skipped'
+                          ? isSkipConfirm
+                            ? 'Confirm unskip'
+                            : 'Unskip'
+                          : isSkipConfirm
+                            ? 'Confirm skip'
+                            : 'Skip'}
                       </button>
-                    )}
-                  </td>
-                </tr>
+                      {r.status === 'conflict' && (
+                        <button
+                          type="button"
+                          className={`rsi-btn-link ${isForceConfirm ? 'rsi-confirm' : ''}`}
+                          onClick={() => onForceRow(r)}
+                          style={{ marginLeft: 8 }}
+                        >
+                          {r.forceApply
+                            ? isForceConfirm
+                              ? 'Confirm clear force'
+                              : 'Clear force'
+                            : isForceConfirm
+                              ? 'Confirm force'
+                              : 'Force'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {isExpanded && hasDiffs ? (
+                    <tr className="rsi-diff-row">
+                      <td></td>
+                      <td colSpan={8}>
+                        <div className="rsi-diff-block">
+                          <div className="rsi-diff-header">
+                            Field-level changes vs MongoDB
+                            {r.materialDiffs.some((d) => d.truncated) ? (
+                              <span className="rsi-muted"> (some values truncated — download the report for full text)</span>
+                            ) : null}
+                          </div>
+                          <table className="rsi-diff-table">
+                            <thead>
+                              <tr>
+                                <th>Field</th>
+                                <th>Previous (Mongo)</th>
+                                <th>CSV</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.materialDiffs.map((d, i) => (
+                                <tr key={`${r._id}-${i}`}>
+                                  <td className="rsi-diff-field">{d.field}</td>
+                                  <td className="rsi-diff-prev">{d.previous}</td>
+                                  <td className="rsi-diff-csv">{d.csv}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </React.Fragment>
               );
             })}
           </tbody>

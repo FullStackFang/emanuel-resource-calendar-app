@@ -371,6 +371,81 @@ button:disabled {
   cursor: pointer;
 }
 
+.rsi-download-group {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-neutral-200, #e7e5e4);
+}
+
+.rsi-expand-btn {
+  font-size: 0.85rem;
+  padding: 0 4px;
+  color: var(--color-neutral-500, #78716c);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rsi-expand-btn:hover {
+  color: var(--color-neutral-800, #292524);
+}
+
+.rsi-diff-row {
+  background: var(--color-neutral-50, #fafaf9);
+}
+
+.rsi-diff-block {
+  padding: 8px 12px 12px 12px;
+}
+
+.rsi-diff-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600, #57534e);
+  margin-bottom: 6px;
+}
+
+.rsi-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.rsi-diff-table th,
+.rsi-diff-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-neutral-200, #e7e5e4);
+  vertical-align: top;
+}
+
+.rsi-diff-field {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.8rem;
+  color: var(--color-neutral-700, #44403c);
+  white-space: nowrap;
+  width: 140px;
+}
+
+.rsi-diff-prev {
+  color: var(--color-error-700, #b91c1c);
+  text-decoration: line-through;
+  text-decoration-color: rgba(185, 28, 28, 0.5);
+}
+
+.rsi-diff-csv {
+  color: var(--color-success-700, #15803d);
+}
+
+.rsi-badge-warn {
+  background: var(--color-warning-100, #fef3c7);
+  color: var(--color-warning-800, #92400e);
+}
+
 /* Generic field input styling */
 .rsi-stage-form input[type='text'],
 .rsi-stage-form input[type='date'],
