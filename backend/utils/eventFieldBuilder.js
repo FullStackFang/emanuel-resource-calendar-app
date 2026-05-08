@@ -259,6 +259,17 @@ async function buildEventFields(body, db, options = {}) {
       : 'singleInstance',
     // Top-level recurrence copy (Calendar.jsx reads top-level recurrence for expansion)
     recurrence,
+    // Publish-to-website gate. When true, the form exposes a Web Page tab
+    // inside the Resource Details section that previews the public MEC layout.
+    // (Tier A: preview only — no Tier C WP push yet.)
+    publishToWebsite: body.publishToWebsite || false,
+    // Web override fields — populated from the editable Web Page tab.
+    // Empty string means "inherit the corresponding internal field"; a non-empty
+    // string means "override for the public listing only".
+    webTitle: body.webTitle || '',
+    webDescription: body.webDescription || '',
+    webFeaturedImage: body.webFeaturedImage || '',
+    webRegisterUrl: body.webRegisterUrl || '',
   };
 
   if (mode === 'create') {

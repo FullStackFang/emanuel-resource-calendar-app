@@ -40,3 +40,6 @@ backend/coverage
 
 # Claude Code
 .claude/worktrees
+
+# Superpowers brainstorming session files
+.superpowers/

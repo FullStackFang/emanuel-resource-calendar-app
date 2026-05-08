@@ -395,6 +395,18 @@ export function transformEventToFlatStructure(event) {
     // All-day event flag
     isAllDayEvent: getEventField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,
 
+    // Public website publishing flag — when true, the form exposes a Web Page
+    // tab inside the Resource Details section that previews the public MEC layout.
+    publishToWebsite: getEventField(event, 'publishToWebsite', false) || false,
+
+    // Web override fields. The Web Page tab is an authoring surface; each web
+    // field defaults to (inherits) the corresponding internal field when empty.
+    // Resolution rule: display = web<Field> || <inheritedField> || NOT_SET.
+    webTitle: getEventField(event, 'webTitle', '') || '',
+    webDescription: getEventField(event, 'webDescription', '') || '',
+    webFeaturedImage: getEventField(event, 'webFeaturedImage', '') || '',
+    webRegisterUrl: getEventField(event, 'webRegisterUrl', '') || '',
+
     // Offsite location data
     isOffsite: isOffsiteEvent || getEventField(event, 'isOffsite', false),
     offsiteName: isOffsiteEvent ? graphLocation?.displayName : getEventField(event, 'offsiteName', ''),

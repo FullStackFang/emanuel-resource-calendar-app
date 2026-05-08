@@ -7982,6 +7982,15 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         recurrence: internalFields?.recurrence || null,
         eventType: (internalFields?.recurrence?.pattern && internalFields?.recurrence?.range) ? 'seriesMaster' : 'singleInstance',
 
+        // Public website publishing flag (gates the Web Page preview tab in the form)
+        publishToWebsite: internalFields?.publishToWebsite || false,
+
+        // Web override fields (top-level — empty string means "inherit internal field")
+        webTitle: internalFields?.webTitle || '',
+        webDescription: internalFields?.webDescription || '',
+        webFeaturedImage: internalFields?.webFeaturedImage || '',
+        webRegisterUrl: internalFields?.webRegisterUrl || '',
+
         // Optimistic concurrency control
         _version: 1
       };
@@ -8115,6 +8124,15 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         if (internalFields.eventNotes !== undefined) updateOperations['calendarData.eventNotes'] = internalFields.eventNotes;
         // Note: categories are updated from graphData, not internalFields (mecCategories is deprecated)
         if (internalFields.assignedTo !== undefined) updateOperations['calendarData.assignedTo'] = internalFields.assignedTo;
+
+        // Public website publishing flag (top-level — gates the Web Page preview tab in the form)
+        if (internalFields.publishToWebsite !== undefined) updateOperations.publishToWebsite = !!internalFields.publishToWebsite;
+
+        // Web override fields (top-level — empty string = inherit; non-empty = override)
+        if (internalFields.webTitle !== undefined) updateOperations.webTitle = internalFields.webTitle || '';
+        if (internalFields.webDescription !== undefined) updateOperations.webDescription = internalFields.webDescription || '';
+        if (internalFields.webFeaturedImage !== undefined) updateOperations.webFeaturedImage = internalFields.webFeaturedImage || '';
+        if (internalFields.webRegisterUrl !== undefined) updateOperations.webRegisterUrl = internalFields.webRegisterUrl || '';
 
         // Event series fields (for multi-day events)
         if (internalFields.eventSeriesId !== undefined) updateOperations['calendarData.eventSeriesId'] = internalFields.eventSeriesId;

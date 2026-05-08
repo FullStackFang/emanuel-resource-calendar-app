@@ -1,0 +1,154 @@
+## 1. Render hygiene micro-fixes (foundation, ~1 PR)
+
+- [ ] 1.1 Wrap `LocationContext.Provider` value in `useMemo` in `src/context/LocationContext.jsx` (around line 182), with deps including only the underlying state values
+- [ ] 1.2 Identify and list the ~20 pure utility functions currently inside `Calendar.jsx` (lines ~1127–1370) that close over no component state or props
+- [ ] 1.3 Create `src/utils/calendarEventUtils.js` and move those pure utilities to module scope; update `Calendar.jsx` imports
+- [ ] 1.4 Remove the now-unnecessary `useCallback` wrappers around the moved functions
+- [ ] 1.5 Wrap the `getDatabaseLocationNames(...)` value passed to `MonthView` (`Calendar.jsx:5516`) in `useMemo` so the prop reference is stable
+- [ ] 1.6 Add a frontend test asserting `LocationContext` consumers do not re-render solely from provider re-creation
+- [ ] 1.7 Add a frontend test asserting `MonthView` skips its render path when its inputs are referentially stable
+- [ ] 1.8 Run targeted frontend tests for Calendar, MonthView, LocationContext; smoke-test in browser
+- [ ] 1.9 Provide ready-to-use commit message per CLAUDE.md format
+
+## 2. queryClient conventions and key factory
+
+- [ ] 2.1 Document query-key conventions in a comment block in `src/config/queryClient.js` (resource-name first, scope discriminators after)
+- [ ] 2.2 Create `src/queries/keys.js` exporting a minimal key factory (`keys.events.list({ view, ... })`, `keys.events.detail(eventId)`, `keys.reservations.list({ ... })`)
+- [ ] 2.3 Update the existing RQ consumers (`useCategoriesQuery.js`, `useLocationsQuery.js`, `EventSearch.jsx`) to use the factory where applicable; do not break their current behavior
+
+## 3. MyReservations → React Query
+
+- [ ] 3.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `MyReservations.jsx`
+- [ ] 3.2 Replace each read with `useQuery` using factory-derived query keys
+- [ ] 3.3 Replace each write (cancel, restore, edit, draft save/submit, etc.) with `useMutation` including `onMutate` (optimistic), `onError` (rollback), `onSuccess`/`onSettled` (invalidate)
+- [ ] 3.4 During migration, dual-publish: RQ mutations also call `dispatchRefresh` so non-migrated views still see updates
+- [ ] 3.5 Add or update tests covering: cache hit on remount, optimistic update visible immediately, rollback on simulated error, invalidation on success
+- [ ] 3.6 Browser-verify Edit / Delete / Restore / Resubmit flows end-to-end
+- [ ] 3.7 Provide ready-to-use commit message
+
+## 4. ReservationRequests (Approval Queue) → React Query
+
+- [ ] 4.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `ReservationRequests.jsx`
+- [ ] 4.2 Replace reads with `useQuery` (counts query and list query each get their own key)
+- [ ] 4.3 Replace approve / reject / restore / delete / publish-edit / reject-edit mutations with `useMutation` (optimistic + rollback + invalidate)
+- [ ] 4.4 Verify cross-tab counter consistency (approving a pending event decrements the pending counter optimistically and increments the published counter)
+- [ ] 4.5 Add or update tests for the new query/mutation patterns; cover the 409 conflict path's rollback
+- [ ] 4.6 Browser-verify Approval Queue end-to-end (approve, reject, restore, delete, edit-request)
+- [ ] 4.7 Provide ready-to-use commit message
+
+## 5. Backend hot-path fixes inside `routes/eventsList.js`
+
+- [ ] 5.1 Create `backend/routes/eventsList.js` with an `express.Router()` (or factory) export
+- [ ] 5.2 Move the handlers for `POST /api/events/load`, `GET /api/events/list`, and `GET /api/events/list/counts` from `api-server.js` into `routes/eventsList.js`; mount under `/api/events` from `api-server.js`
+- [ ] 5.3 Run targeted backend tests for these endpoints; assert behavior is unchanged from the move alone
+- [ ] 5.4 Replace the per-calendar Graph fetch loop in `POST /api/events/load` with `Promise.allSettled(...)`; preserve per-calendar try/catch semantics by treating rejected calendars as zero-event with structured warning log
+- [ ] 5.5 Add a backend test that mocks one of three calendars to fail and asserts the request returns 200 with events from the surviving two
+- [ ] 5.6 Gate `enrichSeriesMastersWithOverrides(...)` on `mastersFound > 0` in both `POST /api/events/load` and `GET /api/events/list`; preserve the cold-Cosmos retry path for the masters-present case
+- [ ] 5.7 Add a backend test asserting enrichment is not invoked when the events query returned zero series masters
+- [ ] 5.8 Add a Mongo projection to `GET /api/events/list` that excludes `graphData` from each returned document
+- [ ] 5.9 Add a backend test asserting list response items contain no `graphData` field
+- [ ] 5.10 Move the JS `Array.prototype.sort` for the list endpoint into the Mongo query (sort by `calendarData.startDateTime`)
+- [ ] 5.11 Create the compound index `(status: 1, calendarData.startDateTime: 1)` on `templeEvents__Events` via an idempotent `createIndex` call (check the query-shape audit at extraction time to confirm whether `calendarOwner` should prefix the index)
+- [ ] 5.12 Browser-verify Calendar and Approval Queue still load with realistic data
+- [ ] 5.13 Provide ready-to-use commit message
+
+## 6. OCC restoration on `audit-update`
+
+- [ ] 6.1 Replace the bare `updateOne` in `POST /api/events/:eventId/audit-update` (`api-server.js:8195`, or its new home in `routes/events.js`) with `conditionalUpdate(...)` (or `findOneAndUpdate` with `_version` precondition)
+- [ ] 6.2 Accept `expectedVersion` in the request body; treat `null`/missing as "skip version check" (backward compat)
+- [ ] 6.3 Return the post-update document via `findOneAndUpdate({ returnDocument: 'after' })`; remove the redundant trailing `findOne` (`api-server.js:8270–8272`)
+- [ ] 6.4 Add a backend test asserting concurrent `audit-update` calls produce the standard 409 `VERSION_CONFLICT` payload with field-level diff snapshot
+- [ ] 6.5 Add a backend test asserting an omitted `expectedVersion` skips the version check (legacy-caller behavior preserved)
+- [ ] 6.6 Provide ready-to-use commit message
+
+## 7. Extract `routes/graphProxy.js` (low-risk leaf)
+
+- [ ] 7.1 Create `backend/routes/graphProxy.js` with `express.Router()` (or factory) export
+- [ ] 7.2 Move the Graph proxy handlers (formerly `api-server.js` lines ~3497–4212) verbatim
+- [ ] 7.3 Mount under `/api/graph` from `api-server.js`
+- [ ] 7.4 Run targeted backend tests; assert no behavior change
+- [ ] 7.5 Provide ready-to-use commit message
+
+## 8. Cross-cutting service helpers
+
+- [ ] 8.1 Create `backend/services/auditService.js` exporting `record(eventId, change)` and any necessary helpers
+- [ ] 8.2 Create `backend/services/lifecycleEvents.js` exporting `afterStateChange(event, transition)` that delegates to `broadcastEventChange(...)` (preserving the 150 ms write-to-read delay codified in realtime-freshness)
+- [ ] 8.3 Add helpers `sendApprovalNotification`, `sendRejectionNotification`, `sendEditRequestNotification`, etc. to `backend/services/emailService.js` that resolve location names from `eventDoc.locations[]` internally
+- [ ] 8.4 Add unit tests under `backend/__tests__/unit/services/auditService.test.js` and `backend/__tests__/unit/services/lifecycleEvents.test.js` covering success and error paths
+- [ ] 8.5 Update `backend/__tests__/unit/services/emailService.test.js` (or equivalent) to cover the new resolve-locations-internally behavior
+
+## 9. SSE → React Query bridge
+
+- [ ] 9.1 In `src/hooks/useServerEvents.js`, translate `event-changed` SSE messages into `queryClient.invalidateQueries(...)` calls keyed by the broadcast's view/resource
+- [ ] 9.2 When the SSE payload includes the full updated event document, additionally call `queryClient.setQueryData(['events', 'detail', eventId], updatedDoc)` and patch the matching entry inside the relevant `['events', 'list', ...]` cache
+- [ ] 9.3 On `serverStartId` change, call `queryClient.invalidateQueries({ queryKey: ['events'] })` and `queryClient.invalidateQueries({ queryKey: ['reservations'] })`
+- [ ] 9.4 Keep the legacy `dispatchRefresh` calls firing during the migration window (back-compat for non-migrated subscribers)
+- [ ] 9.5 Add tests covering: invalidate on `event-changed`, `setQueryData` on full-payload broadcasts, restart-id-driven cross-cutting invalidation
+- [ ] 9.6 Browser-verify that approving an event in one tab is reflected in the other tab without manual refresh
+- [ ] 9.7 Provide ready-to-use commit message
+
+## 10. EventManagement → React Query
+
+- [ ] 10.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `EventManagement.jsx`
+- [ ] 10.2 Replace reads (admin-browse list + counts) with `useQuery`
+- [ ] 10.3 Replace mutations (delete, restore, force-publish, force-update overrides) with `useMutation` including optimistic + rollback + invalidate
+- [ ] 10.4 Verify the ConflictDialog 409 path still surfaces correctly when an OCC mismatch fires from a mutation
+- [ ] 10.5 Browser-verify the admin events page end-to-end
+- [ ] 10.6 Provide ready-to-use commit message
+
+## 11. Extract `routes/events.js` and `routes/reservations.js`
+
+- [ ] 11.1 Create `backend/routes/events.js`; move authenticated event creation/update/audit-update handlers from `api-server.js` (excluding the list endpoint already in `routes/eventsList.js`); migrate inline audit/email/SSE patterns to the new service helpers in §8
+- [ ] 11.2 Create `backend/routes/reservations.js`; move reservation owner endpoints from `api-server.js`; migrate inline patterns to service helpers
+- [ ] 11.3 Mount both from `api-server.js` under their existing paths
+- [ ] 11.4 Run targeted backend tests for the moved endpoints; assert no behavior change beyond the documented service-helper migration
+- [ ] 11.5 Provide ready-to-use commit message
+
+## 12. Decompose `Calendar.jsx`
+
+- [ ] 12.1 Extract `src/hooks/useCalendarDataLoader.js` from `Calendar.jsx:1418–2238`; verify Calendar still loads events correctly in browser
+- [ ] 12.2 Extract `src/hooks/useCalendarFilters.js` from `Calendar.jsx:2852–3555`; collapse double-iteration patterns into a single pass where the result is identical (or document why two passes are needed)
+- [ ] 12.3 Extract `src/hooks/useUserProfileSync.js` from `Calendar.jsx:2363–2455` and `5264–5291`
+- [ ] 12.4 Extract `src/components/CalendarModals.jsx` from `Calendar.jsx:5640–5878`
+- [ ] 12.5 After each extraction, run targeted frontend tests and browser-verify before moving to the next
+- [ ] 12.6 Confirm `wc -l src/components/Calendar.jsx` reports ≤1,500 lines
+- [ ] 12.7 Add a targeted unit test for at least one extracted hook (`useCalendarFilters` recommended — easiest seam)
+- [ ] 12.8 Provide ready-to-use commit message per extraction step (five separate commits or one combined PR with five commits — author's choice)
+
+## 13. Calendar.jsx → React Query
+
+- [ ] 13.1 Migrate `useCalendarDataLoader` to use `useQuery` (events list, counts, locations, categories) keyed via the factory from §2
+- [ ] 13.2 Migrate any Calendar-driven mutations (publish, save, restore, delete, edit) to `useMutation`
+- [ ] 13.3 Verify SSE-driven cache invalidation flows reach the calendar list query without requiring a manual refetch
+- [ ] 13.4 Browser-verify month/week/day views, calendar filtering, and event review modal launches from each view
+- [ ] 13.5 Provide ready-to-use commit message
+
+## 14. Extract remaining route modules
+
+- [ ] 14.1 Create `backend/routes/adminEvents.js`; move admin write handlers (publish, reject, restore, edit, audit-update) from `api-server.js`; migrate inline patterns to service helpers
+- [ ] 14.2 Create `backend/routes/locations.js`; move location and capability handlers
+- [ ] 14.3 Create `backend/routes/sse.js`; move SSE connection handler
+- [ ] 14.4 Create `backend/routes/ai.js`; move AI/MCP-tool endpoints
+- [ ] 14.5 Create `backend/routes/users.js`; move user profile handlers
+- [ ] 14.6 Mount all from `api-server.js`
+- [ ] 14.7 Confirm `wc -l backend/api-server.js` reports ≤1,500 lines
+- [ ] 14.8 Run targeted backend tests for each extracted module; assert no behavior change
+- [ ] 14.9 Provide ready-to-use commit messages
+
+## 15. Retire `useDataRefreshBus`
+
+- [ ] 15.1 Confirm via `git grep -n 'useDataRefreshBus\|dispatchRefresh' src/` that no live subscribers remain after §3, §4, §10, §13
+- [ ] 15.2 Remove the dual-publish `dispatchRefresh` calls from RQ mutations (introduced in §3.4, §4, §10)
+- [ ] 15.3 Remove the legacy `dispatchRefresh` from `useServerEvents.js` (introduced in §9.4)
+- [ ] 15.4 Delete `src/hooks/useDataRefreshBus.js` and any context wiring it depends on
+- [ ] 15.5 Re-run targeted frontend tests; assert nothing relied on the bus
+- [ ] 15.6 Provide ready-to-use commit message
+
+## 16. Final integration sweep
+
+- [ ] 16.1 Run full backend suite (`cd backend && npm test`) — only at this final step per CLAUDE.md
+- [ ] 16.2 Run full frontend suite (`npm run test:run`)
+- [ ] 16.3 Browser-verify the four migrated views (Calendar, MyReservations, ReservationRequests, EventManagement) end-to-end
+- [ ] 16.4 Confirm acceptance metrics: `api-server.js` ≤1,500 lines, `Calendar.jsx` ≤1,500 lines, no `useDataRefreshBus` references in `src/`, list response payloads contain no `graphData`, compound index present
+- [ ] 16.5 Update `CLAUDE.md`'s "Current In-Progress Work" section to mark this change complete and reference the archive
+- [ ] 16.6 Run `/opsx:archive architecture-and-performance-uplift` to finalize

@@ -1,0 +1,558 @@
+/*
+ * MEC + Elementor preview styles. Scoped under .mec-preview-root so they
+ * don't leak into the rest of the form. Hand-crafted approximation of the
+ * public emanuelnyc.org MEC widget look — Georgia serif title, two-column
+ * layout, sidebar meta box, blue Register button, share row.
+ */
+
+.mec-preview-root {
+  background: #ffffff;
+  color: #1f2937;
+  font-family: Georgia, "Times New Roman", serif;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* ---------- Hero / featured image ---------- */
+.mec-preview-hero {
+  width: 100%;
+  height: 220px;
+  position: relative;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mec-preview-hero-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mec-preview-hero-empty {
+  background: repeating-linear-gradient(
+    45deg,
+    #fef3c7,
+    #fef3c7 10px,
+    #fde68a 10px,
+    #fde68a 20px
+  );
+  color: #854d0e;
+  font-style: italic;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mec-preview-hero-empty-text {
+  background: rgba(255, 255, 255, 0.65);
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+.mec-preview-not-set-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-style: normal;
+}
+
+/* ---------- Two-column body ---------- */
+.mec-preview-cols {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 28px;
+  padding: 24px 26px;
+}
+
+@media (max-width: 720px) {
+  .mec-preview-cols {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+/* ---------- Left column: title / content / register ---------- */
+.mec-preview-main {
+  min-width: 0; /* allow text to wrap inside grid cell */
+}
+
+.mec-preview-title {
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 14px 0;
+}
+
+.mec-preview-title-empty {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.mec-preview-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+  margin-bottom: 18px;
+}
+
+.mec-preview-content p {
+  margin: 0 0 10px 0;
+}
+
+.mec-preview-content p:last-child {
+  margin-bottom: 0;
+}
+
+.mec-preview-content-empty {
+  font-style: italic;
+  color: #94a3b8;
+  padding: 12px 0;
+}
+
+.mec-preview-register-wrap {
+  margin-top: 4px;
+}
+
+.mec-preview-register {
+  display: inline-block;
+  background: #2563eb;
+  color: white;
+  text-decoration: none;
+  padding: 10px 22px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mec-preview-register:hover {
+  background: #1d4ed8;
+}
+
+.mec-preview-register-empty {
+  background: #fef3c7;
+  color: #854d0e;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px dashed #f59e0b;
+  cursor: not-allowed;
+}
+
+.mec-preview-register-empty:hover {
+  background: #fef3c7;
+}
+
+.mec-preview-warn-icon {
+  margin-right: 4px;
+}
+
+/* ---------- Right column: meta box + share ---------- */
+.mec-preview-meta {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 16px 18px;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mec-preview-meta-row {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.mec-preview-meta-row:last-child {
+  margin-bottom: 0;
+}
+
+.mec-preview-meta-icon {
+  color: #64748b;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.mec-preview-meta-cell {
+  min-width: 0;
+}
+
+.mec-preview-meta-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.mec-preview-meta-value {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.mec-preview-meta-secondary {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* ---------- Empty / NOT-SET badges (used in meta values) ---------- */
+.mec-preview-empty-badge {
+  display: inline-block;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+/* ---------- Recurring pill ---------- */
+.mec-preview-recurring-badge {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+/* ---------- Share row ---------- */
+.mec-preview-share {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mec-preview-share-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin: 0 0 8px 0;
+}
+
+.mec-preview-share-icons {
+  display: flex;
+  gap: 10px;
+}
+
+.mec-preview-share-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================
+ * Editable inputs — styled to match the rendered MEC look.
+ * Inputs in the preview ARE the visible output: typing in the
+ * title input updates the displayed title in place.
+ * ============================================================ */
+
+/* Title input — looks like the public-page <h1>, but is fully editable */
+.mec-preview-title-input {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 0 -8px 14px -8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: #111827;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mec-preview-title-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.mec-preview-title-input:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.mec-preview-title-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  border-style: solid;
+  background: #f0f9ff;
+}
+
+.mec-preview-title-input--empty {
+  color: #94a3b8;
+}
+
+/* Description textarea — looks like the public-page body copy */
+.mec-preview-content-input {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 0 -8px 18px -8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+  resize: vertical;
+  min-height: 120px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mec-preview-content-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.mec-preview-content-input:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.mec-preview-content-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  border-style: solid;
+  background: #f0f9ff;
+}
+
+/* Featured image URL input — sits below the rendered hero */
+.mec-preview-hero-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.mec-preview-image-url-input {
+  display: block;
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 8px 14px;
+  color: #475569;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mec-preview-image-url-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mec-preview-image-url-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  background: #f0f9ff;
+}
+
+/* Register URL input — sits below the rendered Register button/placeholder */
+.mec-preview-register-url-input {
+  display: block;
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  color: #475569;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mec-preview-register-url-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mec-preview-register-url-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  background: #f0f9ff;
+}
+
+/* ============================================================
+ * MecEventPreviewPanel — tab-body wrapper (intro card +
+ * rendered preview + gap-summary side rail).
+ * ============================================================ */
+
+.mec-preview-panel {
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.mec-preview-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-left: 3px solid #f97316;
+  border-radius: 5px;
+  font-size: 13px;
+  color: #7c2d12;
+  line-height: 1.5;
+}
+
+.mec-preview-intro-icon {
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.mec-preview-intro-text {
+  flex: 1;
+}
+
+.mec-preview-intro-text strong {
+  color: #9a3412;
+}
+
+.mec-preview-panel-cols {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 22px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .mec-preview-panel-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mec-preview-panel-render {
+  min-width: 0;
+}
+
+/* ---------- Gap summary side rail ---------- */
+.mec-preview-gap-summary {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 16px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+}
+
+.mec-preview-gap-summary-title {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.mec-preview-gap-summary-empty {
+  font-size: 12px;
+  color: #16a34a;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.mec-preview-gap-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px 0;
+}
+
+.mec-preview-gap-item {
+  padding: 7px 0;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.mec-preview-gap-item:last-child {
+  border-bottom: none;
+}
+
+.mec-preview-gap-label {
+  color: #374151;
+}
+
+.mec-preview-gap-tag {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+.mec-preview-gap-tag-no-field {
+  background: #fef3c7;
+  color: #854d0e;
+}
+
+.mec-preview-gap-tag-empty {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.mec-preview-gap-legend {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 10px;
+}
+
+.mec-preview-gap-legend-no-field {
+  color: #92400e;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.mec-preview-gap-legend-empty {
+  color: #991b1b;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}

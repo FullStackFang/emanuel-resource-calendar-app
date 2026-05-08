@@ -28,6 +28,7 @@ import {
 } from '../utils/timeClampUtils';
 import { usePermissions } from '../hooks/usePermissions';
 import ClergySelectorModal from './ClergySelectorModal';
+import MecEventPreviewPanel from './preview/MecEventPreviewPanel';
 import './RoomReservationForm.css';
 
 // Time field groups for bidirectional enforcement logic
@@ -175,6 +176,15 @@ export default function RoomReservationFormBase({
     // Clergy assignments (arrays for multi-select)
     assignedRabbi: [],
     assignedCantor: [],
+    // Public website preview toggle — when true, the Resource Details section
+    // exposes a tab strip with a Web Page tab rendering MecEventPreviewPanel.
+    publishToWebsite: false,
+    // Web override fields — populated when the user wants the public listing to
+    // differ from the internal event. Empty string = inherit; non-empty = override.
+    webTitle: '',
+    webDescription: '',
+    webFeaturedImage: '',
+    webRegisterUrl: '',
     ...initialData
   });
 
@@ -192,6 +202,10 @@ export default function RoomReservationFormBase({
   const [availabilityLoading, setAvailabilityLoading] = useState(hasInitialLocations && !prefetchedAvailability);
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Active tab inside the Resource Details section. Only consulted when
+  // formData.publishToWebsite is true (otherwise the section renders without tabs).
+  const [resourceSectionTab, setResourceSectionTab] = useState('locations');
 
   // Absorb prefetched availability into local state on mount (or late arrival).
   // With conditional rendering, form mounts after prefetch completes, so this fires
@@ -1448,6 +1462,22 @@ export default function RoomReservationFormBase({
                   {detectedPlatform ? `🎥 ${detectedPlatform.name}` : '🎥 Virtual'}
                 </button>
               </div>
+              <div className="form-group">
+                <button
+                  type="button"
+                  className={`all-day-toggle ${formData.publishToWebsite ? 'active' : ''}`}
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, publishToWebsite: !prev.publishToWebsite }));
+                    setHasChanges(true);
+                  }}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  aria-pressed={!!formData.publishToWebsite}
+                  title="Publish this event to the public emanuelnyc.org website"
+                >
+                  📰 Web Page
+                </button>
+              </div>
 
               {/* Virtual Meeting URL Popover */}
               {showVirtualPopover && (
@@ -1966,6 +1996,33 @@ export default function RoomReservationFormBase({
           <section className={`form-section ${haveLocationsChanged() ? 'section-changed' : ''}`}>
             <h2>Resource Details</h2>
 
+            {/* Web Page tab strip — only when publishing to website is enabled */}
+            {formData.publishToWebsite && (
+              <div className="resource-section-tabs" role="tablist" aria-label="Resource Details views">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resourceSectionTab === 'locations'}
+                  className={`resource-section-tab ${resourceSectionTab === 'locations' ? 'active' : ''}`}
+                  onClick={() => setResourceSectionTab('locations')}
+                >
+                  📍 Locations
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resourceSectionTab === 'webPage'}
+                  className={`resource-section-tab ${resourceSectionTab === 'webPage' ? 'active' : ''}`}
+                  onClick={() => setResourceSectionTab('webPage')}
+                >
+                  📰 Web Page
+                </button>
+              </div>
+            )}
+
+            {/* Locations / scheduling content — visible by default; hidden only when Web Page tab is active. */}
+            {(!formData.publishToWebsite || resourceSectionTab === 'locations') && (
+            <>
             {/* Inline diff for locations */}
             {haveLocationsChanged() && (
               <div className="inline-diff-section">
@@ -2133,6 +2190,19 @@ export default function RoomReservationFormBase({
                 </div>
               )}
             </div>
+            </>
+            )}
+
+            {/* Web Page preview tab content — rendered only when publishToWebsite is on AND user has clicked the Web Page tab. */}
+            {formData.publishToWebsite && resourceSectionTab === 'webPage' && (
+              <MecEventPreviewPanel
+                event={formData}
+                onWebFieldChange={(fieldName, value) => {
+                  setFormData(prev => ({ ...prev, [fieldName]: value }));
+                  setHasChanges(true);
+                }}
+              />
+            )}
           </section>
         </div>
       )}

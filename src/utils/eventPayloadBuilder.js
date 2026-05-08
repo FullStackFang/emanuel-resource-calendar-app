@@ -97,6 +97,11 @@ export function buildInternalFields(data) {
     occurrenceOverrides: data.occurrenceOverrides || null,
     eventStartTime: data.startTime || '',
     eventEndTime: data.endTime || '',
+    publishToWebsite: data.publishToWebsite || false,
+    webTitle: data.webTitle || '',
+    webDescription: data.webDescription || '',
+    webFeaturedImage: data.webFeaturedImage || '',
+    webRegisterUrl: data.webRegisterUrl || '',
   };
 }
 
@@ -192,6 +197,11 @@ export function buildDraftPayload(data) {
     endDate: data.endDate || null,
     startTime: data.startTime || null,
     endTime: data.endTime || null,
+    publishToWebsite: data.publishToWebsite || false,
+    webTitle: data.webTitle || '',
+    webDescription: data.webDescription || '',
+    webFeaturedImage: data.webFeaturedImage || '',
+    webRegisterUrl: data.webRegisterUrl || '',
   };
 }
 
@@ -273,6 +283,11 @@ export function buildOwnerEditPayload(data, { eventVersion, editScope, occurrenc
     offsiteAddress: data.offsiteAddress || '',
     offsiteLat: data.offsiteLat || null,
     offsiteLon: data.offsiteLon || null,
+    publishToWebsite: data.publishToWebsite || false,
+    webTitle: data.webTitle || '',
+    webDescription: data.webDescription || '',
+    webFeaturedImage: data.webFeaturedImage || '',
+    webRegisterUrl: data.webRegisterUrl || '',
     // Recurring event occurrence scope (for exception-as-document architecture)
     editScope: editScope || undefined,
     occurrenceDate: occurrenceDate || undefined,
@@ -349,6 +364,11 @@ export function buildEditRequestPayload(data, { eventVersion, editScope, occurre
     offsiteAddress: data.offsiteAddress || '',
     offsiteLat: data.offsiteLat || null,
     offsiteLon: data.offsiteLon || null,
+    publishToWebsite: data.publishToWebsite || false,
+    webTitle: data.webTitle || '',
+    webDescription: data.webDescription || '',
+    webFeaturedImage: data.webFeaturedImage || '',
+    webRegisterUrl: data.webRegisterUrl || '',
     // Recurrence pattern (undefined = not sent, so backend skips compare for non-recurring contexts)
     recurrence: data.recurrence !== undefined ? data.recurrence : undefined,
   };
@@ -406,6 +426,11 @@ export function buildRequesterPayload(data, { calendarId, calendarOwner } = {}) 
     services: data.services || {},
     recurrence: data.recurrence || null,
     occurrenceOverrides: data.occurrenceOverrides || null,
+    publishToWebsite: data.publishToWebsite || false,
+    webTitle: data.webTitle || '',
+    webDescription: data.webDescription || '',
+    webFeaturedImage: data.webFeaturedImage || '',
+    webRegisterUrl: data.webRegisterUrl || '',
     // Raw event times for [Hold] detection (empty when user didn't specify event times)
     eventStartTime: data.startTime || '',
     eventEndTime: data.endTime || '',

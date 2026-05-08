@@ -104,6 +104,75 @@ describe('transformEventToFlatStructure', () => {
     });
   });
 
+  describe('publishToWebsite flag', () => {
+    it('defaults to false when field is absent', () => {
+      const result = transformEventToFlatStructure({ subject: 'Internal' });
+      expect(result.publishToWebsite).toBe(false);
+    });
+
+    it('preserves true when set on the event top-level', () => {
+      const result = transformEventToFlatStructure({
+        subject: 'Public class',
+        publishToWebsite: true,
+      });
+      expect(result.publishToWebsite).toBe(true);
+    });
+
+    it('reads from calendarData when present (MongoDB format)', () => {
+      const result = transformEventToFlatStructure({
+        _id: 'mongo-id',
+        calendarData: {
+          eventTitle: 'Public class',
+          publishToWebsite: true,
+        },
+      });
+      expect(result.publishToWebsite).toBe(true);
+    });
+
+    it('coerces falsy values to false (e.g., null, undefined)', () => {
+      expect(transformEventToFlatStructure({ publishToWebsite: null }).publishToWebsite).toBe(false);
+      expect(transformEventToFlatStructure({ publishToWebsite: undefined }).publishToWebsite).toBe(false);
+      expect(transformEventToFlatStructure({ publishToWebsite: false }).publishToWebsite).toBe(false);
+    });
+  });
+
+  describe('web override fields', () => {
+    it('defaults all web fields to empty string', () => {
+      const result = transformEventToFlatStructure({ subject: 'Internal' });
+      expect(result.webTitle).toBe('');
+      expect(result.webDescription).toBe('');
+      expect(result.webFeaturedImage).toBe('');
+      expect(result.webRegisterUrl).toBe('');
+    });
+
+    it('preserves web fields from top-level event', () => {
+      const result = transformEventToFlatStructure({
+        subject: 'Internal title',
+        webTitle: 'Public title',
+        webDescription: 'Public copy',
+        webFeaturedImage: 'https://example.org/img.jpg',
+        webRegisterUrl: 'https://example.org/register',
+      });
+      expect(result.webTitle).toBe('Public title');
+      expect(result.webDescription).toBe('Public copy');
+      expect(result.webFeaturedImage).toBe('https://example.org/img.jpg');
+      expect(result.webRegisterUrl).toBe('https://example.org/register');
+    });
+
+    it('reads web fields from calendarData when present (MongoDB format)', () => {
+      const result = transformEventToFlatStructure({
+        _id: 'mongo-id',
+        calendarData: {
+          eventTitle: 'Internal',
+          webTitle: 'Public',
+          webRegisterUrl: 'https://example.org/r',
+        },
+      });
+      expect(result.webTitle).toBe('Public');
+      expect(result.webRegisterUrl).toBe('https://example.org/r');
+    });
+  });
+
   describe('Reservation format (nested graphData)', () => {
     it('transforms reservation event with graphData correctly', () => {
       const reservationEvent = {
