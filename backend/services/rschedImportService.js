@@ -60,6 +60,24 @@ const MATERIAL_FIELDS = Object.freeze([
   'categories',
 ]);
 
+// Drift classification — populated on staging rows during validate.
+// 'create'                CSV row, no Mongo match
+// 'update'                CSV row, Mongo match, material diffs present
+// 'no_op'                 CSV row, Mongo match, zero material diffs
+// 'human_edit_conflict'   Mongo event has been edited by a human (or any non-import process)
+const DRIFT_TYPE = Object.freeze({
+  CREATE: 'create',
+  UPDATE: 'update',
+  NO_OP: 'no_op',
+  HUMAN_EDIT_CONFLICT: 'human_edit_conflict',
+});
+
+// Truncation cap for persisted materialDiffs values. Cosmos DB has a 2MB
+// per-document size limit; without a cap, a 10KB description × 80k rows
+// could blow the staging document. The full diff value is re-derived at
+// drift-report time from the live event + the staging row's rawCsv.
+const MAX_DIFF_VALUE_LENGTH = 1000;
+
 // =============================================================================
 // CSV parsing
 // =============================================================================
@@ -595,6 +613,190 @@ async function hasHumanEdits(existing, db, importUserId) {
 }
 
 // =============================================================================
+// Drift detection (validate-time, bulk-prefetched)
+// =============================================================================
+
+/**
+ * Truncate a value for persisted materialDiffs storage.
+ *
+ * @param {*} value
+ * @returns {{ value: string, truncated: boolean }}
+ */
+function truncateDiffValue(value) {
+  let str;
+  if (value == null) str = '';
+  else if (typeof value === 'string') str = value;
+  else if (Array.isArray(value)) str = JSON.stringify(value);
+  else str = String(value);
+
+  if (str.length <= MAX_DIFF_VALUE_LENGTH) {
+    return { value: str, truncated: false };
+  }
+  return {
+    value: str.slice(0, MAX_DIFF_VALUE_LENGTH) + '…(truncated)',
+    truncated: true,
+  };
+}
+
+function toPersistableDiff(diff) {
+  const prev = truncateDiffValue(diff.existing);
+  const csv = truncateDiffValue(diff.candidate);
+  return {
+    field: diff.field,
+    previous: prev.value,
+    csv: csv.value,
+    truncated: prev.truncated || csv.truncated,
+  };
+}
+
+/**
+ * Classify a single staging row's drift against an in-memory existing event
+ * (or null if no match). Pure function — no DB calls.
+ *
+ * @param {Object} stagingRow
+ * @param {Object|null} existing - existing event document, or null
+ * @param {Set<string>} eventsWithHumanEdits - eventIds known to have human edits
+ * @param {Object} ctx - { calendarOwner, calendarId, importUserId }
+ * @returns {{ driftType: string, materialDiffs: Array|null }}
+ */
+function computeStagingRowDrift(stagingRow, existing, eventsWithHumanEdits, ctx) {
+  if (!existing) {
+    return { driftType: DRIFT_TYPE.CREATE, materialDiffs: null };
+  }
+  const candidate = buildEventDocFromStaging(stagingRow, ctx);
+  const diffs = detectMaterialDifferences(candidate, existing);
+  const persistableDiffs = diffs.map(toPersistableDiff);
+
+  if (eventsWithHumanEdits.has(existing.eventId)) {
+    return {
+      driftType: DRIFT_TYPE.HUMAN_EDIT_CONFLICT,
+      materialDiffs: persistableDiffs,
+    };
+  }
+  if (diffs.length === 0) {
+    return { driftType: DRIFT_TYPE.NO_OP, materialDiffs: [] };
+  }
+  return { driftType: DRIFT_TYPE.UPDATE, materialDiffs: persistableDiffs };
+}
+
+/**
+ * Bulk-prefetch existing events + audit hits, then classify drift for every
+ * staging row in memory. One find() against events + one find() against audit,
+ * regardless of staging row count.
+ *
+ * Per-row lookups inside a validate loop would be 80k × 2 Cosmos reads on a
+ * full-history reconcile — guaranteed timeout. This function keeps it at 2.
+ *
+ * @param {Db} db
+ * @param {Array<Object>} stagingRows
+ * @param {Object} ctx - { calendarOwner, calendarId, importUserId }
+ * @returns {Promise<Array<{stagingRowId, driftType, materialDiffs}>>}
+ */
+async function bulkComputeDrift(db, stagingRows, ctx) {
+  if (!Array.isArray(stagingRows) || stagingRows.length === 0) return [];
+  const eventsCollection = db.collection(EVENTS_COLLECTION);
+  const auditCollection = db.collection(AUDIT_COLLECTION);
+  const calendarOwner = (ctx.calendarOwner || '').toLowerCase();
+
+  const candidateEventIds = stagingRows
+    .filter((r) => r.rsId != null)
+    .map((r) => `rssched-${r.rsId}`);
+
+  if (candidateEventIds.length === 0) {
+    return stagingRows.map((r) => ({
+      stagingRowId: r._id,
+      driftType: null,
+      materialDiffs: null,
+    }));
+  }
+
+  // Bulk-fetch existing events by candidate eventIds.
+  const existingEvents = await eventsCollection
+    .find({ eventId: { $in: candidateEventIds }, calendarOwner })
+    .toArray();
+  const existingByEventId = new Map(existingEvents.map((e) => [e.eventId, e]));
+
+  // Bulk-fetch audit hits to detect human edits. Augment with the cheaper
+  // lastModifiedBy check that hasHumanEdits() does as its first branch — when
+  // the existing event's lastModifiedBy differs from the import user, count
+  // it as human-edited even without an audit entry.
+  const eventsWithHumanEdits = new Set();
+  if (existingEvents.length > 0) {
+    const auditHits = await auditCollection
+      .find({
+        eventId: { $in: existingEvents.map((e) => e.eventId) },
+        changeType: { $nin: ['rsched-import-create', 'rsched-import-update'] },
+      })
+      .project({ eventId: 1 })
+      .toArray();
+    for (const hit of auditHits) eventsWithHumanEdits.add(hit.eventId);
+
+    if (ctx.importUserId) {
+      for (const ev of existingEvents) {
+        if (ev.lastModifiedBy && ev.lastModifiedBy !== ctx.importUserId) {
+          eventsWithHumanEdits.add(ev.eventId);
+        }
+      }
+    }
+  }
+
+  // Classify each row against the in-memory cache.
+  return stagingRows.map((row) => {
+    if (row.rsId == null) {
+      return { stagingRowId: row._id, driftType: null, materialDiffs: null };
+    }
+    const existing = existingByEventId.get(`rssched-${row.rsId}`);
+    const drift = computeStagingRowDrift(row, existing, eventsWithHumanEdits, ctx);
+    return {
+      stagingRowId: row._id,
+      driftType: drift.driftType,
+      materialDiffs: drift.materialDiffs,
+    };
+  });
+}
+
+/**
+ * Persist drift classification onto staging rows via batched bulkWrite.
+ *
+ * @param {Object} stagingCollection - any collection with .bulkWrite
+ * @param {Array<{stagingRowId, driftType, materialDiffs}>} driftResults
+ * @param {Object} [options]
+ * @returns {Promise<number>} updated count
+ */
+async function persistDriftResults(stagingCollection, driftResults, options = {}) {
+  const {
+    batchSize = 500,
+    retryOptions = { maxAttempts: 5, initialDelayMs: 500 },
+  } = options;
+  if (!Array.isArray(driftResults) || driftResults.length === 0) return 0;
+
+  const now = new Date();
+  const ops = driftResults.map((r) => ({
+    updateOne: {
+      filter: { _id: r.stagingRowId },
+      update: {
+        $set: {
+          driftType: r.driftType,
+          materialDiffs: r.materialDiffs,
+          driftComputedAt: now,
+        },
+      },
+    },
+  }));
+
+  let updated = 0;
+  for (let i = 0; i < ops.length; i += batchSize) {
+    const batch = ops.slice(i, i + batchSize);
+    const result = await retryWithBackoff(
+      () => stagingCollection.bulkWrite(batch, { ordered: false }),
+      retryOptions,
+    );
+    updated += (result?.modifiedCount ?? 0) + (result?.upsertedCount ?? 0);
+  }
+  return updated;
+}
+
+// =============================================================================
 // Apply (upsert) algorithm
 // =============================================================================
 
@@ -866,6 +1068,21 @@ async function computePreview(db, ctx) {
   );
   for (const b of breakdownAgg) byStatus[b._id] = b.n;
 
+  // Drift breakdown — populated after validate has classified rows.
+  // Pre-validate, every row's driftType is null and these counts are 0.
+  const driftAgg = await stagingCollection
+    .aggregate([
+      { $match: { sessionId: ctx.sessionId, status: { $ne: STAGING_STATUS.SKIPPED } } },
+      { $group: { _id: '$driftType', n: { $sum: 1 } } },
+    ])
+    .toArray();
+  const byDrift = Object.fromEntries(
+    Object.values(DRIFT_TYPE).map((t) => [t, 0]),
+  );
+  for (const b of driftAgg) {
+    if (b._id) byDrift[b._id] = b.n;
+  }
+
   // Match split: which staged rsIds correspond to existing rsched events?
   const stagedRsIds = await stagingCollection
     .find(
@@ -931,11 +1148,15 @@ async function computePreview(db, ctx) {
     },
     plannedActions: {
       willCreate,
-      willMatchExisting,
+      willMatchExisting,                                                 // legacy alias
+      willUpdate: byDrift[DRIFT_TYPE.UPDATE] || 0,                       // matched + diffs
+      willStayUnchanged: byDrift[DRIFT_TYPE.NO_OP] || 0,                 // matched + no diffs
+      willConflictHumanEdit: byDrift[DRIFT_TYPE.HUMAN_EDIT_CONFLICT] || 0,
       willRemove: removalCandidates.length,
       willSkipConflict: byStatus[STAGING_STATUS.CONFLICT] || 0,
       willSkipUnmatched: byStatus[STAGING_STATUS.UNMATCHED_LOCATION] || 0,
     },
+    driftBreakdown: byDrift,
     removalCandidates,
   };
 }
@@ -1044,7 +1265,9 @@ module.exports = {
   AUDIT_COLLECTION,
   STAGING_STATUS,
   APPLY_OUTCOME,
+  DRIFT_TYPE,
   MATERIAL_FIELDS,
+  MAX_DIFF_VALUE_LENGTH,
   NOTE_RSKEY_SENTINELS,
 
   // Pure helpers (exported for tests)
@@ -1061,10 +1284,14 @@ module.exports = {
   detectMaterialDifferences,
   hasHumanEdits,
   parseRsIdFromEventId,
+  computeStagingRowDrift,
+  truncateDiffValue,
 
   // Workflow operations
   applyStagingRow,
   detectRemovedRsIds,
   computePreview,
+  bulkComputeDrift,
+  persistDriftResults,
   publishOrUpdateOutlookEvent,
 };

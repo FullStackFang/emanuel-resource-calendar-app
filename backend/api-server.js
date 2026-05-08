@@ -12308,6 +12308,30 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, a
       }
     }
 
+    // Drift detection — bulk-prefetches existing events + audit hits, then
+    // classifies each staging row as create / update / no_op / human_edit_conflict
+    // with persistable materialDiffs (truncated). Runs against ALL non-skipped
+    // rows for the session, not just the conflict-detection subset above.
+    const allClassifiableRows = await rschedImportStagingCollection
+      .find({
+        sessionId,
+        status: { $ne: rschedImportService.STAGING_STATUS.SKIPPED },
+      })
+      .toArray();
+    const driftResults = await rschedImportService.bulkComputeDrift(
+      db,
+      allClassifiableRows,
+      {
+        calendarOwner: sample.calendarOwner,
+        calendarId: sample.calendarId,
+        importUserId: auth.userId,
+      },
+    );
+    await rschedImportService.persistDriftResults(
+      rschedImportStagingCollection,
+      driftResults,
+    );
+
     const preview = await rschedImportService.computePreview(db, {
       sessionId,
       calendarOwner: sample.calendarOwner,
@@ -12319,6 +12343,7 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, a
       success: true,
       conflictCount,
       resetCount,
+      driftBreakdown: preview.driftBreakdown,
       removedCandidates: preview.removalCandidates,
       preview,
     });

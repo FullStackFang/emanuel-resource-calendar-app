@@ -33,9 +33,13 @@ const {
   batchInsertStagingDocs,
   computePreview,
   detectRemovedRsIds,
+  bulkComputeDrift,
+  computeStagingRowDrift,
   STAGING_COLLECTION,
   STAGING_STATUS,
   RSCHED_SOURCE,
+  DRIFT_TYPE,
+  MAX_DIFF_VALUE_LENGTH,
 } = rschedImportService;
 
 const IMPORT_USER_ID = '69fda879-0c61-4aa5-b02d-cad292c0777e';
@@ -332,15 +336,236 @@ describe('rsched import drift detection (DR-1 through DR-11)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Placeholders for commits 4 and 5.
+  // Field-level drift detection (DR-2, DR-3, DR-4, DR-9, DR-10).
   // -------------------------------------------------------------------------
-  describe.skip('field-level drift (filled in commits 4-5)', () => {
-    test('DR-2: validate computes materialDiffs for matched-with-differences rows', () => {});
-    test('DR-3: validate marks driftType: no_op for matched-no-diff rows', () => {});
-    test('DR-4: validate marks driftType: human_edit_conflict via audit-side branch', () => {});
+  describe('field-level drift (DR-2, DR-3, DR-4, DR-9, DR-10)', () => {
+    let mongoClient;
+    let db;
+
+    beforeAll(async () => {
+      ({ db, client: mongoClient } = await connectToGlobalServer('rschedImportDriftField'));
+    });
+
+    afterAll(async () => {
+      await disconnectFromGlobalServer(mongoClient, db);
+    });
+
+    beforeEach(async () => {
+      await clearCollections(db);
+    });
+
+    // Helper: build a staging-row + matching-event pair where both encode the
+    // same logical event. The two share rsId so they will be join-matched by
+    // bulkComputeDrift.
+    function makeMatchedPair(rsId, overrides = {}) {
+      const stagingRow = {
+        sessionId: 'test-session-drift',
+        uploadedBy: IMPORT_USER_ID,
+        uploadedAt: new Date(),
+        calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+        rsId,
+        rowNumber: rsId,
+        rawCsv: { rsId: String(rsId) },
+        eventTitle: 'Shared Title',
+        eventDescription: 'Shared description',
+        categories: ['CategoryA'],
+        startDate: '2026-05-08',
+        endDate: '2026-05-08',
+        startTime: '10:00',
+        endTime: '11:00',
+        startDateTime: '2026-05-08T10:00:00',
+        endDateTime: '2026-05-08T11:00:00',
+        isAllDay: false,
+        rsKey: '602',
+        rsKeys: ['602'],
+        locationIds: [],
+        locationDisplayNames: '',
+        locationStatus: 'matched',
+        requesterEmail: '',
+        requesterName: '',
+        status: STAGING_STATUS.STAGED,
+        ...overrides.staging,
+      };
+      const event = {
+        eventId: `rssched-${rsId}`,
+        source: RSCHED_SOURCE,
+        calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+        isDeleted: false,
+        eventTitle: stagingRow.eventTitle,
+        eventDescription: stagingRow.eventDescription,
+        categories: [...stagingRow.categories],
+        startDateTime: stagingRow.startDateTime,
+        endDateTime: stagingRow.endDateTime,
+        isAllDayEvent: stagingRow.isAllDay,
+        locations: [],
+        calendarData: {
+          eventTitle: stagingRow.eventTitle,
+          eventDescription: stagingRow.eventDescription,
+          categories: [...stagingRow.categories],
+          startDateTime: stagingRow.startDateTime,
+          endDateTime: stagingRow.endDateTime,
+          isAllDay: stagingRow.isAllDay,
+          locations: [],
+        },
+        lastModifiedBy: IMPORT_USER_ID,
+        rschedData: { rsId },
+        ...overrides.event,
+      };
+      return { stagingRow, event };
+    }
+
+    test('DR-2: bulkComputeDrift returns driftType=update with materialDiffs for matched-with-differences rows', async () => {
+      const { stagingRow, event } = makeMatchedPair(3001, {
+        event: {
+          // Existing event title differs from staging row's title.
+          eventTitle: 'Old Title — Pre-Edit',
+          calendarData: undefined, // overridden below
+        },
+      });
+      // Re-set calendarData with the differing title so getMaterialField picks it up:
+      event.calendarData = { ...event.calendarData, eventTitle: 'Old Title — Pre-Edit' };
+
+      await db.collection(COLLECTIONS.EVENTS).insertOne(event);
+
+      const results = await bulkComputeDrift(db, [stagingRow], {
+        calendarOwner: TEST_CALENDAR_OWNER,
+        importUserId: IMPORT_USER_ID,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].driftType).toBe(DRIFT_TYPE.UPDATE);
+      expect(results[0].materialDiffs).toBeInstanceOf(Array);
+      const titleDiff = results[0].materialDiffs.find((d) => d.field === 'eventTitle');
+      expect(titleDiff).toBeDefined();
+      expect(titleDiff.previous).toBe('Old Title — Pre-Edit');
+      expect(titleDiff.csv).toBe('Shared Title');
+      expect(titleDiff.truncated).toBe(false);
+    });
+
+    test('DR-3: bulkComputeDrift returns driftType=no_op for matched rows with zero material diffs', async () => {
+      const { stagingRow, event } = makeMatchedPair(3002);
+      await db.collection(COLLECTIONS.EVENTS).insertOne(event);
+
+      const results = await bulkComputeDrift(db, [stagingRow], {
+        calendarOwner: TEST_CALENDAR_OWNER,
+        importUserId: IMPORT_USER_ID,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].driftType).toBe(DRIFT_TYPE.NO_OP);
+      expect(results[0].materialDiffs).toEqual([]);
+    });
+
+    test('DR-4: bulkComputeDrift returns driftType=human_edit_conflict via audit-side branch', async () => {
+      // Setup: existing event has lastModifiedBy = importUserId (so the cheap
+      // lastModifiedBy mismatch check passes), but an audit row with a non-import
+      // changeType exists. This forces hasHumanEdits's audit-side branch to fire.
+      const { stagingRow, event } = makeMatchedPair(3003);
+      await db.collection(COLLECTIONS.EVENTS).insertOne(event);
+      await db.collection(COLLECTIONS.AUDIT_HISTORY).insertOne({
+        eventId: event.eventId,
+        userId: IMPORT_USER_ID,
+        changeType: 'update',
+        timestamp: new Date(),
+      });
+
+      const results = await bulkComputeDrift(db, [stagingRow], {
+        calendarOwner: TEST_CALENDAR_OWNER,
+        importUserId: IMPORT_USER_ID,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].driftType).toBe(DRIFT_TYPE.HUMAN_EDIT_CONFLICT);
+    });
+
+    test('DR-9: materialDiffs truncated to MAX_DIFF_VALUE_LENGTH on persist', async () => {
+      // Existing description is 5000 chars; CSV description is a different 5000-char string.
+      const longExistingDesc = 'X'.repeat(5000);
+      const longCsvDesc = 'Y'.repeat(5000);
+      const { stagingRow, event } = makeMatchedPair(3004, {
+        staging: { eventDescription: longCsvDesc },
+        event: { eventDescription: longExistingDesc },
+      });
+      event.calendarData = { ...event.calendarData, eventDescription: longExistingDesc };
+      await db.collection(COLLECTIONS.EVENTS).insertOne(event);
+
+      const results = await bulkComputeDrift(db, [stagingRow], {
+        calendarOwner: TEST_CALENDAR_OWNER,
+        importUserId: IMPORT_USER_ID,
+      });
+
+      const descDiff = results[0].materialDiffs.find((d) => d.field === 'eventDescription');
+      expect(descDiff).toBeDefined();
+      expect(descDiff.truncated).toBe(true);
+      // The persisted value is MAX_DIFF_VALUE_LENGTH chars + '…(truncated)' suffix.
+      const expectedLen = MAX_DIFF_VALUE_LENGTH + '…(truncated)'.length;
+      expect(descDiff.previous.length).toBe(expectedLen);
+      expect(descDiff.csv.length).toBe(expectedLen);
+      expect(descDiff.previous.endsWith('…(truncated)')).toBe(true);
+      expect(descDiff.csv.endsWith('…(truncated)')).toBe(true);
+    });
+
+    test('DR-10: bulkComputeDrift uses one find call against events regardless of row count', async () => {
+      // Seed 30 existing events.
+      const seedEvents = Array.from({ length: 30 }, (_, i) => {
+        const rsId = 4000 + i;
+        const { event } = makeMatchedPair(rsId);
+        return event;
+      });
+      await db.collection(COLLECTIONS.EVENTS).insertMany(seedEvents);
+
+      // 50 staging rows (only 30 will match by rsId; rest are "create").
+      const stagingRows = Array.from({ length: 50 }, (_, i) => {
+        const rsId = 4000 + i;
+        const { stagingRow } = makeMatchedPair(rsId);
+        return stagingRow;
+      });
+
+      // Capture the events + audit collection references ONCE and spy on .find.
+      // Wrap db so bulkComputeDrift sees the spied collection (db.collection
+      // returns a fresh wrapper each call, so spying on a fresh ref alone wouldn't
+      // intercept anything).
+      const eventsCollection = db.collection(COLLECTIONS.EVENTS);
+      const auditCollection = db.collection(COLLECTIONS.AUDIT_HISTORY);
+      const eventsFindSpy = jest.spyOn(eventsCollection, 'find');
+      const auditFindSpy = jest.spyOn(auditCollection, 'find');
+      const fakeDb = {
+        collection: (name) => {
+          if (name === 'templeEvents__Events') return eventsCollection;
+          if (name === 'templeEvents__EventAuditHistory') return auditCollection;
+          return db.collection(name);
+        },
+      };
+
+      try {
+        const results = await bulkComputeDrift(fakeDb, stagingRows, {
+          calendarOwner: TEST_CALENDAR_OWNER,
+          importUserId: IMPORT_USER_ID,
+        });
+
+        // 50 results: 30 matched (no_op, since values are identical) + 20 create.
+        expect(results).toHaveLength(50);
+        const noOpCount = results.filter((r) => r.driftType === DRIFT_TYPE.NO_OP).length;
+        const createCount = results.filter((r) => r.driftType === DRIFT_TYPE.CREATE).length;
+        expect(noOpCount).toBe(30);
+        expect(createCount).toBe(20);
+
+        // Critical assertion: events.find called ONCE, not 30 times.
+        expect(eventsFindSpy).toHaveBeenCalledTimes(1);
+        // Audit collection: also called once (since matched events exist).
+        expect(auditFindSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        eventsFindSpy.mockRestore();
+        auditFindSpy.mockRestore();
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Placeholders for commit 5.
+  // -------------------------------------------------------------------------
+  describe.skip('drift report endpoint (filled in commit 5)', () => {
     test('DR-5: drift report JSON returns correct buckets', () => {});
     test('DR-6: drift report CSV is valid long-format', () => {});
-    test('DR-9: materialDiffs truncated to MAX_DIFF_VALUE_LENGTH on persist', () => {});
-    test('DR-10: computeStagingRowDrift bulk-prefetches existing events (one find call)', () => {});
   });
 });
