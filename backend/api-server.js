@@ -11898,11 +11898,14 @@ app.post('/api/admin/rsched-import/upload-from-library', verifyToken, async (req
   try {
     const auth = await requireAdminUser(req, res);
     if (!auth) return;
-    const { filename, calendarOwner, calendarId, dateRangeStart, dateRangeEnd } = req.body || {};
+    const { filename, calendarOwner, calendarId, dateRangeStart, dateRangeEnd, allTime } = req.body || {};
     if (!filename) return res.status(400).json({ error: 'filename is required' });
     if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
-    if (!dateRangeStart || !dateRangeEnd) {
-      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required' });
+    // Accept all-time mode (boolean true OR string 'true') in lieu of an explicit
+    // date range. Otherwise both bounds are required.
+    const isAllTime = allTime === true || allTime === 'true';
+    if (!isAllTime && (!dateRangeStart || !dateRangeEnd)) {
+      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required (or set allTime=true)' });
     }
     if (!isAllowedCalendarOwner(calendarOwner)) {
       return res.status(403).json({ error: 'Access to this calendar is not permitted' });
@@ -11925,8 +11928,8 @@ app.post('/api/admin/rsched-import/upload-from-library', verifyToken, async (req
       calendarOwner: calendarOwner.toLowerCase(),
       calendarId: calendarIdResolved,
       csvFilename: path.basename(resolved),
-      dateRangeStart,
-      dateRangeEnd,
+      dateRangeStart: isAllTime ? null : dateRangeStart,
+      dateRangeEnd: isAllTime ? null : dateRangeEnd,
     };
     const result = await runRschedStagingPipeline(buffer, ctx);
     res.json({ success: true, sessionId, filename: ctx.csvFilename, ...result });
@@ -11949,10 +11952,13 @@ app.post('/api/admin/rsched-import/upload', verifyToken, upload.single('csvFile'
     if (!auth) return;
     if (!req.file) return res.status(400).json({ error: 'No CSV file uploaded' });
 
-    const { calendarOwner, calendarId, dateRangeStart, dateRangeEnd } = req.body;
+    const { calendarOwner, calendarId, dateRangeStart, dateRangeEnd, allTime } = req.body;
     if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
-    if (!dateRangeStart || !dateRangeEnd) {
-      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required' });
+    // Accept all-time mode (boolean true OR string 'true' from multipart) in lieu
+    // of an explicit date range. Otherwise both bounds are required.
+    const isAllTime = allTime === true || allTime === 'true';
+    if (!isAllTime && (!dateRangeStart || !dateRangeEnd)) {
+      return res.status(400).json({ error: 'dateRangeStart and dateRangeEnd are required (or set allTime=true)' });
     }
     if (!isAllowedCalendarOwner(calendarOwner)) {
       return res.status(403).json({ error: 'Access to this calendar is not permitted' });
@@ -11967,8 +11973,8 @@ app.post('/api/admin/rsched-import/upload', verifyToken, upload.single('csvFile'
       calendarOwner: calendarOwner.toLowerCase(),
       calendarId: calendarIdResolved,
       csvFilename: req.file.originalname || 'upload.csv',
-      dateRangeStart,
-      dateRangeEnd,
+      dateRangeStart: isAllTime ? null : dateRangeStart,
+      dateRangeEnd: isAllTime ? null : dateRangeEnd,
     };
 
     const result = await runRschedStagingPipeline(req.file.buffer, ctx);

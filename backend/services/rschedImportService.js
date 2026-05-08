@@ -744,32 +744,38 @@ async function applyStagingRow(db, stagingRow, ctx) {
  */
 async function detectRemovedRsIds(db, ctx, presentRsIds) {
   const eventsCollection = db.collection(EVENTS_COLLECTION);
-  const startStr = `${ctx.dateRangeStart}T00:00:00`;
-  const endStr = `${ctx.dateRangeEnd}T23:59:59`;
   const presentSet = new Set(presentRsIds.map(Number));
+
+  // All-time mode: ctx.dateRangeStart/End are null and no date filter applies.
+  // Otherwise filter on top-level startDateTime (the authoritative field per
+  // CLAUDE.md). Older code filtered on calendarData.startDateTime which can
+  // be stale on migrated documents.
+  const isAllTime = !ctx.dateRangeStart || !ctx.dateRangeEnd;
+  const filter = {
+    source: RSCHED_SOURCE,
+    calendarOwner: (ctx.calendarOwner || '').toLowerCase(),
+    isDeleted: { $ne: true },
+  };
+  if (!isAllTime) {
+    const startStr = `${ctx.dateRangeStart}T00:00:00`;
+    const endStr = `${ctx.dateRangeEnd}T23:59:59`;
+    filter.startDateTime = { $gte: startStr, $lte: endStr };
+  }
 
   // Tight projection — without it the cursor returns full event documents
   // including graphData blobs (potentially KBs each). At 80k+ rsched events
   // that scaled to >100MB unnecessary read traffic on Cosmos.
   const cursor = eventsCollection
-    .find(
-      {
-        source: RSCHED_SOURCE,
-        calendarOwner: (ctx.calendarOwner || '').toLowerCase(),
-        isDeleted: { $ne: true },
-        'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
+    .find(filter, {
+      projection: {
+        eventId: 1,
+        'rschedData.rsId': 1,
+        eventTitle: 1,
+        startDateTime: 1,
+        'calendarData.eventTitle': 1,
+        'calendarData.startDateTime': 1,
       },
-      {
-        projection: {
-          eventId: 1,
-          'rschedData.rsId': 1,
-          eventTitle: 1,
-          startDateTime: 1,
-          'calendarData.eventTitle': 1,
-          'calendarData.startDateTime': 1,
-        },
-      },
-    )
+    })
     .batchSize(500);
 
   const removed = [];
@@ -803,29 +809,37 @@ function parseRsIdFromEventId(eventId) {
  * Designed for the "visual preview" UI — one read, all counts.
  *
  * @param {Db} db
- * @param {{ sessionId: string, calendarOwner: string, dateRangeStart: string, dateRangeEnd: string }} ctx
+ * @param {{ sessionId: string, calendarOwner: string, dateRangeStart: string|null, dateRangeEnd: string|null }} ctx
+ *   When dateRangeStart/dateRangeEnd are both null/empty, runs in all-time
+ *   mode — no date filter on the existing-events scan or removal detection.
  */
 async function computePreview(db, ctx) {
   const eventsCollection = db.collection(EVENTS_COLLECTION);
   const stagingCollection = db.collection(STAGING_COLLECTION);
 
-  const startStr = `${ctx.dateRangeStart}T00:00:00`;
-  const endStr = `${ctx.dateRangeEnd}T23:59:59`;
+  const isAllTime = !ctx.dateRangeStart || !ctx.dateRangeEnd;
   const calendarOwner = (ctx.calendarOwner || '').toLowerCase();
 
-  // Existing events in range, with enough info to bucket as rsched/manual
-  // and to look up matches by rsId. batchSize(500) keeps each Cosmos page
-  // request bounded — without it, all-time scope (commit 3) would request
-  // a single ~80k-doc page and exceed RU caps.
+  // Existing events scan filter. In all-time mode skip the date predicate.
+  // Switch from 'calendarData.startDateTime' to top-level 'startDateTime' —
+  // the authoritative field per CLAUDE.md (calendarData can be stale on
+  // older migrated docs).
+  const existingFilter = {
+    calendarOwner,
+    isDeleted: { $ne: true },
+  };
+  if (!isAllTime) {
+    const startStr = `${ctx.dateRangeStart}T00:00:00`;
+    const endStr = `${ctx.dateRangeEnd}T23:59:59`;
+    existingFilter.startDateTime = { $gte: startStr, $lte: endStr };
+  }
+
+  // batchSize(500) keeps each Cosmos page request bounded — without it,
+  // all-time scope would request a single ~80k-doc page and exceed RU caps.
   const existingCursor = eventsCollection
-    .find(
-      {
-        calendarOwner,
-        isDeleted: { $ne: true },
-        'calendarData.startDateTime': { $gte: startStr, $lte: endStr },
-      },
-      { projection: { source: 1, eventId: 1, 'rschedData.rsId': 1 } },
-    )
+    .find(existingFilter, {
+      projection: { source: 1, eventId: 1, 'rschedData.rsId': 1 },
+    })
     .batchSize(500);
 
   let existingTotal = 0;
@@ -877,14 +891,27 @@ async function computePreview(db, ctx) {
     stagedRsIds.map((r) => r.rsId),
   );
 
-  const days = Math.max(
-    1,
-    Math.round(
-      (Date.parse(`${ctx.dateRangeEnd}T00:00:00`) -
-        Date.parse(`${ctx.dateRangeStart}T00:00:00`)) /
-        (1000 * 60 * 60 * 24),
-    ) + 1,
-  );
+  // dateRange summary. In all-time mode return { allTime: true } — without
+  // an explicit guard the days computation below would produce NaN from
+  // null inputs (Date.parse('nullT00:00:00') = NaN).
+  const dateRange = isAllTime
+    ? { allTime: true, start: null, end: null, days: null }
+    : (() => {
+        const days = Math.max(
+          1,
+          Math.round(
+            (Date.parse(`${ctx.dateRangeEnd}T00:00:00`) -
+              Date.parse(`${ctx.dateRangeStart}T00:00:00`)) /
+              (1000 * 60 * 60 * 24),
+          ) + 1,
+        );
+        return {
+          allTime: false,
+          start: ctx.dateRangeStart,
+          end: ctx.dateRangeEnd,
+          days,
+        };
+      })();
 
   const stagingTotal = (byStatus[STAGING_STATUS.STAGED] || 0)
     + (byStatus[STAGING_STATUS.CONFLICT] || 0)
@@ -892,11 +919,7 @@ async function computePreview(db, ctx) {
     + (byStatus[STAGING_STATUS.HUMAN_EDIT_CONFLICT] || 0);
 
   return {
-    dateRange: {
-      start: ctx.dateRangeStart,
-      end: ctx.dateRangeEnd,
-      days,
-    },
+    dateRange,
     existingInRange: {
       total: existingTotal,
       fromRsched: existingFromRsched,

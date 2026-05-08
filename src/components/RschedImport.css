@@ -347,6 +347,30 @@ button:disabled {
   color: var(--color-neutral-500, #78716c);
 }
 
+.rsi-alltime-field {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--color-neutral-50, #fafaf9);
+  border: 1px solid var(--color-neutral-200, #e7e5e4);
+}
+
+.rsi-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-neutral-800, #292524);
+}
+
+.rsi-checkbox-label input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
 /* Generic field input styling */
 .rsi-stage-form input[type='text'],
 .rsi-stage-form input[type='date'],

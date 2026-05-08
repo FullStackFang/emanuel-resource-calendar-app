@@ -166,6 +166,7 @@ export default function RschedImport() {
       if (mode === 'library') {
         const filename = fd.get('libraryFilename');
         if (!filename) throw new Error('Please choose a library file');
+        const isAllTime = fd.get('allTime') === 'true';
         res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/rsched-import/upload-from-library`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -173,8 +174,9 @@ export default function RschedImport() {
             filename,
             calendarOwner: fd.get('calendarOwner'),
             calendarId: fd.get('calendarId') || undefined,
-            dateRangeStart: fd.get('dateRangeStart'),
-            dateRangeEnd: fd.get('dateRangeEnd'),
+            allTime: isAllTime,
+            dateRangeStart: isAllTime ? null : fd.get('dateRangeStart'),
+            dateRangeEnd: isAllTime ? null : fd.get('dateRangeEnd'),
           }),
         });
       } else {
@@ -431,8 +433,14 @@ function PreviewSummary({ session, preview }) {
         <div><strong>CSV:</strong> {session.csvFilename || '—'}</div>
         <div>
           <strong>Date range:</strong>{' '}
-          {preview.dateRange?.start} → {preview.dateRange?.end}{' '}
-          <span className="rsi-muted">({preview.dateRange?.days} days)</span>
+          {preview.dateRange?.allTime ? (
+            <span>All time <span className="rsi-muted">(no date filter)</span></span>
+          ) : (
+            <>
+              {preview.dateRange?.start} → {preview.dateRange?.end}{' '}
+              <span className="rsi-muted">({preview.dateRange?.days} days)</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -721,6 +729,7 @@ function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(addDaysIso(todayIso(), 90));
+  const [allTime, setAllTime] = useState(false);
   const [sourceMode, setSourceMode] = useState('library');
   const [libraryFiles, setLibraryFiles] = useState([]);
   const [libraryFilename, setLibraryFilename] = useState('');
@@ -863,6 +872,25 @@ function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
           </div>
         </div>
 
+        <input type="hidden" name="allTime" value={allTime ? 'true' : 'false'} />
+
+        <div className="rsi-field rsi-alltime-field">
+          <label className="rsi-checkbox-label">
+            <input
+              type="checkbox"
+              checked={allTime}
+              onChange={(e) => setAllTime(e.target.checked)}
+            />
+            <span>Reconcile all events (no date filter)</span>
+          </label>
+          {allTime && (
+            <p className="rsi-field-hint">
+              Skips the date range and runs against the entire calendar history.
+              Slower on large datasets but matches every rsched event in MongoDB.
+            </p>
+          )}
+        </div>
+
         <div className="rsi-field-row">
           <div className="rsi-field">
             <label className="rsi-field-label" htmlFor="rsi-from">Start date</label>
@@ -870,9 +898,10 @@ function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
               id="rsi-from"
               type="date"
               name="dateRangeStart"
-              value={from}
+              value={allTime ? '' : from}
               onChange={(e) => setFrom(e.target.value)}
-              required
+              required={!allTime}
+              disabled={allTime}
             />
           </div>
           <div className="rsi-field">
@@ -881,9 +910,10 @@ function StageCsvCard({ uploading, onSubmit, authFetch, showError }) {
               id="rsi-to"
               type="date"
               name="dateRangeEnd"
-              value={to}
+              value={allTime ? '' : to}
               onChange={(e) => setTo(e.target.value)}
-              required
+              required={!allTime}
+              disabled={allTime}
             />
           </div>
         </div>

@@ -19,10 +19,26 @@
  *   DR-11  batchInsertStagingDocs retries on Cosmos 429
  */
 
+const {
+  connectToGlobalServer,
+  disconnectFromGlobalServer,
+  clearCollections,
+} = require('../../__helpers__/testSetup');
+const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
+
 const rschedImportService = require('../../../services/rschedImportService');
 const { _resetBreakerForTest } = require('../../../utils/retryWithBackoff');
 
-const { batchInsertStagingDocs } = rschedImportService;
+const {
+  batchInsertStagingDocs,
+  computePreview,
+  detectRemovedRsIds,
+  STAGING_COLLECTION,
+  STAGING_STATUS,
+  RSCHED_SOURCE,
+} = rschedImportService;
+
+const IMPORT_USER_ID = '69fda879-0c61-4aa5-b02d-cad292c0777e';
 
 describe('rsched import drift detection (DR-1 through DR-11)', () => {
   // -------------------------------------------------------------------------
@@ -169,36 +185,162 @@ describe('rsched import drift detection (DR-1 through DR-11)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Integration tests (DR-1, DR-2, DR-3, DR-4, DR-5, DR-6, DR-7, DR-9, DR-10)
-  // Filled in by commits 2-5 once the supporting helpers exist.
+  // Integration tests against MongoDB Memory Server.
   // -------------------------------------------------------------------------
-  describe.skip('all-time scope and field-level drift (filled in commits 2-5)', () => {
-    test('DR-1: upload with allTime=true skips date filter on existing-events query', () => {
-      // TODO: filled in commit 3
+  describe('all-time scope (DR-1, DR-7)', () => {
+    let mongoClient;
+    let db;
+
+    beforeAll(async () => {
+      ({ db, client: mongoClient } = await connectToGlobalServer('rschedImportDrift'));
     });
-    test('DR-2: validate computes materialDiffs for matched-with-differences rows', () => {
-      // TODO: filled in commit 4
+
+    afterAll(async () => {
+      await disconnectFromGlobalServer(mongoClient, db);
     });
-    test('DR-3: validate marks driftType: no_op for matched-no-diff rows', () => {
-      // TODO: filled in commit 4
+
+    beforeEach(async () => {
+      await clearCollections(db);
     });
-    test('DR-4: validate marks driftType: human_edit_conflict via audit-side branch', () => {
-      // TODO: filled in commit 4
+
+    test('DR-1: computePreview in all-time mode finds events outside any date range', async () => {
+      const eventsCol = db.collection(COLLECTIONS.EVENTS);
+      const stagingCol = db.collection(STAGING_COLLECTION);
+
+      // Seed 3 rsched events spanning ten years — far outside any reasonable date window.
+      await eventsCol.insertMany([
+        {
+          eventId: 'rssched-1001',
+          source: RSCHED_SOURCE,
+          calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+          isDeleted: false,
+          startDateTime: '2018-01-15T10:00:00',
+          rschedData: { rsId: 1001 },
+        },
+        {
+          eventId: 'rssched-1002',
+          source: RSCHED_SOURCE,
+          calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+          isDeleted: false,
+          startDateTime: '2024-06-01T14:00:00',
+          rschedData: { rsId: 1002 },
+        },
+        {
+          eventId: 'rssched-1003',
+          source: RSCHED_SOURCE,
+          calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+          isDeleted: false,
+          startDateTime: '2030-12-25T09:00:00',
+          rschedData: { rsId: 1003 },
+        },
+      ]);
+
+      // Seed staging session: only 1 row (rsId=1002) so 1001 and 1003 should appear as removals.
+      const sessionId = 'test-session-dr1';
+      await stagingCol.insertOne({
+        sessionId,
+        uploadedBy: IMPORT_USER_ID,
+        uploadedAt: new Date(),
+        calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+        rsId: 1002,
+        status: STAGING_STATUS.STAGED,
+        startDateTime: '2024-06-01T14:00:00',
+      });
+
+      // Date-bounded mode for comparison: only events in 2024 are visible.
+      const boundedPreview = await computePreview(db, {
+        sessionId,
+        calendarOwner: TEST_CALENDAR_OWNER,
+        dateRangeStart: '2024-01-01',
+        dateRangeEnd: '2024-12-31',
+      });
+      expect(boundedPreview.dateRange.allTime).toBe(false);
+      expect(boundedPreview.existingInRange.fromRsched).toBe(1); // only rsId 1002
+
+      // All-time mode: all 3 events found, regardless of year.
+      const allTimePreview = await computePreview(db, {
+        sessionId,
+        calendarOwner: TEST_CALENDAR_OWNER,
+        dateRangeStart: null,
+        dateRangeEnd: null,
+      });
+      expect(allTimePreview.dateRange).toEqual({
+        allTime: true,
+        start: null,
+        end: null,
+        days: null,
+      });
+      expect(allTimePreview.existingInRange.fromRsched).toBe(3);
+      // 1001 and 1003 are missing from the CSV — both should be removal candidates.
+      expect(allTimePreview.plannedActions.willRemove).toBe(2);
+      expect(allTimePreview.removalCandidates.map((r) => r.rsId).sort()).toEqual([1001, 1003]);
     });
-    test('DR-5: drift report JSON returns correct buckets', () => {
-      // TODO: filled in commit 5
+
+    test('DR-7: all-time mode with no-match staging treats all rsched events as removals', async () => {
+      const eventsCol = db.collection(COLLECTIONS.EVENTS);
+      const stagingCol = db.collection(STAGING_COLLECTION);
+
+      // Seed 5 existing rsched events.
+      const existing = Array.from({ length: 5 }, (_, i) => ({
+        eventId: `rssched-${2000 + i}`,
+        source: RSCHED_SOURCE,
+        calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+        isDeleted: false,
+        startDateTime: `2026-0${i + 1}-01T10:00:00`,
+        rschedData: { rsId: 2000 + i },
+      }));
+      await eventsCol.insertMany(existing);
+
+      // Stage 1 row whose rsId DOES NOT match any existing event — every existing rsched
+      // event should be a removal candidate.
+      const sessionId = 'test-session-dr7';
+      await stagingCol.insertOne({
+        sessionId,
+        uploadedBy: IMPORT_USER_ID,
+        uploadedAt: new Date(),
+        calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+        rsId: 99999,
+        status: STAGING_STATUS.STAGED,
+        startDateTime: '2099-01-01T00:00:00',
+      });
+
+      const preview = await computePreview(db, {
+        sessionId,
+        calendarOwner: TEST_CALENDAR_OWNER,
+        dateRangeStart: null,
+        dateRangeEnd: null,
+      });
+
+      expect(preview.dateRange.allTime).toBe(true);
+      expect(preview.plannedActions.willRemove).toBe(5);
+      expect(preview.removalCandidates.map((r) => r.rsId).sort((a, b) => a - b)).toEqual([
+        2000, 2001, 2002, 2003, 2004,
+      ]);
+
+      // Direct call to detectRemovedRsIds with empty present list — all 5 should come back.
+      const removed = await detectRemovedRsIds(
+        db,
+        {
+          calendarOwner: TEST_CALENDAR_OWNER,
+          dateRangeStart: null,
+          dateRangeEnd: null,
+        },
+        [],
+      );
+      expect(removed).toHaveLength(5);
     });
-    test('DR-6: drift report CSV is valid long-format', () => {
-      // TODO: filled in commit 5
-    });
-    test('DR-7: all-time mode with empty CSV treats all rsched events as removals', () => {
-      // TODO: filled in commit 3
-    });
-    test('DR-9: materialDiffs truncated to MAX_DIFF_VALUE_LENGTH on persist', () => {
-      // TODO: filled in commit 4
-    });
-    test('DR-10: computeStagingRowDrift bulk-prefetches existing events (one find call)', () => {
-      // TODO: filled in commit 4
-    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Placeholders for commits 4 and 5.
+  // -------------------------------------------------------------------------
+  describe.skip('field-level drift (filled in commits 4-5)', () => {
+    test('DR-2: validate computes materialDiffs for matched-with-differences rows', () => {});
+    test('DR-3: validate marks driftType: no_op for matched-no-diff rows', () => {});
+    test('DR-4: validate marks driftType: human_edit_conflict via audit-side branch', () => {});
+    test('DR-5: drift report JSON returns correct buckets', () => {});
+    test('DR-6: drift report CSV is valid long-format', () => {});
+    test('DR-9: materialDiffs truncated to MAX_DIFF_VALUE_LENGTH on persist', () => {});
+    test('DR-10: computeStagingRowDrift bulk-prefetches existing events (one find call)', () => {});
   });
 });
