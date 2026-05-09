@@ -649,6 +649,45 @@ describe('rsched recurrence detection — commit conversion (REC-15..REC-20)', (
     expect(master.recurrence.range.recurrenceTimeZone).toBe('Eastern Standard Time');
   });
 
+  test('REC-15c: existing singleInstance gets upgraded to seriesMaster (Branch C)', async () => {
+    const rsId = 9100;
+    const eventId = `rssched-${rsId}`;
+    // Pre-seed a singleInstance event matching what the master row will be.
+    await db.collection(COLLECTIONS.EVENTS).insertOne({
+      eventId,
+      source: 'rsSched',
+      calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+      isDeleted: false,
+      eventType: 'singleInstance',
+      eventTitle: 'Al-Anon (Pre-existing)',
+      startDateTime: '2026-05-06T10:00:00',
+      endDateTime: '2026-05-06T11:00:00',
+      _version: 1,
+      rschedData: { rsId },
+    });
+
+    // Now stage 8 weekly Wed rows where the FIRST one matches the seeded rsId
+    // so it'll be picked as the master member.
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    rows[0].rsId = rsId; // override the auto-generated rsId so it matches the existing event
+    await seedStaging(rows);
+    await detectAndApproveAll();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit.status).toBe(200);
+
+    // Critical assertion: the existing eventId should now be a seriesMaster,
+    // not a duplicate document.
+    const matches = await db.collection(COLLECTIONS.EVENTS).find({ eventId }).toArray();
+    expect(matches).toHaveLength(1); // not duplicated
+    expect(matches[0].eventType).toBe('seriesMaster');
+    expect(matches[0].recurrence).toBeDefined();
+    expect(matches[0].recurrence.pattern.type).toBe('weekly');
+  });
+
   test('REC-15b: re-running commit on same session does NOT duplicate seriesMaster', async () => {
     const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
     await seedStaging(rows);
