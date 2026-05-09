@@ -20,6 +20,8 @@
  *   5. Score confidence and emit a CandidateSeries.
  */
 
+const RECURRENCE_CANDIDATES_COLLECTION = 'templeEvents__RschedRecurrenceCandidates';
+
 const MIN_GROUP_SIZE = 3;
 const MAX_GROUP_SIZE = 1000; // bounded fitter cost
 const LEVENSHTEIN_MAX = 3;
@@ -769,6 +771,7 @@ function detectRecurrenceCandidates(stagingRows) {
 
 module.exports = {
   // Constants
+  RECURRENCE_CANDIDATES_COLLECTION,
   MIN_GROUP_SIZE,
   MAX_GROUP_SIZE,
   IGNORABLE_TRAILING_TOKENS,

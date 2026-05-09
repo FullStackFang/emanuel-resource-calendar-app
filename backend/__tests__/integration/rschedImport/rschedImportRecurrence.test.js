@@ -8,7 +8,25 @@
  * filled in across commits 3, 4, 5, 6.
  */
 
+const fs = require('fs');
+const path = require('path');
+const request = require('supertest');
+
+const { setupTestApp } = require('../../__helpers__/createAppForTest');
+const {
+  connectToGlobalServer,
+  disconnectFromGlobalServer,
+  clearCollections,
+} = require('../../__helpers__/testSetup');
+const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
+const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
+const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
+
 const detection = require('../../../services/rschedRecurrenceDetection');
+const rschedImportService = require('../../../services/rschedImportService');
+
+const STAGING_COLLECTION = rschedImportService.STAGING_COLLECTION;
+const CANDIDATES_COLLECTION = detection.RECURRENCE_CANDIDATES_COLLECTION;
 
 const {
   normalizeTitle,
@@ -31,12 +49,17 @@ const {
 } = detection;
 
 // ---------------------------------------------------------------------------
-// Test data builders
+// Test data builders (shared across describe blocks)
 // ---------------------------------------------------------------------------
 
 let _rsIdCounter = 1000;
 function nextRsId() {
   return _rsIdCounter++;
+}
+
+// eslint-disable-next-line no-unused-vars
+function _resetRsIdCounter(start = 1000) {
+  _rsIdCounter = start;
 }
 
 function makeRow(overrides = {}) {
@@ -283,5 +306,181 @@ describe('rsched recurrence detection — algorithm unit tests (REC-1..REC-10)',
     const candidates = detectRecurrenceCandidates([...fooRows, ...barRows]);
     // Two separate candidates, not merged.
     expect(candidates).toHaveLength(2);
+  });
+});
+
+// =============================================================================
+// Endpoint integration tests (REC-11, REC-11b, REC-12)
+// =============================================================================
+describe('rsched recurrence detection — endpoints (REC-11, REC-11b, REC-12)', () => {
+  let mongoClient;
+  let db;
+  let app;
+  let adminUser;
+  let adminToken;
+  const sessionId = 'rec-test-session-1';
+
+  beforeAll(async () => {
+    await initTestKeys();
+    ({ db, client: mongoClient } = await connectToGlobalServer('rschedImportRecurrenceEndpoints'));
+    app = await setupTestApp(db);
+    adminUser = createAdmin();
+    adminToken = await createMockToken(adminUser);
+  });
+
+  afterAll(async () => {
+    await disconnectFromGlobalServer(mongoClient, db);
+  });
+
+  beforeEach(async () => {
+    await clearCollections(db);
+    await db.collection(STAGING_COLLECTION).deleteMany({});
+    await db.collection(CANDIDATES_COLLECTION).deleteMany({});
+    await insertUsers(db, [adminUser]);
+    _rsIdCounter = 5000;
+  });
+
+  // Seed staging rows directly without going through upload — keeps tests fast
+  // and isolates the detect endpoint.
+  async function seedStaging(rows) {
+    const docs = rows.map((r, i) => ({
+      sessionId,
+      uploadedBy: adminUser.oid || adminUser.userId,
+      uploadedAt: new Date(),
+      calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+      rowNumber: i + 1,
+      status: 'staged',
+      ...r,
+    }));
+    if (docs.length > 0) {
+      await db.collection(STAGING_COLLECTION).insertMany(docs);
+    }
+  }
+
+  test('REC-11: POST /detect-recurrence persists candidates with correct shape', async () => {
+    // Seed 8 weekly Wed rows.
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+
+    const res = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.candidatesFound).toBe(1);
+    expect(res.body.totalRowsCovered).toBe(8);
+    expect(res.body.byConfidence.high).toBeGreaterThan(0);
+
+    const candidates = await db.collection(CANDIDATES_COLLECTION).find({ sessionId }).toArray();
+    expect(candidates).toHaveLength(1);
+    const c = candidates[0];
+    expect(c.candidateId).toMatch(/^cand-/);
+    expect(c.canonicalTitle).toBe('al-anon');
+    expect(c.detectedPattern.type).toBe('weekly');
+    expect(c.detectedPattern.daysOfWeek).toEqual(['wednesday']);
+    expect(c.status).toBe('detected');
+    expect(c.detectedAt).toBeInstanceOf(Date);
+    expect(c.reviewedAt).toBeNull();
+  });
+
+  test('REC-11b: POST /detect-recurrence twice on same session wipes prior candidates', async () => {
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    // First run.
+    const res1 = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+    expect(res1.status).toBe(200);
+    expect(res1.body.candidatesFound).toBe(1);
+    const after1 = await db.collection(CANDIDATES_COLLECTION).countDocuments({ sessionId });
+    expect(after1).toBe(1);
+
+    // Second run — should NOT duplicate.
+    const res2 = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+    expect(res2.status).toBe(200);
+    expect(res2.body.candidatesFound).toBe(1);
+    const after2 = await db.collection(CANDIDATES_COLLECTION).countDocuments({ sessionId });
+    expect(after2).toBe(1); // not 2
+  });
+
+  test('REC-12: GET /recurrence-candidates respects status and confidence filters', async () => {
+    // Seed two distinct series with sufficiently different titles so they
+    // do NOT merge under Levenshtein/Jaccard. Different times also keep them
+    // in separate triples for the fuzzy merge step.
+    // Series A: clean weekly Wed (8 rows, high confidence)
+    const seriesA = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Yoga Class', startTime: '10:00', endTime: '11:00' });
+    // Series B: weekly Tue with 1 outlier (lower confidence), different time so different bucket
+    const seriesB = makeWeeklyRows('2026-05-05', 7, { eventTitle: 'Book Club', startTime: '14:00', endTime: '15:00' });
+    seriesB.push(makeRow({ eventTitle: 'Book Club', startDate: '2026-06-01', endDate: '2026-06-01', startTime: '14:00', endTime: '15:00' }));
+    await seedStaging([...seriesA, ...seriesB]);
+
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+
+    // No filter — both candidates returned.
+    const all = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates`)
+      .set(headers);
+    expect(all.status).toBe(200);
+    expect(all.body.total).toBe(2);
+    expect(all.body.candidates).toHaveLength(2);
+    // Sorted by confidence desc — first is the high-confidence one.
+    expect(all.body.candidates[0].confidence).toBeGreaterThanOrEqual(all.body.candidates[1].confidence);
+
+    // Status filter: only 'detected' — should return both.
+    const detected = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates?status=detected`)
+      .set(headers);
+    expect(detected.body.total).toBe(2);
+
+    // Status filter: 'approved' — should return zero.
+    const approved = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates?status=approved`)
+      .set(headers);
+    expect(approved.body.total).toBe(0);
+
+    // Confidence filter: only 'high' — should return at least 1 (Series A).
+    const high = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates?confidence=high`)
+      .set(headers);
+    expect(high.body.total).toBeGreaterThanOrEqual(1);
+    for (const c of high.body.candidates) {
+      expect(c.confidence).toBeGreaterThanOrEqual(0.8);
+    }
+  });
+
+  test('REC-12: GET /recurrence-candidates/:candidateId returns single candidate', async () => {
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+    const list = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates`)
+      .set(headers);
+    const candidateId = list.body.candidates[0].candidateId;
+
+    const single = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates/${candidateId}`)
+      .set(headers);
+    expect(single.status).toBe(200);
+    expect(single.body.candidate.candidateId).toBe(candidateId);
+
+    // Unknown candidateId → 404.
+    const missing = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates/cand-nonexistent`)
+      .set(headers);
+    expect(missing.status).toBe(404);
   });
 });

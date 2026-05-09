@@ -48,6 +48,7 @@ const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 let graphApiService = require('./services/graphApiService');
 const rschedImportService = require('./services/rschedImportService');
+const rschedRecurrenceDetection = require('./services/rschedRecurrenceDetection');
 const sseService = require('./services/sseService');
 const auditService = require('./services/auditService');
 const lifecycleEvents = require('./services/lifecycleEvents');
@@ -421,6 +422,7 @@ let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 let editRequestsCollection; // First-class change requests against published events
 let rschedImportStagingCollection; // Staging rows for admin-driven rsched CSV imports
+let rschedRecurrenceCandidatesCollection; // Detected recurring-series candidates per session
 
 // --- Test injection: allows tests to provide a MongoDB Memory Server db ---
 function setDatabase(injectedDb) {
@@ -443,6 +445,7 @@ function setDatabase(injectedDb) {
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
   editRequestsCollection = injectedDb.collection('templeEvents__EditRequests');
   rschedImportStagingCollection = injectedDb.collection(rschedImportService.STAGING_COLLECTION);
+  rschedRecurrenceCandidatesCollection = injectedDb.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION);
   filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
   emailService.setDbConnection(injectedDb);
   emailTemplates.setDbConnection(injectedDb);
@@ -3272,6 +3275,7 @@ async function connectToDatabase() {
     systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
     editRequestsCollection = withRetryCollection(db.collection('templeEvents__EditRequests'));
     rschedImportStagingCollection = withRetryCollection(db.collection(rschedImportService.STAGING_COLLECTION));
+    rschedRecurrenceCandidatesCollection = withRetryCollection(db.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION));
 
     // Initialize email service with database connection
     emailService.setDbConnection(db);
@@ -11843,6 +11847,29 @@ async function ensureRschedStagingIndexes() {
   }
 }
 
+const RSCHED_RECURRENCE_CANDIDATES_INDEXES_DEFERRED = { ensured: false };
+async function ensureRschedRecurrenceCandidatesIndexes() {
+  if (RSCHED_RECURRENCE_CANDIDATES_INDEXES_DEFERRED.ensured) return;
+  if (!rschedRecurrenceCandidatesCollection) return;
+  try {
+    await rschedRecurrenceCandidatesCollection.createIndex({ sessionId: 1 });
+    // Three-field index: serves both the sorted UI listing AND the
+    // bulk-approve-by-confidence-band query. Single-walk efficient.
+    await rschedRecurrenceCandidatesCollection.createIndex({
+      sessionId: 1,
+      status: 1,
+      confidence: -1,
+    });
+    await rschedRecurrenceCandidatesCollection.createIndex(
+      { detectedAt: 1 },
+      { expireAfterSeconds: 30 * 24 * 60 * 60 },
+    );
+    RSCHED_RECURRENCE_CANDIDATES_INDEXES_DEFERRED.ensured = true;
+  } catch (err) {
+    logger.warn('Failed to create rsched recurrence-candidates indexes:', err.message);
+  }
+}
+
 async function requireAdminUser(req, res) {
   const userId = req.user.userId;
   const userEmail = req.user.email;
@@ -12404,6 +12431,133 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/validate', verifyToken, a
   } catch (err) {
     logger.error('rsched-import validate error:', err);
     res.status(500).json({ error: 'Failed to validate session' });
+  }
+});
+
+/**
+ * Detect implicit recurring series in the staged rows.
+ *
+ * Idempotent — running it twice on the same session wipes prior candidates
+ * before re-detecting (otherwise the candidates list would duplicate).
+ */
+app.post('/api/admin/rsched-import/sessions/:sessionId/detect-recurrence', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    await ensureRschedRecurrenceCandidatesIndexes();
+
+    // Verify session exists.
+    const sample = await rschedImportStagingCollection.findOne({ sessionId });
+    if (!sample) return res.status(404).json({ error: 'Session not found' });
+
+    // Wipe prior candidates for this session — re-running detect must not duplicate.
+    await retryWithBackoff(
+      () => rschedRecurrenceCandidatesCollection.deleteMany({ sessionId }),
+      { maxAttempts: 5, initialDelayMs: 500 },
+    );
+
+    // Load all non-skipped rows for detection.
+    const rows = await rschedImportStagingCollection
+      .find({
+        sessionId,
+        status: { $ne: rschedImportService.STAGING_STATUS.SKIPPED },
+      })
+      .toArray();
+
+    const candidates = rschedRecurrenceDetection.detectRecurrenceCandidates(rows);
+
+    // Stamp sessionId + detection metadata onto each candidate before persist.
+    const now = new Date();
+    const docs = candidates.map((c) => ({
+      ...c,
+      sessionId,
+      detectedAt: now,
+      reviewedAt: null,
+      reviewedBy: null,
+    }));
+
+    let totalRowsCovered = 0;
+    let high = 0, medium = 0, low = 0;
+    for (const c of candidates) {
+      totalRowsCovered += c.memberCount || 0;
+      if (c.confidence >= 0.8) high++;
+      else if (c.confidence >= 0.5) medium++;
+      else low++;
+    }
+
+    if (docs.length > 0) {
+      const BATCH = 500;
+      for (let i = 0; i < docs.length; i += BATCH) {
+        const slice = docs.slice(i, i + BATCH);
+        await retryWithBackoff(
+          () => rschedRecurrenceCandidatesCollection.insertMany(slice, { ordered: false }),
+          { maxAttempts: 5, initialDelayMs: 500 },
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      sessionId,
+      candidatesFound: candidates.length,
+      totalRowsCovered,
+      byConfidence: { high, medium, low },
+    });
+  } catch (err) {
+    logger.error('rsched-import detect-recurrence error:', err);
+    res.status(500).json({ error: 'Failed to detect recurring patterns' });
+  }
+});
+
+/**
+ * List recurrence candidates for a session — paginated, with status/confidence filters.
+ */
+app.get('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    await ensureRschedRecurrenceCandidatesIndexes();
+    const { sessionId } = req.params;
+    const { status, confidence, page = '1', pageSize = '50' } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const pageSz = Math.min(200, Math.max(1, parseInt(pageSize, 10)));
+
+    const filter = { sessionId };
+    if (status) filter.status = status;
+    if (confidence === 'high') filter.confidence = { $gte: 0.8 };
+    else if (confidence === 'medium') filter.confidence = { $gte: 0.5, $lt: 0.8 };
+    else if (confidence === 'low') filter.confidence = { $lt: 0.5 };
+
+    const total = await rschedRecurrenceCandidatesCollection.countDocuments(filter);
+    const candidates = await rschedRecurrenceCandidatesCollection
+      .find(filter)
+      .sort({ confidence: -1, candidateId: 1 })
+      .skip((pageNum - 1) * pageSz)
+      .limit(pageSz)
+      .toArray();
+
+    res.json({ total, page: pageNum, pageSize: pageSz, candidates });
+  } catch (err) {
+    logger.error('rsched-import recurrence-candidates list error:', err);
+    res.status(500).json({ error: 'Failed to list recurrence candidates' });
+  }
+});
+
+/**
+ * Get a single recurrence candidate by ID.
+ */
+app.get('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates/:candidateId', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId, candidateId } = req.params;
+    const candidate = await rschedRecurrenceCandidatesCollection.findOne({ sessionId, candidateId });
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+    res.json({ candidate });
+  } catch (err) {
+    logger.error('rsched-import recurrence-candidate get error:', err);
+    res.status(500).json({ error: 'Failed to load recurrence candidate' });
   }
 });
 
