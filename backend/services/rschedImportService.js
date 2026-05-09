@@ -1589,8 +1589,14 @@ function renderDriftReportCsv(report) {
 // Outlook publish
 // =============================================================================
 
+const { buildGraphRecurrence } = require('../utils/recurrenceGraphMapping');
+
 /**
  * Build the Graph payload from an event document.
+ *
+ * For seriesMaster events, attaches the recurrence pattern via the shared
+ * buildGraphRecurrence util so Graph creates a real series (not a flat
+ * single-instance event). Without this, Mongo and Graph diverge silently.
  */
 function buildGraphPayload(eventDoc, fallbackTimeZone = 'America/New_York') {
   const isAllDay = Boolean(eventDoc.isAllDayEvent);
@@ -1609,7 +1615,7 @@ function buildGraphPayload(eventDoc, fallbackTimeZone = 'America/New_York') {
 
   const locationDisplay = eventDoc.locationDisplayNames || eventDoc.calendarData?.locationDisplayNames || '';
 
-  return {
+  const payload = {
     subject: eventDoc.eventTitle || eventDoc.calendarData?.eventTitle || '(No title)',
     start,
     end,
@@ -1623,19 +1629,34 @@ function buildGraphPayload(eventDoc, fallbackTimeZone = 'America/New_York') {
     showAs: 'busy',
     importance: 'normal',
   };
+
+  if (eventDoc.eventType === 'seriesMaster' && eventDoc.recurrence) {
+    const graphRecurrence = buildGraphRecurrence(eventDoc.recurrence, fallbackTimeZone);
+    if (graphRecurrence) {
+      payload.recurrence = graphRecurrence;
+    }
+  }
+
+  return payload;
 }
 
 /**
  * Publish or update an event in Outlook via app-only Graph auth.
  *
+ * For seriesMaster events, after the master is created on Graph, also fires
+ * the caller-injected syncExceptionDocumentsToGraph (when provided) so any
+ * exception documents created by applyAsException get their corresponding
+ * Graph instance overrides patched. Without this call, Outlook would show
+ * every occurrence with master defaults — exception overrides invisible.
+ *
  * @param {Db} db
  * @param {Object} eventDoc - the persisted event document
- * @param {Object} ctx - { graphApiService } - injected for testability
- * @returns {Promise<{outcome: 'published'|'updated'|'skipped', graphEventId?: string, error?: string}>}
+ * @param {Object} ctx - { graphApiService, syncExceptionDocumentsToGraph?, logger? }
+ * @returns {Promise<{outcome: 'published'|'updated'|'skipped'|'failed', graphEventId?: string, error?: string, exceptionsSync?: object}>}
  */
 async function publishOrUpdateOutlookEvent(db, eventDoc, ctx) {
   const eventsCollection = db.collection(EVENTS_COLLECTION);
-  const { graphApiService } = ctx;
+  const { graphApiService, syncExceptionDocumentsToGraph } = ctx;
   if (!graphApiService) {
     return { outcome: 'skipped', error: 'graphApiService not provided' };
   }
@@ -1644,6 +1665,8 @@ async function publishOrUpdateOutlookEvent(db, eventDoc, ctx) {
   const calendarId = eventDoc.calendarId || null;
   const payload = buildGraphPayload(eventDoc);
 
+  let result;
+  let graphEventId;
   try {
     if (eventDoc.graphData?.id) {
       const updated = await graphApiService.updateCalendarEvent(
@@ -1661,23 +1684,54 @@ async function publishOrUpdateOutlookEvent(db, eventDoc, ctx) {
           },
         },
       );
-      return { outcome: 'updated', graphEventId: updated.id };
-    }
-    const created = await graphApiService.createCalendarEvent(calendarOwner, calendarId, payload);
-    await eventsCollection.updateOne(
-      { _id: eventDoc._id },
-      {
-        $set: {
-          graphData: created,
-          publishedAt: new Date(),
-          lastSyncedAt: new Date(),
+      graphEventId = updated.id;
+      result = { outcome: 'updated', graphEventId };
+    } else {
+      const created = await graphApiService.createCalendarEvent(calendarOwner, calendarId, payload);
+      await eventsCollection.updateOne(
+        { _id: eventDoc._id },
+        {
+          $set: {
+            graphData: created,
+            publishedAt: new Date(),
+            lastSyncedAt: new Date(),
+          },
         },
-      },
-    );
-    return { outcome: 'published', graphEventId: created.id };
+      );
+      graphEventId = created.id;
+      result = { outcome: 'published', graphEventId };
+    }
   } catch (err) {
     return { outcome: 'failed', error: err.message };
   }
+
+  // For seriesMaster events: sync any exception documents to Graph instance
+  // overrides. Best-effort — single-exception failures must NOT abort the
+  // bulk publish loop in the caller.
+  if (
+    eventDoc.eventType === 'seriesMaster'
+    && graphEventId
+    && typeof syncExceptionDocumentsToGraph === 'function'
+  ) {
+    try {
+      const exceptionsSync = await syncExceptionDocumentsToGraph(
+        calendarOwner,
+        calendarId,
+        graphEventId,
+        eventDoc.eventId,
+        payload,
+      );
+      result.exceptionsSync = exceptionsSync;
+    } catch (err) {
+      // Don't fail the master publish — log and continue.
+      if (ctx.logger?.warn) {
+        ctx.logger.warn(`syncExceptionDocumentsToGraph failed for ${eventDoc.eventId}: ${err.message}`);
+      }
+      result.exceptionsSync = { synced: [], failed: [{ error: err.message }] };
+    }
+  }
+
+  return result;
 }
 
 module.exports = {

@@ -12963,6 +12963,10 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/publish', verifyToken, as
       }
       const result = await rschedImportService.publishOrUpdateOutlookEvent(db, eventDoc, {
         graphApiService,
+        // Inject the exception-sync helper so seriesMaster publishes also patch
+        // their child Graph instance overrides.
+        syncExceptionDocumentsToGraph,
+        logger,
       });
       if (result.outcome === 'published') published++;
       else if (result.outcome === 'updated') updated++;
