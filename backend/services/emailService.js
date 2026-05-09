@@ -6,6 +6,7 @@
 const msal = require('@azure/msal-node');
 const logger = require('../utils/logger');
 const emailTemplates = require('./emailTemplates');
+const { calculateLocationDisplayNames } = require('../utils/locationUtils');
 
 // Environment configuration (defaults - can be overridden by database settings)
 const ENV_EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
@@ -950,5 +951,122 @@ module.exports = {
 
   // Error notification helpers
   sendErrorNotification,
-  sendUserReportAcknowledgment
+  sendUserReportAcknowledgment,
+
+  // ─── Event-document-driven notification helpers (NEW, §8.3) ──────────
+  // These wrappers take the canonical event document directly and resolve
+  // calendarData / requestedBy / location display names internally, so
+  // callers stop duplicating the buildReservationFromEvent shape across
+  // 20+ setImmediate blocks. Existing send*Notification(reservation, ...)
+  // functions remain — these are additive.
+  buildReservationFromEvent,
+  sendPublishNotificationByEvent,
+  sendRejectionNotificationByEvent,
+  sendDeletionNotificationByEvent,
 };
+
+// ─── §8.3: Event-document-driven helpers ────────────────────────────────
+//
+// Today, callers do this dance before sending an email (~20 sites):
+//
+//   const cd = event.calendarData || {};
+//   const requestedBy = event.roomReservationData?.requestedBy || {};
+//   let locNames = cd.locationDisplayNames;
+//   if (!locNames && cd.locations?.length) {
+//     locNames = await calculateLocationDisplayNames(cd.locations, db);
+//   }
+//   const reservationForEmail = { _id, eventTitle, requesterName, ... };
+//   await emailService.sendPublishNotification(reservationForEmail, ...);
+//
+// The helpers below collapse that into a single call:
+//
+//   await emailService.sendPublishNotificationByEvent(event, { notes, reviewChanges });
+//
+// Location resolution uses the dbConnection injected via setDbConnection(),
+// matching the existing emailService convention.
+
+/**
+ * Build the legacy `reservation` shape from a canonical event document.
+ * Resolves location display names from the event's locations[] internally
+ * if not already set on the calendarData. Falls back gracefully if the
+ * resolution fails (returns the unresolved placeholder; the email still
+ * sends with the title and times).
+ *
+ * @param {Object} event - templeEvents__Events document
+ * @returns {Promise<Object>} reservation shape consumable by send*Notification helpers
+ */
+async function buildReservationFromEvent(event) {
+  if (!event) return null;
+  const cd = event.calendarData || {};
+  const requestedBy = event.roomReservationData?.requestedBy || {};
+
+  // Resolve location display names if calendarData doesn't carry them yet.
+  let locationNames = cd.locationDisplayNames;
+  if (!locationNames && Array.isArray(cd.locations) && cd.locations.length > 0 && dbConnection) {
+    try {
+      locationNames = await calculateLocationDisplayNames(cd.locations, dbConnection);
+    } catch (err) {
+      logger.warn('emailService.buildReservationFromEvent: location resolution failed', err.message);
+    }
+  }
+
+  return {
+    _id: event._id,
+    eventTitle: cd.eventTitle || event.eventTitle,
+    requesterName: requestedBy.name,
+    requesterEmail: requestedBy.email,
+    contactEmail: event.roomReservationData?.contactPerson?.email,
+    startDateTime: cd.startDateTime || event.startDateTime,
+    endDateTime: cd.endDateTime || event.endDateTime,
+    locationDisplayNames: locationNames
+      ? (Array.isArray(locationNames) ? locationNames : [locationNames])
+      : [],
+    attendeeCount: cd.attendeeCount || null,
+  };
+}
+
+/**
+ * Send a publish notification to the requester using a raw event document.
+ * Equivalent to the legacy setImmediate(...) → buildReservationForEmail →
+ * sendPublishNotification(reservation, notes, reviewChanges) chain.
+ *
+ * @param {Object} event - templeEvents__Events document
+ * @param {Object} [opts]
+ * @param {string} [opts.notes=''] - Admin notes from the publish action
+ * @param {Object[]} [opts.reviewChanges=[]] - Field-level changes for the email
+ * @returns {Promise<Object>} Send result from sendPublishNotification
+ */
+async function sendPublishNotificationByEvent(event, { notes = '', reviewChanges = [] } = {}) {
+  const reservation = await buildReservationFromEvent(event);
+  if (!reservation) return { success: false, error: 'No event provided' };
+  return sendPublishNotification(reservation, notes, reviewChanges);
+}
+
+/**
+ * Send a rejection notification to the requester using a raw event document.
+ *
+ * @param {Object} event - templeEvents__Events document
+ * @param {Object} [opts]
+ * @param {string} [opts.reason=''] - Rejection reason from the admin
+ * @returns {Promise<Object>} Send result from sendRejectionNotification
+ */
+async function sendRejectionNotificationByEvent(event, { reason = '' } = {}) {
+  const reservation = await buildReservationFromEvent(event);
+  if (!reservation) return { success: false, error: 'No event provided' };
+  return sendRejectionNotification(reservation, reason);
+}
+
+/**
+ * Send a deletion notification to the requester using a raw event document.
+ *
+ * @param {Object} event - templeEvents__Events document
+ * @param {Object} [opts]
+ * @param {string} [opts.reason=''] - Reason for deletion
+ * @param {string} [opts.deletedByName=''] - Display name of the actor who deleted
+ * @returns {Promise<Object>} Send result from sendDeletionNotification
+ */
+async function sendDeletionNotificationByEvent(event, { reason = '', deletedByName = '' } = {}) {
+  const reservation = await buildReservationFromEvent(event);
+  if (!reservation) return { success: false, error: 'No event provided' };
+  return sendDeletionNotification(reservation, reason, deletedByName);
+}

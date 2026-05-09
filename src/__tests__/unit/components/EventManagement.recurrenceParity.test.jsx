@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 vi.mock('../../../config/config', () => ({
   default: {
@@ -156,7 +157,7 @@ describe('EventManagement recurrence-parity (R-14)', () => {
 
   it('R-14: View Details on a seriesMaster opens the RecurringScopeDialog (NOT the em-details-modal)', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<EventManagement />);
+    render(<EventManagement />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Admin Browse Yoga Series')).toBeInTheDocument();

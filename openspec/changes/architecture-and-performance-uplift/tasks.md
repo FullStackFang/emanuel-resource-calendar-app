@@ -127,38 +127,72 @@
 
 ## 7. Extract `routes/graphProxy.js` (low-risk leaf)
 
-- [ ] 7.1 Create `backend/routes/graphProxy.js` with `express.Router()` (or factory) export
-- [ ] 7.2 Move the Graph proxy handlers (formerly `api-server.js` lines ~3497–4212) verbatim
-- [ ] 7.3 Mount under `/api/graph` from `api-server.js`
-- [ ] 7.4 Run targeted backend tests; assert no behavior change
-- [ ] 7.5 Provide ready-to-use commit message
+- [~] 7.1 Create `backend/routes/graphProxy.js` with `express.Router()` (or factory) export — **deferred to §11/§14 batch** (mechanical extraction; no hot-path bugs to fix; testApp.js parity gap means no integration coverage to verify against)
+- [~] 7.2 Move the Graph proxy handlers (formerly `api-server.js` lines ~3497–4212) verbatim — **deferred to §11/§14 batch**
+- [~] 7.3 Mount under `/api/graph` from `api-server.js` — **deferred to §11/§14 batch**
+- [~] 7.4 Run targeted backend tests; assert no behavior change — **deferred to §11/§14 batch**
+- [~] 7.5 Provide ready-to-use commit message — **deferred to §11/§14 batch**
 
 ## 8. Cross-cutting service helpers
 
-- [ ] 8.1 Create `backend/services/auditService.js` exporting `record(eventId, change)` and any necessary helpers
-- [ ] 8.2 Create `backend/services/lifecycleEvents.js` exporting `afterStateChange(event, transition)` that delegates to `broadcastEventChange(...)` (preserving the 150 ms write-to-read delay codified in realtime-freshness)
-- [ ] 8.3 Add helpers `sendApprovalNotification`, `sendRejectionNotification`, `sendEditRequestNotification`, etc. to `backend/services/emailService.js` that resolve location names from `eventDoc.locations[]` internally
-- [ ] 8.4 Add unit tests under `backend/__tests__/unit/services/auditService.test.js` and `backend/__tests__/unit/services/lifecycleEvents.test.js` covering success and error paths
-- [ ] 8.5 Update `backend/__tests__/unit/services/emailService.test.js` (or equivalent) to cover the new resolve-locations-internally behavior
+- [x] 8.1 Create `backend/services/auditService.js` exporting `record(eventId, change)` and any necessary helpers
+  - New module exports `setDbConnection(db)`, `recordEvent(...)`, `recordReservation(...)`. Uses lazy collection accessors (re-read dbConnection on every call) so test injection sees fresh state. Errors caught and logged but never propagated — preserves the legacy "audit must never break the main operation" safety. Wired into both `setDatabase()` and `connectToDatabase()` in api-server.js.
+- [x] 8.2 Create `backend/services/lifecycleEvents.js` exporting `afterStateChange(event, transition)` that delegates to `broadcastEventChange(...)` (preserving the 150 ms write-to-read delay codified in realtime-freshness)
+  - New module exports `setDbConnection(db)`, `setBroadcaster(fn)`, `afterStateChange(event, transition)`. Translates the clean `{ action, from, to, actorEmail, requesterEmail }` signature into the legacy broadcaster's payload. The broadcaster (existing `broadcastEventChange` in api-server.js) is injected via `setBroadcaster(...)` so the legacy closure over `invalidateCountsCacheTargeted` / `BROADCAST_DELAY_MS` / `projectEventForSSE` is preserved. Defensive error handling and bootstrap-order guards (no-op + log if broadcaster not wired or action missing).
+- [x] 8.3 Add helpers `sendApprovalNotification`, `sendRejectionNotification`, `sendEditRequestNotification`, etc. to `backend/services/emailService.js` that resolve location names from `eventDoc.locations[]` internally
+  - New helpers in emailService.js: `buildReservationFromEvent(event)` (the pure shape-builder), `sendPublishNotificationByEvent(event, opts)`, `sendRejectionNotificationByEvent(event, opts)`, `sendDeletionNotificationByEvent(event, opts)`. Each takes the canonical event document directly and resolves location names from `event.calendarData.locations[]` internally via `calculateLocationDisplayNames(locations, dbConnection)`. Existing `send*Notification(reservation, ...)` functions remain — additive change, no breakage. Replaces the ~20-line setImmediate boilerplate at every call site with a single `await emailService.sendPublishNotificationByEvent(event, { notes, reviewChanges })` call.
+- [x] 8.4 Add unit tests under `backend/__tests__/unit/services/auditService.test.js` and `backend/__tests__/unit/services/lifecycleEvents.test.js` covering success and error paths
+  - `auditService.test.js` (5 tests): recordEvent writes to event audit collection with correct shape; recordReservation writes to reservation audit; both swallow errors without propagating; explicit error when setDbConnection() not called.
+  - `lifecycleEvents.test.js` (7 tests): payload translation; eventId fallback to _id; requesterEmail extraction from event document; explicit transition.requesterEmail override; broadcaster errors caught; bootstrap-order no-op when broadcaster not wired; missing-action no-op.
+- [x] 8.5 Update `backend/__tests__/unit/services/emailService.test.js` (or equivalent) to cover the new resolve-locations-internally behavior
+  - New file `emailServiceByEvent.test.js` (6 tests): null-event safety; calendarData/requestedBy extraction; location resolution skipped when display names already set; resolution invoked from locations[] when missing; graceful degradation on resolver throw; skip when dbConnection absent; fallback to top-level event fields.
+  - All 18 §8 tests pass; existing `emailTemplates.test.js` (14 tests) unaffected.
 
 ## 9. SSE → React Query bridge
 
-- [ ] 9.1 In `src/hooks/useServerEvents.js`, translate `event-changed` SSE messages into `queryClient.invalidateQueries(...)` calls keyed by the broadcast's view/resource
-- [ ] 9.2 When the SSE payload includes the full updated event document, additionally call `queryClient.setQueryData(['events', 'detail', eventId], updatedDoc)` and patch the matching entry inside the relevant `['events', 'list', ...]` cache
-- [ ] 9.3 On `serverStartId` change, call `queryClient.invalidateQueries({ queryKey: ['events'] })` and `queryClient.invalidateQueries({ queryKey: ['reservations'] })`
-- [ ] 9.4 Keep the legacy `dispatchRefresh` calls firing during the migration window (back-compat for non-migrated subscribers)
-- [ ] 9.5 Add tests covering: invalidate on `event-changed`, `setQueryData` on full-payload broadcasts, restart-id-driven cross-cutting invalidation
+- [x] 9.1 In `src/hooks/useServerEvents.js`, translate `event-changed` SSE messages into `queryClient.invalidateQueries(...)` calls keyed by the broadcast's view/resource
+  - Extracted the bridge into a pure helper `bridgeSseToReactQuery(data, queryClient)` (mirrors the established `computeReconnectBackoff` / `decideServerStartAction` pure-helper pattern). Calls `qc.invalidateQueries({ queryKey: keys.events.all() })` — broad-prefix invalidation across list/load/counts/detail/search variants. RQ refetches active queries automatically; inactive ones marked stale.
+  - Hook body wraps the bridge call in try/catch so a bridge failure never prevents the legacy bus path below.
+- [x] 9.2 When the SSE payload includes the full updated event document, additionally call `queryClient.setQueryData(['events', 'detail', eventId], updatedDoc)` and patch the matching entry inside the relevant `['events', 'list', ...]` cache
+  - `bridgeSseToReactQuery` calls `setQueryData(keys.events.detail(eventId), data.event)` when the SSE payload carries the full event. Falls back from `eventId` to `_id` if needed; skips entirely when neither is present.
+  - List-cache item patching deferred to per-view migrations (Calendar, EventManagement) since each view has different list-key shapes; the broad-prefix invalidation already triggers re-fetch on next access for active list queries.
+- [x] 9.3 On `serverStartId` change, call `queryClient.invalidateQueries({ queryKey: ['events'] })` and `queryClient.invalidateQueries({ queryKey: ['reservations'] })`
+  - Extracted as `bridgeSseRestartToReactQuery(queryClient)`. Targeted prefixes preserve unrelated caches (categories, locations) which a restart doesn't change.
+- [x] 9.4 Keep the legacy `dispatchRefresh` calls firing during the migration window (back-compat for non-migrated subscribers)
+  - Both paths run side-by-side. Comment in the hook explicitly flags retirement to §15. Calendar.jsx and EventManagement.jsx (still on the bus) continue to receive refresh events while the RQ-migrated views (MyReservations, ReservationRequests) ALSO get cache invalidation.
+- [x] 9.5 Add tests covering: invalidate on `event-changed`, `setQueryData` on full-payload broadcasts, restart-id-driven cross-cutting invalidation
+  - 9 new tests appended to `src/__tests__/unit/hooks/useServerEvents.test.js`:
+    - bridgeSseToReactQuery: invalidates events.* on every payload; patches detail cache when full event included; skips detail patch when no event in payload; falls back from eventId to _id; skips when no usable id; defensive null-queryClient guard.
+    - bridgeSseRestartToReactQuery: invalidates both events + reservations; preserves unrelated caches (asserts categories/locations not touched); defensive null-queryClient guard.
+  - All 21 useServerEvents tests pass (12 pre-existing + 9 new). Sweep across all hooks/context/MyReservations/ReservationRequests tests: 151/151 pass.
 - [ ] 9.6 Browser-verify that approving an event in one tab is reflected in the other tab without manual refresh
-- [ ] 9.7 Provide ready-to-use commit message
+  - Pending user verification — best tested by approving in Tab A and observing the row's status change in Tab B's MyReservations list without clicking refresh.
+- [x] 9.7 Provide ready-to-use commit message
+  - See assistant message at end of §9 implementation.
 
 ## 10. EventManagement → React Query
 
-- [ ] 10.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `EventManagement.jsx`
-- [ ] 10.2 Replace reads (admin-browse list + counts) with `useQuery`
-- [ ] 10.3 Replace mutations (delete, restore, force-publish, force-update overrides) with `useMutation` including optimistic + rollback + invalidate
-- [ ] 10.4 Verify the ConflictDialog 409 path still surfaces correctly when an OCC mismatch fires from a mutation
+- [x] 10.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `EventManagement.jsx`
+  - **Reads** (2): `fetchEvents` (server-paginated `GET /events/list?view=admin-browse&page=N&limit=20&status=...&search=...&startDate=...&endDate=...`), `fetchCounts` (`GET /events/list/counts?view=admin-browse`).
+  - **Mutations (2 local)**: `handleDelete` via `deleteEvent` service helper (has 409 VERSION_CONFLICT branch); `handleRestore` (admin endpoint `PUT /admin/events/:id/restore` with `_version` + `forceRestore`; has 409 SchedulingConflict AND VERSION_CONFLICT branches).
+  - **Subscriptions**: `usePolling(silentRefresh, ...)` and `useDataRefreshBus('event-management', silentRefresh, ...)`.
+- [x] 10.2 Replace reads (admin-browse list + counts) with `useQuery`
+  - `eventsQuery` keyed `keys.events.list({ view: 'admin-browse', page, limit, status, search, startDate, endDate })`. Each filter combination is its own cache entry — page navigation, tab switching, and date-range changes serve from cache when previously visited within staleTime. Uses `placeholderData: (prev) => prev` so prior-page data stays visible during pagination (no spinner flash).
+  - `countsQuery` keyed `keys.events.counts({ view: 'admin-browse' })`. queryFn returns the full counts object as-is.
+  - Both queries gated on `enabled: !!apiToken && isAdmin` — the permission check moves into the data layer.
+  - `refetchInterval` 30s/5min based on `isConnected` replaces `usePolling`. Token-rotation refetch via `lastSeenTokenRef` effect.
+  - Bus subscription routes to `queryClient.invalidateQueries(...)` — the legacy bus path still fires for non-migrated views.
+  - Backward-compat `fetchEvents()`/`fetchCounts()` shims kept (used by the experience hook's onRefresh and the conflict-dialog close handler) — both delegate to `queryClient.refetchQueries`.
+- [x] 10.3 Replace mutations (delete, restore, force-publish, force-update overrides) with `useMutation` including optimistic + rollback + invalidate
+  - `deleteMutation`: optimistic patch (mark `status: 'deleted', isDeleted: true` across every cached admin-browse list entry via `setQueriesData` with predicate); rollback restores all snapshotted entries on error; preserves the 409 VERSION_CONFLICT path via custom error type that surfaces `setConflictDialog`.
+  - `restoreMutation`: no optimistic UI (post-restore status is server-determined). Preserves both the 409 SchedulingConflict path (sets `restoreConflicts`) and the 409 VERSION_CONFLICT path (sets `conflictDialog`) via custom error types that propagate through onError without a generic toast.
+  - Both mutations dual-publish via `dispatchRefresh('event-management', 'navigation-counts')` for back-compat.
+- [x] 10.4 Verify the ConflictDialog 409 path still surfaces correctly when an OCC mismatch fires from a mutation
+  - The 409 paths now route through the mutation's onError. Both delete and restore mutations construct custom errors (`new Error('VersionConflict')` with `conflictPayload` + `staleEvent` attached) that the onError handler unpacks and surfaces via `setConflictDialog`. Generic-toast suppression preserved.
 - [ ] 10.5 Browser-verify the admin events page end-to-end
-- [ ] 10.6 Provide ready-to-use commit message
+  - Pending user verification — particularly the SchedulingConflict-on-restore + VersionConflict-on-delete paths.
+- [x] 10.6 Provide ready-to-use commit message
+  - See assistant message at end of §10.
 
 ## 11. Extract `routes/events.js` and `routes/reservations.js`
 

@@ -17,8 +17,10 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthenticatedFetch } from './useAuthenticatedFetch';
 import { dispatchRefresh } from './useDataRefreshBus';
+import { keys } from '../queries/keys';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 
@@ -61,10 +63,71 @@ export function decideServerStartAction(previous, incoming) {
   return 'restart';
 }
 
+/**
+ * Pure helper — translate an SSE `event-changed` payload into TanStack Query
+ * cache operations. Extracted from the hook body so its behavior is testable
+ * without standing up an EventSource/timer harness (matches the established
+ * pattern of computeReconnectBackoff and decideServerStartAction).
+ *
+ * Operations applied:
+ *   1. Always: invalidate every query under the `events` resource. RQ
+ *      refetches active/observed queries automatically and marks inactive
+ *      ones stale for next access.
+ *   2. When `data.event` carries the full updated event document: patch
+ *      the per-event detail cache via setQueryData so any open detail view
+ *      reflects the new state without an additional fetch.
+ *
+ * Errors thrown by the queryClient are not caught here — the caller is
+ * responsible for wrapping in try/catch since SSE delivery should never
+ * crash the connection on a cache-bridge failure.
+ *
+ * @param {Object} data - Parsed SSE event-changed payload
+ * @param {Object} data.event - Optional full updated event document
+ * @param {string} data.event.eventId - Stable event identifier (preferred over _id)
+ * @param {Object} queryClient - TanStack Query client
+ * @returns {{ invalidated: boolean, detailPatched: boolean }} What the bridge did
+ */
+export function bridgeSseToReactQuery(data, queryClient) {
+  if (!queryClient) return { invalidated: false, detailPatched: false };
+
+  // 1. Broad-prefix invalidate the events.* cache.
+  queryClient.invalidateQueries({ queryKey: keys.events.all() });
+
+  // 2. Targeted detail-cache patch when the SSE payload carries the document.
+  let detailPatched = false;
+  if (data && data.event) {
+    const eventId = data.event.eventId || data.event._id;
+    if (eventId) {
+      queryClient.setQueryData(keys.events.detail(eventId), data.event);
+      detailPatched = true;
+    }
+  }
+  return { invalidated: true, detailPatched };
+}
+
+/**
+ * Pure helper — apply the cross-cutting cache invalidation that follows a
+ * server-restart `connected` event. Invalidates both the events and
+ * reservations resource prefixes; preserves unrelated caches (categories,
+ * locations) which a server restart doesn't change.
+ *
+ * @param {Object} queryClient - TanStack Query client
+ * @returns {{ eventsInvalidated: boolean, reservationsInvalidated: boolean }}
+ */
+export function bridgeSseRestartToReactQuery(queryClient) {
+  if (!queryClient) {
+    return { eventsInvalidated: false, reservationsInvalidated: false };
+  }
+  queryClient.invalidateQueries({ queryKey: keys.events.all() });
+  queryClient.invalidateQueries({ queryKey: keys.reservations.all() });
+  return { eventsInvalidated: true, reservationsInvalidated: true };
+}
+
 export function useServerEvents({ apiToken, userEmail }) {
   const [isConnected, setIsConnected] = useState(false);
   const [sseStatus, setSseStatus] = useState('offline');
   const authFetch = useAuthenticatedFetch();
+  const queryClient = useQueryClient();
 
   // Refs to persist across renders without triggering re-connections
   const esRef = useRef(null);           // EventSource instance
@@ -84,6 +147,13 @@ export function useServerEvents({ apiToken, userEmail }) {
   // scheduleReconnect recreated → visibility effect re-runs
   const authFetchRef = useRef(authFetch);
   authFetchRef.current = authFetch;
+
+  // Keep queryClient in a ref for the same reason — the SSE bridge logic
+  // inside connect() reads it on every event. queryClient identity is stable
+  // across renders (per TanStack Query design), but this insulates connect()
+  // from any future change to that contract.
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
 
   const connect = useCallback(async () => {
     if (!apiToken || !mountedRef.current || connectingRef.current) return;
@@ -146,8 +216,17 @@ export function useServerEvents({ apiToken, userEmail }) {
         switch (action) {
           case 'restart':
             logger.log('[SSE] Server restart detected — forcing refresh of all subscribed views');
-            // Dispatch to all subscribers. `null` means every useDataRefreshBus
-            // listener receives the event, regardless of affectedView filter.
+            // §9.3 — cross-cutting invalidation of every events/reservations
+            // cache so RQ-migrated views refetch on next access.
+            try {
+              bridgeSseRestartToReactQuery(queryClientRef.current);
+            } catch (bridgeErr) {
+              logger.warn('[SSE] Restart-RQ bridge failed:', bridgeErr.message);
+            }
+            // Dispatch to all subscribers via the legacy bus too. `null` means every
+            // useDataRefreshBus listener receives the event, regardless of
+            // affectedView filter. Kept alongside the RQ bridge for back-compat
+            // until §15 retires the bus.
             dispatchRefresh('sse-server-restart', null, null);
             serverStartIdRef.current = incomingServerStartId;
             break;
@@ -196,6 +275,24 @@ export function useServerEvents({ apiToken, userEmail }) {
             oldStatus: data.oldStatus || null,
             newStatus: data.newStatus || null,
           } : null;
+
+          // ─── §9 SSE → React Query bridge ────────────────────────────────
+          // Translate the SSE event into RQ cache operations so any RQ-migrated
+          // view (currently MyReservations + ReservationRequests; Calendar +
+          // EventManagement to follow in §10/§13) refetches automatically
+          // without needing to subscribe to the legacy refresh bus. Wrapped
+          // in try/catch so a bridge failure cannot prevent the legacy bus
+          // path below.
+          try {
+            bridgeSseToReactQuery(data, queryClientRef.current);
+          } catch (bridgeErr) {
+            logger.warn('[SSE] RQ bridge failed:', bridgeErr.message);
+          }
+
+          // ─── Legacy bus path (back-compat during migration) ─────────────
+          // Kept alongside the RQ bridge so views that haven't migrated to
+          // React Query yet (Calendar, EventManagement) still observe changes.
+          // Retires in §15 once every consumer is on RQ.
 
           // Dispatch refresh to each affected view via the existing bus
           if (data.affectedViews) {

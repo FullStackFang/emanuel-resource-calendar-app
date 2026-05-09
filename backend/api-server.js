@@ -49,6 +49,8 @@ const errorLoggingService = require('./services/errorLoggingService');
 let graphApiService = require('./services/graphApiService');
 const rschedImportService = require('./services/rschedImportService');
 const sseService = require('./services/sseService');
+const auditService = require('./services/auditService');
+const lifecycleEvents = require('./services/lifecycleEvents');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true (see utils/performanceMetrics.js)
 const crypto = require('crypto');
 const path = require('path');
@@ -445,6 +447,8 @@ function setDatabase(injectedDb) {
   emailService.setDbConnection(injectedDb);
   emailTemplates.setDbConnection(injectedDb);
   errorLoggingService.setDbConnection(injectedDb);
+  auditService.setDbConnection(injectedDb);
+  lifecycleEvents.setDbConnection(injectedDb);
 }
 
 // --- In-memory category cache (small, rarely-changing collection) ---
@@ -3335,6 +3339,12 @@ async function connectToDatabase() {
     // Initialize error logging service with database connection
     errorLoggingService.setDbConnection(db);
 
+    // Initialize cross-cutting service helpers (auditService writes audit
+    // entries; lifecycleEvents broadcasts state-change SSE events). Both
+    // use the same db handle and are consumed by route modules in §11/§14.
+    auditService.setDbConnection(db);
+    lifecycleEvents.setDbConnection(db);
+
     // Create indexes for all collections in parallel for faster startup
     // This reduces cold start time significantly vs sequential creation
     await Promise.all([
@@ -5930,6 +5940,12 @@ function broadcastEventChange({ eventId, action, actorEmail, requesterEmail, eve
     logger.warn('[SSE] broadcastEventChange failed:', err.message);
   }
 }
+
+// Wire the broadcaster into the lifecycleEvents service so route modules
+// extracted in §11/§14 can call lifecycleEvents.afterStateChange(event, transition)
+// and inherit the legacy broadcaster's invalidateCountsCacheTargeted +
+// BROADCAST_DELAY_MS + projectEventForSSE behavior without re-implementing them.
+lifecycleEvents.setBroadcaster(broadcastEventChange);
 
 /**
  * Get calendarOwner (email) from calendarId using the calendar config

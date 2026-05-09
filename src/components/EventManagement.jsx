@@ -1,14 +1,15 @@
 // src/components/EventManagement.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import { useRooms } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import DatePickerInput from './DatePickerInput';
-import { usePolling } from '../hooks/usePolling';
 import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
+import { keys } from '../queries/keys';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
@@ -65,12 +66,12 @@ export default function EventManagement() {
   const { isConnected } = useSSE();
   const authFetch = useAuthenticatedFetch();
 
-  // Data state
-  const [events, setEvents] = useState([]);
-  const [counts, setCounts] = useState({ total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 });
-  const [loading, setLoading] = useState(true);
-  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
-  const [totalPages, setTotalPages] = useState(1);
+  const queryClient = useQueryClient();
+
+  // Server data state (events, counts, loading, isSilentRefreshing, totalPages,
+  // lastFetchedAt) is now derived from the React Query cache below. Local UI
+  // state for filters, pagination, and modal-confirm flags continues to live
+  // in component state.
 
   // Filter state
   const [activeTab, setActiveTab] = useState('all');
@@ -81,13 +82,10 @@ export default function EventManagement() {
 
   // UI state
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [restoringId, setRestoringId] = useState(null);
   const [confirmRestoreId, setConfirmRestoreId] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
-  const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // --- Recurring scope dialog (parity with Calendar/MyReservations/ReservationRequests) ---
@@ -106,72 +104,112 @@ export default function EventManagement() {
   const searchTimeoutRef = useRef(null);
   const debouncedSearchRef = useRef('');
 
-  // Fetch counts (uses authFetch for automatic 401 retry with token refresh)
-  const fetchCounts = useCallback(async () => {
-    try {
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
-      if (res.ok) {
-        setCounts(await res.json());
-      }
-    } catch {
-      // Silently fail
-    }
-  }, [authFetch]);
+  // ─── Server data: admin-browse list + counts ───────────────────────────
+  // The admin browse view is server-paginated (page + limit + status + search
+  // + date range). Each filter combination is its own queryKey, so changing
+  // page/tab/search/dates produces a fresh fetch (or cache hit if previously
+  // visited within staleTime). RQ's `keepPreviousData` keeps the prior page's
+  // data visible while the new page fetches — no spinner flash on pagination.
+  const listScope = {
+    view: 'admin-browse',
+    page,
+    limit: PAGE_SIZE,
+    status: activeTab === 'all' ? 'all' : (TABS.find(t => t.key === activeTab)?.statusParam || 'all'),
+    search: debouncedSearchRef.current || '',
+    startDate: startDate || '',
+    endDate: endDate || '',
+  };
+  const listKey = keys.events.list(listScope);
+  const countsKey = keys.events.counts({ view: 'admin-browse' });
 
-  // Fetch events (uses authFetch for automatic 401 retry with token refresh)
-  const fetchEvents = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
-    else setIsSilentRefreshing(true);
-    try {
-      if (silent) {
-        // Also refresh counts during silent poll
-        const countRes = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`);
-        if (countRes.ok) setCounts(await countRes.json());
-      }
-
+  const eventsQuery = useQuery({
+    queryKey: listKey,
+    queryFn: async ({ queryKey, signal }) => {
+      const scope = queryKey[2] || {};
       const params = new URLSearchParams({
-        page: String(page),
-        limit: String(PAGE_SIZE),
-        status: activeTab === 'all' ? 'all' : TABS.find(t => t.key === activeTab)?.statusParam || 'all',
+        page: String(scope.page || 1),
+        limit: String(scope.limit || PAGE_SIZE),
+        status: scope.status || 'all',
       });
-      if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current);
-      if (startDate) params.set('startDate', startDate);
-      if (endDate) params.set('endDate', endDate);
+      if (scope.search) params.set('search', scope.search);
+      if (scope.startDate) params.set('startDate', scope.startDate);
+      if (scope.endDate) params.set('endDate', scope.endDate);
 
-      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data.events || []);
-        const total = data.pagination?.totalCount || data.total || 0;
-        setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
-        setLastFetchedAt(Date.now());
-      }
-    } catch (err) {
-      if (!silent) showError(err, { context: 'EventManagement.fetchEvents' });
-    } finally {
-      if (!silent) setLoading(false);
-      else setIsSilentRefreshing(false);
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`,
+        { signal }
+      );
+      if (!res.ok) throw new Error('Failed to load events');
+      const data = await res.json();
+      const total = data.pagination?.totalCount || data.total || 0;
+      return {
+        events: data.events || [],
+        totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+      };
+    },
+    enabled: !!apiToken && isAdmin,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
+    refetchIntervalInBackground: false,
+    placeholderData: (prev) => prev, // keep previous-page data while paginating
+  });
+
+  const countsQuery = useQuery({
+    queryKey: countsKey,
+    queryFn: async ({ signal }) => {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`,
+        { signal }
+      );
+      if (!res.ok) throw new Error('Failed to load counts');
+      return res.json();
+    },
+    enabled: !!apiToken && isAdmin,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
+    refetchIntervalInBackground: false,
+  });
+
+  // Derived bindings preserved for downstream consumers.
+  const events = eventsQuery.data?.events ?? [];
+  const totalPages = eventsQuery.data?.totalPages ?? 1;
+  const counts = countsQuery.data ?? { total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 };
+  const loading = eventsQuery.isLoading;
+  const isSilentRefreshing = (eventsQuery.isFetching && !eventsQuery.isLoading)
+    || (countsQuery.isFetching && !countsQuery.isLoading);
+  const lastFetchedAt = Math.max(
+    eventsQuery.dataUpdatedAt || 0,
+    countsQuery.dataUpdatedAt || 0
+  ) || null;
+
+  // Token rotation guard — refetch on warm→warm token transition (401-retry).
+  const lastSeenTokenRef = useRef(null);
+  useEffect(() => {
+    if (!apiToken) return;
+    if (lastSeenTokenRef.current && lastSeenTokenRef.current !== apiToken) {
+      queryClient.refetchQueries({ queryKey: keys.events.list({ view: 'admin-browse' }) });
+      queryClient.refetchQueries({ queryKey: keys.events.counts({ view: 'admin-browse' }) });
     }
-  }, [authFetch, page, activeTab, startDate, endDate, showError]);
+    lastSeenTokenRef.current = apiToken;
+  }, [apiToken, queryClient]);
 
-  // Initial load
-  useEffect(() => {
-    if (!apiToken) return;
-    fetchCounts();
-  }, [fetchCounts, apiToken]);
+  // Backward-compat shims for legacy call sites (modal onRefresh, manual refresh,
+  // conflict-dialog close handler) that still call fetchEvents() / fetchCounts().
+  const fetchEvents = useCallback(async () => {
+    await queryClient.refetchQueries({ queryKey: keys.events.list({ view: 'admin-browse' }) });
+  }, [queryClient]);
 
-  useEffect(() => {
-    if (!apiToken) return;
-    fetchEvents();
-  }, [fetchEvents, apiToken]);
+  const fetchCounts = useCallback(async () => {
+    await queryClient.refetchQueries({ queryKey: keys.events.counts({ view: 'admin-browse' }) });
+  }, [queryClient]);
 
-  // Poll for updates every 5 min (silent — no loading spinner).
-  // Tighten to 30s while SSE is unavailable so staleness is bounded to tens of seconds.
-  const silentRefresh = useCallback(() => fetchEvents({ silent: true }), [fetchEvents]);
-  usePolling(silentRefresh, isConnected ? 300_000 : 30_000, !!apiToken);
-
-  // Listen for refresh events from other views
-  useDataRefreshBus('event-management', silentRefresh, !!apiToken);
+  // Bus subscription: invalidate the cache instead of refetching directly.
+  // Will retire in §15 once every consumer is on RQ.
+  const onBusRefresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'admin-browse' }) });
+    queryClient.invalidateQueries({ queryKey: keys.events.counts({ view: 'admin-browse' }) });
+  }, [queryClient]);
+  useDataRefreshBus('event-management', onBusRefresh, !!apiToken);
 
   // --- Unified review modal experience (parity with Calendar et al.) ---
   // Used only when the user clicks a recurring series master. Non-recurring
@@ -304,99 +342,134 @@ export default function EventManagement() {
     return isHold && !title?.startsWith('[Hold]') ? `[Hold] ${title}` : title;
   };
 
-  // Handle delete (admin)
+  // ─── Mutations: admin delete and restore ──────────────────────────────
+  // Each mutation:
+  //   - applies an optimistic patch to the active list cache (mark deleted /
+  //     mark restoring) so the UI flips immediately;
+  //   - rolls back to the prior cache snapshot on error;
+  //   - preserves the existing 409 SchedulingConflict + VERSION_CONFLICT
+  //     surface (sets restoreConflicts / conflictDialog from onError, NOT
+  //     a generic toast);
+  //   - invalidates list + counts on settled.
+
+  const adminBrowsePrefix = { queryKey: ['events', 'list'], predicate: (q) => q.queryKey[2]?.view === 'admin-browse' };
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ event }) => {
+      const result = await deleteEvent(String(event._id), {
+        apiToken,
+        version: event._version,
+      });
+      if (!result.ok && result.status === 409) {
+        const err = new Error('VersionConflict');
+        err.conflictPayload = result.data;
+        err.staleEvent = event;
+        throw err;
+      }
+      return event;
+    },
+    onMutate: async ({ event }) => {
+      await queryClient.cancelQueries(adminBrowsePrefix);
+      const previousEntries = queryClient.getQueriesData(adminBrowsePrefix);
+      // Optimistic: mark this row deleted in any cached admin-browse list.
+      queryClient.setQueriesData(adminBrowsePrefix, (old) => {
+        if (!old || !Array.isArray(old.events)) return old;
+        return {
+          ...old,
+          events: old.events.map(r =>
+            String(r._id) === String(event._id) ? { ...r, status: 'deleted', isDeleted: true } : r
+          ),
+        };
+      });
+      return { previousEntries };
+    },
+    onError: (err, { event }, ctx) => {
+      if (ctx?.previousEntries) {
+        for (const [key, value] of ctx.previousEntries) queryClient.setQueryData(key, value);
+      }
+      if (err?.message === 'VersionConflict') {
+        setConflictDialog({ ...err.conflictPayload, eventTitle: getTitle(err.staleEvent), staleData: err.staleEvent });
+        return;
+      }
+      showError(err, { context: 'EventManagement.handleDelete' });
+    },
+    onSuccess: () => {
+      showSuccess('Event deleted');
+      setSelectedEvent(null);
+      dispatchRefresh('event-management', 'navigation-counts');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'admin-browse' }) });
+      queryClient.invalidateQueries({ queryKey: keys.events.counts({ view: 'admin-browse' }) });
+    },
+  });
+
   const handleDeleteClick = (event) => {
     if (confirmDeleteId === String(event._id)) {
-      handleDelete(event);
+      setConfirmDeleteId(null);
+      deleteMutation.mutate({ event });
     } else {
       setConfirmDeleteId(String(event._id));
     }
   };
+  // Internal wrapper kept for callers that pass `event` directly (e.g., the
+  // conflict-dialog override flow).
+  const handleDelete = (event) => deleteMutation.mutate({ event });
+  const deletingId = deleteMutation.isPending ? String(deleteMutation.variables?.event?._id) : null;
 
-  const handleDelete = async (event) => {
-    const eventId = String(event._id);
-    try {
-      setDeletingId(eventId);
-      setConfirmDeleteId(null);
-
-      const result = await deleteEvent(eventId, {
-        apiToken,
-        version: event._version,
-      });
-
-      if (!result.ok && result.status === 409) {
-        setConflictDialog({
-          ...result.data,
-          eventTitle: getTitle(event),
-          staleData: event,
-        });
-        return;
-      }
-
-      showSuccess('Event deleted');
-      setSelectedEvent(null);
-      fetchEvents();
-      fetchCounts();
-      dispatchRefresh('event-management', 'navigation-counts');
-    } catch (err) {
-      showError(err, { context: 'EventManagement.handleDelete' });
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  // Handle restore (admin)
-  const handleRestoreClick = (event) => {
-    if (confirmRestoreId === String(event._id)) {
-      handleRestore(event);
-    } else {
-      setConfirmRestoreId(String(event._id));
-    }
-  };
-
-  const handleRestore = async (event, forceRestore = false) => {
-    const eventId = String(event._id);
-    try {
-      setRestoringId(eventId);
-      setConfirmRestoreId(null);
+  const restoreMutation = useMutation({
+    mutationFn: async ({ event, forceRestore = false }) => {
+      const eventId = String(event._id);
       const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/restore`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _version: event._version, forceRestore }),
       });
-
       if (res.status === 409) {
         const data = await res.json();
-        if (data.error === 'SchedulingConflict') {
-          setRestoreConflicts({ ...data, event });
-          return;
-        }
-        // Version conflict
-        setConflictDialog({
-          ...data,
-          eventTitle: getTitle(event),
-          staleData: event,
-        });
+        const err = new Error(data.error === 'SchedulingConflict' ? 'SchedulingConflict' : 'VersionConflict');
+        err.conflictPayload = data;
+        err.staleEvent = event;
+        throw err;
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to restore event');
+      }
+      return res.json();
+    },
+    onError: (err, _vars) => {
+      if (err?.message === 'SchedulingConflict' && err.conflictPayload) {
+        setRestoreConflicts({ ...err.conflictPayload, event: err.staleEvent });
         return;
       }
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to restore event');
+      if (err?.message === 'VersionConflict') {
+        setConflictDialog({ ...err.conflictPayload, eventTitle: getTitle(err.staleEvent), staleData: err.staleEvent });
+        return;
       }
-
-      const data = await res.json();
+      showError(err, { context: 'EventManagement.handleRestore' });
+    },
+    onSuccess: () => {
       showSuccess('Event restored');
       setSelectedEvent(null);
-      fetchEvents();
-      fetchCounts();
       dispatchRefresh('event-management', 'navigation-counts');
-    } catch (err) {
-      showError(err, { context: 'EventManagement.handleRestore' });
-    } finally {
-      setRestoringId(null);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'admin-browse' }) });
+      queryClient.invalidateQueries({ queryKey: keys.events.counts({ view: 'admin-browse' }) });
+    },
+  });
+
+  const handleRestoreClick = (event) => {
+    if (confirmRestoreId === String(event._id)) {
+      setConfirmRestoreId(null);
+      restoreMutation.mutate({ event });
+    } else {
+      setConfirmRestoreId(String(event._id));
     }
   };
+  const handleRestore = (event, forceRestore = false) => restoreMutation.mutate({ event, forceRestore });
+  const restoringId = restoreMutation.isPending ? String(restoreMutation.variables?.event?._id) : null;
 
   // Handle conflict dialog close
   const handleConflictClose = () => {
