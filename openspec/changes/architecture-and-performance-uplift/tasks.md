@@ -204,22 +204,37 @@
 
 ## 12. Decompose `Calendar.jsx`
 
-- [ ] 12.1 Extract `src/hooks/useCalendarDataLoader.js` from `Calendar.jsx:1418–2238`; verify Calendar still loads events correctly in browser
-- [ ] 12.2 Extract `src/hooks/useCalendarFilters.js` from `Calendar.jsx:2852–3555`; collapse double-iteration patterns into a single pass where the result is identical (or document why two passes are needed)
-- [ ] 12.3 Extract `src/hooks/useUserProfileSync.js` from `Calendar.jsx:2363–2455` and `5264–5291`
-- [ ] 12.4 Extract `src/components/CalendarModals.jsx` from `Calendar.jsx:5640–5878`
-- [ ] 12.5 After each extraction, run targeted frontend tests and browser-verify before moving to the next
-- [ ] 12.6 Confirm `wc -l src/components/Calendar.jsx` reports ≤1,500 lines
-- [ ] 12.7 Add a targeted unit test for at least one extracted hook (`useCalendarFilters` recommended — easiest seam)
-- [ ] 12.8 Provide ready-to-use commit message per extraction step (five separate commits or one combined PR with five commits — author's choice)
+> **Deviation note:** §12 (and dependent §13/§15) deferred to **one-extraction-per-session** dedicated work. Each of the 4 remaining extractions has substantive complexity that benefits from focused review + mid-extraction browser-verify (per §12.5's own cadence rule). Bundling them into a single session risks cumulative drift across a 5,684-line file. The pure-utility extraction in §1.3 (`calendarEventUtils.js`) was the original 5th step and IS done.
+>
+> **Per-extraction complexity audit (for future sessions):**
+> - **useCalendarDataLoader** (~700 LOC, lines 1430–~2200): tangled with refs (loadInProgressRef, pendingReloadRef, expansionCacheRef, seriesNumberCacheRef, allEventsRef, initialLoadAttemptedRef), the SSE bus, the experience hook, and 6+ services. Highest risk; biggest payoff. Memory entry [unstable useCallback dependencies](CLAUDE.md "Common React Mistakes") explicitly warns about this seam.
+> - **useCalendarFilters** (~250 LOC around line 3197): `filteredEvents` memo + `locationGroups` + `categoryGroups`. Many cross-deps but pure derivation — moderate risk, well-bounded.
+> - **useUserProfileSync** (`loadUserProfile` lines 2162–2252 + `updateUserProfilePreferences` line 1174): tangled with 9 separate state setters (groupBy, viewType, zoomLevel, userTimezone, favoriteCategories, favoriteLocations, hideEmptyGroups, userPermissions, currentUser). Hook either takes a wide setter param surface or owns the state — design choice deserves discussion.
+> - **CalendarModals** (~234 LOC, lines 5447–5680): 7 distinct UI elements (Add/Edit modal, delete-confirm modal, EventSearch, WeekTimelineModal, DayTimelineModal, RecurringScopeDialog, EventReviewExperience, ReviewModal). 30+ props from Calendar state. Lowest risk per extraction (unidirectional data flow), but high prop count.
+>
+> **Suggested per-session order (smallest → biggest):**
+> 1. Delete-confirmation modal only (~67 LOC) — proof of pattern.
+> 2. Full CalendarModals extraction.
+> 3. useUserProfileSync.
+> 4. useCalendarFilters.
+> 5. useCalendarDataLoader.
+
+- [~] 12.1 Extract `src/hooks/useCalendarDataLoader.js` from `Calendar.jsx:1418–2238`; verify Calendar still loads events correctly in browser — **deferred to dedicated session**
+- [~] 12.2 Extract `src/hooks/useCalendarFilters.js` from `Calendar.jsx:2852–3555`; collapse double-iteration patterns into a single pass where the result is identical (or document why two passes are needed) — **deferred to dedicated session**
+- [~] 12.3 Extract `src/hooks/useUserProfileSync.js` from `Calendar.jsx:2363–2455` and `5264–5291` — **deferred to dedicated session**
+- [~] 12.4 Extract `src/components/CalendarModals.jsx` from `Calendar.jsx:5640–5878` — **deferred to dedicated session**
+- [~] 12.5 After each extraction, run targeted frontend tests and browser-verify before moving to the next — **deferred (procedural; applies during the dedicated sessions)**
+- [~] 12.6 Confirm `wc -l src/components/Calendar.jsx` reports ≤1,500 lines — **deferred (final acceptance check after all 4 extractions land)**
+- [~] 12.7 Add a targeted unit test for at least one extracted hook (`useCalendarFilters` recommended — easiest seam) — **deferred to dedicated session**
+- [~] 12.8 Provide ready-to-use commit message per extraction step (five separate commits or one combined PR with five commits — author's choice) — **deferred to dedicated session**
 
 ## 13. Calendar.jsx → React Query
 
-- [ ] 13.1 Migrate `useCalendarDataLoader` to use `useQuery` (events list, counts, locations, categories) keyed via the factory from §2
-- [ ] 13.2 Migrate any Calendar-driven mutations (publish, save, restore, delete, edit) to `useMutation`
-- [ ] 13.3 Verify SSE-driven cache invalidation flows reach the calendar list query without requiring a manual refetch
-- [ ] 13.4 Browser-verify month/week/day views, calendar filtering, and event review modal launches from each view
-- [ ] 13.5 Provide ready-to-use commit message
+- [~] 13.1 Migrate `useCalendarDataLoader` to use `useQuery` (events list, counts, locations, categories) keyed via the factory from §2 — **blocked by §12.1 (extraction must land first)**
+- [~] 13.2 Migrate any Calendar-driven mutations (publish, save, restore, delete, edit) to `useMutation` — **blocked by §12**
+- [~] 13.3 Verify SSE-driven cache invalidation flows reach the calendar list query without requiring a manual refetch — **blocked by §13.1**
+- [~] 13.4 Browser-verify month/week/day views, calendar filtering, and event review modal launches from each view — **blocked by §13.1–13.2**
+- [~] 13.5 Provide ready-to-use commit message — **blocked**
 
 ## 14. Extract remaining route modules
 
@@ -235,12 +250,12 @@
 
 ## 15. Retire `useDataRefreshBus`
 
-- [ ] 15.1 Confirm via `git grep -n 'useDataRefreshBus\|dispatchRefresh' src/` that no live subscribers remain after §3, §4, §10, §13
-- [ ] 15.2 Remove the dual-publish `dispatchRefresh` calls from RQ mutations (introduced in §3.4, §4, §10)
-- [ ] 15.3 Remove the legacy `dispatchRefresh` from `useServerEvents.js` (introduced in §9.4)
-- [ ] 15.4 Delete `src/hooks/useDataRefreshBus.js` and any context wiring it depends on
-- [ ] 15.5 Re-run targeted frontend tests; assert nothing relied on the bus
-- [ ] 15.6 Provide ready-to-use commit message
+- [~] 15.1 Confirm via `git grep -n 'useDataRefreshBus\|dispatchRefresh' src/` that no live subscribers remain after §3, §4, §10, §13 — **blocked by §13 (Calendar still subscribes via the bus)**
+- [~] 15.2 Remove the dual-publish `dispatchRefresh` calls from RQ mutations (introduced in §3.4, §4, §10) — **blocked by §15.1**
+- [~] 15.3 Remove the legacy `dispatchRefresh` from `useServerEvents.js` (introduced in §9.4) — **blocked by §15.1**
+- [~] 15.4 Delete `src/hooks/useDataRefreshBus.js` and any context wiring it depends on — **blocked by §15.1**
+- [~] 15.5 Re-run targeted frontend tests; assert nothing relied on the bus — **blocked by §15.4**
+- [~] 15.6 Provide ready-to-use commit message — **blocked**
 
 ## 16. Final integration sweep
 

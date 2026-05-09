@@ -71,20 +71,17 @@ export const keys = {
      * so a cross-cutting `keys.events.all()` invalidation reaches them.
      */
     search: (params) => ['events', 'search', params],
-    /**
-     * The legacy POST /api/events/load shape kept distinct from list. Once
-     * the eventsList route extraction lands, callers may collapse this into
-     * `events.list`; until then they remain different cache namespaces.
-     */
-    load: (scope) => scope === undefined ? ['events', 'load'] : ['events', 'load', scope],
   },
 
   // ─── Reservations ──────────────────────────────────────────────────────
+  // Today, "reservations" share the templeEvents__Events collection with
+  // events (roomReservationData lives nested inside an event document).
+  // Only `all()` is exposed for the SSE restart bridge's belt-and-suspenders
+  // cross-cutting invalidate — list/counts/detail keys would have no
+  // consumers in the current data model. Add them back when reservations
+  // genuinely diverge from events as a separate resource.
   reservations: {
     all: () => ['reservations'],
-    list: (scope) => listKey('reservations', scope),
-    counts: (scope) => countsKey('reservations', scope),
-    detail: (id) => ['reservations', 'detail', id],
   },
 };
 
