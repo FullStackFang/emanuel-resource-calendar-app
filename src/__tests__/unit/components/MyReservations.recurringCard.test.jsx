@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 // ─── Module-level mocks ──────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('renders no recurrence pill or exceptions section for a singleInstance event', async () => {
     mountWithEvents([singleEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Singleton Bingo Night')).toBeInTheDocument();
@@ -215,7 +216,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('renders pattern pill, exceptions header, and series range for a seriesMaster with mixed deviations', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Weekly Yoga')).toBeInTheDocument();
@@ -250,7 +251,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('renders the exceptions table always-visible (no toggle), with rows in date order and correct kind classes', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     // Exceptions table is visible immediately on first paint — no chip click required.
     const table = await waitFor(() => {
@@ -279,7 +280,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('clicking a modified row opens the review modal with a virtual occurrence and editScope thisEvent', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
@@ -312,7 +313,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('clicking an added row opens the modal with isAdHocAddition flagged', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
@@ -336,7 +337,7 @@ describe('MyReservations recurring-series card', () => {
 
   it('cancelled rows are not interactive and do not open the modal', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       if (!document.querySelector('.exceptions-table')) throw new Error('exceptions table not yet rendered');
@@ -368,7 +369,7 @@ describe('MyReservations recurring-series card', () => {
     };
 
     mountWithEvents([cleanMaster]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Clean Series')).toBeInTheDocument();

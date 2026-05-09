@@ -3,6 +3,26 @@
  * TanStack Query client configuration with sessionStorage persistence
  * Provides automatic caching and background refetching.
  * Uses sessionStorage (not localStorage) so sensitive event data is cleared on tab close.
+ *
+ * ─── Query key conventions ────────────────────────────────────────────────
+ * Construct query keys via the factory in `src/queries/keys.js` — do NOT
+ * inline `['events', someScope]` literals at call sites. Inline keys silently
+ * drift over time and break selective invalidation.
+ *
+ * Shape: keys are arrays. First element is the resource name; subsequent
+ * elements are scope discriminators in order of decreasing specificity:
+ *
+ *   ['<resource>', '<sub-resource-or-action>', <scope params>]
+ *
+ * Prefix-based invalidation:
+ *   queryClient.invalidateQueries({ queryKey: keys.events.all() })
+ *     → matches every events.* key (broad invalidate, e.g. on server restart)
+ *   queryClient.invalidateQueries({ queryKey: keys.events.list() })
+ *     → matches every events.list.* key
+ *   queryClient.invalidateQueries({ queryKey: keys.events.detail(id) })
+ *     → matches exactly one detail entry
+ *
+ * See `src/queries/keys.js` for the full factory and per-resource shapes.
  */
 
 import { QueryClient } from '@tanstack/react-query';

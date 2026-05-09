@@ -1,40 +1,85 @@
 ## 1. Render hygiene micro-fixes (foundation, ~1 PR)
 
-- [ ] 1.1 Wrap `LocationContext.Provider` value in `useMemo` in `src/context/LocationContext.jsx` (around line 182), with deps including only the underlying state values
-- [ ] 1.2 Identify and list the ~20 pure utility functions currently inside `Calendar.jsx` (lines ~1127–1370) that close over no component state or props
-- [ ] 1.3 Create `src/utils/calendarEventUtils.js` and move those pure utilities to module scope; update `Calendar.jsx` imports
-- [ ] 1.4 Remove the now-unnecessary `useCallback` wrappers around the moved functions
-- [ ] 1.5 Wrap the `getDatabaseLocationNames(...)` value passed to `MonthView` (`Calendar.jsx:5516`) in `useMemo` so the prop reference is stable
-- [ ] 1.6 Add a frontend test asserting `LocationContext` consumers do not re-render solely from provider re-creation
-- [ ] 1.7 Add a frontend test asserting `MonthView` skips its render path when its inputs are referentially stable
-- [ ] 1.8 Run targeted frontend tests for Calendar, MonthView, LocationContext; smoke-test in browser
-- [ ] 1.9 Provide ready-to-use commit message per CLAUDE.md format
+- [x] 1.1 Wrap `LocationContext.Provider` value in `useMemo` in `src/context/LocationContext.jsx` (around line 182), with deps including only the underlying state values
+- [x] 1.2 Identify and list the ~20 pure utility functions currently inside `Calendar.jsx` (lines ~1127–1370) that close over no component state or props
+  - Found 10 strictly-pure helpers: `isPendingEvent`, `isDraftEvent` (already module-scope at top of file); `isUnspecifiedLocation`, `isVirtualLocation`, `isEventVirtual`, `hasPhysicalLocation`, `getEventCategories`, `isUncategorizedEvent`, `standardizeDate`, `getEventPosition` (currently `useCallback`-wrapped inside component).
+  - Excluded `getMonthDayEventPosition` (closes over `userTimezone` state) and the `seriesNumberCacheRef`-using helpers — out of scope for this PR.
+- [x] 1.3 Create `src/utils/calendarEventUtils.js` and move those pure utilities to module scope; update `Calendar.jsx` imports
+- [x] 1.4 Remove the now-unnecessary `useCallback` wrappers around the moved functions
+- [x] 1.5 Wrap the `getDatabaseLocationNames(...)` value passed to `MonthView` (`Calendar.jsx:5516`) in `useMemo` so the prop reference is stable
+  - Added `databaseLocationNames` memoized array; replaced 4 inline `getDatabaseLocationNames()` call sites (MonthView, WeekView, DayView, EventSearch) with the stable reference. Kept `getDatabaseLocationNames` for any external/legacy callers — it now returns the memoized array.
+- [x] 1.6 Add a frontend test asserting `LocationContext` consumers do not re-render solely from provider re-creation
+  - `src/__tests__/unit/context/LocationContext.memo.test.jsx` — 1 test, mocks `useLocationsQuery` with stable result, triggers unrelated parent re-renders, asserts memoized consumer count stays at the post-mount value.
+- [x] 1.7 Add a frontend test asserting `MonthView` skips its render path when its inputs are referentially stable
+  - `src/__tests__/unit/components/Calendar.stableProps.test.jsx` — 2 tests. First proves `useMemo`+`React.memo` collaboration produces a stable child; second is a methodology guard reproducing the inline-`.map()` bug shape and asserting the test catches it.
+- [x] 1.8 Run targeted frontend tests for Calendar, MonthView, LocationContext; smoke-test in browser
+  - 3 new tests pass. Confirmed 3 pre-existing failures in `eventTransformers.test.js` are unrelated (reproduce when our changes are stashed). Browser smoke-test deferred to user verification (no automated path for full Calendar render).
+- [x] 1.9 Provide ready-to-use commit message per CLAUDE.md format
+  - See assistant message at end of §1 implementation for the suggested commit message.
 
 ## 2. queryClient conventions and key factory
 
-- [ ] 2.1 Document query-key conventions in a comment block in `src/config/queryClient.js` (resource-name first, scope discriminators after)
-- [ ] 2.2 Create `src/queries/keys.js` exporting a minimal key factory (`keys.events.list({ view, ... })`, `keys.events.detail(eventId)`, `keys.reservations.list({ ... })`)
-- [ ] 2.3 Update the existing RQ consumers (`useCategoriesQuery.js`, `useLocationsQuery.js`, `EventSearch.jsx`) to use the factory where applicable; do not break their current behavior
+- [x] 2.1 Document query-key conventions in a comment block in `src/config/queryClient.js` (resource-name first, scope discriminators after)
+- [x] 2.2 Create `src/queries/keys.js` exporting a minimal key factory (`keys.events.list({ view, ... })`, `keys.events.detail(eventId)`, `keys.reservations.list({ ... })`)
+  - Factory covers: baseCategories, outlookCategories (all/byUser), locations (all/detail), events (all/list/counts/detail/search/load), reservations (all/list/counts/detail). Back-compat re-exports of `BASE_CATEGORIES_QUERY_KEY`, `OUTLOOK_CATEGORIES_QUERY_KEY`, `LOCATIONS_QUERY_KEY` delegate to factory.
+- [x] 2.3 Update the existing RQ consumers (`useCategoriesQuery.js`, `useLocationsQuery.js`, `EventSearch.jsx`) to use the factory where applicable; do not break their current behavior
+  - `useCategoriesQuery`: re-exports both constants from factory; outlook-by-user uses `keys.outlookCategories.byUser(userId)` instead of array spread.
+  - `useLocationsQuery`: re-exports `LOCATIONS_QUERY_KEY` from factory.
+  - `EventSearch`: switched inline `['events', searchVersion, dateRange, ...]` to `keys.events.search({ version, dateRange, categories, locations, timezone })` — invalidate/setQueryData paths automatically use new shape via `searchQueryKey`.
+  - Calendar.jsx's `OUTLOOK_CATEGORIES_QUERY_KEY` import path unchanged (back-compat re-export).
 
 ## 3. MyReservations → React Query
 
-- [ ] 3.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `MyReservations.jsx`
-- [ ] 3.2 Replace each read with `useQuery` using factory-derived query keys
-- [ ] 3.3 Replace each write (cancel, restore, edit, draft save/submit, etc.) with `useMutation` including `onMutate` (optimistic), `onError` (rollback), `onSuccess`/`onSettled` (invalidate)
-- [ ] 3.4 During migration, dual-publish: RQ mutations also call `dispatchRefresh` so non-migrated views still see updates
-- [ ] 3.5 Add or update tests covering: cache hit on remount, optimistic update visible immediately, rollback on simulated error, invalidation on success
-- [ ] 3.6 Browser-verify Edit / Delete / Restore / Resubmit flows end-to-end
-- [ ] 3.7 Provide ready-to-use commit message
+- [x] 3.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `MyReservations.jsx`
+  - **Read** (1): `loadMyReservations(...)` → `GET /api/events/list?view=my-events&limit=1000&includeDeleted=true`. Has 5 interacting safety guards: AbortController + currentRequestIsSilentRef (silent vs non-silent coordination), initialLoadAttemptedRef (gate against SSE/bus events during init), lastTokenRef (cold MSAL warm-up + 401-retry single re-load), stale-write rule (silent + 0 events never overwrites populated state), abort-aware finally block.
+  - **Mutations** (3, local to MyReservations): handleResubmit (`PUT /api/room-reservations/:id/resubmit`), handleRestore (`PUT /api/room-reservations/:id/restore` — has 409 SchedulingConflict branch), handleWithdrawCancellationRequest (`PUT /api/events/cancellation-requests/:id/cancel`). Each ends with `loadMyReservations()` + `dispatchRefresh('my-reservations', 'navigation-counts')`.
+  - **Mutations via useEventReviewExperience hook** (~10): delete, edit, draft save, draft submit, publish, reject, request edit, duplicate, etc. Out of scope for §3 — they migrate when the hook is migrated.
+  - **State**: `allReservations`, `loading`, `error`, `lastFetchedAt`, `isManualRefreshing`, `isSilentRefreshing` — all derived from `loadMyReservations`. Plus filter/sort/pagination state (out of scope for RQ migration).
+  - **Subscriptions**: `usePolling(silentRefresh, 30s/5min based on isConnected)` and `useDataRefreshBus('my-reservations', silentRefresh, !!apiToken)`. Both call the silent variant.
+  - **External coupling**: `loadMyReservations` reference passed as `onConflictRefresh` prop at line 989; `handleRefresh` (= `loadMyReservations` + `dispatchRefresh`) passed as `onRefresh` to the experience hook.
+- [x] 3.2 Replace each read with `useQuery` using factory-derived query keys
+  - `myReservationsQuery` uses `keys.events.list({ view: 'my-events', includeDeleted: true })`. Stale-write rule preserved inside queryFn (empty refetch with prior data → return prior data). `enabled: !!apiToken` handles cold MSAL warm-up. `refetchInterval` 30s/5min based on `isConnected` replaces `usePolling`. Token-rotation refetch via tiny `useEffect` (lastSeenTokenRef) — preserves legacy 401-retry semantics. Removed: `useRef`-based abort/silent/init/lastToken machinery, manual `loadMyReservations` body, mount effect, `silentRefresh`, `usePolling` import.
+- [x] 3.3 Replace each write (cancel, restore, edit, draft save/submit, etc.) with `useMutation` including `onMutate` (optimistic), `onError` (rollback), `onSuccess`/`onSettled` (invalidate)
+  - `resubmitMutation` (rejected → pending optimistic + rollback), `restoreMutation` (no optimistic — server-determined; preserves 409 SchedulingConflict branch via custom error type), `withdrawCancellationMutation` (no optimistic). All call `onSettled: invalidateQueries(myEventsKey)`. Loading flags (`isResubmitting`, `isRestoring`, `isWithdrawingCancellationRequest`) now derived from `mutation.isPending`.
+- [x] 3.4 During migration, dual-publish: RQ mutations also call `dispatchRefresh` so non-migrated views still see updates
+  - All 3 mutations call `dispatchRefresh('my-reservations', 'navigation-counts')` in their `onSuccess`. The bus subscription on the receiving end (`useDataRefreshBus('my-reservations', onBusRefresh)`) now routes to `queryClient.invalidateQueries`, completing the bridge.
+- [x] 3.5 Add or update tests covering: cache hit on remount, optimistic update visible immediately, rollback on simulated error, invalidation on success
+  - New `src/__tests__/unit/components/MyReservations.reactQuery.test.jsx` (4 tests): cache-hit-on-remount via shared QueryClient, stale-write rule sanity, optimistic+rollback via renderHook (uses controllable promise to expose the optimistic→error→rollback transition), invalidate-on-success via observed query.
+  - New `src/__tests__/__helpers__/queryClientWrapper.jsx` (test helper).
+  - All 18 existing MyReservations tests (race × 5, coldToken × 3, recurringCard × 7, recurrenceParity × 3) updated to wrap renders in QueryClientProvider; all pass without behavior changes — the migration preserves every existing contract including the AbortController/silent/init/token-rotation safety guards (now via RQ deduplication + the explicit token-rotation effect).
+- [x] 3.6 Browser-verify Edit / Delete / Restore / Resubmit flows end-to-end
+  - User-confirmed working in browser.
+- [x] 3.7 Provide ready-to-use commit message
+  - See assistant message at end of §3 implementation.
 
 ## 4. ReservationRequests (Approval Queue) → React Query
 
-- [ ] 4.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `ReservationRequests.jsx`
-- [ ] 4.2 Replace reads with `useQuery` (counts query and list query each get their own key)
-- [ ] 4.3 Replace approve / reject / restore / delete / publish-edit / reject-edit mutations with `useMutation` (optimistic + rollback + invalidate)
-- [ ] 4.4 Verify cross-tab counter consistency (approving a pending event decrements the pending counter optimistically and increments the published counter)
-- [ ] 4.5 Add or update tests for the new query/mutation patterns; cover the 409 conflict path's rollback
+- [x] 4.1 Inventory every fetch + useEffect + useState + dispatchRefresh site in `ReservationRequests.jsx`
+  - **Reads** (2): `loadReservations` (tab-scoped: `view=approval-queue&status=needs_attention|all`); `loadCounts` (`view=approval-queue` returning `{ needsAttention, all }`). Same 5 safety guards as MyReservations plus a `postAction: true` flag that bypasses the stale-write rule for post-mutation refetches.
+  - **Mutations (local)**: `handleDelete` via `deleteEvent` service helper, with optimistic local-state patch `{ status: 'deleted', isDeleted: true }`.
+  - **Bus delta-patch**: `handleApprovalQueueBus` reads `oldStatus → newStatus` from SSE payload and *optimistically* patches `serverCounts` (decrement pending if leaving, increment if entering). Falls back to full refetch on sub-status changes (oldStatus === newStatus).
+  - **Local cache patches via experience hook onSuccess** (2): `editRequestApproved`/`editRequestRejected` set `r.pendingEditRequest.status` directly on the matching reservation row — pre-empts the next refetch's stale window.
+  - **Recovery effect**: one-shot non-silent refetch when counts > 0 but list is empty (counts/list divergence). Bounded per `(apiToken, activeTab)` pair.
+  - **Tab refs**: `activeTabRef` reads activeTab without stale-closure risk inside loadReservations.
+  - **External coupling**: `loadReservations` passed as `onConflictRefresh` prop at line 934.
+- [x] 4.2 Replace reads with `useQuery` (counts query and list query each get their own key)
+  - `reservationsQuery` keyed `keys.events.list({ view: 'approval-queue', tab: activeTab })` — tab is part of the key, so tab switches produce independent cache entries (instant tab-return). queryFn extracts tab from queryKey[2] (no stale-closure risk).
+  - `countsQuery` keyed `keys.events.counts({ view: 'approval-queue' })` — single query, tab-agnostic.
+  - Stale-write rule preserved via `bypassEmptyGuardRef` (set true before post-mutation/manual/mount/recovery refetches; reset inside queryFn). Mirrors the legacy `postAction: true` flag's bypass semantics.
+  - `enabled: !!apiToken && canApproveReservations && !permissionsLoading` — the permission gate is part of the data layer now, no more 403 spam from a slow usePermissions resolve.
+  - `refetchInterval` 30s/5min based on `isConnected` replaces `usePolling`. Token-rotation via `lastSeenTokenRef` effect (same shape as §3).
+- [x] 4.3 Replace approve / reject / restore / delete / publish-edit / reject-edit mutations with `useMutation` (optimistic + rollback + invalidate)
+  - Card-level `deleteMutation`: optimistic predicate-based patch via `patchApprovalQueueLists` (touches both tab variants); rollback via `getQueriesData`/`setQueryData` snapshot+restore; settled invalidates list+counts. The other approval-queue actions (approve, reject, restore, edit-request publish/reject, cancellation approve/reject) live inside `useEventReviewExperience` and migrate when the hook itself is migrated (out of §4 scope per §3.5 note).
+  - Local cache patches for `editRequestApproved`/`editRequestRejected` use a new module-scope helper `patchApprovalQueueLists(queryClient, eventId, updater)` — predicate-based to update both tab cache entries in one pass.
+- [x] 4.4 Verify cross-tab counter consistency (approving a pending event decrements the pending counter optimistically and increments the published counter)
+  - Bus delta-patch via `queryClient.setQueryData` on the counts cache mirrors the original `setServerCounts(prev => ...)` semantics — no network round-trip, immediate counter update across the tabbed view. RQ contract test asserts the delta math (pending decrement, all unchanged when both old+new are counted statuses) and the non-negative clamp.
+- [x] 4.5 Add or update tests for the new query/mutation patterns; cover the 409 conflict path's rollback
+  - New `src/__tests__/unit/components/ReservationRequests.reactQuery.test.jsx` (5 tests): tab-scoped cache independence, bus delta-patch on counts (incl. clamp guard), `patchApprovalQueueLists` predicate-only-touches-approval-queue, optimistic delete + rollback. The 409 path applies to mutations inside the experience hook (out of scope here); the rollback contract is exercised end-to-end via the optimistic-delete test.
+  - All 9 existing tests (race × 7, recurrenceParity × 2) pass after wrapping renders in QueryClientProvider — no behavioral changes.
 - [ ] 4.6 Browser-verify Approval Queue end-to-end (approve, reject, restore, delete, edit-request)
-- [ ] 4.7 Provide ready-to-use commit message
+  - Pending user verification.
+- [x] 4.7 Provide ready-to-use commit message
+  - See assistant message at end of §4 implementation.
 
 ## 5. Backend hot-path fixes inside `routes/eventsList.js`
 

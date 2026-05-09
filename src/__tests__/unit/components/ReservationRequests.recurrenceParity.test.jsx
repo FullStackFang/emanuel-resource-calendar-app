@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 vi.mock('../../../config/config', () => ({
   default: {
@@ -175,7 +176,7 @@ describe('ReservationRequests recurrence-parity (R-13)', () => {
 
   it("R-13: View Details on a seriesMaster opens the modal directly with editScope: 'allEvents' (no scope dialog)", async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Approval Queue Yoga Series')).toBeInTheDocument();
@@ -205,7 +206,7 @@ describe('ReservationRequests recurrence-parity (R-13)', () => {
       recurrence: undefined,
     };
     mountWithEvents([nonRecurring]);
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Approval Queue Single Event')).toBeInTheDocument();

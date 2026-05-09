@@ -7,12 +7,16 @@
 import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import APP_CONFIG from '../config/config';
+import { keys } from '../queries/keys';
 
 /**
- * Query keys for categories - used for cache invalidation
+ * Query keys for categories - used for cache invalidation.
+ * Re-exported from the central factory in `src/queries/keys.js` so existing
+ * importers (notably Calendar.jsx for `OUTLOOK_CATEGORIES_QUERY_KEY`) keep
+ * working unchanged. New callers should import `keys` directly.
  */
-export const BASE_CATEGORIES_QUERY_KEY = ['baseCategories'];
-export const OUTLOOK_CATEGORIES_QUERY_KEY = ['outlookCategories'];
+export const BASE_CATEGORIES_QUERY_KEY = keys.baseCategories.all();
+export const OUTLOOK_CATEGORIES_QUERY_KEY = keys.outlookCategories.all();
 
 /**
  * Fetch base categories from the API
@@ -101,7 +105,7 @@ export const useOutlookCategoriesQuery = (apiToken, userId) => {
   tokenRef.current = apiToken;
 
   return useQuery({
-    queryKey: [...OUTLOOK_CATEGORIES_QUERY_KEY, userId],
+    queryKey: keys.outlookCategories.byUser(userId),
     queryFn: () => fetchOutlookCategories(tokenRef.current, userId),
     staleTime: 30 * 60 * 1000, // 30 minutes - Outlook categories rarely change
     enabled: !!apiToken && !!userId, // Only fetch when both token and userId are available

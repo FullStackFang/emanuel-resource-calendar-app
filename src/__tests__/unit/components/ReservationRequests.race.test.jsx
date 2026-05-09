@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { makeControllableAuthFetch, makeEvents } from '../../__helpers__/mockAuthFetch';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 // ─── Static mocks (module-level, evaluated once) ─────────────────────────────
 
@@ -174,7 +175,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     // Wait for all 3 mount fetches to fire (calendar-settings, approval-queue, counts)
     await waitFor(() => {
@@ -200,7 +201,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    const { rerender } = render(<ReservationRequests />);
+    const { rerender } = render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     // Wait for initial approval-queue call
     await waitFor(() => {
@@ -248,7 +249,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
@@ -287,7 +288,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     // Spinner should be visible initially
     expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
@@ -330,7 +331,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     // Wait for the initial non-silent approval-queue fetch to fire.
     await waitFor(() => {
@@ -404,7 +405,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     // Wait for initial mount fetches.
     await waitFor(() => {
@@ -481,7 +482,7 @@ describe('ReservationRequests — loadReservations race condition', () => {
     const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<ReservationRequests />);
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findApprovalQueueCallIndex(authFetch)).toBeGreaterThanOrEqual(0);

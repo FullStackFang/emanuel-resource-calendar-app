@@ -178,8 +178,10 @@ export const LocationProvider = ({ children, apiToken }) => {
     }
   }, [locations.length, reservableRooms.length]);
 
-  // Context value with both new location API and legacy room API for compatibility
-  const contextValue = {
+  // Context value with both new location API and legacy room API for compatibility.
+  // Memoized so consumers (Calendar, RoomReservationFormBase, SchedulingAssistant)
+  // do not re-render on every parent render — only when underlying data/functions change.
+  const contextValue = useMemo(() => ({
     // Data (both new and legacy names)
     locations, // All locations from templeEvents__Locations
     generalLocations: locations, // Legacy compatibility - same as locations
@@ -207,7 +209,28 @@ export const LocationProvider = ({ children, apiToken }) => {
     filterRooms,
     refreshRooms,
     loadRooms
-  };
+  }), [
+    locations,
+    reservableRooms,
+    loading,
+    error,
+    lastLoaded,
+    getLocationById,
+    getLocationName,
+    getLocationNames,
+    getLocationDetails,
+    filterLocations,
+    refreshLocations,
+    loadLocations,
+    loadGeneralLocations,
+    getRoomById,
+    getRoomName,
+    getRoomNames,
+    getRoomDetails,
+    filterRooms,
+    refreshRooms,
+    loadRooms
+  ]);
 
   return (
     <LocationContext.Provider value={contextValue}>

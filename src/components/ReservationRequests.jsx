@@ -1,5 +1,6 @@
 // src/components/ReservationRequests.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -9,18 +10,35 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
-import { usePolling } from '../hooks/usePolling';
 import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { keys } from '../queries/keys';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 
 // Statuses that contribute to the approval-queue 'all' count (pending + publishedTotal + rejected).
 // Must stay in sync with the backend counts endpoint's approval-queue branch.
 const APPROVAL_QUEUE_COUNTED_STATUSES = new Set(['pending', 'published', 'rejected']);
+
+/**
+ * Apply a per-row update to every approval-queue list cache entry whose
+ * matching event id is `eventId`. Uses a queryKey predicate so both tab
+ * variants ('needs_attention' and 'all') are patched in one pass — the user
+ * could be viewing either when the patch fires.
+ */
+function patchApprovalQueueLists(queryClient, eventId, updater) {
+  queryClient.setQueriesData(
+    { queryKey: ['events', 'list'], predicate: (q) => {
+      const scope = q.queryKey[2];
+      return scope?.view === 'approval-queue';
+    }},
+    (old) => Array.isArray(old)
+      ? old.map(r => String(r._id) === String(eventId) ? updater(r) : r)
+      : old
+  );
+}
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
-import { isAbortError } from '../utils/errorUtils';
 import LoadingSpinner from './shared/LoadingSpinner';
 import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
@@ -35,30 +53,18 @@ export default function ReservationRequests({ graphToken }) {
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
   const { showSuccess, showWarning, showError } = useNotification();
-  const [allReservations, setAllReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
+
+  // ─── UI-only state ──────────────────────────────────────────────────────
+  // Server data state (allReservations, loading, error, lastFetchedAt,
+  // isSilentRefreshing, serverCounts, countsLoaded) is derived from the
+  // React Query cache below. Active-tab is the single piece of UI state
+  // that participates in the queryKey — switching tabs produces a new key,
+  // RQ either serves cache or fetches.
   const [activeTab, setActiveTab] = useState('needs_attention');
-  // Ref always holds the current activeTab so polling/SSE closures read the
-  // latest value even when they captured an old loadReservations closure.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab; // synchronous render-time assignment — safe to read in async callbacks
-  // Tracks the current in-flight AbortController so a new load can cancel the previous one.
-  const abortControllerRef = useRef(null);
-  // Tracks whether the in-flight request was started as a silent refresh. A silent
-  // refresh (SSE/polling/bus) must NOT abort a live non-silent (UI) load — otherwise
-  // the initial approval-queue fetch gets cancelled and the list renders empty while
-  // the counts call (which is independent) succeeds, producing a count-vs-empty-list
-  // divergence on first mount.
-  const currentRequestIsSilentRef = useRef(false);
-  const lastTokenRef = useRef(null); // Prevents re-running initial load on 45-min token refresh (matches useServerEvents pattern)
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
-  const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  // Tracks in-flight silent polling fetches so the empty state doesn't flash
-  // if the server momentarily returns an empty result during a background refresh.
-  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
 
   // Search & date filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,13 +72,6 @@ export default function ReservationRequests({ graphToken }) {
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
-  const [serverCounts, setServerCounts] = useState({ needs_attention: 0, all: 0 });
-  // countsLoaded flips true after the first loadCounts attempt (success or failure),
-  // so the empty-state render gate can distinguish "counts not known yet" from
-  // "counts say there is nothing to approve". Without this, a momentary empty list
-  // at mount (Cosmos read lag, 401 retry) rendered "All caught up!" while the nav
-  // badge truthfully showed N>0.
-  const [countsLoaded, setCountsLoaded] = useState(false);
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -81,13 +80,20 @@ export default function ReservationRequests({ graphToken }) {
   const [defaultCalendar, setDefaultCalendar] = useState('');
   const [selectedTargetCalendar, setSelectedTargetCalendar] = useState('');
 
-
-  // Card-level delete state (separate from modal delete)
-  const [deletingId, setDeletingId] = useState(null);
+  // Card-level delete state — confirmation flag (loading flag derived from mutation below)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Navigation confirmation state (replaces window.confirm for iframe compatibility)
   const [pendingNavTarget, setPendingNavTarget] = useState(null);
+
+  // ─── Refs ───────────────────────────────────────────────────────────────
+  // Token rotation guard (warm→warm transition; cold→warm handled by `enabled`).
+  const lastSeenTokenRef = useRef(null);
+  // bypassEmptyGuardRef: set true before a refetch that should write through
+  // even on an empty result (post-mutation, manual refresh, mount, recovery).
+  // Reset inside queryFn after each fetch. Mirrors the legacy `postAction: true`
+  // semantics inside the original loadReservations.
+  const bypassEmptyGuardRef = useRef(false);
 
   // Scheduling conflict state managed by reviewModal hook (synchronous reset in openModal)
 
@@ -116,131 +122,150 @@ export default function ReservationRequests({ graphToken }) {
     }
   };
 
-  const loadReservations = useCallback(async ({ silent = false, tab, postAction = false } = {}) => {
-    // A silent refresh (SSE/polling/bus) must NOT interrupt a live non-silent
-    // UI load. If the current in-flight request is non-silent (e.g. the initial
-    // mount fetch), a silent refresh should no-op and let the UI load complete.
-    // Without this guard, a silent refresh arriving during the initial load
-    // aborts it — the catch block silently swallows AbortError, loading clears,
-    // and allReservations stays [] even though counts succeeded independently.
-    if (silent && abortControllerRef.current && !currentRequestIsSilentRef.current) {
-      return;
-    }
-    // Cancel any previous in-flight request. A new AbortController is created
-    // for each call so the signal is unique per request.
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    currentRequestIsSilentRef.current = silent;
+  // ─── Server data: approval-queue list (tab-scoped) and counts ──────────
+  // Two queries share the same view scope; the list adds a `tab` discriminator
+  // so 'needs_attention' and 'all' get independent cache entries (instant
+  // tab-switch after first visit). Counts is one query — the badge values
+  // are tab-agnostic.
+  //
+  // Stale-write rule (mirrors MyReservations §3): a refetch returning 0
+  // events while we already had populated data is treated as transient
+  // (replica lag / 401-retry race) and the prior cache is kept. The legacy
+  // `postAction: true` flag is preserved via `bypassEmptyGuardRef` — set
+  // true before mutation-driven, manual, mount, and recovery refetches so
+  // they write through unconditionally.
 
-    try {
-      if (!silent) {
-        setLoading(true);
-        setError('');
-      } else {
-        setIsSilentRefreshing(true);
-      }
+  const listKey = keys.events.list({ view: 'approval-queue', tab: activeTab });
+  const countsKey = keys.events.counts({ view: 'approval-queue' });
 
-      // Tab-scoped query: 'needs_attention' fetches only actionable events,
-      // 'all' fetches every status. Avoids loading hundreds of published events
-      // when only pending items are needed.
-      // Uses activeTabRef (not the closure value) so polling/SSE callers that
-      // hold a stale loadReservations reference always send the correct tab.
-      const effectiveTab = tab ?? activeTabRef.current;
-      const statusParam = effectiveTab === 'needs_attention' ? '&status=needs_attention' : '';
+  const queryEnabled = !!apiToken && canApproveReservations && !permissionsLoading;
+
+  const reservationsQuery = useQuery({
+    queryKey: listKey,
+    queryFn: async ({ queryKey, signal }) => {
+      const scope = queryKey[2] || {};
+      const tab = scope.tab;
+      const statusParam = tab === 'needs_attention' ? '&status=needs_attention' : '';
       const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000${statusParam}`,
-        { signal: controller.signal }
+        { signal }
       );
-
       if (!response.ok) {
-        if (silent) {
-          logger.warn(`Silent refresh failed with status ${response.status}`);
-          return;
-        }
         throw new Error('Failed to load room reservation events');
       }
-
       const data = await response.json();
+      const transformed = transformEventsToFlatStructure(data.events || []);
 
-      // Transform events using shared utility (single source of truth)
-      const transformedEvents = transformEventsToFlatStructure(data.events || []);
-
-      logger.info('Loaded room reservation events:', {
-        count: transformedEvents.length
-      });
-
-      // Write rules:
-      //   non-silent        → always writes (tab switch, manual refresh, mount)
-      //   silent+postAction → always writes (post-action refresh must reflect true state)
-      //   silent+background → only writes if non-empty (prevents stale-0 from polling/SSE flash)
-      if (!silent || postAction || transformedEvents.length > 0) {
-        setAllReservations(transformedEvents);
-      }
-      setLastFetchedAt(Date.now());
-      // Silent success after a prior failure: clear stale banner so the UI recovers.
-      if (silent) setError('');
-    } catch (err) {
-      if (isAbortError(err)) return; // Superseded by a newer request
-      logger.error('Error loading reservations:', err);
-      if (!silent) {
-        setError('Failed to load reservation requests');
-      }
-    } finally {
-      // Only the current (non-aborted) controller clears the loading flag.
-      // A superseded request must not clobber the live request's loading state.
-      if (!controller.signal.aborted) {
-        if (!silent) {
-          setLoading(false);
-        } else {
-          setIsSilentRefreshing(false);
+      // Stale-write guard: bypass when explicitly flagged (post-mutation,
+      // manual refresh, mount, recovery). Otherwise, never blank a populated
+      // list on a polling/bus empty result.
+      if (transformed.length === 0 && !bypassEmptyGuardRef.current) {
+        const previous = queryClient.getQueryData(queryKey);
+        if (Array.isArray(previous) && previous.length > 0) {
+          logger.warn('ReservationRequests: silent refetch returned 0 events; keeping previous cached data');
+          return previous;
         }
       }
-      // Only reset ownership state when the CURRENT (still-live) controller
-      // completes. Both clauses here are load-bearing:
-      //   • `=== controller` identity check preserves RC-5: a superseded
-      //     request must not reset state owned by the newer live request
-      //     (otherwise a mid-flight silent refresh could null the ref while
-      //     the non-silent initial load is still running).
-      //   • `abortControllerRef.current = null` re-arms the silent-refresh
-      //     guard at the top of loadReservations (RC-7). Without it, the ref
-      //     keeps pointing at this dead controller forever, and every
-      //     subsequent silent refresh (polling, SSE, bus) permanently
-      //     short-circuits at that guard — which is why the empty-state bug
-      //     did not self-heal until the user triggered a non-silent path.
-      // Removing either line silently regresses one of those invariants.
-      if (abortControllerRef.current === controller) {
-        currentRequestIsSilentRef.current = false;
-        abortControllerRef.current = null;
-      }
-    }
-  }, [authFetch]); // activeTab deliberately excluded — read via activeTabRef to prevent stale-closure bugs
+      bypassEmptyGuardRef.current = false;
+      return transformed;
+    },
+    enabled: queryEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
+    refetchIntervalInBackground: false,
+    retry: 2,
+  });
 
-  // Fetch tab badge counts from the server (lightweight aggregation)
-  const loadCounts = useCallback(async () => {
-    try {
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`);
-      if (response.ok) {
-        const data = await response.json();
-        // Prefer the authoritative `needsAttention` field from the backend, which
-        // mirrors the list endpoint's needsAttentionFilter as a single atomic count
-        // (no double-count for events with both pending edit AND pending cancel).
-        // Fallback to the legacy sum preserves behavior during a staged rollout where
-        // the frontend deploys before the backend.
-        setServerCounts({
-          needs_attention: data.needsAttention ?? ((data.pending || 0) + (data.published_edit || 0) + (data.published_cancellation || 0)),
-          all: data.all || 0,
-        });
-      }
-    } catch (err) {
-      logger.error('Error loading approval queue counts:', err);
-    } finally {
-      // Flip regardless of success/failure so the render gate can always progress.
-      // On failure, serverCounts stays at the initial {0, 0} — which the gate reads
-      // as "counts agrees empty", matching pre-fix behavior for this edge case.
-      setCountsLoaded(true);
+  const countsQuery = useQuery({
+    queryKey: countsKey,
+    queryFn: async ({ signal }) => {
+      const response = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`,
+        { signal }
+      );
+      if (!response.ok) throw new Error('Failed to load approval-queue counts');
+      const data = await response.json();
+      // Prefer the authoritative `needsAttention` field; fall back to the
+      // legacy sum for staged-rollout compatibility.
+      return {
+        needs_attention: data.needsAttention ?? ((data.pending || 0) + (data.published_edit || 0) + (data.published_cancellation || 0)),
+        all: data.all || 0,
+      };
+    },
+    enabled: queryEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
+    refetchIntervalInBackground: false,
+    retry: 2,
+  });
+
+  // Derived bindings — preserve the names the rest of the component expects.
+  const allReservations = reservationsQuery.data ?? [];
+  const loading = reservationsQuery.isLoading;
+  const error = reservationsQuery.error?.message || '';
+  const lastFetchedAt = Math.max(
+    reservationsQuery.dataUpdatedAt || 0,
+    countsQuery.dataUpdatedAt || 0
+  ) || null;
+  const isSilentRefreshing =
+    (reservationsQuery.isFetching && !reservationsQuery.isLoading) ||
+    (countsQuery.isFetching && !countsQuery.isLoading);
+  const serverCounts = countsQuery.data ?? { needs_attention: 0, all: 0 };
+  // countsLoaded preserves the legacy gate semantic: flips true after the first
+  // load attempt (success OR failure). React Query exposes `isPending` for the
+  // pre-first-fetch state and resolves to false on either outcome.
+  const countsLoaded = !countsQuery.isPending;
+
+  // Token rotation guard: refetch on warm→warm token transition (401-retry
+  // path rotates A→B). The cold-warmup transition (null→A) is handled by RQ's
+  // `enabled` flip and does NOT need this effect.
+  useEffect(() => {
+    if (!apiToken) return;
+    if (lastSeenTokenRef.current && lastSeenTokenRef.current !== apiToken) {
+      bypassEmptyGuardRef.current = true;
+      queryClient.refetchQueries({ queryKey: keys.events.list({ view: 'approval-queue' }) });
+      queryClient.refetchQueries({ queryKey: keys.events.counts({ view: 'approval-queue' }) });
     }
-  }, [authFetch]);
+    lastSeenTokenRef.current = apiToken;
+  }, [apiToken, queryClient]);
+
+  // Calendar settings — one-shot fetch when token first arrives (kept outside
+  // RQ; static configuration data, not on the user's hot path).
+  const calendarSettingsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (apiToken && !calendarSettingsLoadedRef.current) {
+      calendarSettingsLoadedRef.current = true;
+      loadCalendarSettings();
+    }
+  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Backward-compat shims: external code (incl. onConflictRefresh prop and
+  // the experience hook's onSuccess callback) holds references to
+  // loadReservations/loadCounts. Implement as thin cache wrappers so call
+  // sites keep working without per-site changes during the migration.
+  const loadReservations = useCallback(async ({ silent = false, postAction = false, tab } = {}) => {
+    // postAction or non-silent calls write through unconditionally. The legacy
+    // postAction flag exists because a successful approval/rejection can
+    // legitimately empty `needs_attention` — the stale-write guard would
+    // otherwise mask the post-mutation empty truth.
+    if (postAction || !silent) {
+      bypassEmptyGuardRef.current = true;
+    }
+    const queryKey = tab !== undefined
+      ? keys.events.list({ view: 'approval-queue', tab })
+      : keys.events.list({ view: 'approval-queue' }); // prefix-match all tabs
+    if (silent) {
+      await queryClient.invalidateQueries({ queryKey });
+    } else {
+      await queryClient.refetchQueries({ queryKey });
+    }
+  }, [queryClient]);
+
+  const loadCounts = useCallback(async () => {
+    await queryClient.refetchQueries({
+      queryKey: keys.events.counts({ view: 'approval-queue' })
+    });
+  }, [queryClient]);
 
   // Refresh callback for the experience hook
   const handleRefresh = useCallback(() => {
@@ -264,22 +289,22 @@ export default function ReservationRequests({ graphToken }) {
         showError(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
       } else if (result?.editRequestApproved) {
         showSuccess('Edit request approved and changes applied');
-        // Local patch: prevent stale-reopen showing old pending badge before loadReservations completes
+        // Local cache patch: prevent stale-reopen showing old pending badge
+        // before the post-mutation refetch completes. Patches every cached
+        // approval-queue list entry (both tabs) under the same predicate.
         if (result.eventId) {
-          setAllReservations(prev => prev.map(r =>
-            String(r._id) === String(result.eventId)
-              ? { ...r, pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'approved' } }
-              : r
-          ));
+          patchApprovalQueueLists(queryClient, result.eventId, r => ({
+            ...r,
+            pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'approved' },
+          }));
         }
       } else if (result?.editRequestRejected) {
         showSuccess('Edit request rejected');
         if (result.eventId) {
-          setAllReservations(prev => prev.map(r =>
-            String(r._id) === String(result.eventId)
-              ? { ...r, pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'rejected' } }
-              : r
-          ));
+          patchApprovalQueueLists(queryClient, result.eventId, r => ({
+            ...r,
+            pendingEditRequest: { ...(r.pendingEditRequest || {}), status: 'rejected' },
+          }));
         }
       } else if (result?.cancellationApproved) {
         showSuccess('Cancellation approved — event deleted');
@@ -308,42 +333,40 @@ export default function ReservationRequests({ graphToken }) {
   // setApiToken with a new JWT string every 45 min — without this guard, each refresh
   // would trigger a full non-silent reload that unconditionally writes its result (even 0),
   // causing the approval queue to flash empty. Subsequent refreshes come from SSE/polling.
-  useEffect(() => {
-    if (apiToken && apiToken !== lastTokenRef.current) {
-      lastTokenRef.current = apiToken;
-      loadCalendarSettings();
-      loadReservations();
-      loadCounts();
-    }
-  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Mount + token-rotation behavior is now handled by:
+  //   • RQ's `enabled` flag (cold MSAL warm-up: enabled flips false→true and fires)
+  //   • `lastSeenTokenRef` effect above (warm→warm token rotation: explicit refetch)
+  //   • `calendarSettingsLoadedRef` effect above (one-shot calendar settings)
+  // The legacy mount useEffect that bundled all three is no longer needed.
+  //
+  // Polling is now handled by `refetchInterval` inside both useQuery calls
+  // (30s/5min based on isConnected). The legacy `silentRefresh` + `usePolling`
+  // pair is no longer needed.
 
-  // Poll for new reservations every 5 min (silent — no loading spinner)
-  // Don't refresh while the review modal is open to avoid clobbering in-flight edits
-  const silentRefresh = useCallback(() => {
-    if (reviewModal.isOpen) return;
-    loadReservations({ silent: true });
-    loadCounts();
-  }, [loadReservations, loadCounts, reviewModal.isOpen]);
-  // Tighten poll cadence to 30s while SSE is unavailable so staleness is bounded
-  // to tens of seconds; relax to the 5-min sanity cadence while SSE is live.
-  usePolling(silentRefresh, isConnected ? 300_000 : 30_000, !!apiToken);
-
-  // Listen for refresh events from other views.
-  // Delta-patch counts from SSE payload when a clear main-status transition is available;
-  // fall back to full refetch for sub-status changes (edit/cancellation requests) where
-  // oldStatus === newStatus and the delta can't capture needs_attention shifts.
+  // Listen for refresh events from other views. The bus delivers SSE-derived
+  // payloads; for state transitions with a clean oldStatus → newStatus diff,
+  // we delta-patch the counts cache directly via setQueryData (no network
+  // round-trip) and invalidate the list. For sub-status changes (edit /
+  // cancellation requests where oldStatus === newStatus) the delta can't
+  // capture needs_attention shifts, so we fall back to a full counts refetch.
   const handleApprovalQueueBus = useCallback((detail) => {
     const payload = detail?.payload;
     const { oldStatus, newStatus } = payload || {};
 
-    // No delta data, or sub-status change (main status unchanged) → full refetch
+    // No delta data, or sub-status change (main status unchanged) → full refetch.
     if (!payload || (oldStatus == null && newStatus == null) || oldStatus === newStatus) {
-      silentRefresh();
+      if (!reviewModal.isOpen) {
+        queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'approval-queue' }) });
+      }
+      queryClient.invalidateQueries({ queryKey: keys.events.counts({ view: 'approval-queue' }) });
       return;
     }
 
-    // Delta patch counts locally (mirrors Navigation.jsx pattern)
-    setServerCounts(prev => {
+    // Delta-patch counts locally — preserves cross-tab counter consistency
+    // (approving a pending event decrements `needs_attention`; rejecting a
+    // pending event with a transition to 'rejected' adjusts `all` accordingly).
+    queryClient.setQueryData(keys.events.counts({ view: 'approval-queue' }), prev => {
+      if (!prev) return prev;
       let { needs_attention, all } = prev;
       if (oldStatus === 'pending') needs_attention--;
       if (newStatus === 'pending') needs_attention++;
@@ -352,11 +375,11 @@ export default function ReservationRequests({ graphToken }) {
       return { needs_attention: Math.max(0, needs_attention), all: Math.max(0, all) };
     });
 
-    // Still refresh the event list (but NOT counts — those were patched above)
+    // Still refresh the event list (counts were patched above without a fetch).
     if (!reviewModal.isOpen) {
-      loadReservations({ silent: true });
+      queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'approval-queue' }) });
     }
-  }, [silentRefresh, loadReservations, reviewModal.isOpen]);
+  }, [queryClient, reviewModal.isOpen]);
   useDataRefreshBus('approval-queue', handleApprovalQueueBus, !!apiToken);
 
   // Manual refresh handler for FreshnessIndicator
@@ -454,7 +477,10 @@ export default function ReservationRequests({ graphToken }) {
   const startIndex = (page - 1) * PAGE_SIZE;
   const paginatedReservations = sortedReservations.slice(startIndex, startIndex + PAGE_SIZE);
 
-  // Handle tab changes — re-fetches with tab-scoped query
+  // Handle tab changes. With React Query, the tab is part of the queryKey,
+  // so changing `activeTab` triggers an automatic fetch (or cache hit if the
+  // tab was previously visited within staleTime). No explicit refetch call
+  // is needed — the state change drives the data layer.
   const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
     setPage(1);
@@ -462,8 +488,7 @@ export default function ReservationRequests({ graphToken }) {
     if (newTab === 'needs_attention' && (statusFilter === 'published' || statusFilter === 'rejected')) {
       setStatusFilter('');
     }
-    loadReservations({ tab: newTab });
-  }, [statusFilter, loadReservations]);
+  }, [statusFilter]);
 
   // Handle page changes - no API call, pagination is client-side
   const handlePageChange = useCallback((newPage) => {
@@ -544,44 +569,63 @@ export default function ReservationRequests({ graphToken }) {
     }
   }, [isRecurringSeriesMaster, reviewModal, showError]);
 
-  // Card-level delete handlers (separate from modal delete via hook)
-  const handleDeleteClick = (reservation) => {
-    if (confirmDeleteId === reservation._id) {
-      handleDelete(reservation);
-    } else {
-      setConfirmDeleteId(reservation._id);
-    }
-  };
-
-  const handleDelete = async (reservation) => {
-    try {
-      setDeletingId(reservation._id);
-      setConfirmDeleteId(null);
-
+  // Card-level delete mutation (separate from modal delete via the experience hook).
+  // Optimistically marks the row deleted across both tab variants, rolls back
+  // on error, invalidates list + counts on settled. Dual-publishes via
+  // dispatchRefresh so non-migrated views still observe the change.
+  const deleteMutation = useMutation({
+    mutationFn: async ({ reservation }) => {
       const hasGraphData = reservation.calendarId || reservation.graphData?.id;
-
       await deleteEvent(reservation._id, {
         apiToken,
         version: reservation._version,
         graphToken: hasGraphData ? graphToken : undefined,
         calendarId: reservation.calendarId,
       });
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id
-          ? { ...r, status: 'deleted', isDeleted: true }
-          : r
-      ));
-      dispatchRefresh('reservation-requests', 'navigation-counts');
-
-    } catch (err) {
+      return reservation;
+    },
+    onMutate: async ({ reservation }) => {
+      const listPrefix = { queryKey: ['events', 'list'], predicate: (q) => q.queryKey[2]?.view === 'approval-queue' };
+      await queryClient.cancelQueries(listPrefix);
+      // Snapshot every approval-queue list cache entry so we can roll back.
+      const previousEntries = queryClient.getQueriesData(listPrefix);
+      patchApprovalQueueLists(queryClient, reservation._id, r => ({
+        ...r, status: 'deleted', isDeleted: true
+      }));
+      return { previousEntries };
+    },
+    onError: (err, _vars, ctx) => {
+      // Restore every snapshotted cache entry.
+      if (ctx?.previousEntries) {
+        for (const [key, value] of ctx.previousEntries) {
+          queryClient.setQueryData(key, value);
+        }
+      }
       logger.error('Error deleting reservation:', err);
       showError(err, { context: 'ReservationRequests.handleDelete', userMessage: 'Failed to delete reservation' });
-    } finally {
-      setDeletingId(null);
+    },
+    onSuccess: () => {
+      dispatchRefresh('reservation-requests', 'navigation-counts');
+    },
+    onSettled: () => {
+      bypassEmptyGuardRef.current = true;
+      queryClient.invalidateQueries({ queryKey: keys.events.list({ view: 'approval-queue' }) });
+      queryClient.invalidateQueries({ queryKey: keys.events.counts({ view: 'approval-queue' }) });
+    },
+  });
+
+  const handleDeleteClick = (reservation) => {
+    if (confirmDeleteId === reservation._id) {
+      setConfirmDeleteId(null);
+      deleteMutation.mutate({ reservation });
+    } else {
+      setConfirmDeleteId(reservation._id);
     }
   };
+
+  // Loading flag for delete-in-progress — derived from the mutation's variables
+  // so consumers can identify which row is currently being deleted.
+  const deletingId = deleteMutation.isPending ? deleteMutation.variables?.reservation?._id : null;
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {

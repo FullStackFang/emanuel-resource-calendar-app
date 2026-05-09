@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { makeControllableAuthFetch, makeEvents } from '../../__helpers__/mockAuthFetch';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 // ─── Static mocks ────────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ describe('MyReservations — cold-token initial load', () => {
     currentAuthFetch = authFetch;
     currentApiToken = null;
 
-    const { rerender } = render(<MyReservations />);
+    const { rerender } = render(<MyReservations />, { wrapper: withQueryClient() });
 
     // No my-events fetch should have been issued — apiToken is null.
     // Wait one microtask cycle to ensure the mount effect has flushed.
@@ -207,7 +208,7 @@ describe('MyReservations — cold-token initial load', () => {
     currentAuthFetch = authFetch;
     currentApiToken = 'warm-token';
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(countMyEventsCalls(authFetch)).toBe(1);
@@ -232,7 +233,7 @@ describe('MyReservations — cold-token initial load', () => {
     currentAuthFetch = authFetch;
     currentApiToken = 'token-A';
 
-    const { rerender } = render(<MyReservations />);
+    const { rerender } = render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(countMyEventsCalls(authFetch)).toBe(1);

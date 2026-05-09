@@ -1,5 +1,6 @@
 // src/components/MyReservations.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -9,16 +10,15 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
-import { usePolling } from '../hooks/usePolling';
 import { useSSE } from '../context/SSEContext';
 import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { keys } from '../queries/keys';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { formatDraftAge } from '../utils/draftAgeUtils';
 import { formatRecurrenceSummaryCompact } from '../utils/recurrenceUtils';
 import { buildOccurrenceVariants } from '../utils/recurrenceOverrideSummary';
-import { isAbortError } from '../utils/errorUtils';
 import EventReviewExperience from './shared/EventReviewExperience';
 import LoadingSpinner from './shared/LoadingSpinner';
 import FreshnessIndicator from './shared/FreshnessIndicator';
@@ -117,9 +117,11 @@ export default function MyReservations() {
   const authFetch = useAuthenticatedFetch();
   const { canSubmitReservation, canEditEvents, canDeleteEvents, canApproveReservations, permissionsLoading } = usePermissions();
   const { showSuccess, showWarning, showError } = useNotification();
-  const [allReservations, setAllReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
+
+  // UI-only state — filters, pagination, modal-confirm flags, etc.
+  // Server data state (allReservations, loading, error, lastFetchedAt,
+  // isSilentRefreshing) is derived from the React Query cache below.
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -127,101 +129,101 @@ export default function MyReservations() {
   const [sortBy, setSortBy] = useState('date_desc');
   const [page, setPage] = useState(1);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
-  const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  // Tracks in-flight silent polling fetches so the empty state doesn't flash
-  // if the server momentarily returns an empty result during a background refresh.
-  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
-  // A silent refresh (SSE/polling/bus) must NOT abort a live non-silent UI
-  // load — otherwise the initial mount fetch gets cancelled and the list
-  // renders empty. The pair (controller + silence flag) enables the early-
-  // return guard in loadMyReservations.
-  const abortControllerRef = useRef(null);
-  const currentRequestIsSilentRef = useRef(false);
-  // Silent refreshes no-op until the mount effect has dispatched its first
-  // non-silent load. Prevents an SSE/bus event delivered during init from
-  // racing the initial load. Stays true for the lifetime of the component.
-  const initialLoadAttemptedRef = useRef(false);
-  // Tracks the last apiToken we fired a non-silent load for. The mount effect
-  // gates on (apiToken && apiToken !== lastTokenRef.current) so a cold MSAL
-  // warm-up (apiToken null at first render) doesn't permanently miss the load,
-  // and a token refresh (401-retry) triggers exactly one re-load. Mirrors the
-  // pattern in ReservationRequests.jsx.
-  const lastTokenRef = useRef(null);
+  const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
+
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
 
   const isRequesterOnly = !canEditEvents && !canApproveReservations;
 
-  const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
-    // If the in-flight request is non-silent (e.g. the initial mount UI load),
-    // a silent refresh must no-op rather than supersede it. Without this guard,
-    // a silent refresh arriving during the initial load aborts it — the catch
-    // block silently swallows AbortError, loading clears, and allReservations
-    // stays [].
-    if (silent && abortControllerRef.current && !currentRequestIsSilentRef.current) {
-      return;
-    }
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    currentRequestIsSilentRef.current = silent;
+  // ─── Server data: my-reservations list ──────────────────────────────────
+  // TanStack Query handles deduplication, request cancellation (signal),
+  // background refetch, focus refetch, and persisted cache. The only
+  // bespoke behavior we preserve from the prior loadMyReservations is the
+  // **stale-write rule**: a refetch returning 0 events while we already had
+  // populated data is treated as transient (replica lag / 401-retry race)
+  // and the prior cache is kept. First load (no prior data) accepts an
+  // empty response as truth.
+  //
+  // Cold MSAL warm-up (apiToken null at first render) is handled by
+  // `enabled: !!apiToken` — the query auto-runs when the flag flips true.
+  // 401-retry refreshes via authFetch are transparent; no token-identity
+  // ref is needed because authFetch reads the latest token internally.
 
-    try {
-      if (!silent) {
-        setLoading(true);
-        setError('');
-      } else {
-        setIsSilentRefreshing(true);
-      }
+  // queryKey is constructed each render — TanStack Query deeply equates
+  // arrays so reference inequality is harmless.
+  const myEventsKey = keys.events.list({ view: 'my-events', includeDeleted: true });
 
+  const myReservationsQuery = useQuery({
+    queryKey: myEventsKey,
+    queryFn: async ({ signal }) => {
       const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`,
-        { signal: controller.signal }
+        { signal }
       );
-
       if (!response.ok) {
-        if (!silent) throw new Error('Failed to load reservations');
-        logger.warn(`Silent refresh failed with status ${response.status}`);
-        return;
+        throw new Error('Failed to load reservations');
       }
-
       const data = await response.json();
       const transformed = transformEventsToFlatStructure(data.events || []);
-      // Truth source for "0 reservations" is a non-silent load. Silent zeros
-      // are usually transient (replica lag, 401-retry, network race), so they
-      // never overwrite populated state — and the freshness timestamp must
-      // not advance either, since the displayed data is still stale.
-      if (!silent || transformed.length > 0) {
-        setAllReservations(transformed);
-        setLastFetchedAt(Date.now());
+
+      // Stale-write guard: never let a refetch returning 0 events overwrite
+      // populated state. Guards against backend replica lag and 401-retry
+      // races that would otherwise blank the UI between server-truth syncs.
+      if (transformed.length === 0) {
+        const previous = queryClient.getQueryData(myEventsKey);
+        if (Array.isArray(previous) && previous.length > 0) {
+          logger.warn('MyReservations: refetch returned 0 events; keeping previous cached data');
+          return previous;
+        }
       }
-      // Silent success after a prior failure: clear stale banner so the UI recovers.
-      if (silent) setError('');
-    } catch (err) {
-      if (isAbortError(err)) return;
-      if (!silent) {
-        logger.error('Error loading user reservations:', err);
-        setError('Failed to load your reservation requests');
-      }
-    } finally {
-      // Only the still-live controller flips the loading flag — a superseded
-      // request must not clobber the live request's state.
-      if (!controller.signal.aborted) {
-        if (!silent) setLoading(false);
-        else setIsSilentRefreshing(false);
-      }
-      // Identity check guards against a superseded request resolving late and
-      // null-ing the live controller's ref. Setting the ref back to null is
-      // load-bearing: it re-arms the silent-refresh early-return guard at the
-      // top of this callback — without it, every subsequent silent refresh
-      // permanently short-circuits.
-      if (abortControllerRef.current === controller) {
-        currentRequestIsSilentRef.current = false;
-        abortControllerRef.current = null;
-      }
+      return transformed;
+    },
+    enabled: !!apiToken,
+    staleTime: 5 * 60 * 1000,
+    // Tighten poll cadence to 30s while SSE is unavailable so staleness is
+    // bounded; relax to 5 min while SSE is live (sanity re-sync).
+    refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
+    refetchIntervalInBackground: false,
+    retry: 2,
+  });
+
+  const allReservations = myReservationsQuery.data ?? [];
+  const loading = myReservationsQuery.isLoading;
+  const error = myReservationsQuery.error?.message || '';
+  const lastFetchedAt = myReservationsQuery.dataUpdatedAt || null;
+  // Background refetch (polling, bus, manual, mutation invalidate) — UI uses
+  // this to suppress the empty-state flash while data is being re-validated.
+  const isSilentRefreshing = myReservationsQuery.isFetching && !myReservationsQuery.isLoading;
+
+  // Token rotation guard: when `apiToken` changes between two truthy values
+  // (e.g., 401-retry flow rotates A → B mid-session), force a refetch so the
+  // displayed data re-syncs under the fresh token. The cold-warmup transition
+  // (null → A) is handled by RQ's `enabled` flip and does NOT need this effect.
+  const lastSeenTokenRef = useRef(null);
+  useEffect(() => {
+    if (!apiToken) return;
+    if (lastSeenTokenRef.current && lastSeenTokenRef.current !== apiToken) {
+      queryClient.refetchQueries({
+        queryKey: keys.events.list({ view: 'my-events', includeDeleted: true })
+      });
     }
-  }, [authFetch]);
+    lastSeenTokenRef.current = apiToken;
+  }, [apiToken, queryClient]);
+
+  // Backward-compat shim: external code (incl. onConflictRefresh prop and
+  // the experience hook's onSuccess callback) holds a reference to
+  // `loadMyReservations`. Implement as a thin cache wrapper so call sites
+  // keep working without per-site changes during the migration.
+  const loadMyReservations = useCallback(async ({ silent = false } = {}) => {
+    const queryKey = keys.events.list({ view: 'my-events', includeDeleted: true });
+    if (silent) {
+      await queryClient.invalidateQueries({ queryKey });
+    } else {
+      await queryClient.refetchQueries({ queryKey });
+    }
+  }, [queryClient]);
 
   // Refresh callback for the experience hook (handles data reload + badge dispatch)
   const handleRefresh = useCallback(() => {
@@ -275,54 +277,16 @@ export default function MyReservations() {
     onError: (error) => { showError(error, { context: 'MyReservations' }); }
   });
 
-  // Local state for requester actions (unique to MyReservations)
-  const [isResubmitting, setIsResubmitting] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
-
-  // Cancellation withdrawal state (unique to MyReservations)
-  const [isWithdrawingCancellationRequest, setIsWithdrawingCancellationRequest] = useState(false);
-  const [isWithdrawCancellationConfirming, setIsWithdrawCancellationConfirming] = useState(false);
-
-  // Fire the initial non-silent load when apiToken first becomes available.
-  // apiToken can arrive AFTER first mount on cold MSAL warm-ups; the previous
-  // version of this effect omitted apiToken from deps and so never re-fired,
-  // leaving the tab blank intermittently. The token-identity guard also makes
-  // 401-retry token refreshes trigger exactly one re-load — same semantics
-  // as ReservationRequests.jsx:307-318.
-  //
-  // initialLoadAttemptedRef is still flipped BEFORE the dispatch so any
-  // SSE/bus event debounced into the same tick (useDataRefreshBus has a 500ms
-  // buffer) replays correctly against a real in-flight or completed load.
-  //
-  // loadMyReservations is intentionally NOT in deps: its identity is stable
-  // across token transitions (deps [authFetch], and authFetch's deps don't
-  // include apiToken — see useAuthenticatedFetch.js). Adding it would be a
-  // no-op churn dep; matching ReservationRequests for consistency.
-  useEffect(() => {
-    if (apiToken && apiToken !== lastTokenRef.current) {
-      lastTokenRef.current = apiToken;
-      initialLoadAttemptedRef.current = true;
-      loadMyReservations();
-    }
-  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Poll for updates every 5 min (silent — no loading spinner, skip while modal is open).
-  // Declared before useDataRefreshBus so the bus subscription can reuse the same
-  // silent-refresh callback (previously the bus handler used loadMyReservations
-  // directly, which caused a jarring spinner flash on cross-view refresh events).
-  const silentRefresh = useCallback(() => {
-    if (reviewModal.isOpen) return;
-    // Block silent refreshes until the mount effect has dispatched its first
-    // non-silent load — otherwise an SSE/bus event during init races it.
-    if (!initialLoadAttemptedRef.current) return;
-    return loadMyReservations({ silent: true });
-  }, [loadMyReservations, reviewModal.isOpen]);
-  // Tighten poll cadence to 30s while SSE is unavailable so staleness is bounded
-  // to tens of seconds; relax to the 5-min sanity cadence while SSE is live.
-  usePolling(silentRefresh, isConnected ? 300_000 : 30_000, !!apiToken);
-
-  // Listen for refresh events from other views (draft submission, approval actions, etc.)
-  useDataRefreshBus('my-reservations', silentRefresh, !!apiToken);
+  // Listen for refresh events from other views (draft submission, approval
+  // actions, etc.). The bus callback invalidates the cache; RQ refetches
+  // automatically if the query is observed. Will retire in §15 after every
+  // bus subscriber has migrated to React Query.
+  const onBusRefresh = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: keys.events.list({ view: 'my-events', includeDeleted: true })
+    });
+  }, [queryClient]);
+  useDataRefreshBus('my-reservations', onBusRefresh, !!apiToken);
 
   // Manual refresh handler for FreshnessIndicator
   const handleManualRefresh = useCallback(async () => {
@@ -433,83 +397,110 @@ export default function MyReservations() {
 
   // --- Requester action handlers (local, not in hook) ---
 
-  // Resubmit (requester, rejected events) — used by ReviewModal's onResubmit button
-  const handleResubmit = useCallback(async () => {
-    const item = reviewModal.currentItem;
-    if (!item) return;
+  // ─── Mutations: requester actions (unique to MyReservations) ───────────
+  // Each mutation:
+  //   - applies an optimistic update where the post-state is deterministic
+  //     (resubmit → pending; cancellation withdrawal → no client-side state
+  //     change; restore → server-determined, no optimistic);
+  //   - rolls back to the prior cache snapshot on error (onError);
+  //   - invalidates the events list on settled so server truth syncs in;
+  //   - dual-publishes via dispatchRefresh so non-migrated views (Calendar,
+  //     ReservationRequests, EventManagement, counts badges) keep observing
+  //     change notifications until §15 retires the bus.
 
-    setIsResubmitting(true);
-    try {
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/resubmit`, {
+  const resubmitMutation = useMutation({
+    mutationFn: async ({ id, version }) => {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${id}/resubmit`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ _version: item._version || null })
+        body: JSON.stringify({ _version: version || null })
       });
-
       if (!response.ok) throw new Error('Failed to resubmit reservation');
-
-      showSuccess('Request resubmitted for approval');
-      reviewModal.closeModal(true);
-      loadMyReservations();
-      dispatchRefresh('my-reservations', 'navigation-counts');
-    } catch (err) {
+      return response.json();
+    },
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: myEventsKey });
+      const previous = queryClient.getQueryData(myEventsKey);
+      // Optimistic: rejected → pending (deterministic transition)
+      queryClient.setQueryData(myEventsKey, (old = []) =>
+        Array.isArray(old)
+          ? old.map(r => r._id === id ? { ...r, status: 'pending' } : r)
+          : old
+      );
+      return { previous };
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.previous !== undefined) queryClient.setQueryData(myEventsKey, ctx.previous);
       logger.error('Error resubmitting reservation:', err);
       showError(err, { context: 'MyReservations.handleResubmit' });
-    } finally {
-      setIsResubmitting(false);
+    },
+    onSuccess: () => {
+      showSuccess('Request resubmitted for approval');
+      reviewModal.closeModal(true);
+      dispatchRefresh('my-reservations', 'navigation-counts');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: myEventsKey });
     }
-  }, [reviewModal, authFetch, loadMyReservations, showError]);
+  });
 
-  // Restore (owner, deleted events) — used by ReviewModal's onRestore button
-  const handleRestore = useCallback(async () => {
+  const handleResubmit = useCallback(() => {
     const item = reviewModal.currentItem;
     if (!item) return;
+    resubmitMutation.mutate({ id: item._id, version: item._version });
+  }, [reviewModal, resubmitMutation]);
 
-    setIsRestoring(true);
-    try {
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/restore`, {
+  // Restore (owner, deleted events) — has 409 SchedulingConflict branch
+  // that surfaces a conflict modal instead of a generic error toast.
+  // No optimistic update because the post-restore status is server-
+  // determined (statusHistory walk). The settled invalidate brings truth.
+  const restoreMutation = useMutation({
+    mutationFn: async ({ id, version, eventTitle }) => {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${id}/restore`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ _version: item._version || null })
+        body: JSON.stringify({ _version: version || null })
       });
-
       if (response.status === 409) {
         const data = await response.json();
         if (data.error === 'SchedulingConflict') {
-          setRestoreConflicts({ ...data, eventTitle: item.eventTitle });
-          return;
+          const err = new Error('SchedulingConflict');
+          err.conflicts = { ...data, eventTitle };
+          throw err;
         }
         throw new Error(data.message || 'Version conflict');
       }
-
       if (!response.ok) throw new Error('Failed to restore reservation');
-
-      const result = await response.json();
-      showSuccess('Reservation restored');
-      reviewModal.closeModal(true);
-      loadMyReservations();
-      dispatchRefresh('my-reservations', 'navigation-counts');
-    } catch (err) {
+      return response.json();
+    },
+    onError: (err) => {
+      // SchedulingConflict surfaces the conflict modal without a generic toast
+      if (err?.message === 'SchedulingConflict' && err.conflicts) {
+        setRestoreConflicts(err.conflicts);
+        return;
+      }
       logger.error('Error restoring reservation:', err);
       showError(err, { context: 'MyReservations.handleRestore' });
-    } finally {
-      setIsRestoring(false);
+    },
+    onSuccess: () => {
+      showSuccess('Reservation restored');
+      reviewModal.closeModal(true);
+      dispatchRefresh('my-reservations', 'navigation-counts');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: myEventsKey });
     }
-  }, [reviewModal, authFetch, loadMyReservations, showError]);
+  });
 
-  // --- Cancellation withdrawal handler (unique to MyReservations) ---
-  const handleWithdrawCancellationRequest = useCallback(async () => {
-    if (!isWithdrawCancellationConfirming) {
-      setIsWithdrawCancellationConfirming(true);
-      return;
-    }
+  const handleRestore = useCallback(() => {
+    const item = reviewModal.currentItem;
+    if (!item) return;
+    restoreMutation.mutate({ id: item._id, version: item._version, eventTitle: item.eventTitle });
+  }, [reviewModal, restoreMutation]);
 
-    const currentItem = reviewModal.currentItem;
-    if (!currentItem) return;
-
-    setIsWithdrawingCancellationRequest(true);
-    try {
-      const eventId = currentItem._id || currentItem.eventId;
+  // --- Cancellation withdrawal mutation (unique to MyReservations) ---
+  const withdrawCancellationMutation = useMutation({
+    mutationFn: async ({ eventId }) => {
       const response = await authFetch(
         `${APP_CONFIG.API_BASE_URL}/events/cancellation-requests/${eventId}/cancel`,
         {
@@ -517,28 +508,47 @@ export default function MyReservations() {
           headers: { 'Content-Type': 'application/json' },
         }
       );
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to withdraw cancellation request');
       }
-
+      return response.json();
+    },
+    onSuccess: () => {
       showSuccess('Cancellation request withdrawn');
       setIsWithdrawCancellationConfirming(false);
       reviewModal.closeModal();
-      loadMyReservations();
       dispatchRefresh('my-reservations', 'navigation-counts');
-    } catch (error) {
-      showError(error, { context: 'MyReservations.withdrawCancellationRequest' });
-    } finally {
-      setIsWithdrawingCancellationRequest(false);
+    },
+    onError: (error) => {
       setIsWithdrawCancellationConfirming(false);
+      showError(error, { context: 'MyReservations.withdrawCancellationRequest' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: myEventsKey });
     }
-  }, [isWithdrawCancellationConfirming, reviewModal, authFetch, loadMyReservations, showSuccess, showError]);
+  });
+
+  const handleWithdrawCancellationRequest = useCallback(() => {
+    // Two-click in-button confirmation pattern (per CLAUDE.md UX standard).
+    if (!isWithdrawCancellationConfirming) {
+      setIsWithdrawCancellationConfirming(true);
+      return;
+    }
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem) return;
+    const eventId = currentItem._id || currentItem.eventId;
+    withdrawCancellationMutation.mutate({ eventId });
+  }, [isWithdrawCancellationConfirming, reviewModal, withdrawCancellationMutation]);
 
   const cancelWithdrawCancellationConfirmation = useCallback(() => {
     setIsWithdrawCancellationConfirming(false);
   }, []);
+
+  // Loading flags used by ReviewModal — derived from each mutation's pending state.
+  const isResubmitting = resubmitMutation.isPending;
+  const isRestoring = restoreMutation.isPending;
+  const isWithdrawingCancellationRequest = withdrawCancellationMutation.isPending;
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {

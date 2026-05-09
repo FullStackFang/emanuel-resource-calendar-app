@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 // ─── Module-level mocks (mirror MyReservations.recurringCard.test.jsx) ───────
 
@@ -196,7 +197,7 @@ describe('MyReservations recurrence-parity (R-12)', () => {
 
   it('R-12a: View Details on a singleInstance event opens the modal directly with no editScope option', async () => {
     mountWithEvents([singleEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('One-Off Concert')).toBeInTheDocument();
@@ -219,7 +220,7 @@ describe('MyReservations recurrence-parity (R-12)', () => {
 
   it('R-12b: View Details on a seriesMaster opens the modal directly with editScope: allEvents (no scope dialog)', async () => {
     mountWithEvents([seriesMasterEvent]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Weekly Yoga')).toBeInTheDocument();
@@ -253,7 +254,7 @@ describe('MyReservations recurrence-parity (R-12)', () => {
       eventType: undefined,
     };
     mountWithEvents([legacyMaster]);
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(screen.getByText('Legacy Recurring Class')).toBeInTheDocument();

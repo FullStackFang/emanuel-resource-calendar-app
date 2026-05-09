@@ -7,6 +7,7 @@ import {
   useQueryClient
 } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
+import { keys } from '../queries/keys';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
 import CalendarSelector from './CalendarSelector';
@@ -317,9 +318,17 @@ function EventSearch({
 
   const allLocationOptions = useMemo(() => availableLocations || [], [availableLocations]);
 
-  // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing)
+  // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing).
+  // Built via the central factory so a cross-cutting `keys.events.all()` invalidation
+  // (e.g., from the SSE bridge on server restart) reaches search results too.
   const searchQueryKey = useMemo(() =>
-    ['events', searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone],
+    keys.events.search({
+      version: searchVersion,
+      dateRange,
+      categories: selectedCategories,
+      locations: selectedLocations,
+      timezone: userTimezone,
+    }),
     [searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone]
   );
   

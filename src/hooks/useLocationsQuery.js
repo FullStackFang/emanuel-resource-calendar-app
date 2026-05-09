@@ -7,11 +7,14 @@
 import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import APP_CONFIG from '../config/config';
+import { keys } from '../queries/keys';
 
 /**
- * Query key for locations - used for cache invalidation
+ * Query key for locations - used for cache invalidation.
+ * Re-exported from the central factory in `src/queries/keys.js` so existing
+ * importers keep working. New callers should import `keys` directly.
  */
-export const LOCATIONS_QUERY_KEY = ['locations'];
+export const LOCATIONS_QUERY_KEY = keys.locations.all();
 
 /**
  * Fetch locations from the API

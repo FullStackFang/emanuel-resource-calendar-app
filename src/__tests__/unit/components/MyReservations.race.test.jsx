@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { makeControllableAuthFetch, makeEvents } from '../../__helpers__/mockAuthFetch';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 // ─── Static mocks ────────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ describe('MyReservations — loadMyReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
@@ -184,7 +185,7 @@ describe('MyReservations — loadMyReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
@@ -233,7 +234,7 @@ describe('MyReservations — loadMyReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     // Fire the bus handler immediately. Whether the gate has flipped yet
     // depends on effect ordering, but the invariant is identical either way:
@@ -278,7 +279,7 @@ describe('MyReservations — loadMyReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
@@ -336,7 +337,7 @@ describe('MyReservations — loadMyReservations race condition', () => {
     const { authFetch, resolveCall } = makeControllableAuthFetch();
     currentAuthFetch = authFetch;
 
-    render(<MyReservations />);
+    render(<MyReservations />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
       expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
