@@ -73,6 +73,13 @@ export default function RschedImport() {
 
   const [selectedRemovals, setSelectedRemovals] = useState(new Set());
 
+  // Recurrence-detection panel state.
+  const [candidates, setCandidates] = useState([]);
+  const [candidateFilter, setCandidateFilter] = useState(''); // '' | 'detected' | 'approved' | 'rejected'
+  const [detecting, setDetecting] = useState(false);
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [recurrenceSummary, setRecurrenceSummary] = useState(null);
+
   const searchTimerRef = useRef(null);
 
   const loadActive = useCallback(async () => {
@@ -294,6 +301,114 @@ export default function RschedImport() {
     }
   };
 
+  const loadCandidates = useCallback(
+    async (sessionId, filter = '') => {
+      if (!sessionId) return;
+      try {
+        const params = new URLSearchParams({ pageSize: '500' });
+        if (filter) params.append('status', filter);
+        const res = await authFetch(
+          `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${sessionId}/recurrence-candidates?${params}`,
+        );
+        if (!res.ok) throw new Error(`Failed to load candidates (${res.status})`);
+        const data = await res.json();
+        setCandidates(data.candidates || []);
+      } catch (err) {
+        showError(err);
+      }
+    },
+    [authFetch, showError],
+  );
+
+  const handleDetectRecurrence = async () => {
+    if (!activeSessionId) return;
+    setDetecting(true);
+    try {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}/detect-recurrence`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Detect failed (${res.status})`);
+      setRecurrenceSummary({
+        candidatesFound: data.candidatesFound,
+        totalRowsCovered: data.totalRowsCovered,
+        byConfidence: data.byConfidence,
+      });
+      showSuccess(
+        `Detected ${data.candidatesFound} recurring series covering ${data.totalRowsCovered} rows ` +
+          `(${data.byConfidence.high} high · ${data.byConfidence.medium} med · ${data.byConfidence.low} low)`,
+      );
+      await loadCandidates(activeSessionId, candidateFilter);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const handleApproveCandidate = async (candidateId) => {
+    if (!activeSessionId) return;
+    try {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}/recurrence-candidates/${candidateId}/approve`,
+        { method: 'PUT' },
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Approve failed (${res.status})`);
+      }
+      await loadCandidates(activeSessionId, candidateFilter);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handleRejectCandidate = async (candidateId) => {
+    if (!activeSessionId) return;
+    try {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}/recurrence-candidates/${candidateId}/reject`,
+        { method: 'PUT' },
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Reject failed (${res.status})`);
+      }
+      await loadCandidates(activeSessionId, candidateFilter);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handleBulkApproveHigh = async () => {
+    if (!activeSessionId) return;
+    setBulkApproving(true);
+    try {
+      const res = await authFetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/rsched-import/sessions/${activeSessionId}/recurrence-candidates/bulk`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'approve', filter: { confidence: 'high' } }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Bulk approve failed (${res.status})`);
+      showSuccess(`Approved ${data.modified} high-confidence series`);
+      await loadCandidates(activeSessionId, candidateFilter);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBulkApproving(false);
+    }
+  };
+
+  const handleCandidateFilterChange = (filter) => {
+    setCandidateFilter(filter);
+    if (activeSessionId) loadCandidates(activeSessionId, filter);
+  };
+
   const handleDownloadDriftReport = async (format) => {
     if (!activeSessionId) return;
     try {
@@ -435,6 +550,16 @@ export default function RschedImport() {
           onSkipRow={handleSkipRow}
           onForceRow={handleForceApply}
           onDownloadDriftReport={handleDownloadDriftReport}
+          candidates={candidates}
+          candidateFilter={candidateFilter}
+          recurrenceSummary={recurrenceSummary}
+          detecting={detecting}
+          bulkApproving={bulkApproving}
+          onDetectRecurrence={handleDetectRecurrence}
+          onApproveCandidate={handleApproveCandidate}
+          onRejectCandidate={handleRejectCandidate}
+          onBulkApproveHigh={handleBulkApproveHigh}
+          onCandidateFilterChange={handleCandidateFilterChange}
         />
       ) : (
         <section className="rsi-card">
@@ -524,6 +649,215 @@ function PreviewSummary({ session, preview }) {
   );
 }
 
+function RecurrencePanel({
+  candidates,
+  candidateFilter,
+  recurrenceSummary,
+  detecting,
+  bulkApproving,
+  onDetectRecurrence,
+  onApproveCandidate,
+  onRejectCandidate,
+  onBulkApproveHigh,
+  onCandidateFilterChange,
+}) {
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [confirmActionId, setConfirmActionId] = useState(null); // 'approve-{id}' | 'reject-{id}'
+
+  const toggleExpanded = (id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confidenceLabel = (n) => {
+    if (n >= 0.8) return { label: 'HIGH', cls: 'rsi-conf-high' };
+    if (n >= 0.5) return { label: 'MED', cls: 'rsi-conf-med' };
+    return { label: 'LOW', cls: 'rsi-conf-low' };
+  };
+
+  const formatPattern = (c) => {
+    const p = c.detectedPattern || {};
+    if (p.type === 'weekly') {
+      const interval = (p.interval || 1) > 1 ? `every ${p.interval} weeks` : 'weekly';
+      const days = (p.daysOfWeek || []).join('/').toUpperCase();
+      return `${interval} ${days}`;
+    }
+    if (p.type === 'absoluteMonthly') return `monthly on day ${p.dayOfMonth}`;
+    if (p.type === 'relativeMonthly') return `monthly ${p.index} ${(p.daysOfWeek || []).join('/')}`;
+    if (p.type === 'daily') return 'daily';
+    return p.type || 'unknown';
+  };
+
+  return (
+    <section className="rsi-card rsi-recurrence-panel">
+      <div className="rsi-recurrence-header">
+        <h2>Detected recurring patterns</h2>
+        <button
+          type="button"
+          className="rsi-btn-secondary"
+          onClick={onDetectRecurrence}
+          disabled={detecting}
+        >
+          {detecting ? 'Detecting…' : 'Detect recurring patterns'}
+        </button>
+      </div>
+
+      {recurrenceSummary ? (
+        <p className="rsi-muted">
+          Detected <strong>{recurrenceSummary.candidatesFound}</strong> series covering{' '}
+          <strong>{recurrenceSummary.totalRowsCovered}</strong> rows ·{' '}
+          {recurrenceSummary.byConfidence.high} high · {recurrenceSummary.byConfidence.medium} med ·{' '}
+          {recurrenceSummary.byConfidence.low} low
+        </p>
+      ) : (
+        <p className="rsi-muted">
+          Run detection to find rows that repeat on a regular schedule. Approved candidates become
+          recurring series (with exception overrides) on commit.
+        </p>
+      )}
+
+      {candidates.length > 0 ? (
+        <>
+          <div className="rsi-recurrence-controls">
+            <div className="rsi-tabs">
+              {[
+                { key: '', label: 'All' },
+                { key: 'detected', label: 'Detected' },
+                { key: 'approved', label: 'Approved' },
+                { key: 'rejected', label: 'Rejected' },
+              ].map((t) => (
+                <button
+                  key={t.key || 'all'}
+                  type="button"
+                  className={`rsi-tab ${candidateFilter === t.key ? 'active' : ''}`}
+                  onClick={() => onCandidateFilterChange(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="rsi-btn-secondary"
+              onClick={onBulkApproveHigh}
+              disabled={bulkApproving}
+              title="Approve all candidates with confidence >= 0.8 in one action"
+            >
+              {bulkApproving ? 'Approving…' : 'Approve all high-confidence'}
+            </button>
+          </div>
+
+          <ul className="rsi-recurrence-list">
+            {candidates.map((c) => {
+              const conf = confidenceLabel(c.confidence);
+              const isExpanded = expandedIds.has(c.candidateId);
+              const isApproveConfirm = confirmActionId === `approve-${c.candidateId}`;
+              const isRejectConfirm = confirmActionId === `reject-${c.candidateId}`;
+              return (
+                <li key={c.candidateId} className={`rsi-candidate rsi-status-${c.status}`}>
+                  <div className="rsi-candidate-row">
+                    <button
+                      type="button"
+                      className="rsi-btn-link rsi-expand-btn"
+                      onClick={() => toggleExpanded(c.candidateId)}
+                      aria-expanded={isExpanded}
+                    >
+                      {isExpanded ? '▾' : '▸'}
+                    </button>
+                    <span className={`rsi-conf-badge ${conf.cls}`}>{conf.label}</span>
+                    <div className="rsi-candidate-title">
+                      <strong>{c.canonicalTitle || '(untitled)'}</strong>
+                      {(c.titleVariants || []).length > 1 ? (
+                        <span className="rsi-muted"> · {c.titleVariants.length} variants</span>
+                      ) : null}
+                    </div>
+                    <div className="rsi-candidate-meta">
+                      <span>{formatPattern(c)}</span>
+                      <span className="rsi-muted">
+                        {c.startTime} · {c.memberCount} rows
+                      </span>
+                      {c.outlierCount > 0 ? (
+                        <span className="rsi-muted">{c.outlierCount} outlier(s)</span>
+                      ) : null}
+                      {c.overrideCount > 0 ? (
+                        <span className="rsi-muted">{c.overrideCount} override(s)</span>
+                      ) : null}
+                    </div>
+                    <div className="rsi-candidate-actions">
+                      {c.status === 'detected' ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`rsi-btn-link ${isApproveConfirm ? 'rsi-confirm' : ''}`}
+                            onClick={() => {
+                              if (isApproveConfirm) {
+                                onApproveCandidate(c.candidateId);
+                                setConfirmActionId(null);
+                              } else {
+                                setConfirmActionId(`approve-${c.candidateId}`);
+                              }
+                            }}
+                          >
+                            {isApproveConfirm ? 'Confirm approve' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            className={`rsi-btn-link ${isRejectConfirm ? 'rsi-confirm' : ''}`}
+                            onClick={() => {
+                              if (isRejectConfirm) {
+                                onRejectCandidate(c.candidateId);
+                                setConfirmActionId(null);
+                              } else {
+                                setConfirmActionId(`reject-${c.candidateId}`);
+                              }
+                            }}
+                          >
+                            {isRejectConfirm ? 'Confirm reject' : 'Reject'}
+                          </button>
+                        </>
+                      ) : (
+                        <span className="rsi-muted">{c.status}</span>
+                      )}
+                    </div>
+                  </div>
+                  {isExpanded ? (
+                    <div className="rsi-candidate-detail">
+                      <table className="rsi-diff-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Title</th>
+                            <th>Role</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(c.members || []).map((m, i) => (
+                            <tr key={`${c.candidateId}-${i}`}>
+                              <td>{m.startDate}</td>
+                              <td>{m.eventTitle}</td>
+                              <td>
+                                <span className={`rsi-role rsi-role-${m.role}`}>{m.role}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function BreakdownChips({ breakdown = {} }) {
   const keys = Object.keys(breakdown);
   if (keys.length === 0) return <span className="rsi-muted">—</span>;
@@ -577,6 +911,16 @@ function SessionView(props) {
     onSkipRow,
     onForceRow,
     onDownloadDriftReport,
+    candidates,
+    candidateFilter,
+    recurrenceSummary,
+    detecting,
+    bulkApproving,
+    onDetectRecurrence,
+    onApproveCandidate,
+    onRejectCandidate,
+    onBulkApproveHigh,
+    onCandidateFilterChange,
   } = props;
 
   const totalPages = Math.max(1, Math.ceil(rowTotal / PAGE_SIZE));
@@ -588,6 +932,21 @@ function SessionView(props) {
   return (
     <>
       <PreviewSummary session={session} preview={preview} />
+
+      {onDetectRecurrence ? (
+        <RecurrencePanel
+          candidates={candidates || []}
+          candidateFilter={candidateFilter || ''}
+          recurrenceSummary={recurrenceSummary}
+          detecting={detecting}
+          bulkApproving={bulkApproving}
+          onDetectRecurrence={onDetectRecurrence}
+          onApproveCandidate={onApproveCandidate}
+          onRejectCandidate={onRejectCandidate}
+          onBulkApproveHigh={onBulkApproveHigh}
+          onCandidateFilterChange={onCandidateFilterChange}
+        />
+      ) : null}
 
       <section className="rsi-card">
         <div className="rsi-actions">
