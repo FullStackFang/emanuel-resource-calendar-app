@@ -12562,6 +12562,85 @@ app.get('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates/:can
 });
 
 /**
+ * Approve a single candidate — flips status to 'approved'.
+ */
+app.put('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates/:candidateId/approve', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId, candidateId } = req.params;
+    const result = await rschedRecurrenceCandidatesCollection.updateOne(
+      { sessionId, candidateId },
+      { $set: { status: 'approved', reviewedAt: new Date(), reviewedBy: auth.userId } },
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ error: 'Candidate not found' });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('rsched-import approve candidate error:', err);
+    res.status(500).json({ error: 'Failed to approve candidate' });
+  }
+});
+
+/**
+ * Reject a single candidate — flips status to 'rejected'.
+ */
+app.put('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates/:candidateId/reject', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId, candidateId } = req.params;
+    const result = await rschedRecurrenceCandidatesCollection.updateOne(
+      { sessionId, candidateId },
+      { $set: { status: 'rejected', reviewedAt: new Date(), reviewedBy: auth.userId } },
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ error: 'Candidate not found' });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('rsched-import reject candidate error:', err);
+    res.status(500).json({ error: 'Failed to reject candidate' });
+  }
+});
+
+/**
+ * Bulk approve/reject by candidateIds list OR confidence band filter.
+ * body: { action: 'approve' | 'reject', candidateIds?: [...], filter?: { confidence: 'high'|'medium'|'low' } }
+ */
+app.post('/api/admin/rsched-import/sessions/:sessionId/recurrence-candidates/bulk', verifyToken, async (req, res) => {
+  try {
+    const auth = await requireAdminUser(req, res);
+    if (!auth) return;
+    const { sessionId } = req.params;
+    const { action, candidateIds, filter } = req.body || {};
+    if (action !== 'approve' && action !== 'reject') {
+      return res.status(400).json({ error: "action must be 'approve' or 'reject'" });
+    }
+    const newStatus = action === 'approve' ? 'approved' : 'rejected';
+
+    // Build the match filter — only operate on currently-detected candidates
+    // (don't re-flip already-reviewed ones unintentionally).
+    const matchFilter = { sessionId, status: 'detected' };
+    if (Array.isArray(candidateIds) && candidateIds.length > 0) {
+      matchFilter.candidateId = { $in: candidateIds };
+    } else if (filter && typeof filter === 'object') {
+      if (filter.confidence === 'high') matchFilter.confidence = { $gte: 0.8 };
+      else if (filter.confidence === 'medium') matchFilter.confidence = { $gte: 0.5, $lt: 0.8 };
+      else if (filter.confidence === 'low') matchFilter.confidence = { $lt: 0.5 };
+    } else {
+      return res.status(400).json({ error: 'must provide candidateIds[] or filter' });
+    }
+
+    const result = await rschedRecurrenceCandidatesCollection.updateMany(
+      matchFilter,
+      { $set: { status: newStatus, reviewedAt: new Date(), reviewedBy: auth.userId } },
+    );
+    res.json({ success: true, matched: result.matchedCount, modified: result.modifiedCount });
+  } catch (err) {
+    logger.error('rsched-import bulk candidate action error:', err);
+    res.status(500).json({ error: 'Failed to bulk update candidates' });
+  }
+});
+
+/**
  * Drift report — downloadable JSON or CSV summarizing what a commit would do
  * (creates / updates with field-level diffs / removals / human-edit conflicts).
  *
