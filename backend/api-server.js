@@ -12713,13 +12713,137 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/commit', verifyToken, asy
       })
       .toArray();
 
+    // Build a map for O(1) staging-row lookup by _id (used by all three passes).
+    const eligibleById = new Map(eligible.map((r) => [r._id.toString(), r]));
+
+    // Load approved recurrence candidates for this session and build the
+    // staging-row → candidate-role assignment map.
+    const approvedCandidates = await rschedRecurrenceCandidatesCollection
+      .find({ sessionId, status: 'approved' })
+      .toArray();
+    const rowAssignments = new Map(); // stagingRowId.toString() → { candidate, member }
+    for (const cand of approvedCandidates) {
+      for (const member of cand.members || []) {
+        if (!member.stagingRowId) continue;
+        rowAssignments.set(member.stagingRowId.toString(), { candidate: cand, member });
+      }
+    }
+
     let applied = 0;
     let skipped = 0;
     let humanEditConflicts = 0;
     let failed = 0;
     let noOp = 0;
+    let seriesMastersCreated = 0;
+    let seriesMastersUpdated = 0;
+    let exceptionsCreated = 0;
+    let singleInstancesCreated = 0;
 
+    async function markStagingApplied(rowId, outcome, eventId) {
+      await rschedImportStagingCollection.updateOne(
+        { _id: rowId },
+        {
+          $set: {
+            appliedEventId: eventId,
+            appliedAt: new Date(),
+            applyError: null,
+            status: rschedImportService.STAGING_STATUS.APPLIED,
+          },
+        },
+      );
+    }
+    async function markStagingFailed(rowId, errorMsg) {
+      await rschedImportStagingCollection.updateOne(
+        { _id: rowId },
+        {
+          $set: {
+            appliedAt: new Date(),
+            applyError: errorMsg,
+            status: rschedImportService.STAGING_STATUS.FAILED,
+          },
+        },
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass 1: create or upgrade seriesMasters for each approved candidate.
+    // Per-row try/catch — a single failure does NOT abort the rest.
+    // -------------------------------------------------------------------------
+    const masterCandidates = [];
+    for (const cand of approvedCandidates) {
+      const masterMember = (cand.members || []).find((m) => m.role === 'master');
+      if (!masterMember) continue;
+      const masterRow = eligibleById.get(masterMember.stagingRowId?.toString());
+      if (!masterRow) continue;
+      masterCandidates.push({ candidate: cand, masterRow });
+    }
+    for (const { candidate, masterRow } of masterCandidates) {
+      try {
+        const result = await rschedImportService.applyAsMaster(db, masterRow, candidate, ctx);
+        if (result.outcome === rschedImportService.APPLY_OUTCOME.INSERTED) {
+          seriesMastersCreated++;
+        } else if (result.outcome === rschedImportService.APPLY_OUTCOME.UPDATED) {
+          seriesMastersUpdated++;
+        } else if (result.outcome === rschedImportService.APPLY_OUTCOME.FAILED) {
+          failed++;
+          await markStagingFailed(masterRow._id, result.error || 'applyAsMaster failed');
+          continue;
+        }
+        applied++;
+        await markStagingApplied(masterRow._id, result.outcome, result.eventId);
+      } catch (err) {
+        failed++;
+        await markStagingFailed(masterRow._id, err.message);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass 2: create exception override documents for each approved candidate.
+    // -------------------------------------------------------------------------
+    for (const cand of approvedCandidates) {
+      for (const member of (cand.members || []).filter((m) => m.role === 'occurrence_override')) {
+        const stagingRow = eligibleById.get(member.stagingRowId?.toString());
+        if (!stagingRow) continue;
+        try {
+          const result = await rschedImportService.applyAsException(db, stagingRow, cand, member, ctx);
+          exceptionsCreated++;
+          applied++;
+          await markStagingApplied(stagingRow._id, result.outcome, result.eventId);
+        } catch (err) {
+          failed++;
+          await markStagingFailed(stagingRow._id, err.message);
+        }
+      }
+      // 'occurrence_clean' members: skipped here. The seriesMaster expansion
+      // renders them virtually, no document needed. Mark the staging row as
+      // applied so it's not left in a pending state.
+      for (const member of (cand.members || []).filter((m) => m.role === 'occurrence_clean')) {
+        const stagingRow = eligibleById.get(member.stagingRowId?.toString());
+        if (!stagingRow) continue;
+        await rschedImportStagingCollection.updateOne(
+          { _id: stagingRow._id },
+          {
+            $set: {
+              appliedAt: new Date(),
+              applyError: null,
+              status: rschedImportService.STAGING_STATUS.APPLIED,
+              appliedEventId: `rssched-${cand.members.find((m) => m.role === 'master')?.rsId}`,
+            },
+          },
+        );
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pass 3: existing applyStagingRow path for everything else — outliers,
+    // rows belonging to rejected candidates, and rows not part of any candidate.
+    // -------------------------------------------------------------------------
     for (const row of eligible) {
+      const assignment = rowAssignments.get(row._id.toString());
+      if (assignment && (assignment.member.role === 'master' || assignment.member.role === 'occurrence_override' || assignment.member.role === 'occurrence_clean')) {
+        // Already handled by Pass 1 or Pass 2.
+        continue;
+      }
       const rowToApply =
         forceConflicts && row.status === rschedImportService.STAGING_STATUS.CONFLICT
           ? { ...row, forceApply: true }
@@ -12732,6 +12856,10 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/commit', verifyToken, asy
       };
       switch (outcome.outcome) {
         case rschedImportService.APPLY_OUTCOME.INSERTED:
+          singleInstancesCreated++;
+          applied++;
+          update.status = rschedImportService.STAGING_STATUS.APPLIED;
+          break;
         case rschedImportService.APPLY_OUTCOME.UPDATED:
           applied++;
           update.status = rschedImportService.STAGING_STATUS.APPLIED;
@@ -12794,6 +12922,10 @@ app.post('/api/admin/rsched-import/sessions/:sessionId/commit', verifyToken, asy
       humanEditConflicts,
       failed,
       removed,
+      seriesMastersCreated,
+      seriesMastersUpdated,
+      exceptionsCreated,
+      singleInstancesCreated,
     });
     invalidateCountsCacheTargeted();
   } catch (err) {

@@ -561,3 +561,226 @@ describe('rsched recurrence detection — endpoints (REC-11, REC-11b, REC-12)', 
     expect(res.status).toBe(400);
   });
 });
+
+// =============================================================================
+// Commit conversion (REC-15..REC-20)
+// =============================================================================
+describe('rsched recurrence detection — commit conversion (REC-15..REC-20)', () => {
+  let mongoClient;
+  let db;
+  let app;
+  let adminUser;
+  let adminToken;
+  const sessionId = 'rec-commit-session-1';
+
+  beforeAll(async () => {
+    await initTestKeys();
+    ({ db, client: mongoClient } = await connectToGlobalServer('rschedImportRecurrenceCommit'));
+    app = await setupTestApp(db);
+    adminUser = createAdmin();
+    adminToken = await createMockToken(adminUser);
+  });
+
+  afterAll(async () => {
+    await disconnectFromGlobalServer(mongoClient, db);
+  });
+
+  beforeEach(async () => {
+    await clearCollections(db);
+    await db.collection(STAGING_COLLECTION).deleteMany({});
+    await db.collection(CANDIDATES_COLLECTION).deleteMany({});
+    await insertUsers(db, [adminUser]);
+    _rsIdCounter = 9000;
+  });
+
+  async function seedStaging(rows) {
+    const docs = rows.map((r, i) => ({
+      sessionId,
+      uploadedBy: adminUser.oid || adminUser.userId,
+      uploadedAt: new Date(),
+      calendarOwner: TEST_CALENDAR_OWNER.toLowerCase(),
+      rowNumber: i + 1,
+      status: 'staged',
+      ...r,
+    }));
+    if (docs.length > 0) {
+      await db.collection(STAGING_COLLECTION).insertMany(docs);
+    }
+  }
+
+  async function detectAndApproveAll() {
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+    const list = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates`)
+      .set(headers);
+    for (const c of list.body.candidates) {
+      await request(app)
+        .put(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates/${c.candidateId}/approve`)
+        .set(headers).send({});
+    }
+    return list.body.candidates;
+  }
+
+  test('REC-15: approved series → seriesMaster created with correct recurrence', async () => {
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+    await detectAndApproveAll();
+
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit.status).toBe(200);
+    expect(commit.body.seriesMastersCreated).toBe(1);
+    expect(commit.body.exceptionsCreated).toBe(0); // all members are clean
+    expect(commit.body.singleInstancesCreated).toBe(0);
+
+    const masters = await db.collection(COLLECTIONS.EVENTS).find({ eventType: 'seriesMaster' }).toArray();
+    expect(masters).toHaveLength(1);
+    const master = masters[0];
+    expect(master.recurrence.pattern.type).toBe('weekly');
+    expect(master.recurrence.pattern.daysOfWeek).toEqual(['wednesday']);
+    expect(master.recurrence.exclusions).toEqual([]);
+    expect(master.recurrence.additions).toEqual([]);
+    expect(master.recurrence.range.recurrenceTimeZone).toBe('Eastern Standard Time');
+  });
+
+  test('REC-15b: re-running commit on same session does NOT duplicate seriesMaster', async () => {
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+    await detectAndApproveAll();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    // First commit — creates the master.
+    await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    let count = await db.collection(COLLECTIONS.EVENTS).countDocuments({ eventType: 'seriesMaster' });
+    expect(count).toBe(1);
+
+    // Re-approve all candidates (they may have been auto-marked applied; ensure they're approved again)
+    // and re-commit. Branch B should fire on the existing seriesMaster.
+    const commit2 = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit2.status).toBe(200);
+
+    count = await db.collection(COLLECTIONS.EVENTS).countDocuments({ eventType: 'seriesMaster' });
+    expect(count).toBe(1); // still 1, not 2
+  });
+
+  test('REC-16: occurrence_override member → exception document created', async () => {
+    // 6 Wed rows in room 402 + 2 Wed rows in different location.
+    const startDate = '2026-05-06';
+    const rows = [];
+    for (let i = 0; i < 6; i++) {
+      const d = parseLocalDate(startDate);
+      d.setDate(d.getDate() + 7 * i);
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      rows.push(makeRow({ eventTitle: 'Al-Anon', startDate: ymd, endDate: ymd, locationIds: ['loc-402'] }));
+    }
+    for (let i = 6; i < 8; i++) {
+      const d = parseLocalDate(startDate);
+      d.setDate(d.getDate() + 7 * i);
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      rows.push(makeRow({ eventTitle: 'Al-Anon', startDate: ymd, endDate: ymd, locationIds: ['loc-302'] }));
+    }
+    await seedStaging(rows);
+    await detectAndApproveAll();
+
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit.status).toBe(200);
+    expect(commit.body.seriesMastersCreated).toBe(1);
+    expect(commit.body.exceptionsCreated).toBe(2);
+
+    const exceptions = await db.collection(COLLECTIONS.EVENTS).find({ eventType: 'exception' }).toArray();
+    expect(exceptions).toHaveLength(2);
+    for (const ex of exceptions) {
+      expect(ex.seriesMasterEventId).toMatch(/^rssched-/);
+      expect(ex.occurrenceDate).toBeTruthy();
+    }
+  });
+
+  test('REC-17: occurrence_clean members → no document created (verify count)', async () => {
+    // 8 identical weekly rows: 1 master + 7 clean. Should produce 1 master, 0 exceptions.
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+    await detectAndApproveAll();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit.body.seriesMastersCreated).toBe(1);
+    expect(commit.body.exceptionsCreated).toBe(0);
+    const totalEvents = await db.collection(COLLECTIONS.EVENTS).countDocuments({});
+    expect(totalEvents).toBe(1); // just the master
+  });
+
+  test('REC-18: outlier members → singleInstance via existing applyStagingRow path', async () => {
+    // 9 weekly Wed + 1 Tuesday (outlier).
+    const rows = makeWeeklyRows('2026-05-06', 9, { eventTitle: 'Al-Anon' });
+    rows.push(makeRow({ eventTitle: 'Al-Anon', startDate: '2026-06-02', endDate: '2026-06-02' }));
+    await seedStaging(rows);
+    await detectAndApproveAll();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+
+    expect(commit.body.seriesMastersCreated).toBe(1);
+    expect(commit.body.singleInstancesCreated).toBe(1); // the Tuesday outlier
+    const single = await db.collection(COLLECTIONS.EVENTS).find({ eventType: 'singleInstance' }).toArray();
+    expect(single).toHaveLength(1);
+    expect(single[0].startDateTime).toContain('2026-06-02');
+  });
+
+  test('REC-19: rejected candidate → all members go through singleInstance path', async () => {
+    const rows = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    await seedStaging(rows);
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/detect-recurrence`)
+      .set(headers).send({});
+    const list = await request(app)
+      .get(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates`)
+      .set(headers);
+    // Reject (not approve)
+    for (const c of list.body.candidates) {
+      await request(app)
+        .put(`/api/admin/rsched-import/sessions/${sessionId}/recurrence-candidates/${c.candidateId}/reject`)
+        .set(headers).send({});
+    }
+
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+    expect(commit.body.seriesMastersCreated).toBe(0);
+    expect(commit.body.singleInstancesCreated).toBe(8);
+    const singles = await db.collection(COLLECTIONS.EVENTS).find({ eventType: 'singleInstance' }).toArray();
+    expect(singles).toHaveLength(8);
+  });
+
+  test('REC-20: mix of approved + uncovered → counts in commit response are correct', async () => {
+    // 8 weekly Wed (approved series) + 2 unrelated single events (uncovered).
+    const series = makeWeeklyRows('2026-05-06', 8, { eventTitle: 'Al-Anon' });
+    const standalone1 = makeRow({ eventTitle: 'One Off', startDate: '2026-07-04', endDate: '2026-07-04' });
+    const standalone2 = makeRow({ eventTitle: 'Another One', startDate: '2026-08-15', endDate: '2026-08-15' });
+    await seedStaging([...series, standalone1, standalone2]);
+    await detectAndApproveAll();
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const commit = await request(app)
+      .post(`/api/admin/rsched-import/sessions/${sessionId}/commit`)
+      .set(headers).send({});
+
+    expect(commit.body.seriesMastersCreated).toBe(1);
+    expect(commit.body.singleInstancesCreated).toBe(2); // the 2 standalone events
+    expect(commit.body.applied).toBeGreaterThanOrEqual(3); // at least 1 master + 2 singles
+  });
+});

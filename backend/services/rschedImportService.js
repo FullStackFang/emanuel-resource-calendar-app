@@ -23,6 +23,8 @@ const { Readable } = require('stream');
 const { ObjectId } = require('mongodb');
 const ApiError = require('../utils/ApiError');
 const { retryWithBackoff } = require('../utils/retryWithBackoff');
+const { createExceptionDocument } = require('../utils/exceptionDocumentService');
+const { conditionalUpdate: _conditionalUpdate } = require('../utils/concurrencyUtils');
 
 const RSCHED_SOURCE = 'rsSched';
 const NOTE_RSKEY_SENTINELS = new Set(['Note1', 'Note2', 'Note3']);
@@ -936,6 +938,225 @@ async function applyStagingRow(db, stagingRow, ctx) {
 }
 
 // =============================================================================
+// Recurrence-aware apply helpers (used by commit when admin approved
+// detected recurrence candidates for this session)
+// =============================================================================
+
+/**
+ * Build an event document with seriesMaster shape — extends buildEventDocFromStaging
+ * with recurrence + eventType + initialized exclusions/additions arrays. Pure.
+ *
+ * @param {Object} stagingRow
+ * @param {Object} candidate - approved CandidateSeries
+ * @param {Object} ctx
+ * @returns {Object}
+ */
+function buildSeriesMasterDoc(stagingRow, candidate, ctx) {
+  const recurrence = {
+    pattern: candidate.detectedPattern,
+    range: {
+      ...candidate.detectedRange,
+      // Default to Eastern (rsched is NYC) — buildGraphRecurrence will translate
+      // to Windows tz on Graph publish. recurrenceTimeZone is internal-only here.
+      recurrenceTimeZone: candidate.detectedRange.recurrenceTimeZone || 'Eastern Standard Time',
+    },
+    // ALWAYS initialize exclusions and additions arrays — downstream consumers
+    // (buildGraphRecurrence, expandAllOccurrences, occurrence delete handler)
+    // iterate them and break on undefined.
+    exclusions: Array.isArray(candidate.outlierDatesInRange) ? [...candidate.outlierDatesInRange] : [],
+    additions: [],
+  };
+
+  const doc = buildEventDocFromStaging(stagingRow, ctx);
+  doc.eventType = 'seriesMaster';
+  doc.recurrence = recurrence;
+  if (doc.calendarData) {
+    doc.calendarData.recurrence = recurrence; // mirrored copy for legacy reads
+  }
+  return doc;
+}
+
+/**
+ * Apply an approved candidate's master row → create / upgrade / refresh a
+ * seriesMaster document.
+ *
+ * Three branches because conditionalUpdate is NOT an upsert:
+ *   A. Not found → insertOne (eventId unique index protects from races)
+ *   B. Already a seriesMaster → conditionalUpdate to refresh material fields + recurrence
+ *   C. Exists as singleInstance → upgrade in place (flip eventType, add recurrence)
+ *
+ * Without these branches, re-running detect+commit would silently produce
+ * duplicate seriesMasters via plain insertOne, then trip the unique eventId
+ * index and get swallowed as APPLY_OUTCOME.FAILED.
+ */
+async function applyAsMaster(db, stagingRow, candidate, ctx) {
+  const eventsCollection = db.collection(EVENTS_COLLECTION);
+  const auditCollection = db.collection(AUDIT_COLLECTION);
+  const eventId = `rssched-${stagingRow.rsId}`;
+  const calendarOwner = (ctx.calendarOwner || stagingRow.calendarOwner || '').toLowerCase();
+
+  const candidateDoc = buildSeriesMasterDoc(stagingRow, candidate, ctx);
+  const existing = await eventsCollection.findOne({ eventId, calendarOwner });
+
+  if (!existing) {
+    // Branch A: brand-new seriesMaster.
+    await eventsCollection.insertOne(candidateDoc);
+    await auditCollection.insertOne({
+      eventId,
+      userId: ctx.importUserId,
+      changeType: 'rsched-import-create-series',
+      source: 'rsSched Import',
+      timestamp: new Date(),
+      metadata: {
+        importSessionId: ctx.sessionId,
+        candidateId: candidate.candidateId,
+        rsId: stagingRow.rsId,
+      },
+    });
+    return { outcome: APPLY_OUTCOME.INSERTED, eventId, eventType: 'seriesMaster' };
+  }
+
+  if (existing.eventType === 'seriesMaster') {
+    // Branch B: refresh existing seriesMaster fields + recurrence.
+    const updateOps = {
+      $set: {
+        eventTitle: candidateDoc.eventTitle,
+        eventDescription: candidateDoc.eventDescription,
+        startDateTime: candidateDoc.startDateTime,
+        endDateTime: candidateDoc.endDateTime,
+        locations: candidateDoc.locations,
+        categories: candidateDoc.categories,
+        recurrence: candidateDoc.recurrence,
+        'calendarData.recurrence': candidateDoc.recurrence,
+        'rschedData.importSessionId': ctx.sessionId,
+        'rschedData.importedAt': new Date(),
+      },
+      $push: {
+        statusHistory: {
+          status: existing.status,
+          changedAt: new Date(),
+          changedBy: ctx.importUserId,
+          reason: 'rsched re-import refreshed series master',
+        },
+      },
+    };
+    try {
+      await _conditionalUpdate(eventsCollection, { _id: existing._id }, updateOps, {
+        expectedVersion: existing._version ?? null,
+        modifiedBy: ctx.importUserId,
+      });
+      await auditCollection.insertOne({
+        eventId,
+        userId: ctx.importUserId,
+        changeType: 'rsched-import-update-series',
+        source: 'rsSched Import',
+        timestamp: new Date(),
+        metadata: { importSessionId: ctx.sessionId, candidateId: candidate.candidateId },
+      });
+      return { outcome: APPLY_OUTCOME.UPDATED, eventId, eventType: 'seriesMaster' };
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 409) {
+        return { outcome: APPLY_OUTCOME.FAILED, eventId, error: 'VERSION_CONFLICT' };
+      }
+      return { outcome: APPLY_OUTCOME.FAILED, eventId, error: err.message };
+    }
+  }
+
+  // Branch C: exists as singleInstance — upgrade in place.
+  const upgradeOps = {
+    $set: {
+      eventType: 'seriesMaster',
+      recurrence: candidateDoc.recurrence,
+      'calendarData.recurrence': candidateDoc.recurrence,
+      eventTitle: candidateDoc.eventTitle,
+      eventDescription: candidateDoc.eventDescription,
+      startDateTime: candidateDoc.startDateTime,
+      endDateTime: candidateDoc.endDateTime,
+      locations: candidateDoc.locations,
+      categories: candidateDoc.categories,
+      'rschedData.importSessionId': ctx.sessionId,
+      'rschedData.importedAt': new Date(),
+    },
+    $push: {
+      statusHistory: {
+        status: existing.status,
+        changedAt: new Date(),
+        changedBy: ctx.importUserId,
+        reason: 'rsched detect-recurrence promoted singleInstance to seriesMaster',
+      },
+    },
+  };
+  try {
+    await _conditionalUpdate(eventsCollection, { _id: existing._id }, upgradeOps, {
+      expectedVersion: existing._version ?? null,
+      modifiedBy: ctx.importUserId,
+    });
+    await auditCollection.insertOne({
+      eventId,
+      userId: ctx.importUserId,
+      changeType: 'rsched-import-promote-to-series',
+      source: 'rsSched Import',
+      timestamp: new Date(),
+      metadata: { importSessionId: ctx.sessionId, candidateId: candidate.candidateId, upgradedFrom: 'singleInstance' },
+    });
+    return { outcome: APPLY_OUTCOME.UPDATED, eventId, eventType: 'seriesMaster', upgradedFrom: 'singleInstance' };
+  } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 409) {
+      return { outcome: APPLY_OUTCOME.FAILED, eventId, error: 'VERSION_CONFLICT' };
+    }
+    return { outcome: APPLY_OUTCOME.FAILED, eventId, error: err.message };
+  }
+}
+
+/**
+ * Apply an approved candidate's occurrence_override row → create an exception
+ * document via the existing createExceptionDocument helper.
+ *
+ * The master must already exist (Pass 1 ran first). If not, throws so the
+ * caller's per-row try/catch records the failure without aborting Pass 2.
+ */
+async function applyAsException(db, stagingRow, candidate, member, ctx) {
+  const eventsCollection = db.collection(EVENTS_COLLECTION);
+  const auditCollection = db.collection(AUDIT_COLLECTION);
+
+  const masterMember = candidate.members.find((m) => m.role === 'master');
+  if (!masterMember) {
+    throw new Error(`applyAsException: candidate ${candidate.candidateId} has no master member`);
+  }
+  const masterEventId = `rssched-${masterMember.rsId}`;
+  const calendarOwner = (ctx.calendarOwner || '').toLowerCase();
+  const master = await eventsCollection.findOne({ eventId: masterEventId, calendarOwner });
+  if (!master) {
+    throw new Error(`applyAsException: master ${masterEventId} not found — Pass 1 may have failed`);
+  }
+
+  const occurrenceDate = stagingRow.startDate; // YYYY-MM-DD
+  const overrides = member.overrides || {};
+  const result = await createExceptionDocument(
+    eventsCollection,
+    master,
+    occurrenceDate,
+    overrides,
+    { modifiedBy: ctx.importUserId },
+  );
+  await auditCollection.insertOne({
+    eventId: result.eventId,
+    userId: ctx.importUserId,
+    changeType: 'rsched-import-create-exception',
+    source: 'rsSched Import',
+    timestamp: new Date(),
+    metadata: {
+      importSessionId: ctx.sessionId,
+      candidateId: candidate.candidateId,
+      rsId: stagingRow.rsId,
+      seriesMasterEventId: masterEventId,
+      occurrenceDate,
+    },
+  });
+  return { outcome: APPLY_OUTCOME.INSERTED, eventId: result.eventId, eventType: 'exception' };
+}
+
+// =============================================================================
 // Validate-time helpers
 // =============================================================================
 
@@ -1492,6 +1713,9 @@ module.exports = {
 
   // Workflow operations
   applyStagingRow,
+  applyAsMaster,
+  applyAsException,
+  buildSeriesMasterDoc,
   detectRemovedRsIds,
   computePreview,
   bulkComputeDrift,
