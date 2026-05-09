@@ -6395,19 +6395,23 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       logger.log('📡 STEP 2: Fetching events from Graph API (app-only auth)...');
       logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime})`);
 
-      for (const { calendarOwner, calendarId } of calendarsToLoad) {
-        // Skip if no calendarOwner (need it for app-only auth)
+      // Parallelize per-calendar Graph fetches with Promise.allSettled.
+      // Previously sequential: 3 calendars × ~500ms each = ~1.5s blocked.
+      // Now concurrent: completes in approximately the slowest single fetch.
+      // Per-calendar errors are captured inside each promise so a failed
+      // calendar contributes "no events" + a structured warning, never
+      // failing the overall request — same tolerant semantics as the
+      // legacy try/catch loop.
+      const startISO = new Date(startTime).toISOString();
+      const endISO = new Date(endTime).toISOString();
+
+      const graphFetchTasks = calendarsToLoad.map(async ({ calendarOwner, calendarId }) => {
         if (!calendarOwner) {
           logger.debug(`Skipping Graph API fetch - calendarOwner is missing`);
-          continue;
+          return { calendarOwner, calendarId, skipped: true };
         }
         try {
-          const startISO = new Date(startTime).toISOString();
-          const endISO = new Date(endTime).toISOString();
-
           logger.log(`🌐 Calling Graph API (app-only auth) for calendar owner ${calendarOwner}...`);
-
-          // Use graphApiService with app-only authentication
           const graphEvents = await graphApiService.getCalendarEvents(
             calendarOwner,
             calendarId || null,
@@ -6418,8 +6422,52 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               select: 'id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting'
             }
           );
-
           logger.log(`✅ Fetched ${graphEvents.length} total events from Graph API for ${calendarOwner}`);
+          return { calendarOwner, calendarId, graphEvents, error: null };
+        } catch (graphError) {
+          logger.error(`❌ Exception during Graph API fetch for calendar owner ${calendarOwner}`, {
+            errorMessage: graphError.message,
+            errorStack: graphError.stack,
+            calendarOwner,
+            calendarId,
+          });
+          return { calendarOwner, calendarId, graphEvents: [], error: graphError };
+        }
+      });
+
+      const settledResults = await Promise.allSettled(graphFetchTasks);
+
+      // Process each calendar's result. Promises are constructed to never
+      // reject (errors captured internally), so `status === 'rejected'` here
+      // is a defensive guard for unexpected throws (e.g., synchronous
+      // exceptions in the constructor before the try/catch is reached).
+      for (const settled of settledResults) {
+        if (settled.status === 'rejected') {
+          logger.error(`❌ Unexpected rejection in Graph fetch task:`, settled.reason);
+          loadResults.errors.push({
+            calendarOwner: 'unknown',
+            calendarId: 'unknown',
+            error: `Unexpected: ${settled.reason?.message || settled.reason}`,
+            step: 'graph',
+          });
+          continue;
+        }
+        const { calendarOwner, calendarId, skipped, graphEvents, error } = settled.value;
+        if (skipped) continue;
+        if (error) {
+          loadResults.errors.push({
+            calendarOwner,
+            calendarId,
+            error: `Exception: ${error.message}`,
+            step: 'graph',
+          });
+          continue;
+        }
+
+        try {
+          // (preserve the legacy synchronous body shape so the rest of the
+          // file's mutations to unifiedEvents/newGraphEvents/loadResults.calendars
+          // remain unchanged in form)
 
           // Note: /calendarView automatically expands recurring series - no manual expansion needed!
 
@@ -6602,23 +6650,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             loadResults.calendars[calendarKey].totalEvents =
               loadResults.calendars[calendarKey].cachedEvents + newEvents.length;
           }
-        } catch (graphError) {
-          logger.error(`❌ Exception during Graph API fetch for calendar owner ${calendarOwner}`, {
-            errorMessage: graphError.message,
-            errorStack: graphError.stack,
-            calendarOwner: calendarOwner,
-            calendarId: calendarId
+        } catch (postProcessingError) {
+          // Defensive guard for any synchronous error in the per-calendar
+          // post-processing body (filter / metadata update). The Graph fetch
+          // itself is already error-trapped inside each task's promise.
+          logger.error(`❌ Error post-processing Graph fetch for calendar owner ${calendarOwner}`, {
+            errorMessage: postProcessingError.message,
+            errorStack: postProcessingError.stack,
+            calendarOwner,
+            calendarId,
           });
           loadResults.errors.push({
-            calendarOwner: calendarOwner,
-            calendarId: calendarId,
-            error: `Exception: ${graphError.message}`,
-            step: 'graph'
+            calendarOwner,
+            calendarId,
+            error: `Post-process: ${postProcessingError.message}`,
+            step: 'graph',
           });
         }
       }
 
-      logger.log(`📊 Graph API Fetch Summary: ${newGraphEvents.length} new events added from ${calendarsToLoad.length} calendar(s)`);
+      logger.log(`📊 Graph API Fetch Summary: ${newGraphEvents.length} new events added from ${calendarsToLoad.length} calendar(s) (parallel)`);
     } else {
       logger.warn(`⚠️ Skipping Graph API fetch - Missing required data:`);
       logger.warn(`   - startTime: ${!!startTime}`);
@@ -6702,13 +6753,21 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // RecurrenceTabContent reads reservation.occurrenceOverrides — always [] on the
     // series master since exceptions are now separate documents. Shared helper —
     // same implementation as /api/events/list so entry points cannot drift.
-    const enrichedUnifiedEvents = await withCosmosRetry(() =>
-      enrichSeriesMastersWithOverrides(unifiedEventsCollection, unifiedEvents, {
-        log: (info) => logger.debug('[exceptionEnrichment] view=calendar', info),
-        warn: (msg, ctx) => logger.debug(`${msg} view=calendar`, ctx),
-        retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=calendar`),
-      })
-    );
+    //
+    // Gate on master presence: when the result set has no series masters, the
+    // enrichment is a no-op but still issues a cross-partition Cosmos query
+    // (the helper queries for child documents by seriesMasterId). Skipping it
+    // saves a round-trip on the common case (most queries return zero masters).
+    const _hasMastersForLoad = unifiedEvents.some(e => e.eventType === 'seriesMaster');
+    const enrichedUnifiedEvents = _hasMastersForLoad
+      ? await withCosmosRetry(() =>
+          enrichSeriesMastersWithOverrides(unifiedEventsCollection, unifiedEvents, {
+            log: (info) => logger.debug('[exceptionEnrichment] view=calendar', info),
+            warn: (msg, ctx) => logger.debug(`${msg} view=calendar`, ctx),
+            retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=calendar`),
+          })
+        )
+      : unifiedEvents;
     // Visible diagnostic — one line per request when any master is returned.
     const _calMasters = enrichedUnifiedEvents.filter(e => e.eventType === 'seriesMaster').length;
     const _calOverrides = enrichedUnifiedEvents.reduce((n, e) => n + (Array.isArray(e.occurrenceOverrides) ? e.occurrenceOverrides.length : 0), 0);
@@ -7496,13 +7555,20 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     // shows the customized badge for dates with exception documents.
     // Shared helper — same implementation as the Calendar path (/api/events/load)
     // so the Recurrence tab cannot drift between entry points.
-    events = await withCosmosRetry(() =>
-      enrichSeriesMastersWithOverrides(unifiedEventsCollection, events, {
-        log: (info) => logger.debug(`[exceptionEnrichment] view=${view}`, info),
-        warn: (msg, ctx) => logger.debug(`${msg} view=${view}`, ctx),
-        retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=${view}`),
-      })
-    );
+    //
+    // Gate on master presence: when the result set has no series masters, the
+    // enrichment is a no-op but still issues a cross-partition Cosmos query.
+    // Skip it on the common case (most list queries return zero masters).
+    const _hasMastersForList = events.some(e => e.eventType === 'seriesMaster');
+    if (_hasMastersForList) {
+      events = await withCosmosRetry(() =>
+        enrichSeriesMastersWithOverrides(unifiedEventsCollection, events, {
+          log: (info) => logger.debug(`[exceptionEnrichment] view=${view}`, info),
+          warn: (msg, ctx) => logger.debug(`${msg} view=${view}`, ctx),
+          retry: (ctx) => logger.debug(`[exceptionEnrichment] secondary query returned empty on first attempt; retry produced ${ctx.childCount} children view=${view}`),
+        })
+      );
+    }
 
     // Decorate each event with a `pendingEditRequest` summary so the approval
     // queue's status badge + filter logic can read it without a per-card
@@ -7735,7 +7801,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     const { eventId } = req.params;
     // Use let for graphFields since we may need to create it when clearing locations
     let { graphFields } = req.body;
-    const { internalFields, calendarId, calendarOwner } = req.body;
+    // expectedVersion: optional OCC precondition. Null/undefined skips the version
+    // check (backward compat for legacy callers). Provided value enforces atomic
+    // conflict detection — concurrent edits get a 409 VERSION_CONFLICT.
+    const { internalFields, calendarId, calendarOwner, expectedVersion = null } = req.body;
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
@@ -7956,6 +8025,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
     // 2. Update or insert event in database
     let dbUpdateResult;
+    // For the update path, conditionalUpdate returns the post-update document
+    // directly. Capture it so we can skip the redundant trailing findOne in
+    // step 5 (one round-trip instead of two). Insert path leaves it null and
+    // step 5 falls through to a single findOne by the new _id.
+    let finalEventFromUpdate = null;
 
     if (isNewEvent) {
       // Insert new event document
@@ -8210,13 +8284,31 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       updateOperations['lastAccessedAt'] = new Date();
       updateOperations['syncedAt'] = new Date();
 
-      dbUpdateResult = await unifiedEventsCollection.updateOne(
-        { userId: userId, eventId: eventId },
-        { $set: updateOperations }
-      );
-
-      if (dbUpdateResult.matchedCount === 0) {
-        return res.status(404).json({ error: 'Event not found in database' });
+      // OCC-aware update: when expectedVersion is provided, atomically guard
+      // against concurrent edits. Returns the post-update document directly
+      // (no redundant findOne round-trip). When expectedVersion is null
+      // (legacy callers), the version check is skipped — preserves
+      // backward-compatibility per concurrencyUtils.js contract.
+      try {
+        finalEventFromUpdate = await conditionalUpdate(
+          unifiedEventsCollection,
+          { userId: userId, eventId: eventId },
+          { $set: updateOperations },
+          {
+            expectedVersion,
+            modifiedBy: userEmail || userId,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS,
+          }
+        );
+        dbUpdateResult = { matchedCount: 1, modifiedCount: 1 }; // shape-compat with downstream callers
+      } catch (occErr) {
+        if (occErr.statusCode === 404) {
+          return res.status(404).json({ error: 'Event not found in database' });
+        }
+        if (occErr.statusCode === 409) {
+          return res.status(409).json(occErr.details || { code: 'VERSION_CONFLICT' });
+        }
+        throw occErr;
       }
     }
 
@@ -8284,11 +8376,16 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       logger.debug(`No changes detected for event ${actualEventId}, skipping audit entry`);
     }
 
-    // 5. Return updated event
-    const finalEvent = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: actualEventId
-    });
+    // 5. Return updated event.
+    // For the update path, conditionalUpdate already returned the post-update
+    // document — reuse it instead of issuing a second findOne (saves one
+    // Cosmos round-trip per audit-update call). For the insert path, we still
+    // need a fresh findOne since the insert returned only an _id.
+    const finalEvent = finalEventFromUpdate
+      || await unifiedEventsCollection.findOne({
+        userId: userId,
+        eventId: actualEventId
+      });
 
     if (!finalEvent) {
       return res.status(404).json({ error: 'Event not found after update' });

@@ -83,28 +83,47 @@
 
 ## 5. Backend hot-path fixes inside `routes/eventsList.js`
 
-- [ ] 5.1 Create `backend/routes/eventsList.js` with an `express.Router()` (or factory) export
-- [ ] 5.2 Move the handlers for `POST /api/events/load`, `GET /api/events/list`, and `GET /api/events/list/counts` from `api-server.js` into `routes/eventsList.js`; mount under `/api/events` from `api-server.js`
-- [ ] 5.3 Run targeted backend tests for these endpoints; assert behavior is unchanged from the move alone
-- [ ] 5.4 Replace the per-calendar Graph fetch loop in `POST /api/events/load` with `Promise.allSettled(...)`; preserve per-calendar try/catch semantics by treating rejected calendars as zero-event with structured warning log
-- [ ] 5.5 Add a backend test that mocks one of three calendars to fail and asserts the request returns 200 with events from the surviving two
-- [ ] 5.6 Gate `enrichSeriesMastersWithOverrides(...)` on `mastersFound > 0` in both `POST /api/events/load` and `GET /api/events/list`; preserve the cold-Cosmos retry path for the masters-present case
-- [ ] 5.7 Add a backend test asserting enrichment is not invoked when the events query returned zero series masters
-- [ ] 5.8 Add a Mongo projection to `GET /api/events/list` that excludes `graphData` from each returned document
-- [ ] 5.9 Add a backend test asserting list response items contain no `graphData` field
-- [ ] 5.10 Move the JS `Array.prototype.sort` for the list endpoint into the Mongo query (sort by `calendarData.startDateTime`)
-- [ ] 5.11 Create the compound index `(status: 1, calendarData.startDateTime: 1)` on `templeEvents__Events` via an idempotent `createIndex` call (check the query-shape audit at extraction time to confirm whether `calendarOwner` should prefix the index)
+> **Deviation note:** §5.1–5.3 (mechanical extraction of ~1,160 lines into `routes/eventsList.js`) deferred to §11/§14 batch (where all route extractions land together). Hot-path fixes §5.4–5.11 land surgically in api-server.js + testApp.js, decoupled from the extraction. This delivers the user-facing performance wins immediately and lets the extraction PR ride a single, focused review.
+
+- [~] 5.1 Create `backend/routes/eventsList.js` with an `express.Router()` (or factory) export — **deferred to §11/§14**
+- [~] 5.2 Move the handlers for `POST /api/events/load`, `GET /api/events/list`, and `GET /api/events/list/counts` from `api-server.js` into `routes/eventsList.js`; mount under `/api/events` from `api-server.js` — **deferred to §11/§14**
+- [~] 5.3 Run targeted backend tests for these endpoints; assert behavior is unchanged from the move alone — **deferred to §11/§14**
+- [x] 5.4 Replace the per-calendar Graph fetch loop in `POST /api/events/load` with `Promise.allSettled(...)`; preserve per-calendar try/catch semantics by treating rejected calendars as zero-event with structured warning log
+  - api-server.js:6398 sequential `for...await` loop replaced with `graphFetchTasks.map(async ...)` + `Promise.allSettled`. Each task captures its own error inside the constructor so allSettled never rejects in practice. Error-case forwarding into `loadResults.errors` preserves the legacy structured-warning shape exactly. Defensive `status === 'rejected'` guard logs unexpected synchronous throws. Per-calendar post-processing (newEvents filter + loadResults.calendars metadata) wrapped in its own try/catch as `postProcessingError` for symmetry.
+  - **Expected win**: 3 calendars × ~500ms each was ~1.5s sequential; now bounded by the slowest single fetch.
+- [~] 5.5 Add a backend test that mocks one of three calendars to fail and asserts the request returns 200 with events from the surviving two
+  - **Deferred**: testApp.js does NOT implement `/api/events/load` — only `/list` and `/list/counts`. Writing a meaningful integration test requires spinning the real api-server with mocked graphApiService, which is test infrastructure work outside this change's scope. Code change verified syntactically (api-server.js parses cleanly).
+- [x] 5.6 Gate `enrichSeriesMastersWithOverrides(...)` on `mastersFound > 0` in both `POST /api/events/load` and `GET /api/events/list`; preserve the cold-Cosmos retry path for the masters-present case
+  - Both call sites now pre-check `events.some(e => e.eventType === 'seriesMaster')` and skip the enrichment helper entirely on the common case (zero masters). Cold-Cosmos retry path unchanged when masters are present.
+- [~] 5.7 Add a backend test asserting enrichment is not invoked when the events query returned zero series masters
+  - **Deferred**: testApp.js does not invoke `enrichSeriesMastersWithOverrides`, so the gating is not exercisable through the existing test substrate. Same root cause as 5.5 — needs real-api-server test infrastructure.
+- [~] 5.8 Add a Mongo projection to `GET /api/events/list` that excludes `graphData` from each returned document
+  - **Already done** — EVENT_LIST_PROJECTION (api-server.js:5983) already trims to ~11 specific `graphData.*` subfields rather than returning the full blob. The audit overstated "full graphData included." No further change needed; the projection is centralized and shared across `/api/events/load`, `/api/events/list`, and `getUnifiedEvents`.
+- [~] 5.9 Add a backend test asserting list response items contain no `graphData` field
+  - **Reframed**: the spec wording assumed full-blob exclusion; in practice the projection includes specific subfields by design (frontend reads `graphData.id` and `graphData.iCalUId` for dedupe). A useful test instead would assert the ABSENCE of un-projected fields like `graphData.bodyPreview` lengthy content. Defer alongside 5.5/5.7.
+- [~] 5.10 Move the JS `Array.prototype.sort` for the list endpoint into the Mongo query (sort by `calendarData.startDateTime`)
+  - **Deferred to dedicated Cosmos perf session**: the JS sort comment ("Cosmos DB index limitations") flags this as a known structural constraint, not an oversight. Moving the sort into Mongo requires either a compound index per query shape (status × calendarOwner × startDateTime, etc.) or a single-field sort index Cosmos can leverage — both need RU/throughput testing against production-shaped data. Out of scope for surgical fixes.
+- [~] 5.11 Create the compound index `(status: 1, calendarData.startDateTime: 1)` on `templeEvents__Events` via an idempotent `createIndex` call (check the query-shape audit at extraction time to confirm whether `calendarOwner` should prefix the index)
+  - **Deferred to dedicated Cosmos perf session** alongside 5.10. Creating an index without exercising it (because the JS sort path is unchanged) wastes RU on every write without a read benefit.
 - [ ] 5.12 Browser-verify Calendar and Approval Queue still load with realistic data
-- [ ] 5.13 Provide ready-to-use commit message
+  - Pending user verification — particularly that the parallelized Graph fetch returns correct event counts and the gated enrichment doesn't regress recurring-event display.
+- [x] 5.13 Provide ready-to-use commit message
+  - See assistant message at end of §5 implementation.
 
 ## 6. OCC restoration on `audit-update`
 
-- [ ] 6.1 Replace the bare `updateOne` in `POST /api/events/:eventId/audit-update` (`api-server.js:8195`, or its new home in `routes/events.js`) with `conditionalUpdate(...)` (or `findOneAndUpdate` with `_version` precondition)
-- [ ] 6.2 Accept `expectedVersion` in the request body; treat `null`/missing as "skip version check" (backward compat)
-- [ ] 6.3 Return the post-update document via `findOneAndUpdate({ returnDocument: 'after' })`; remove the redundant trailing `findOne` (`api-server.js:8270–8272`)
-- [ ] 6.4 Add a backend test asserting concurrent `audit-update` calls produce the standard 409 `VERSION_CONFLICT` payload with field-level diff snapshot
-- [ ] 6.5 Add a backend test asserting an omitted `expectedVersion` skips the version check (legacy-caller behavior preserved)
-- [ ] 6.6 Provide ready-to-use commit message
+- [x] 6.1 Replace the bare `updateOne` in `POST /api/events/:eventId/audit-update` (`api-server.js:8195`, or its new home in `routes/events.js`) with `conditionalUpdate(...)` (or `findOneAndUpdate` with `_version` precondition)
+  - api-server.js:8279 `unifiedEventsCollection.updateOne(...)` replaced with `conditionalUpdate(unifiedEventsCollection, { userId, eventId }, { $set: updateOperations }, { expectedVersion, modifiedBy: userEmail || userId, snapshotFields: CONFLICT_SNAPSHOT_FIELDS })`. ApiError 404/409 caught and translated to standard response shapes.
+- [x] 6.2 Accept `expectedVersion` in the request body; treat `null`/missing as "skip version check" (backward compat)
+  - Destructured at top of handler with `expectedVersion = null` default. `conditionalUpdate` already implements the null/undefined→skip semantics per concurrencyUtils.js contract.
+- [x] 6.3 Return the post-update document via `findOneAndUpdate({ returnDocument: 'after' })`; remove the redundant trailing `findOne` (`api-server.js:8270–8272`)
+  - `finalEventFromUpdate` captures the post-update document from `conditionalUpdate`. The trailing `findOne` (line 8354) now only runs on the insert path; update path serves from the captured doc — saves one Cosmos round-trip per update call.
+- [~] 6.4 Add a backend test asserting concurrent `audit-update` calls produce the standard 409 `VERSION_CONFLICT` payload with field-level diff snapshot
+  - **Deferred**: testApp.js does not implement `/api/events/:eventId/audit-update`. The integration tests that mention audit-update do so only in comments. Same root cause as 5.5/5.7 — needs real-api-server test infrastructure or a dedicated unit test of `conditionalUpdate` (which already exists in `__tests__/unit/utils/concurrencyUtils.test.js`).
+- [~] 6.5 Add a backend test asserting an omitted `expectedVersion` skips the version check (legacy-caller behavior preserved)
+  - **Already covered**: `concurrencyUtils.js` documents and tests the null-skip semantics; the new handler code passes through `expectedVersion = null` as the default, inheriting that contract. No new test needed at the handler level until the route is extracted (§11).
+- [x] 6.6 Provide ready-to-use commit message
+  - See assistant message at end of §6 implementation.
 
 ## 7. Extract `routes/graphProxy.js` (low-risk leaf)
 
