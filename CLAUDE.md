@@ -540,6 +540,16 @@ Requester info lives in `roomReservationData.requestedBy` (name, email, departme
 ### graphData.id Gate
 `graphData.id` only exists on published events (set when Graph event is created). It gates all Graph API sync operations. Events without `graphData.id` skip Graph sync entirely.
 
+### React Query loading primitives (TanStack v5)
+List components that consume a TanStack Query result MUST follow this convention to prevent the "first-paint blank flash" bug (empty-state rendering for one tick before the spinner takes over).
+
+- **`query.isPending`** — first-load gate. `true` whenever `status === 'pending'`, regardless of `fetchStatus`. Covers both the `pending && idle` window (the tick after `enabled` flips to `true`, before the request starts) and the `pending && fetching` window. Use this as the `loading` binding.
+- **`query.isFetching && !query.isPending`** — silent-refresh detector. `true` only when a fetch is in progress AND prior data has already resolved. Use this as the `isSilentRefreshing` binding to suppress the empty-state during background refetches (SSE invalidations, polling, mutation invalidations).
+- **`query.isLoading`** — DO NOT use as the first-load gate. Defined as `isPending && isFetching`, so it is `false` during the `pending && idle` tick. Components that gate their spinner on `isLoading` will render the empty-state for one render cycle before the fetch starts.
+- **Empty-state predicate**: render `<EmptyState/>` if and only if `!query.isPending && data.length === 0 && !isSilentRefreshing`. Anything looser causes flashes.
+
+Reference implementations: `src/components/MyReservations.jsx` (lines ~193, ~198), `src/components/ReservationRequests.jsx` (lines ~204, ~210, ~217). Locked by `MyReservations.firstPaint.test.jsx` and `ReservationRequests.firstPaint.test.jsx`.
+
 ### Testing
 - **472 backend tests** (31 suites) — Jest with MongoDB Memory Server
 - **169 frontend tests** — Vitest

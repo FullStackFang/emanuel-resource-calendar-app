@@ -190,12 +190,16 @@ export default function MyReservations() {
   });
 
   const allReservations = myReservationsQuery.data ?? [];
-  const loading = myReservationsQuery.isLoading;
+  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
+  // when `enabled` flips true) and `pending && fetching`. Prevents the
+  // empty-state from rendering before the fetch starts. See CLAUDE.md
+  // "React Query loading primitives" for the convention.
+  const loading = myReservationsQuery.isPending;
   const error = myReservationsQuery.error?.message || '';
   const lastFetchedAt = myReservationsQuery.dataUpdatedAt || null;
   // Background refetch (polling, bus, manual, mutation invalidate) — UI uses
   // this to suppress the empty-state flash while data is being re-validated.
-  const isSilentRefreshing = myReservationsQuery.isFetching && !myReservationsQuery.isLoading;
+  const isSilentRefreshing = myReservationsQuery.isFetching && !myReservationsQuery.isPending;
 
   // Token rotation guard: when `apiToken` changes between two truthy values
   // (e.g., 401-retry flow rotates A → B mid-session), force a refetch so the

@@ -2359,7 +2359,12 @@ import ConflictDialog from './shared/ConflictDialog';
 
       } catch (error) {
         logger.error("Error during initialization:", error);
-        // Ensure we exit loading state even on error
+        // Hand off the overlay to the consolidated effect's loadEvents instead
+        // of letting it briefly hide between init failure and the data-fetch
+        // phase. loadEvents always clears `loading` in its finally; if the
+        // consolidated effect never fires (deeper failure), the existing
+        // 30-second initializationTimeout surfaces a hard-error path.
+        setLoading(true);
         setInitializing(false);
 
         // Clear timeout on error

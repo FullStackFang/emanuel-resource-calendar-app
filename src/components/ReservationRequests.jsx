@@ -201,15 +201,19 @@ export default function ReservationRequests({ graphToken }) {
 
   // Derived bindings — preserve the names the rest of the component expects.
   const allReservations = reservationsQuery.data ?? [];
-  const loading = reservationsQuery.isLoading;
+  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
+  // when `enabled` flips true) and `pending && fetching`. Prevents the
+  // empty-state from rendering before the fetch starts. See CLAUDE.md
+  // "React Query loading primitives" for the convention.
+  const loading = reservationsQuery.isPending;
   const error = reservationsQuery.error?.message || '';
   const lastFetchedAt = Math.max(
     reservationsQuery.dataUpdatedAt || 0,
     countsQuery.dataUpdatedAt || 0
   ) || null;
   const isSilentRefreshing =
-    (reservationsQuery.isFetching && !reservationsQuery.isLoading) ||
-    (countsQuery.isFetching && !countsQuery.isLoading);
+    (reservationsQuery.isFetching && !reservationsQuery.isPending) ||
+    (countsQuery.isFetching && !countsQuery.isPending);
   const serverCounts = countsQuery.data ?? { needs_attention: 0, all: 0 };
   // countsLoaded preserves the legacy gate semantic: flips true after the first
   // load attempt (success OR failure). React Query exposes `isPending` for the
