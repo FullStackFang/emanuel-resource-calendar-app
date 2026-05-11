@@ -81,17 +81,29 @@ const CSV_FILE = getArg('file') || DEFAULT_CSV;
 const DRY_RUN = hasFlag('dry-run');
 const NO_SOFT_DELETE = hasFlag('no-soft-delete');
 const PUBLISH = hasFlag('publish');
+const LINK = hasFlag('link');
+const CHUNK_BY = (getArg('chunk-by') || '').toLowerCase() || null; // 'month' | 'week' | null
+if (CHUNK_BY && CHUNK_BY !== 'month' && CHUNK_BY !== 'week') {
+  console.error(`Invalid --chunk-by value: ${CHUNK_BY}. Use 'month' or 'week'.`);
+  process.exit(1);
+}
 
 function usage(code = 1) {
   console.log(
     'Usage: node reconcile-rsched-source-of-truth.js \\\n' +
       '         --owner=<email> --from=YYYY-MM-DD --to=YYYY-MM-DD \\\n' +
-      '         [--file=<csv>] [--dry-run] [--no-soft-delete] [--publish]\n' +
+      '         [--file=<csv>] [--dry-run] [--no-soft-delete] [--link] [--publish] [--chunk-by=month|week]\n' +
       `\nDefault --file is ${DEFAULT_CSV}.\n` +
       '\n--dry-run        prints the plan without writing.\n' +
       '--no-soft-delete skips the soft-delete pass for buckets A/C/D.\n' +
-      '--publish        after Mongo writes, push inserts (create new Outlook events) and\n' +
-      '                 material-changed updates (push refreshed data to Outlook) via Graph.\n',
+      '--link           after Mongo writes, find existing Outlook events by content match\n' +
+      '                 (title + start ±1 min + end ±1 min) and populate graphData.id +\n' +
+      '                 calendarId on each touched doc. Does NOT create or modify Outlook.\n' +
+      '--publish        after the link pass (if also set), push inserts (create new Outlook\n' +
+      '                 events for any still-unlinked docs) and material-changed updates.\n' +
+      '--chunk-by=month split the --from..--to range into per-month chunks and process each\n' +
+      '                 sequentially (recommended for windows > 1 month to avoid Graph throttling).\n' +
+      '                 Use "week" for 7-day chunks. Per-chunk failure does NOT abort the loop.\n',
   );
   process.exit(code);
 }
@@ -154,6 +166,17 @@ async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function printProgress(label, done, total) {
   const pct = total === 0 ? 100 : Math.round((done / total) * 100);
   process.stdout.write(`\r   [${label}] ${pct}% (${done}/${total})`);
+}
+
+// Fetch the real id of the user's DEFAULT calendar. This is the value we
+// use as `calendarId` on every reconciled doc — it's unique per owner (so
+// the (userId, calendarId, eventId) composite unique index doesn't trip),
+// it's the actual store where templeeventssandbox/templeevents events live
+// (we verified via calendarView earlier), and Graph URLs built with it work.
+async function fetchDefaultCalendarId(owner) {
+  const path = `/users/${encodeURIComponent(owner)}/calendar?$select=id,name`;
+  const data = await graphApiService.graphRequest(path);
+  return data?.id || null;
 }
 
 async function fetchGraphCalendarView(owner, calendarIdHint, fromIso, toIso) {
@@ -246,6 +269,7 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
   const reasonSuffix = opts.rsIdReused
     ? ' (rsId-reuse: existing doc had a different date — moved here)'
     : '';
+  const targetCalendarId = opts.targetCalendarId || null;
   const locationIds = (csvRow.locationIds || [])
     .map((id) => {
       try { return new ObjectId(String(id)); } catch (_) { return null; }
@@ -254,14 +278,15 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
 
   // Build the field set we want to refresh. Keep graphData, _id,
   // createdAt, createdBy intact. Update top-level AND calendarData.
-  // Force calendarId to null — events live in the user's default calendar,
-  // and the calendar-config.json's specific calendarId 404s on every Graph
-  // operation. Default calendar is the authoritative store for templeeventssandbox.
+  // calendarId comes from the real default-calendar lookup at startup —
+  // different per owner so the composite unique index (userId, calendarId,
+  // eventId) doesn't collide across owners, AND Graph URLs built with it
+  // hit the actual store where the events live.
   const $set = {
     eventId: newEventId,
     source: 'rsSched',
     isDeleted: false,
-    calendarId: null,
+    calendarId: targetCalendarId,
     eventTitle: csvRow.eventTitle,
     eventDescription: csvRow.eventDescription || '',
     startDateTime: csvRow.startDateTime,
@@ -286,6 +311,13 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
     'calendarData.locations': locationIds,
     'calendarData.locationDisplayNames': csvRow.locationDisplayNames || '',
     'calendarData.categories': csvRow.categories || [],
+    // Reservation times default to the event start/end so room conflicts
+    // and door-open/close logic have non-empty values to work from.
+    'calendarData.reservationStartTime': csvRow.startTime,
+    'calendarData.reservationEndTime': csvRow.endTime,
+    'calendarData.setupTime': csvRow.startTime,
+    'calendarData.doorOpenTime': csvRow.startTime,
+    'calendarData.doorCloseTime': csvRow.endTime,
     'rschedData.rsId': csvRow.rsId,
     'rschedData.rowNumber': csvRow.rowNumber,
     'rschedData.rsKey': csvRow.rsKeyRaw || '',
@@ -302,11 +334,15 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
     },
   };
 
+  // Skip OCC (expectedVersion: null). Reconcile is the single authoritative
+  // writer during its run; the 409 errors we'd otherwise hit come from our
+  // OWN earlier writes within the same run (e.g. duplicate-content CSV rows
+  // pointing at the same Mongo doc), not from genuine concurrent user edits.
   await conditionalUpdate(
     eventsCollection,
     { _id: mongoDoc._id },
     { $set, $push },
-    { expectedVersion: mongoDoc._version ?? null, modifiedBy: IMPORT_USER_ID },
+    { expectedVersion: null, modifiedBy: IMPORT_USER_ID },
   );
 }
 
@@ -317,12 +353,16 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
 // otherwise hit E11000 against the unique index on eventId.
 async function applyInsert(eventsCollection, csvRow, sessionId, calendarId) {
   const newEventId = `rssched-${csvRow.rsId}`;
+  // Scope by calendarOwner — the same rssched-{rsId} eventId can legitimately
+  // exist on multiple calendars (e.g. sandbox and production both processed
+  // the same Rsched row). Without this scope, a production run finds the
+  // sandbox doc, treats it as a collision, and skips inserting the prod doc.
   const collision = await eventsCollection.findOne(
-    { eventId: newEventId },
+    { eventId: newEventId, calendarOwner: OWNER },
     { projection: { _id: 1, _version: 1, status: 1, graphData: 1, eventId: 1 } },
   );
   if (collision) {
-    await applyUpdate(eventsCollection, csvRow, collision, sessionId, { rsIdReused: true });
+    await applyUpdate(eventsCollection, csvRow, collision, sessionId, { rsIdReused: true, targetCalendarId: calendarId });
     // Re-fetch the just-updated doc so the publish pass can act on the
     // current state (with the new content from CSV).
     const updated = await eventsCollection.findOne({ _id: collision._id });
@@ -359,10 +399,21 @@ async function applyInsert(eventsCollection, csvRow, sessionId, calendarId) {
     importUserEmail: IMPORT_USER_EMAIL,
     sessionId,
   });
-  // Events on templeeventssandbox live in the user's default calendar.
-  // The calendar-config.json specific id 404s on Graph ops — force null
-  // so publishOrUpdateOutlookEvent uses /calendar/events (default path).
-  doc.calendarId = null;
+  // calendarId is set by buildEventDocFromStaging from the ctx we passed in
+  // — which is the real default-calendar id for this owner. Keep it intact;
+  // it's the working value for both the unique index and Graph URLs.
+
+  // buildEventDocFromStaging populates numeric reservation*Minutes fields
+  // but NOT the string time fields that legacy docs use for display and
+  // for the room-conflict checker. Fill in defaults = event start/end.
+  if (doc.calendarData) {
+    doc.calendarData.reservationStartTime = csvRow.startTime;
+    doc.calendarData.reservationEndTime = csvRow.endTime;
+    doc.calendarData.setupTime = csvRow.startTime;
+    doc.calendarData.doorOpenTime = csvRow.startTime;
+    doc.calendarData.doorCloseTime = csvRow.endTime;
+  }
+
   await eventsCollection.insertOne(doc);
   return { outcome: 'inserted', doc };
 }
@@ -393,6 +444,7 @@ function hasMaterialChangeVsGraph(doc) {
 // ── Apply SOFT-DELETE ─────────────────────────────────────────────────────
 async function applySoftDelete(eventsCollection, doc, reason) {
   const now = new Date();
+  // Skip OCC — same reasoning as applyUpdate. Reconcile owns these writes.
   await conditionalUpdate(
     eventsCollection,
     { _id: doc._id },
@@ -407,7 +459,7 @@ async function applySoftDelete(eventsCollection, doc, reason) {
         },
       },
     },
-    { expectedVersion: doc._version ?? null, modifiedBy: 'reconcile-script' },
+    { expectedVersion: null, modifiedBy: 'reconcile-script' },
   );
 }
 
@@ -433,14 +485,106 @@ async function applyRefreshFromOutlook(eventsCollection, doc, graphEvent) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
+// ── Chunking helpers ──────────────────────────────────────────────────────
+// Walk consecutive [from, to] windows between two YYYY-MM-DD dates,
+// splitting on calendar months or 7-day weeks. Both boundaries inclusive.
+function ymdToParts(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return { y, m, d };
+}
+function partsToYmd({ y, m, d }) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${y}-${pad(m)}-${pad(d)}`;
+}
+function lastDayOfMonth(y, m) {
+  // m is 1-12. Use Date(y, m, 0) — JS Date months are 0-11; passing m gives
+  // first day of next month; day 0 rolls back to last day of given month.
+  return new Date(y, m, 0).getDate();
+}
+function addDaysYmd(ymd, days) {
+  const d = new Date(`${ymd}T12:00:00Z`); // noon UTC to avoid DST edge
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function computeChunks(fromYmd, toYmd, unit) {
+  const out = [];
+  if (unit === 'month') {
+    let cursor = fromYmd;
+    while (cursor <= toYmd) {
+      const { y, m } = ymdToParts(cursor);
+      const endOfMonth = partsToYmd({ y, m, d: lastDayOfMonth(y, m) });
+      const chunkTo = endOfMonth < toYmd ? endOfMonth : toYmd;
+      out.push({ from: cursor, to: chunkTo });
+      if (chunkTo === toYmd) break;
+      cursor = addDaysYmd(chunkTo, 1);
+    }
+  } else if (unit === 'week') {
+    let cursor = fromYmd;
+    while (cursor <= toYmd) {
+      const candidate = addDaysYmd(cursor, 6);
+      const chunkTo = candidate < toYmd ? candidate : toYmd;
+      out.push({ from: cursor, to: chunkTo });
+      if (chunkTo === toYmd) break;
+      cursor = addDaysYmd(chunkTo, 1);
+    }
+  } else {
+    out.push({ from: fromYmd, to: toYmd });
+  }
+  return out;
+}
+function printAggregateSummary(chunkResults) {
+  console.log('\n════════════════════════════════════════════════════════════');
+  console.log(` Aggregate summary across ${chunkResults.length} chunk(s)`);
+  console.log('════════════════════════════════════════════════════════════');
+  let totalInserted = 0, totalUpdated = 0, totalSoftDeleted = 0, totalLinked = 0, totalPublishedNew = 0, totalPublishedUpdate = 0;
+  const failed = [];
+  for (const r of chunkResults) {
+    if (r.error) {
+      failed.push(r.chunk);
+      console.log(`  ${r.chunk.from} → ${r.chunk.to}: FAILED — ${r.error}`);
+      continue;
+    }
+    const s = r.summary || {};
+    totalInserted += s.inserted || 0;
+    totalUpdated += s.updated || 0;
+    totalSoftDeleted += s.softDeleted || 0;
+    totalLinked += s.linked || 0;
+    totalPublishedNew += s.publishedNew || 0;
+    totalPublishedUpdate += s.publishedUpdate || 0;
+    console.log(`  ${r.chunk.from} → ${r.chunk.to}: inserted=${s.inserted || 0} updated=${s.updated || 0} soft-deleted=${s.softDeleted || 0} linked=${s.linked || 0} published-new=${s.publishedNew || 0} published-update=${s.publishedUpdate || 0}`);
+  }
+  console.log('────────────────────────────────────────────────────────────');
+  console.log(`  TOTAL: inserted=${totalInserted} updated=${totalUpdated} soft-deleted=${totalSoftDeleted} linked=${totalLinked} published-new=${totalPublishedNew} published-update=${totalPublishedUpdate}`);
+  if (failed.length > 0) {
+    console.log(`\n  ${failed.length} chunk(s) failed — re-run individually:`);
+    for (const c of failed) {
+      console.log(`    --from=${c.from} --to=${c.to}`);
+    }
+  }
+  console.log('════════════════════════════════════════════════════════════\n');
+}
+
 async function main() {
   const csvPath = path.join(__dirname, 'csv-imports', CSV_FILE);
   if (!fs.existsSync(csvPath)) {
     console.error(`CSV file not found: ${csvPath}`);
     process.exit(1);
   }
-  const cfg = loadCalendarConfig();
-  const calendarId = resolveCalendarId(OWNER, cfg);
+  // Resolve calendarId. The calendar-config.json value 404s on Graph for
+  // templeeventssandbox — fetch the real default-calendar id at startup
+  // and use that. Falls back to config'd value if the Graph lookup fails.
+  let calendarId = null;
+  try {
+    calendarId = await fetchDefaultCalendarId(OWNER);
+    if (calendarId) console.log(`Resolved default calendar id for ${OWNER}: ${calendarId.slice(0, 24)}...`);
+  } catch (err) {
+    console.warn(`Failed to fetch default calendar id: ${err.message}`);
+  }
+  if (!calendarId) {
+    const cfg = loadCalendarConfig();
+    calendarId = resolveCalendarId(OWNER, cfg);
+    if (calendarId) console.log(`Falling back to calendar-config.json value: ${calendarId.slice(0, 24)}...`);
+  }
 
   console.log('────────────────────────────────────────────────────────────');
   console.log(' Rsched reconcile (content-as-primary-key)');
@@ -459,11 +603,6 @@ async function main() {
   const { rows: parsed, parseErrors } = await rschedImportService.parseCsv(buffer);
   console.log(`  parsed ${parsed.length} rows (${parseErrors.length} parse errors)`);
 
-  const inScope = parsed.filter(
-    (r) => r.startDateTime >= FROM_STR && r.startDateTime <= TO_STR,
-  );
-  console.log(`  in scope: ${inScope.length}`);
-
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
   try {
@@ -471,8 +610,33 @@ async function main() {
     const events = db.collection('templeEvents__Events');
     const locations = db.collection('templeEvents__Locations');
 
-    console.log('Resolving CSV locations...');
-    const { rows: resolved } = await rschedImportService.resolveLocations(inScope, locations);
+    // ── Compute chunks ──────────────────────────────────────────────
+    const chunks = computeChunks(FROM, TO, CHUNK_BY);
+    if (chunks.length > 1) {
+      console.log(`\nChunking by ${CHUNK_BY}: ${chunks.length} chunks total.`);
+    }
+    const chunkResults = [];
+
+    for (let __ci = 0; __ci < chunks.length; __ci++) {
+      const __chunk = chunks[__ci];
+      const windowFrom = __chunk.from;
+      const windowTo = __chunk.to;
+      const windowFromStr = `${windowFrom}T00:00:00`;
+      const windowToStr = `${windowTo}T23:59:59`;
+      const summary = { inserted: 0, updated: 0, softDeleted: 0, linked: 0, publishedNew: 0, publishedUpdate: 0 };
+
+      if (chunks.length > 1) {
+        console.log(`\n══════ Chunk ${__ci + 1}/${chunks.length}: ${windowFrom} → ${windowTo} ══════`);
+      }
+
+      try {
+        const inScope = parsed.filter(
+          (r) => r.startDateTime >= windowFromStr && r.startDateTime <= windowToStr,
+        );
+        console.log(`  CSV rows in chunk: ${inScope.length}`);
+
+        console.log('Resolving CSV locations...');
+        const { rows: resolved } = await rschedImportService.resolveLocations(inScope, locations);
 
     console.log('Loading Mongo docs in scope...');
     const mongoDocs = await events
@@ -480,7 +644,7 @@ async function main() {
         {
           calendarOwner: OWNER,
           isDeleted: { $ne: true },
-          $or: startDateTimeOrFilter(FROM_STR, TO_STR),
+          $or: startDateTimeOrFilter(windowFromStr, windowToStr),
         },
         {
           projection: {
@@ -529,14 +693,16 @@ async function main() {
       else nonTestUnmatched.push(ev);
     }
 
-    // Outlook fetch.
+    // Outlook fetch — needed for bucket classification of unmatched docs
+    // AND for the --link pass (when set) to find existing Outlook events
+    // even when nothing is unmatched on the Mongo side.
     let graphEvents = [];
     let graphCalendarUsed = null;
     let graphFetchError = null;
-    if (nonTestUnmatched.length > 0) {
+    if (nonTestUnmatched.length > 0 || LINK) {
       try {
         console.log(`Fetching Outlook calendarView...`);
-        const result = await fetchGraphCalendarView(OWNER, calendarId, `${FROM}T00:00:00Z`, `${TO}T23:59:59Z`);
+        const result = await fetchGraphCalendarView(OWNER, calendarId, `${windowFrom}T00:00:00Z`, `${windowTo}T23:59:59Z`);
         graphEvents = result.events;
         graphCalendarUsed = result.calendarUsed;
         console.log(`  ${graphEvents.length} Outlook events fetched (calendar=${graphCalendarUsed})`);
@@ -614,7 +780,7 @@ async function main() {
       for (let i = 0; i < plan.update.length; i += BATCH_SIZE) {
         const batch = plan.update.slice(i, i + BATCH_SIZE);
         for (const { row, doc } of batch) {
-          try { await applyUpdate(events, row, doc, sessionId); done++; }
+          try { await applyUpdate(events, row, doc, sessionId, { targetCalendarId: calendarId }); done++; }
           catch (err) { failed++; console.warn(`\n   update failed _id=${doc._id}: ${err.message}`); }
         }
         printProgress('Update', Math.min(i + BATCH_SIZE, plan.update.length), plan.update.length);
@@ -653,11 +819,20 @@ async function main() {
 
     // SOFT-DELETE A, C, D
     if (!NO_SOFT_DELETE) {
+      // Exclude docs that were touched by UPDATE or INSERT-collision routing.
+      // Those docs were repurposed (their content/rsId/eventId reflect a new
+      // CSV row) and should NOT be soft-deleted even if they were in the
+      // initial bucket classification.
+      const isTouched = (doc) => touchedIds.has(String(doc._id));
       const sdPlan = [
-        ...bucketA.map((doc) => ({ doc, reason: `test-user (${doc.createdByEmail || 'unknown'})` })),
-        ...bucketC.map((x) => ({ doc: x.doc, reason: 'single in Outlook, not in CSV' })),
-        ...bucketD.map((doc) => ({ doc, reason: 'had graphId, Outlook returned nothing' })),
+        ...bucketA.filter((doc) => !isTouched(doc)).map((doc) => ({ doc, reason: `test-user (${doc.createdByEmail || 'unknown'})` })),
+        ...bucketC.filter((x) => !isTouched(x.doc)).map((x) => ({ doc: x.doc, reason: 'single in Outlook, not in CSV' })),
+        ...bucketD.filter((doc) => !isTouched(doc)).map((doc) => ({ doc, reason: 'had graphId, Outlook returned nothing' })),
       ];
+      const skippedCount = bucketA.length + bucketC.length + bucketD.length - sdPlan.length;
+      if (skippedCount > 0) {
+        console.log(`Soft-delete: skipped ${skippedCount} docs that were repurposed by UPDATE/INSERT-collision routing.`);
+      }
       if (sdPlan.length > 0) {
         console.log('Applying soft-deletes...');
         let done = 0, failed = 0;
@@ -688,6 +863,80 @@ async function main() {
         if (i + BATCH_SIZE < bucketB.length) await sleep(BATCH_PAUSE_MS);
       }
       process.stdout.write(`\n   refreshed: ${done}  failed: ${failed}\n`);
+    }
+
+    // ── LINK PASS (only if --link) ──
+    // For each touched doc that still lacks graphData.id, content-match
+    // against the already-fetched Outlook calendarView. Single match →
+    // write graphData (which includes .id) and calendarId. Zero/multi →
+    // leave alone; --publish (if also set) will create a new Outlook event
+    // for the zero-match cases.
+    if (LINK && touchedIds.size > 0) {
+      console.log(`\nLink pass: scanning ${touchedIds.size} touched docs for Outlook matches...`);
+      const touchedIdObjs = Array.from(touchedIds).map((id) => {
+        try { return new ObjectId(id); } catch (_) { return null; }
+      }).filter(Boolean);
+      const touchedDocs = await events.find({ _id: { $in: touchedIdObjs } }).toArray();
+      const unlinked = touchedDocs.filter((d) => !d.graphData?.id);
+      console.log(`  ${unlinked.length} of ${touchedDocs.length} touched docs need linking`);
+
+      let linked = 0;
+      let orphan = 0;
+      let ambiguous = 0;
+      let linkFailed = 0;
+      const now = new Date();
+      for (let i = 0; i < unlinked.length; i += BATCH_SIZE) {
+        const batch = unlinked.slice(i, i + BATCH_SIZE);
+        for (const doc of batch) {
+          const docTitle = getEventTitle(doc);
+          const docStart = getStartDateTime(doc);
+          const docEnd = getEndDateTime(doc);
+          const matched = new Map();
+          for (let ds = -TIME_TOLERANCE_MINUTES; ds <= TIME_TOLERANCE_MINUTES; ds++) {
+            for (let de = -TIME_TOLERANCE_MINUTES; de <= TIME_TOLERANCE_MINUTES; de++) {
+              const ck = contentKey(docTitle, docStart, docEnd, ds, de);
+              if (!ck) continue;
+              const hits = graphByContentKey.get(ck);
+              if (!hits) continue;
+              for (const g of hits) matched.set(g.id, g);
+            }
+          }
+          const candidates = Array.from(matched.values());
+          if (candidates.length === 1) {
+            try {
+              await conditionalUpdate(
+                events,
+                { _id: doc._id },
+                {
+                  $set: {
+                    graphData: candidates[0],
+                    calendarId,
+                    lastSyncedAt: now,
+                  },
+                },
+                { expectedVersion: doc._version ?? null, modifiedBy: 'reconcile-link' },
+              );
+              linked++;
+            } catch (err) {
+              linkFailed++;
+              console.warn(`\n   link failed _id=${doc._id}: ${err.message}`);
+            }
+          } else if (candidates.length > 1) {
+            ambiguous++;
+          } else {
+            orphan++;
+          }
+        }
+        printProgress('Link', Math.min(i + BATCH_SIZE, unlinked.length), unlinked.length);
+        if (i + BATCH_SIZE < unlinked.length) await sleep(BATCH_PAUSE_MS);
+      }
+      if (unlinked.length > 0) process.stdout.write('\n');
+      console.log(`   linked: ${linked}  orphan (no Outlook match): ${orphan}  ambiguous (multi-match): ${ambiguous}  failed: ${linkFailed}`);
+      if (orphan > 0 && PUBLISH) {
+        console.log(`   ${orphan} orphan docs will be created in Outlook by the publish pass below.`);
+      } else if (orphan > 0) {
+        console.log(`   ${orphan} orphan docs are not in Outlook — pass --publish to create them.`);
+      }
     }
 
     // ── PUBLISH PASS (only if --publish) ──
@@ -743,6 +992,19 @@ async function main() {
       console.log('\nPublish pass: nothing touched (0 inserts, 0 updates) — skipping Graph calls.');
     } else {
       console.log('\nPublish pass skipped (no --publish flag). Mongo and Outlook may be out of sync; pass --publish to push.');
+    }
+
+        // End of per-chunk success path.
+        chunkResults.push({ chunk: __chunk, summary });
+      } catch (err) {
+        console.error(`  CHUNK FAILED: ${err.message}`);
+        chunkResults.push({ chunk: __chunk, error: err.message });
+        // Don't abort the loop — proceed to next chunk.
+      }
+    } // end for-loop over chunks
+
+    if (chunks.length > 1) {
+      printAggregateSummary(chunkResults);
     }
 
     console.log('\nReconcile complete. Re-run audit to verify idempotency.');

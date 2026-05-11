@@ -129,15 +129,23 @@ function csvEscape(val) {
   return s;
 }
 
-async function fetchGraphCalendarView(owner, calendarId, fromIso, toIso) {
+// Fetch the real id of the user's DEFAULT calendar. Both templeevents and
+// templeeventssandbox have stale entries in calendar-config.json that point
+// at non-existent calendars; the events actually live in /users/{owner}/calendar.
+// Using this id makes calendarView queries hit the right store AND gives every
+// linked doc a unique-per-owner calendarId for the composite index.
+async function fetchDefaultCalendarId(owner) {
+  const path = `/users/${encodeURIComponent(owner)}/calendar?$select=id,name`;
+  const data = await graphApiService.graphRequest(path);
+  return data?.id || null;
+}
+
+async function fetchGraphCalendarView(owner, calendarIdHint, fromIso, toIso) {
   // Use graphRequest directly so we can set a Prefer header. Graph's
   // calendarView returns event times in the requested time zone, which
   // saves us doing DST-aware UTC→Eastern math in JS.
   const headers = { Prefer: `outlook.timezone="${CALENDAR_TIMEZONE}"` };
   const basePath = `/users/${encodeURIComponent(owner)}`;
-  const calendarPath = calendarId
-    ? `${basePath}/calendars/${calendarId}/calendarView`
-    : `${basePath}/calendar/calendarView`;
   const params = new URLSearchParams({
     startDateTime: fromIso,
     endDateTime: toIso,
@@ -145,29 +153,58 @@ async function fetchGraphCalendarView(owner, calendarId, fromIso, toIso) {
     $select: 'id,subject,start,end,iCalUId,seriesMasterId,type,recurrence,isCancelled',
   });
 
-  let nextLink = `${calendarPath}?${params}`;
-  let all = [];
-  while (nextLink) {
-    const data = await graphApiService.graphRequest(nextLink, { headers });
-    all = all.concat(data.value || []);
-    nextLink = data['@odata.nextLink'] || null;
+  // Try default calendar first (works for both templeevents and templeeventssandbox).
+  // Fall back to the hinted calendarId from calendar-config only if default fails.
+  const candidates = [{ label: 'default', path: `${basePath}/calendar/calendarView` }];
+  if (calendarIdHint) {
+    candidates.push({
+      label: 'config-id',
+      path: `${basePath}/calendars/${calendarIdHint}/calendarView`,
+    });
   }
-  return all;
+
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      let nextLink = `${c.path}?${params}`;
+      let all = [];
+      while (nextLink) {
+        const data = await graphApiService.graphRequest(nextLink, { headers });
+        all = all.concat(data.value || []);
+        nextLink = data['@odata.nextLink'] || null;
+      }
+      if (all.length > 0 || c.label === 'default') return all;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return [];
 }
 
 async function main() {
-  const cfg = loadCalendarConfig();
-  const calendarId = resolveCalendarId(OWNER, cfg);
-  if (!calendarId) {
-    console.error(`No calendarId for ${OWNER} in calendar-config.json`);
-    process.exit(1);
+  // Resolve the real default calendar id via Graph. Used (a) as the
+  // hint passed to fetchGraphCalendarView's fallback, and (b) as the
+  // calendarId we write onto every linked Mongo doc so admin saves and
+  // composite-unique-index both work correctly.
+  let realDefaultCalendarId = null;
+  try {
+    realDefaultCalendarId = await fetchDefaultCalendarId(OWNER);
+  } catch (err) {
+    console.warn(`Failed to fetch default calendar id: ${err.message}`);
+  }
+  if (!realDefaultCalendarId) {
+    // Fall back to the (likely-broken) value from calendar-config.json.
+    const cfg = loadCalendarConfig();
+    realDefaultCalendarId = resolveCalendarId(OWNER, cfg);
   }
 
   console.log('────────────────────────────────────────────────────────────');
   console.log(' Mongo → Graph link repair (populate graphData.id)');
-  console.log(`   owner:   ${OWNER}`);
-  console.log(`   window:  ${FROM} → ${TO}`);
-  console.log(`   dry-run: ${DRY_RUN}`);
+  console.log(`   owner:    ${OWNER}`);
+  console.log(`   window:   ${FROM} → ${TO}`);
+  console.log(`   dry-run:  ${DRY_RUN}`);
+  console.log(`   calendar: ${realDefaultCalendarId ? realDefaultCalendarId.slice(0, 24) + '...' : '(none — will use /calendar default path)'}`);
   console.log('────────────────────────────────────────────────────────────\n');
 
   const client = new MongoClient(MONGODB_URI);
@@ -232,7 +269,7 @@ async function main() {
     console.log(`Fetching Graph events ${graphFromIso} → ${graphToIso}...`);
     const graphEvents = await fetchGraphCalendarView(
       OWNER,
-      calendarId,
+      realDefaultCalendarId,
       graphFromIso,
       graphToIso,
     );
@@ -342,6 +379,8 @@ async function main() {
       for (const { doc, graphEvent } of batch) {
         try {
           // graphEvent already contains .id, so just set the whole object.
+          // Also set calendarId to the real default-calendar id so that
+          // future admin saves use a valid Graph URL.
           // No statusHistory push — this is metadata, not a state change,
           // and a fake status entry would corrupt the restore-walk logic.
           await conditionalUpdate(
@@ -350,6 +389,7 @@ async function main() {
             {
               $set: {
                 graphData: graphEvent,
+                calendarId: realDefaultCalendarId,
                 lastSyncedAt: new Date(),
               },
             },
