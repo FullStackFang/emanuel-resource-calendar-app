@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { apiRequest, loginRequest as loginRequestConfig } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
+import { lazyWithRetry as lazy } from './utils/lazyWithRetry';
 const UnifiedEventForm = lazy(() => import('./components/UnifiedEventForm'));
 const ReviewModal = lazy(() => import('./components/shared/ReviewModal'));
 const NewReservationModal = lazy(() => import('./components/NewReservationModal'));

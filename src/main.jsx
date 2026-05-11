@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
+import { CHUNK_RELOAD_FLAG } from './utils/lazyWithRetry';
 import { logger } from './utils/logger';
 import './index.css'; // optional
 
@@ -26,6 +27,18 @@ import './index.css'; // optional
     sessionStorage.setItem('deepLinkEventId', eventId);
   }
 })();
+
+// Recover from stale-chunk-after-deploy errors. When a deploy ships new chunk
+// hashes, users with an old index.html in memory hit 404s on dynamic imports
+// (e.g. lazy-loaded Calendar). Vite emits 'vite:preloadError' for these — we
+// reload once per session to pick up the fresh index.html. Guarded by a
+// sessionStorage flag so a genuinely broken chunk doesn't loop the page.
+window.addEventListener('vite:preloadError', (event) => {
+  if (sessionStorage.getItem(CHUNK_RELOAD_FLAG) === '1') return;
+  sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+  event.preventDefault();
+  window.location.reload();
+});
 
 // Force full page reload on HMR for critical modules to prevent React hooks errors
 // The @azure/msal-react library can get out of sync with React during partial HMR updates,
