@@ -6078,6 +6078,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       const startISO = toLocalISO(startDate);
       const endISO = toLocalISO(endDate);
       const startDateOnly = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
+      const endDateOnly = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}`;
 
       // SeriesMasters need special handling: their calendarData dates represent
       // only the first occurrence, but they generate occurrences across the full
@@ -6106,6 +6107,14 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
               { 'recurrence.range.type': 'noEnd' },
               { 'recurrence.range.type': 'numbered' }
             ]
+          },
+          // SeriesMasters with adhoc additions in the view window, regardless of
+          // recurrence.range. Covers events that schedule dates beyond range.endDate
+          // via additions (e.g. single-day pattern + adhoc dates spread over months).
+          // $elemMatch required so the bounds match a single element, not any-element/any-element.
+          {
+            eventType: 'seriesMaster',
+            'recurrence.additions': { $elemMatch: { $gte: startDateOnly, $lte: endDateOnly } }
           }
         ]
       }];

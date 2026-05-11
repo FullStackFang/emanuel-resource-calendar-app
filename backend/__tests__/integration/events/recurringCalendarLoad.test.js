@@ -24,9 +24,13 @@ const {
   insertEvent,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
-const { COLLECTIONS, ENDPOINTS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
+const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
 
-describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
+// The production route — NOT the legacy testApp.js shim at /api/events/calendar-load.
+// The shim was removed when tests migrated to the real api-server via createAppForTest.
+const REAL_LOAD_EVENTS = '/api/events/load';
+
+describe('Recurring Event Calendar Load (RCL-1 to RCL-12)', () => {
   let mongoClient, db, app;
   let adminUser, adminToken;
 
@@ -74,12 +78,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
     await insertEvent(db, master);
 
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-03-23T00:00:00',
-        endDate: '2026-03-29T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-03-23T00:00:00',
+        endTime: '2026-03-29T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -110,12 +114,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query week containing 2026-03-31 (the endDate)
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-03-30T00:00:00',
-        endDate: '2026-04-05T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-03-30T00:00:00',
+        endTime: '2026-04-05T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -145,12 +149,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query April 6-12 — past the endDate of 2026-03-31
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-04-06T00:00:00',
-        endDate: '2026-04-12T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-04-06T00:00:00',
+        endTime: '2026-04-12T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -173,12 +177,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query a different week — should NOT return it
     const res1 = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-03-23T00:00:00',
-        endDate: '2026-03-29T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-03-23T00:00:00',
+        endTime: '2026-03-29T23:59:59',
       });
 
     expect(res1.status).toBe(200);
@@ -186,12 +190,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query the correct week — should return it
     const res2 = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-03-16T00:00:00',
-        endDate: '2026-03-22T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-03-16T00:00:00',
+        endTime: '2026-03-22T23:59:59',
       });
 
     expect(res2.status).toBe(200);
@@ -221,12 +225,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query far future — should still return the master
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-12-01T00:00:00',
-        endDate: '2026-12-07T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-12-01T00:00:00',
+        endTime: '2026-12-07T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -256,12 +260,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query week 5 — well within 10 weekly occurrences
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-04-13T00:00:00',
-        endDate: '2026-04-19T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-04-13T00:00:00',
+        endTime: '2026-04-19T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -294,12 +298,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query week 3 (2026-03-30 to 2026-04-05) — past first occurrence but within recurrence range
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-03-30T00:00:00',
-        endDate: '2026-04-05T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-03-30T00:00:00',
+        endTime: '2026-04-05T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -330,12 +334,12 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
     await insertEvent(db, master);
 
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-12-01T00:00:00',
-        endDate: '2026-12-07T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-12-01T00:00:00',
+        endTime: '2026-12-07T23:59:59',
       });
 
     expect(res.status).toBe(200);
@@ -366,12 +370,157 @@ describe('Recurring Event Calendar Load (RCL-1 to RCL-9)', () => {
 
     // Query April 6-12 — past the endDate of 2026-03-31
     const res = await request(app)
-      .post(ENDPOINTS.LOAD_EVENTS)
+      .post(REAL_LOAD_EVENTS)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        calendarOwner: TEST_CALENDAR_OWNER,
-        startDate: '2026-04-06T00:00:00',
-        endDate: '2026-04-12T23:59:59',
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-04-06T00:00:00',
+        endTime: '2026-04-12T23:59:59',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.events).toHaveLength(0);
+  });
+
+  // RCL-10: SeriesMaster with adhoc additions in a view that DOES NOT overlap
+  // recurrence.range. Reproduces the production-shape bug where a single-day
+  // recurrence (range.startDate = range.endDate) has additions[] extending into
+  // future months. Before the fix, the master was excluded from those views
+  // because the seriesMaster query only checked recurrence.range overlap.
+  test('RCL-10: seriesMaster with additions outside recurrence.range is returned for views containing additions', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      startDateTime: new Date('2026-10-15T10:00:00'),
+      endDateTime: new Date('2026-10-15T11:30:00'),
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-10-15', endDate: '2026-10-15' },
+        additions: ['2026-11-03', '2026-11-05', '2026-12-01', '2027-01-07'],
+        exclusions: [],
+      },
+      calendarData: {
+        eventTitle: 'Single-day pattern with adhoc dates',
+        startDateTime: '2026-10-15T10:00:00',
+        endDateTime: '2026-10-15T11:30:00',
+      },
+    });
+    await insertEvent(db, master);
+
+    // Nov view — outside recurrence.range but contains 11/03 + 11/05 additions
+    const novRes = await request(app)
+      .post(REAL_LOAD_EVENTS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-11-01T00:00:00',
+        endTime: '2026-11-30T23:59:59',
+      });
+
+    expect(novRes.status).toBe(200);
+    expect(novRes.body.events).toHaveLength(1);
+    expect(novRes.body.events[0].eventType).toBe('seriesMaster');
+    expect(novRes.body.events[0].recurrence.additions).toEqual(
+      expect.arrayContaining(['2026-11-03', '2026-11-05'])
+    );
+
+    // Dec view — outside recurrence.range but contains 12/01 addition
+    const decRes = await request(app)
+      .post(REAL_LOAD_EVENTS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-12-01T00:00:00',
+        endTime: '2026-12-31T23:59:59',
+      });
+
+    expect(decRes.status).toBe(200);
+    expect(decRes.body.events).toHaveLength(1);
+    expect(decRes.body.events[0].eventType).toBe('seriesMaster');
+
+    // Jan 2027 view — outside recurrence.range but contains 01/07 addition
+    const janRes = await request(app)
+      .post(REAL_LOAD_EVENTS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2027-01-01T00:00:00',
+        endTime: '2027-01-31T23:59:59',
+      });
+
+    expect(janRes.status).toBe(200);
+    expect(janRes.body.events).toHaveLength(1);
+  });
+
+  // RCL-11: Regression — the existing range-overlap branch still works for the
+  // same master when the view DOES overlap recurrence.range. Verifies the new
+  // $or branch is additive, not a replacement.
+  test('RCL-11: seriesMaster with additions outside range is still returned for views overlapping range', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      startDateTime: new Date('2026-10-15T10:00:00'),
+      endDateTime: new Date('2026-10-15T11:30:00'),
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-10-15', endDate: '2026-10-15' },
+        additions: ['2026-11-03', '2026-12-01', '2027-01-07'],
+        exclusions: [],
+      },
+      calendarData: {
+        eventTitle: 'October base + far-future adhoc',
+        startDateTime: '2026-10-15T10:00:00',
+        endDateTime: '2026-10-15T11:30:00',
+      },
+    });
+    await insertEvent(db, master);
+
+    // October view — overlaps recurrence.range (10/15)
+    const octRes = await request(app)
+      .post(REAL_LOAD_EVENTS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-10-01T00:00:00',
+        endTime: '2026-10-31T23:59:59',
+      });
+
+    expect(octRes.status).toBe(200);
+    expect(octRes.body.events).toHaveLength(1);
+    expect(octRes.body.events[0].eventType).toBe('seriesMaster');
+  });
+
+  // RCL-12: SeriesMaster with adhoc additions that DO NOT overlap the view is
+  // excluded. Guards against the new branch matching too broadly (false positive
+  // from $gte/$lte applied to different array elements would have caused this).
+  test('RCL-12: seriesMaster excluded when neither range nor additions overlap view', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      startDateTime: new Date('2026-10-15T10:00:00'),
+      endDateTime: new Date('2026-10-15T11:30:00'),
+      recurrence: {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-10-15', endDate: '2026-10-15' },
+        // Additions only in October and January — gap in November/December.
+        // Without $elemMatch, the new branch would falsely match November:
+        //   any element >= '2026-11-01' (the Jan one) AND any element <= '2026-11-30' (the Oct one).
+        additions: ['2026-10-22', '2027-01-07'],
+        exclusions: [],
+      },
+      calendarData: {
+        eventTitle: 'No November additions',
+        startDateTime: '2026-10-15T10:00:00',
+        endDateTime: '2026-10-15T11:30:00',
+      },
+    });
+    await insertEvent(db, master);
+
+    // November view — recurrence.range doesn't overlap AND no addition is in Nov
+    const res = await request(app)
+      .post(REAL_LOAD_EVENTS)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        calendarOwners: [TEST_CALENDAR_OWNER],
+        startTime: '2026-11-01T00:00:00',
+        endTime: '2026-11-30T23:59:59',
       });
 
     expect(res.status).toBe(200);
