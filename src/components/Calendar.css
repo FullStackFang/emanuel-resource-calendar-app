@@ -277,10 +277,21 @@
   display: flex;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   background-color: var(--color-primary-500);
   color: var(--text-inverse);
   box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease-out;
+}
+
+.grid-header-sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+  pointer-events: none;
+}
+
+.grid-header.is-stuck {
+  box-shadow: var(--shadow-lg);
 }
 
 .grid-header .header-cell {

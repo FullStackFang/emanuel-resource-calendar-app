@@ -139,6 +139,12 @@
   position: sticky;
   top: 0;
   z-index: 3;
+  transition: box-shadow 0.18s ease-out;
+}
+
+.timeline-day-header.is-stuck,
+.timeline-time-header.is-stuck {
+  box-shadow: var(--shadow-lg);
 }
 
 /* ==========================================================================

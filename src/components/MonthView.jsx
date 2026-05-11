@@ -1,8 +1,9 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { memo, useState, useCallback, useRef } from 'react';
 import DayEventsPopup from './DayEventsPopup';
 import { useTimezone } from '../context/TimezoneContext';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { getEventPosition } from '../utils/calendarEventUtils';
+import { useStuckHeader } from '../hooks/useStuckHeader';
 import './MonthView.css';
 
 const MAX_VISIBLE_EVENTS = 3;
@@ -105,10 +106,13 @@ const MonthView = memo(({
     setOverflowPopup(null);
   }, []);
 
+  const monthSentinelRef = useRef(null);
+  const isMonthHeaderStuck = useStuckHeader(monthSentinelRef);
+
   return (
     <div className="month-view-wrapper">
       <div className="month-view-container">
-        <div className="month-header">
+        <div className={`month-header${isMonthHeaderStuck ? ' is-stuck' : ''}`}>
           <div className="weekday-header">
             {getWeekdayHeaders().map((day, index) => (
               <div key={index} className="weekday">{day}</div>
@@ -116,6 +120,7 @@ const MonthView = memo(({
           </div>
         </div>
         <div className="month-days">
+          <div ref={monthSentinelRef} className="month-header-sentinel" aria-hidden="true" />
           {getMonthWeeks().map((week, weekIndex) => (
             <div key={weekIndex} className="week-row">
               {week.map((day, dayIndex) => {

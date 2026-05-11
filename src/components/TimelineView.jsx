@@ -347,6 +347,22 @@ export default function TimelineView({
 
   const scrollRef = useRef(null);
 
+  // ── Sticky header elevation cue ─────────────────────────────────────
+  // Horizontal flex layout makes the sentinel pattern awkward here, so we
+  // tap directly into the scroll container we already own (scrollRef).
+  const [isHeaderStuck, setIsHeaderStuck] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const stuck = el.scrollTop > 0;
+      setIsHeaderStuck(prev => (prev === stuck ? prev : stuck));
+    };
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
   // ── Tooltip state + smart positioning ───────────────────────────────
   // Position is computed synchronously in render (single-pass) instead of
   // via a useLayoutEffect imperative-write pass — this eliminates any race
@@ -395,7 +411,7 @@ export default function TimelineView({
       <div className="timeline-grid" ref={scrollRef}>
         {/* Time labels column (sticky left) — only visible hours */}
         <div className="timeline-time-column">
-          <div className="timeline-time-header" />
+          <div className={`timeline-time-header${isHeaderStuck ? ' is-stuck' : ''}`} />
           {visibleHourLabels.map(({ hour, label }) => (
             <div key={hour} className="timeline-hour-label">
               {label}
@@ -412,7 +428,7 @@ export default function TimelineView({
           return (
             <div key={dateKey} className="timeline-day-column" role="column">
               {/* Sticky day header */}
-              <div className="timeline-day-header">
+              <div className={`timeline-day-header${isHeaderStuck ? ' is-stuck' : ''}`}>
                 {formatDateHeader(date)}
               </div>
 

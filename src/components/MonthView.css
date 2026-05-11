@@ -50,6 +50,19 @@
   font-weight: var(--font-normal);
   border-radius: 0;
   letter-spacing: var(--tracking-tight);
+  position: relative;
+  z-index: 20;
+  transition: box-shadow 0.18s ease-out;
+}
+
+.month-header.is-stuck {
+  box-shadow: var(--shadow-lg);
+}
+
+.month-header-sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+  pointer-events: none;
 }
 
 /* ==========================================================================

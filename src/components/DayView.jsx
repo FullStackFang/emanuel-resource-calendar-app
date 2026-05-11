@@ -1,12 +1,13 @@
 // Fixed DayView.jsx with proper virtual location detection
 import { logger } from '../utils/logger';
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useRef } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { isTimelessDraft } from '../utils/timelineUtils';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, buildReservationTimeDisplay } from '../utils/timezoneUtils';
 import { sortEventsByStartTime, getEventCategories, isRecurringEvent } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
+import { useStuckHeader } from '../hooks/useStuckHeader';
 import './shared/CalendarIcons.css';
 
 const DayView = memo(({
@@ -137,10 +138,14 @@ const DayView = memo(({
     [filteredEvents, getEventPosition, currentDay]
   );
 
+  const sentinelRef = useRef(null);
+  const isHeaderStuck = useStuckHeader(sentinelRef);
+
   return (
     <>
+      <div ref={sentinelRef} className="grid-header-sentinel" aria-hidden="true" />
       {/* Grid Header (Day) */}
-      <div className="grid-header">
+      <div className={`grid-header${isHeaderStuck ? ' is-stuck' : ''}`}>
         <div className="grid-cell header-cell category-header">
           {groupBy === 'categories' ? 'Categories' : 'Locations'}
         </div>
