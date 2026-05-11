@@ -219,6 +219,14 @@ import ConflictDialog from './shared/ConflictDialog';
     // Set to true when a navigation fires while a load is in progress (skipped guard).
     // The finally block checks this and retries with the latest dateRange.
     const pendingReloadRef = useRef(false);
+    // Flips true the first time loadEventsUnified renders > 0 events in this
+    // session, and persists across calendar switches, date navigation, and
+    // SSE-driven state changes. Gates the NO_EVENTS_SYNC_DISABLED onboarding
+    // banner so it only paints for genuine cold-start users — once the user
+    // has been onboarded, a later transient 0-event response (last-event
+    // delete, navigation to an empty range, switch to an empty calendar)
+    // must not regress the UI to the onboarding banner.
+    const hasObservedEventsRef = useRef(false);
     // Flipped true the moment the consolidated mount effect dispatches its first
     // non-silent loadEvents(false). Silent refreshes (SSE/bus/polling) no-op until
     // this is true, so an SSE 'event-changed' delivered during init cannot race
@@ -465,8 +473,11 @@ import ConflictDialog from './shared/ConflictDialog';
     });
 
     // Refresh callback for the experience hook
+    // silent: true so a 0-event response on this post-mutation reload cannot
+    // wipe the optimistically-patched state — matches the defense pattern
+    // from commit 0743490 applied to the pendingReload retry.
     const handleReviewRefresh = useCallback(() => {
-      loadEventsRef.current?.(true);
+      loadEventsRef.current?.(true, null, { silent: true });
     }, []);
 
     // Unified review modal experience (replaces useReviewModal + satellite state)
@@ -478,11 +489,13 @@ import ConflictDialog from './shared/ConflictDialog';
       onSuccess: (result) => {
         const eventData = result?.event;
         if (result?.deleted || result?.occurrenceExcluded) {
-          // Actor delete/exclude: remove locally instead of full reload
+          // Actor delete/exclude: remove locally instead of full reload.
+          // Reload fallback uses silent: true so a 0-event response cannot
+          // wipe state on top of the optimistic filter (matches 0743490).
           if (eventData?._id) {
             setAllEvents(allEventsRef.current.filter(e => String(e._id) !== String(eventData._id)));
           } else {
-            loadEventsRef.current?.(true);
+            loadEventsRef.current?.(true, null, { silent: true });
           }
         } else if (eventData?._id && eventData.eventType !== 'seriesMaster') {
           // Non-recurring: patch from PUT response
@@ -508,10 +521,14 @@ import ConflictDialog from './shared/ConflictDialog';
               setAllEvents(updated);
             }
           } else {
-            loadEventsRef.current?.(true);
+            // Patch path couldn't find the event in allEventsRef — fall back to
+            // a reload. silent: true so a 0-event response doesn't wipe state.
+            loadEventsRef.current?.(true, null, { silent: true });
           }
         } else {
-          loadEventsRef.current?.(true);
+          // Catch-all: unknown result shape (e.g. series-master save) — reload.
+          // silent: true so a 0-event response doesn't wipe state.
+          loadEventsRef.current?.(true, null, { silent: true });
         }
 
         // Show success/warning toast based on action type
@@ -709,7 +726,9 @@ import ConflictDialog from './shared/ConflictDialog';
         if (!response.ok) throw new Error('Failed to resubmit reservation');
 
         reviewModal.closeModal(true);
-        loadEventsRef.current?.(true);
+        // silent: true so a 0-event response on this post-resubmit reload
+        // cannot wipe state (matches the 0743490 defense pattern).
+        loadEventsRef.current?.(true, null, { silent: true });
       } catch (err) {
         logger.error('Error resubmitting reservation:', err);
         showError(err, { context: 'Calendar.handleResubmitFromCalendar' });
@@ -1865,6 +1884,12 @@ import ConflictDialog from './shared/ConflictDialog';
           } : 'No events');
 
           setAllEvents(eventsToDisplay);
+          // Gate the cold-start onboarding banner: once we've shown events at
+          // least once in this session, a later 0-event response (post-delete,
+          // navigation, calendar switch) must not regress to the banner. The
+          // ref flip here is intentionally for future loads — the
+          // setEmptyStateNotice(null) below already clears it for this render.
+          if (eventsToDisplay.length > 0) hasObservedEventsRef.current = true;
           // Events arrived — clear any previously-shown empty-state notice
           setEmptyStateNotice(null);
           calendarDebug.logEventLoadingComplete(selectedCalendarId, eventsToDisplay.length, Date.now() - (window._calendarLoadStart || Date.now()));
@@ -1897,7 +1922,9 @@ import ConflictDialog from './shared/ConflictDialog';
             // configured but genuinely has zero reservations in this date range".
             // The backend surfaces the former as a CALENDAR_NOT_CONFIGURED warning
             // so the frontend can guide the user to pick a different calendar
-            // instead of leaving them staring at a silent blank grid.
+            // instead of leaving them staring at a silent blank grid. Kept above
+            // the isRetry guard because the toast is a one-shot diagnostic, not
+            // persistent UI state — firing it on a retry call is benign.
             const warnings = loadResult.warnings || [];
             const unconfigured = warnings.find(w => w.code === 'CALENDAR_NOT_CONFIGURED');
             if (unconfigured) {
@@ -1907,25 +1934,31 @@ import ConflictDialog from './shared/ConflictDialog';
               );
             }
 
+            if (isRetry) {
+              // A retry that returns 0 events is a delta-sync no-op, not an
+              // authoritative empty-calendar signal. Preserve current state to
+              // avoid wiping events the first load already rendered. Placed
+              // ABOVE the banner setter so a future non-silent isRetry caller
+              // cannot leak the onboarding banner.
+              logger.debug(`loadEventsUnified: isRetry 0-event result — preserving existing state (source: ${loadResult.source})`);
+              return false;
+            }
+
             // Sync-disabled + zero cached events. Backend has decided this is benign
             // (no errors, just no data). Render inline instead of letting the grid
-            // look like a silent failure.
+            // look like a silent failure. Gated on hasObservedEventsRef so the
+            // banner only paints for genuine cold-start sessions — once the user
+            // has seen events render in this session, a later 0-event response
+            // (post-delete, navigation to empty range, calendar switch) must not
+            // regress to the onboarding banner.
             const syncDisabled = warnings.find(w => w.code === 'NO_EVENTS_SYNC_DISABLED');
-            if (syncDisabled) {
+            if (syncDisabled && !hasObservedEventsRef.current) {
               setEmptyStateNotice(
                 syncDisabled.message ||
                 'No events found for this calendar yet. New events you create will appear here.'
               );
             } else {
               setEmptyStateNotice(null);
-            }
-
-            if (isRetry) {
-              // A retry that returns 0 events is a delta-sync no-op, not an
-              // authoritative empty-calendar signal. Preserve current state to
-              // avoid wiping events the first load already rendered.
-              logger.debug(`loadEventsUnified: isRetry 0-event result — preserving existing state (source: ${loadResult.source})`);
-              return false;
             }
             setAllEvents([]);
             calendarDebug.logEventLoadingComplete(
@@ -4904,8 +4937,10 @@ import ConflictDialog from './shared/ConflictDialog';
         // Step 4: Update local state immediately
         setAllEvents(allEvents.filter(event => event.id !== eventId));
 
-        // Step 5: Reload events to ensure consistency
-        await loadEvents();
+        // Step 5: Reload events to ensure consistency.
+        // silent: true so a 0-event response can't wipe state on top of the
+        // optimistic filter above (matches the 0743490 defense pattern).
+        await loadEvents(false, null, { silent: true });
         
         logger.debug(`[handleDeleteApiEvent] Successfully deleted event:`, {
           eventId,
@@ -5670,7 +5705,7 @@ import ConflictDialog from './shared/ConflictDialog';
           savingPendingEdit={reviewModal.isSavingOwnerEdit}
           onSaveRejectedEdit={reviewModal.handleOwnerEdit}
           savingRejectedEdit={reviewModal.isSavingOwnerEdit}
-          onConflictRefresh={() => loadEvents(true)}
+          onConflictRefresh={() => loadEvents(true, null, { silent: true })}
         />
 
         {/* Review Modal for Event Creation (via useEventCreation hook) */}
