@@ -254,10 +254,14 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts =
 
   // Build the field set we want to refresh. Keep graphData, _id,
   // createdAt, createdBy intact. Update top-level AND calendarData.
+  // Force calendarId to null — events live in the user's default calendar,
+  // and the calendar-config.json's specific calendarId 404s on every Graph
+  // operation. Default calendar is the authoritative store for templeeventssandbox.
   const $set = {
     eventId: newEventId,
     source: 'rsSched',
     isDeleted: false,
+    calendarId: null,
     eventTitle: csvRow.eventTitle,
     eventDescription: csvRow.eventDescription || '',
     startDateTime: csvRow.startDateTime,
@@ -355,6 +359,10 @@ async function applyInsert(eventsCollection, csvRow, sessionId, calendarId) {
     importUserEmail: IMPORT_USER_EMAIL,
     sessionId,
   });
+  // Events on templeeventssandbox live in the user's default calendar.
+  // The calendar-config.json specific id 404s on Graph ops — force null
+  // so publishOrUpdateOutlookEvent uses /calendar/events (default path).
+  doc.calendarId = null;
   await eventsCollection.insertOne(doc);
   return { outcome: 'inserted', doc };
 }
@@ -707,7 +715,11 @@ async function main() {
             continue;
           }
           try {
-            const r = await rschedImportService.publishOrUpdateOutlookEvent(db, doc, {
+            // Force calendarId=null so the Graph URL hits the default calendar
+            // (templeeventssandbox events demonstrably live there, NOT in the
+            // calendar pointed at by calendar-config.json).
+            const docForPublish = { ...doc, calendarId: null };
+            const r = await rschedImportService.publishOrUpdateOutlookEvent(db, docForPublish, {
               graphApiService,
             });
             if (r.outcome === 'published') created++;
