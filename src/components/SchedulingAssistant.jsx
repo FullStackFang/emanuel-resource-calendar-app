@@ -27,6 +27,7 @@ function SchedulingAssistant({
   currentReservationId, // ID of the current reservation being reviewed (only this one is draggable)
   onLockedEventClick, // Callback when a locked reservation event is clicked
   defaultCalendar = '', // Calendar name to display in header
+  calendarDisplayName = '', // Friendly mailbox label appended to every event tooltip (e.g. "templeeventssandbox")
   organizerName = '', // Organizer name for user events
   organizerEmail = '', // Organizer email for user events
   isAllowedConcurrent = false, // Whether this event allows concurrent scheduling
@@ -2230,6 +2231,9 @@ function SchedulingAssistant({
               </div>
             );
           })()}
+          {calendarDisplayName && (
+            <div className="tooltip-calendar">{calendarDisplayName}</div>
+          )}
         </div>
       )}
 

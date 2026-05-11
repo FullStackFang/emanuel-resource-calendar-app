@@ -775,6 +775,9 @@ export default function RoomReservationFormBase({
         teardownTimeMinutes: 0
       });
       if (currentReservationId) params.append('excludeEventId', currentReservationId);
+      // Scope availability to the calendar being booked against so cross-calendar
+      // events (e.g. sandbox vs production) don't appear as conflicts.
+      if (defaultCalendar) params.append('calendarOwner', defaultCalendar);
 
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`,
@@ -2177,6 +2180,7 @@ export default function RoomReservationFormBase({
                     currentReservationId={currentReservationId}
                     onLockedEventClick={onLockedEventClick}
                     defaultCalendar={defaultCalendar}
+                    calendarDisplayName={defaultCalendar ? defaultCalendar.split('@')[0] : ''}
                     isAllDayEvent={formData.isAllDayEvent}
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}

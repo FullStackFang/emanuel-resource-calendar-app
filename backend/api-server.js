@@ -2572,8 +2572,18 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       if (typeof id === 'string' && ObjectId.isValid(id)) return new ObjectId(id);
       return id;
     });
+
+    // Scope to a single mailbox calendar when caller provides one.
+    // For full MongoDB-document callers, calendarOwner is a top-level field on the event.
+    // For constructed reservationForConflict literals, caller must forward
+    // `calendarOwner: <event-doc>.calendarOwner || null` — otherwise filtering is silently skipped.
+    const rawCalendarOwner = reservation.calendarOwner || reservation.calendarData?.calendarOwner || null;
+    const calendarOwner = rawCalendarOwner ? String(rawCalendarOwner).toLowerCase() : null;
+    const calendarOwnerFilter = calendarOwner ? { calendarOwner } : {};
+
     const query = {
       $and: [
+        calendarOwnerFilter,
         { status: 'published' }, // Only check against published events
         {
           // Check calendarData.locations (source of truth)
@@ -2617,6 +2627,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     // --- Round 1: Run 4 independent queries in parallel ---
     // (Reduces 6 sequential round-trips to 2 rounds for Cosmos DB RU efficiency)
     const recurringQuery = {
+      ...calendarOwnerFilter,
       status: { $in: ['published', 'pending'] },
       eventType: 'seriesMaster',
       'calendarData.locations': { $in: roomIds },
@@ -2660,6 +2671,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       if (conflictRelevantPending.length > 0) {
         const eventIds = Array.from(new Set(conflictRelevantPending.map((r) => r.eventId)));
         const eventQuery = {
+          ...calendarOwnerFilter,
           status: 'published',
           eventId: { $in: eventIds },
         };
@@ -2976,7 +2988,12 @@ async function checkRecurringRoomConflicts(params) {
     excludeMasterEventId = null,
     isAllowedConcurrent = false,
     categories = [],
+    calendarOwner = null,
   } = params;
+
+  // Scope to a single mailbox calendar when caller provides one (matches checkRoomConflicts + /api/rooms/availability).
+  const normalizedCalendarOwner = calendarOwner ? String(calendarOwner).toLowerCase() : null;
+  const calendarOwnerFilter = normalizedCalendarOwner ? { calendarOwner: normalizedCalendarOwner } : {};
 
   if (!roomIds || roomIds.length === 0 || !recurrence?.pattern || !recurrence?.range) {
     return { totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] };
@@ -3030,6 +3047,7 @@ async function checkRecurringRoomConflicts(params) {
   const spanEffectiveEnd = occurrenceWindows[occurrenceWindows.length - 1].effectiveEnd;
 
   const query = {
+    ...calendarOwnerFilter,
     status: 'published',
     eventType: { $in: ['singleInstance', 'exception', 'addition', null] },
     'calendarData.locations': { $in: roomIds },
@@ -3050,6 +3068,7 @@ async function checkRecurringRoomConflicts(params) {
 
   // Also find published series masters sharing rooms (excluding self)
   const recurringQuery = {
+    ...calendarOwnerFilter,
     status: 'published',
     eventType: 'seriesMaster',
     'calendarData.locations': { $in: roomIds },
@@ -14735,6 +14754,14 @@ app.get('/api/rooms/availability', async (req, res) => {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
 
+    // Scope conflict checks to a single mailbox calendar so cross-calendar
+    // events (e.g. sandbox vs production) don't appear as conflicts. Absent
+    // param keeps legacy callers/tests on the unfiltered behavior.
+    const calendarOwnerParam = req.query.calendarOwner
+      ? String(req.query.calendarOwner).toLowerCase()
+      : null;
+    const calendarOwnerFilter = calendarOwnerParam ? { calendarOwner: calendarOwnerParam } : {};
+
     // Calculate buffer times (new reservation fields take precedence over legacy setup/teardown)
     const setupMinutes = parseInt(reservationStartMinutes) || parseInt(setupTimeMinutes) || 0;
     const teardownMinutes = parseInt(reservationEndMinutes) || parseInt(teardownTimeMinutes) || 0;
@@ -14807,6 +14834,7 @@ app.get('/api/rooms/availability', async (req, res) => {
       [allEventsAndPending, pendingEditEvents, seriesMasters] = await Promise.all([
         // Merged Q2+Q4: captures published, pending, AND Graph (no-status) events in one query
         withCosmosRetry(() => unifiedEventsCollection.find({
+          ...calendarOwnerFilter,
           isDeleted: { $ne: true },
           status: { $nin: ['draft', 'rejected', 'deleted'] },
           'calendarData.startDateTime': { $lt: end },
@@ -14830,6 +14858,7 @@ app.get('/api/rooms/availability', async (req, res) => {
           if (pendingRequests.length === 0) return [];
           const eventIds = Array.from(new Set(pendingRequests.map((r) => r.eventId)));
           const events = await unifiedEventsCollection.find({
+            ...calendarOwnerFilter,
             isDeleted: { $ne: true },
             status: { $nin: ['draft', 'rejected', 'deleted'] },
             eventId: { $in: eventIds },
@@ -14856,6 +14885,7 @@ app.get('/api/rooms/availability', async (req, res) => {
         // Q4: Published series masters sharing any requested rooms.
         // No date filter — same design as checkRoomConflicts() (eventType is highly selective).
         withCosmosRetry(() => unifiedEventsCollection.find({
+          ...calendarOwnerFilter,
           isDeleted: { $ne: true },
           status: 'published',
           eventType: 'seriesMaster',
@@ -15215,6 +15245,7 @@ app.post('/api/rooms/recurring-conflicts', verifyToken, async (req, res) => {
       excludeMasterEventId = null,
       isAllowedConcurrent = false,
       categories = [],
+      calendarOwner = null,
     } = req.body;
 
     if (!startDateTime || !endDateTime) {
@@ -15243,6 +15274,7 @@ app.post('/api/rooms/recurring-conflicts', verifyToken, async (req, res) => {
       excludeMasterEventId,
       isAllowedConcurrent,
       categories,
+      calendarOwner,
     });
 
     res.json(result);
@@ -15730,12 +15762,14 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           excludeEventId: draftId,
           isAllowedConcurrent: draft.isAllowedConcurrent ?? false,
           categories: cd.categories || [],
+          calendarOwner: draft.calendarOwner || null,
         });
       } catch (err) {
         logger.warn('Non-fatal: recurring conflict check failed during draft submit:', err.message);
       }
     } else {
       const reservationForConflict = {
+        calendarOwner: draft.calendarOwner || null,
         startDateTime: cd.startDateTime,
         endDateTime: cd.endDateTime,
         setupTimeMinutes: cd.setupTimeMinutes || 0,
@@ -17403,6 +17437,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
     const editedRoomIds = requestedRooms || event.calendarData?.locations || [];
     if (editedRoomIds.length > 0) {
       const reservationForConflict = {
+        calendarOwner: event.calendarOwner || null,
         startDateTime: computedStartDateTime,
         endDateTime: computedEndDateTime,
         setupTimeMinutes: setupTimeMinutes || event.calendarData?.setupTimeMinutes || 0,
@@ -20786,6 +20821,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
               excludeEventId: id,
               isAllowedConcurrent: event.isAllowedConcurrent ?? false,
               categories: event.calendarData?.categories || [],
+              calendarOwner: event.calendarOwner || null,
             });
           } catch (err) {
             logger.warn('Non-fatal: recurring conflict check failed during publish:', err.message);
@@ -20793,6 +20829,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         } else {
           // Blocking single-event conflict check (existing behavior)
           const reservationForConflict = {
+            calendarOwner: event.calendarOwner || null,
             startDateTime: event.calendarData?.startDateTime || event.startDateTime,
             endDateTime: event.calendarData?.endDateTime || event.endDateTime,
             setupTimeMinutes: event.calendarData?.setupTimeMinutes || 0,
@@ -22479,6 +22516,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         const occOverride = (event.occurrenceOverrides || []).find((o) => o.occurrenceDate === occDateKey) || {};
         const occBaseline = { ...(event.calendarData || {}), ...occOverride, ...finalChanges };
         conflictReservation = {
+          calendarOwner: event.calendarOwner || null,
           startDateTime: occBaseline.startDateTime,
           endDateTime: occBaseline.endDateTime,
           setupTimeMinutes: occBaseline.setupTimeMinutes,
@@ -22506,6 +22544,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         };
         const effectiveData = buildEffectiveEditData(synthEvent);
         conflictReservation = {
+          calendarOwner: event.calendarOwner || null,
           startDateTime: effectiveData.startDateTime,
           endDateTime: effectiveData.endDateTime,
           setupTimeMinutes: effectiveData.setupTimeMinutes,
@@ -23752,6 +23791,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               excludeEventId: id,
               isAllowedConcurrent: event.isAllowedConcurrent ?? false,
               categories: updates.categories || cd.categories || [],
+              calendarOwner: event.calendarOwner || null,
             });
             if (recurringConflicts && recurringConflicts.totalHardConflicts > 0) {
               return res.status(409).json({
@@ -23770,6 +23810,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         } else {
           // Single event: use standard conflict check
           const reservationForConflict = {
+            calendarOwner: event.calendarOwner || null,
             startDateTime: updates.startDateTime || cd.startDateTime,
             endDateTime: updates.endDateTime || cd.endDateTime,
             setupTimeMinutes: updates.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
@@ -23861,6 +23902,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               : (ObjectId.isValid(r) ? new ObjectId(r) : r));
             if (locs.length === 0) continue;
             const reservationForConflict = {
+              calendarOwner: event.calendarOwner || null,
               startDateTime: startDt,
               endDateTime: endDt,
               setupTimeMinutes: cd.setupTimeMinutes ?? 0,

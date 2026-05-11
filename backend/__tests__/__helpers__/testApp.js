@@ -266,8 +266,14 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
   const startTimeStr = toLocalISOString(startTime);
   const endTimeStr = toLocalISOString(endTime);
 
+  // Scope to a single mailbox calendar when caller provides one (mirrors production checkRoomConflicts).
+  const rawCalendarOwner = event.calendarOwner || event.calendarData?.calendarOwner || null;
+  const calendarOwner = rawCalendarOwner ? String(rawCalendarOwner).toLowerCase() : null;
+  const calendarOwnerFilter = calendarOwner ? { calendarOwner } : {};
+
   // Find overlapping published events in the same rooms
   const query = {
+    ...calendarOwnerFilter,
     status: 'published',
     _id: { $ne: excludeId },
     $or: [
@@ -291,6 +297,7 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
   // --- Recurring series master expansion ---
   try {
     const recurringQuery = {
+      ...calendarOwnerFilter,
       status: 'published',
       eventType: 'seriesMaster',
       $or: [
@@ -341,6 +348,7 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
 
   // --- Pending edit request conflicts ---
   const pendingEditQuery = {
+    ...calendarOwnerFilter,
     status: 'published',
     'pendingEditRequest.status': 'pending',
     _id: { $ne: excludeId },
@@ -5729,6 +5737,11 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
       }
 
+      const calendarOwnerParam = req.query.calendarOwner
+        ? String(req.query.calendarOwner).toLowerCase()
+        : null;
+      const calendarOwnerFilter = calendarOwnerParam ? { calendarOwner: calendarOwnerParam } : {};
+
       // Parse room IDs
       const requestedRoomIds = roomIds ? roomIds.split(',').map(id => id.trim()) : [];
       const roomObjectIds = requestedRoomIds.map(id => {
@@ -5752,6 +5765,7 @@ function createTestApp(options = {}) {
 
       // Merged query: published + calendar (no status) + pending events in one query
       const allEventsAndPending = await testCollections.events.find({
+        ...calendarOwnerFilter,
         isDeleted: { $ne: true },
         status: { $nin: ['draft', 'rejected', 'deleted'] },
         'calendarData.startDateTime': { $lt: end },
@@ -5764,6 +5778,7 @@ function createTestApp(options = {}) {
 
       // Simplified pending edits: fetch all, filter rooms in-memory
       const pendingEditEvents = await testCollections.events.find({
+        ...calendarOwnerFilter,
         isDeleted: { $ne: true },
         status: { $nin: ['draft', 'rejected', 'deleted'] },
         'pendingEditRequest.status': 'pending',
@@ -5771,6 +5786,7 @@ function createTestApp(options = {}) {
 
       // Published series masters sharing requested rooms (no date filter)
       const seriesMasters = await testCollections.events.find({
+        ...calendarOwnerFilter,
         isDeleted: { $ne: true },
         status: 'published',
         eventType: 'seriesMaster',
