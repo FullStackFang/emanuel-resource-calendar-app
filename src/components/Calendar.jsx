@@ -1427,7 +1427,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {boolean} forceRefresh - Force full sync instead of delta
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false } = {}) => {
+    const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false, isRetry = false } = {}) => {
       if (!apiToken) {
         logger.debug("loadEventsUnified: Missing API token - returning false");
         return false;
@@ -1920,6 +1920,13 @@ import ConflictDialog from './shared/ConflictDialog';
               setEmptyStateNotice(null);
             }
 
+            if (isRetry) {
+              // A retry that returns 0 events is a delta-sync no-op, not an
+              // authoritative empty-calendar signal. Preserve current state to
+              // avoid wiping events the first load already rendered.
+              logger.debug(`loadEventsUnified: isRetry 0-event result — preserving existing state (source: ${loadResult.source})`);
+              return false;
+            }
             setAllEvents([]);
             calendarDebug.logEventLoadingComplete(
               selectedCalendarId,
@@ -1943,9 +1950,12 @@ import ConflictDialog from './shared/ConflictDialog';
         setLastFetchedAt(Date.now());
         // A navigation fired while this load was in flight — retry now with the
         // current dateRange so the calendar never shows a blank week.
+        // silent: true so a 0-result delta-sync no-op cannot wipe loaded events.
+        // isRetry: true tags the call as a catch-up so the 0-events branch can
+        // short-circuit defensively even if a future caller forgets `silent`.
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
-          loadEventsRef.current?.();
+          loadEventsRef.current?.(false, null, { silent: true, isRetry: true });
         }
       }
     }, [apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
@@ -1955,7 +1965,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {boolean} forceRefresh - Force refresh from backend
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false } = {}) => {
+    const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false, isRetry = false } = {}) => {
       calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
 
       try {
@@ -1964,7 +1974,7 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         // Load events from MongoDB via unified service
-        const result = await loadEventsUnified(forceRefresh, calendarsData, { silent });
+        const result = await loadEventsUnified(forceRefresh, calendarsData, { silent, isRetry });
         calendarDebug.logApiCall('loadEvents', 'complete', { method: 'unified' });
         return result;
       } catch (error) {
