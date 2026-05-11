@@ -80,15 +80,18 @@ const TO = getArg('to');
 const CSV_FILE = getArg('file') || DEFAULT_CSV;
 const DRY_RUN = hasFlag('dry-run');
 const NO_SOFT_DELETE = hasFlag('no-soft-delete');
+const PUBLISH = hasFlag('publish');
 
 function usage(code = 1) {
   console.log(
     'Usage: node reconcile-rsched-source-of-truth.js \\\n' +
       '         --owner=<email> --from=YYYY-MM-DD --to=YYYY-MM-DD \\\n' +
-      '         [--file=<csv>] [--dry-run] [--no-soft-delete]\n' +
+      '         [--file=<csv>] [--dry-run] [--no-soft-delete] [--publish]\n' +
       `\nDefault --file is ${DEFAULT_CSV}.\n` +
-      '\n--dry-run prints the plan without writing.\n' +
-      '--no-soft-delete skips the soft-delete pass for buckets A/C/D.\n',
+      '\n--dry-run        prints the plan without writing.\n' +
+      '--no-soft-delete skips the soft-delete pass for buckets A/C/D.\n' +
+      '--publish        after Mongo writes, push inserts (create new Outlook events) and\n' +
+      '                 material-changed updates (push refreshed data to Outlook) via Graph.\n',
   );
   process.exit(code);
 }
@@ -237,9 +240,12 @@ function findMatchForCsvRow(row, byContentKey) {
 }
 
 // ── Apply UPDATE: refresh a matched doc with CSV data ─────────────────────
-async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId) {
+async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId, opts = {}) {
   const newEventId = `rssched-${csvRow.rsId}`;
   const now = new Date();
+  const reasonSuffix = opts.rsIdReused
+    ? ' (rsId-reuse: existing doc had a different date — moved here)'
+    : '';
   const locationIds = (csvRow.locationIds || [])
     .map((id) => {
       try { return new ObjectId(String(id)); } catch (_) { return null; }
@@ -288,7 +294,7 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId) {
       status: mongoDoc.status || 'published',
       changedAt: now,
       changedBy: IMPORT_USER_ID,
-      reason: 'rsched-reconcile content-match update',
+      reason: `rsched-reconcile content-match update${reasonSuffix}`,
     },
   };
 
@@ -301,9 +307,25 @@ async function applyUpdate(eventsCollection, csvRow, mongoDoc, sessionId) {
 }
 
 // ── Apply INSERT: create a new doc from a CSV row ─────────────────────────
+// Returns { outcome: 'inserted' | 'updated-collision', doc }.
+// If a Mongo doc with the same eventId already exists (rsId-reuse), this
+// routes to applyUpdate on that doc instead of insertOne — which would
+// otherwise hit E11000 against the unique index on eventId.
 async function applyInsert(eventsCollection, csvRow, sessionId, calendarId) {
-  // Reuse rschedImportService's doc-builder. We need to construct a
-  // staging-row-shaped input first.
+  const newEventId = `rssched-${csvRow.rsId}`;
+  const collision = await eventsCollection.findOne(
+    { eventId: newEventId },
+    { projection: { _id: 1, _version: 1, status: 1, graphData: 1, eventId: 1 } },
+  );
+  if (collision) {
+    await applyUpdate(eventsCollection, csvRow, collision, sessionId, { rsIdReused: true });
+    // Re-fetch the just-updated doc so the publish pass can act on the
+    // current state (with the new content from CSV).
+    const updated = await eventsCollection.findOne({ _id: collision._id });
+    return { outcome: 'updated-collision', doc: updated };
+  }
+
+  // Normal insert path.
   const stagingRow = {
     rsId: csvRow.rsId,
     rowNumber: csvRow.rowNumber,
@@ -334,6 +356,30 @@ async function applyInsert(eventsCollection, csvRow, sessionId, calendarId) {
     sessionId,
   });
   await eventsCollection.insertOne(doc);
+  return { outcome: 'inserted', doc };
+}
+
+// ── Material-change detector for the publish pass ─────────────────────────
+// Compares the current Mongo doc's authoritative fields against the cached
+// graphData. If any of (subject, start.dateTime, end.dateTime, location
+// displayName) differ, we need to push to Outlook. Otherwise the cached
+// graphData already matches what's in Mongo and we can skip the Graph call.
+function hasMaterialChangeVsGraph(doc) {
+  const g = doc.graphData;
+  if (!g) return true; // no cache → must publish
+  const docTitle = (getEventTitle(doc) || '').trim();
+  const gTitle = (g.subject || '').trim();
+  if (docTitle !== gTitle) return true;
+  const docStart = getStartDateTime(doc);
+  const gStart = g.start?.dateTime;
+  if ((docStart || '').slice(0, 16) !== (gStart || '').slice(0, 16)) return true;
+  const docEnd = getEndDateTime(doc);
+  const gEnd = g.end?.dateTime;
+  if ((docEnd || '').slice(0, 16) !== (gEnd || '').slice(0, 16)) return true;
+  const docLocDisp = (doc.locationDisplayNames || doc.calendarData?.locationDisplayNames || '').trim();
+  const gLocDisp = (g.location?.displayName || '').trim();
+  if (docLocDisp !== gLocDisp) return true;
+  return false;
 }
 
 // ── Apply SOFT-DELETE ─────────────────────────────────────────────────────
@@ -569,20 +615,32 @@ async function main() {
       process.stdout.write(`\n   updated: ${done}  failed: ${failed}\n`);
     }
 
-    // INSERT
+    // INSERT (with eventId-collision fallback to UPDATE).
+    // Track the _ids touched by either INSERT or UPDATE so the publish
+    // pass below can act on the resulting docs.
+    const touchedIds = new Set();
+    for (const { doc } of plan.update) touchedIds.add(String(doc._id));
+
     if (plan.create.length > 0) {
       console.log('Applying inserts...');
-      let done = 0, failed = 0;
+      let inserted = 0, collisionsRedirected = 0, failed = 0;
       for (let i = 0; i < plan.create.length; i += BATCH_SIZE) {
         const batch = plan.create.slice(i, i + BATCH_SIZE);
         for (const row of batch) {
-          try { await applyInsert(events, row, sessionId, calendarId); done++; }
-          catch (err) { failed++; console.warn(`\n   insert failed rsId=${row.rsId}: ${err.message}`); }
+          try {
+            const r = await applyInsert(events, row, sessionId, calendarId);
+            if (r.outcome === 'inserted') inserted++;
+            else if (r.outcome === 'updated-collision') collisionsRedirected++;
+            if (r.doc?._id) touchedIds.add(String(r.doc._id));
+          } catch (err) {
+            failed++;
+            console.warn(`\n   insert failed rsId=${row.rsId}: ${err.message}`);
+          }
         }
         printProgress('Insert', Math.min(i + BATCH_SIZE, plan.create.length), plan.create.length);
         if (i + BATCH_SIZE < plan.create.length) await sleep(BATCH_PAUSE_MS);
       }
-      process.stdout.write(`\n   inserted: ${done}  failed: ${failed}\n`);
+      process.stdout.write(`\n   inserted: ${inserted}  rsId-collisions routed to update: ${collisionsRedirected}  failed: ${failed}\n`);
     }
 
     // SOFT-DELETE A, C, D
@@ -622,6 +680,57 @@ async function main() {
         if (i + BATCH_SIZE < bucketB.length) await sleep(BATCH_PAUSE_MS);
       }
       process.stdout.write(`\n   refreshed: ${done}  failed: ${failed}\n`);
+    }
+
+    // ── PUBLISH PASS (only if --publish) ──
+    if (PUBLISH && touchedIds.size > 0) {
+      console.log(`\nPublishing to Outlook (${touchedIds.size} docs touched)...`);
+      const touchedDocs = await events
+        .find(
+          { _id: { $in: Array.from(touchedIds).map((id) => {
+            try { return new ObjectId(id); } catch (_) { return null; }
+          }).filter(Boolean) } },
+        )
+        .toArray();
+
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      let pubFailed = 0;
+      for (let i = 0; i < touchedDocs.length; i += BATCH_SIZE) {
+        const batch = touchedDocs.slice(i, i + BATCH_SIZE);
+        for (const doc of batch) {
+          const hadGraphId = !!doc.graphData?.id;
+          // Skip update-push if no material change vs cached graphData.
+          if (hadGraphId && !hasMaterialChangeVsGraph(doc)) {
+            skipped++;
+            continue;
+          }
+          try {
+            const r = await rschedImportService.publishOrUpdateOutlookEvent(db, doc, {
+              graphApiService,
+            });
+            if (r.outcome === 'published') created++;
+            else if (r.outcome === 'updated') updated++;
+            else if (r.outcome === 'skipped') skipped++;
+            else if (r.outcome === 'failed') {
+              pubFailed++;
+              console.warn(`\n   publish failed _id=${doc._id} (${doc.eventId}): ${r.error}`);
+            }
+          } catch (err) {
+            pubFailed++;
+            console.warn(`\n   publish threw _id=${doc._id}: ${err.message}`);
+          }
+        }
+        printProgress('Publish', Math.min(i + BATCH_SIZE, touchedDocs.length), touchedDocs.length);
+        // Light Graph throttle between batches.
+        if (i + BATCH_SIZE < touchedDocs.length) await sleep(500);
+      }
+      process.stdout.write(`\n   published-new: ${created}  updated-existing: ${updated}  skipped (no change): ${skipped}  failed: ${pubFailed}\n`);
+    } else if (PUBLISH) {
+      console.log('\nPublish pass: nothing touched (0 inserts, 0 updates) — skipping Graph calls.');
+    } else {
+      console.log('\nPublish pass skipped (no --publish flag). Mongo and Outlook may be out of sync; pass --publish to push.');
     }
 
     console.log('\nReconcile complete. Re-run audit to verify idempotency.');

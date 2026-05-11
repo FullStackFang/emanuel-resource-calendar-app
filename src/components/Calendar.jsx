@@ -35,6 +35,7 @@
   import { isEventInDateRange } from '../utils/calendarRangeUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import { selectDefaultCalendar, SELECT_DEFAULT_CALENDAR_REASONS } from '../utils/calendarSelection';
+  import { dedupeCalendarsByOwner } from '../utils/dedupeCalendarsByOwner';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -1372,6 +1373,13 @@ import ConflictDialog from './shared/ConflictDialog';
           // No allowed calendars configured - clear any previous error
           setCalendarAccessError(null);
         }
+
+        // Dedupe by owner.address: one dropdown entry per mailbox. Graph enumerates
+        // every folder in the mailbox (default + any stray secondaries like an
+        // unused 'Untitled Calendar'); the events load is keyed on calendarOwner
+        // not calendarId, so multiple rows for the same owner load identical data.
+        // See src/utils/dedupeCalendarsByOwner.js for rule details + reasoning.
+        calendars = dedupeCalendarsByOwner(calendars);
 
         // Update parent state with calendars
         setAvailableCalendars(calendars);
