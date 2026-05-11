@@ -9173,11 +9173,13 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     // Get current default calendar setting (cached, 5-min TTL)
     let settings = await getCachedCalendarSettings();
 
-    // If no settings exist, create default
+    // If no settings exist, create default. Use getDefaultCalendarOwner() so the
+    // seed honors CALENDAR_MODE env (production on the live deployment) rather
+    // than silently re-pinning to sandbox on a fresh install.
     if (!settings) {
       settings = {
         _id: 'calendar-settings',
-        defaultCalendar: 'templeeventssandbox@emanuelnyc.org',
+        defaultCalendar: await getDefaultCalendarOwner(),
         lastModifiedBy: 'system',
         lastModifiedAt: new Date()
       };
@@ -20942,7 +20944,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           selectedCalendarOwner = (
             ownerFromConfig ||
             event.calendarOwner ||
-            'templeeventssandbox@emanuelnyc.org'
+            (await getDefaultCalendarOwner())
           ).toLowerCase();
           selectedCalendarId = targetCalendar;
         }
@@ -20950,8 +20952,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         selectedCalendarOwner = event.calendarOwner.toLowerCase();
         selectedCalendarId = event.calendarId || null;
       } else {
-        const settings = await getCachedCalendarSettings();
-        selectedCalendarOwner = (settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
+        selectedCalendarOwner = await getDefaultCalendarOwner();
         selectedCalendarId = null;
       }
 

@@ -10,7 +10,7 @@ const { calculateLocationDisplayNames } = require('../utils/locationUtils');
 
 // Environment configuration (defaults - can be overridden by database settings)
 const ENV_EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
-const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'templeEventsSandbox@emanuelnyc.org';
+const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'templeevents@emanuelnyc.org';
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Temple Emanuel Reservations';
 const ENV_EMAIL_REDIRECT_TO = process.env.EMAIL_REDIRECT_TO || null; // For testing - redirect all emails
 

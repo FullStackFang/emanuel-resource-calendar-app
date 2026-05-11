@@ -35,21 +35,21 @@ export async function getDefaultDisplayCalendar() {
   if (config?.defaultDisplayCalendar) {
     return config.defaultDisplayCalendar;
   }
-  // Fallback to sandbox if backend unreachable
-  return 'TempleEventsSandbox@emanuelnyc.org';
+  // Fallback to production if backend unreachable (matches Azure CALENDAR_MODE).
+  return 'TempleEvents@emanuelnyc.org';
 }
 
 const APP_CONFIG = {
   API_BASE_URL,
 
   // Static fallback - use getDefaultDisplayCalendar() for runtime value
-  DEFAULT_DISPLAY_CALENDAR: 'TempleEventsSandbox@emanuelnyc.org',
+  DEFAULT_DISPLAY_CALENDAR: 'TempleEvents@emanuelnyc.org',
 
   // Calendar configuration for room reservations
   CALENDAR_CONFIG: {
     SANDBOX_CALENDAR: 'templeeventssandbox@emanuelnyc.org',
     PRODUCTION_CALENDAR: 'templeevents@emanuelnyc.org',
-    DEFAULT_MODE: 'sandbox'
+    DEFAULT_MODE: 'production'
   }
 };
 

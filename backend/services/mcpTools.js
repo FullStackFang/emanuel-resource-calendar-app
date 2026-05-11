@@ -7,7 +7,7 @@ const { ObjectId } = require('mongodb');
 
 // Load calendar config for default calendar assignment
 const calendarConfig = require('../calendar-config.json');
-const DEFAULT_CALENDAR_OWNER = 'TempleEventsSandbox@emanuelnyc.org';
+const DEFAULT_CALENDAR_OWNER = 'TempleEvents@emanuelnyc.org';
 const DEFAULT_CALENDAR_ID = calendarConfig[DEFAULT_CALENDAR_OWNER] || null;
 
 // Escape regex special characters to prevent ReDoS from user/AI-supplied strings
