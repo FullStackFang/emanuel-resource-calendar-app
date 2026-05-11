@@ -7,7 +7,9 @@ import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, buildReservationTimeDisplay } from '../utils/timezoneUtils';
 import { sortEventsByStartTime, getEventCategories, isRecurringEvent } from '../utils/eventTransformers';
 import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
+import { createPortal } from 'react-dom';
 import { useStuckHeader } from '../hooks/useStuckHeader';
+import { useFloatingHeaderRect } from '../hooks/useFloatingHeaderRect';
 import './shared/CalendarIcons.css';
 
 const DayView = memo(({
@@ -139,20 +141,45 @@ const DayView = memo(({
   );
 
   const sentinelRef = useRef(null);
+  const headerRef = useRef(null);
   const isHeaderStuck = useStuckHeader(sentinelRef);
+  const floatingRect = useFloatingHeaderRect(headerRef, isHeaderStuck);
+
+  const headerCells = (
+    <>
+      <div className="grid-cell header-cell category-header">
+        {groupBy === 'categories' ? 'Categories' : 'Locations'}
+      </div>
+      <div className="grid-cell header-cell">
+        {formatDateHeader(currentDay)}
+      </div>
+    </>
+  );
 
   return (
     <>
       <div ref={sentinelRef} className="grid-header-sentinel" aria-hidden="true" />
       {/* Grid Header (Day) */}
-      <div className={`grid-header${isHeaderStuck ? ' is-stuck' : ''}`}>
-        <div className="grid-cell header-cell category-header">
-          {groupBy === 'categories' ? 'Categories' : 'Locations'}
-        </div>
-        <div className="grid-cell header-cell">
-          {formatDateHeader(currentDay)}
-        </div>
+      <div ref={headerRef} className={`grid-header${isHeaderStuck ? ' is-stuck' : ''}`}>
+        {headerCells}
       </div>
+      {isHeaderStuck && floatingRect && createPortal(
+        <>
+          <div className="grid-header-floating-lid" aria-hidden="true" />
+          <div
+            className="grid-header is-floating"
+            style={{
+              left: floatingRect.left,
+              width: floatingRect.width,
+              '--calendar-category-column-width': floatingRect.categoryWidth != null ? `${floatingRect.categoryWidth}px` : undefined,
+            }}
+            aria-hidden="true"
+          >
+            {headerCells}
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Dynamic Grid Rows (Only categories/locations with events on this day) */}
       {activeGroupsForDay.length > 0 ? (

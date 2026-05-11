@@ -1264,7 +1264,8 @@
    ========================================================================== */
 
 /* Any element carrying a non-empty data-tooltip shows a branded dark tooltip
-   above itself on hover/focus-visible. Pure CSS, no JS or wrapper element. */
+   below itself on hover/focus-visible. Anchored downward because the action
+   bar sits at the top of the modal — tooltips above would clip the viewport. */
 [data-tooltip]:not([data-tooltip=""]) {
   position: relative;
 }
@@ -1273,7 +1274,7 @@
 [data-tooltip]:not([data-tooltip=""]):focus-visible::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + 10px);
+  top: calc(100% + 10px);
   left: 50%;
   transform: translateX(-50%);
 
@@ -1302,11 +1303,11 @@
 [data-tooltip]:not([data-tooltip=""]):focus-visible::before {
   content: '';
   position: absolute;
-  bottom: calc(100% + 4px);
+  top: calc(100% + 4px);
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: var(--color-neutral-700);
+  border-bottom-color: var(--color-neutral-700);
 
   z-index: var(--z-tooltip);
   pointer-events: none;
@@ -1314,6 +1315,6 @@
 }
 
 @keyframes tooltip-appear {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

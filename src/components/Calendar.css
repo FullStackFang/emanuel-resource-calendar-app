@@ -274,9 +274,6 @@
 
 .grid-header {
   display: flex;
-  position: sticky;
-  top: 0;
-  z-index: 20;
   background-color: var(--color-primary-500);
   color: var(--text-inverse);
   box-shadow: var(--shadow-sm);
@@ -291,6 +288,34 @@
 
 .grid-header.is-stuck {
   box-shadow: var(--shadow-lg);
+}
+
+.grid-header.is-floating {
+  position: fixed;
+  top: 8px;
+  z-index: 50;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  animation: gridHeaderFloatIn 140ms ease-out;
+}
+
+/* Opaque lid sitting above the floating chip — covers the 8px gap region
+   across the full viewport so scrolling content doesn't bleed through above it. */
+.grid-header-floating-lid {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: var(--bg-secondary);
+  z-index: 49;
+  pointer-events: none;
+}
+
+@keyframes gridHeaderFloatIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .grid-header .header-cell {
