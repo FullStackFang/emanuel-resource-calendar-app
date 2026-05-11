@@ -1931,6 +1931,11 @@ import ConflictDialog from './shared/ConflictDialog';
             }
 
             setAllEvents([]);
+            calendarDebug.logEventLoadingComplete(
+              selectedCalendarId,
+              0,
+              Date.now() - (window._calendarLoadStart || Date.now())
+            );
             logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
             return true;
           } else {
@@ -5057,7 +5062,6 @@ import ConflictDialog from './shared/ConflictDialog';
       if (apiToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
-        const startTime = Date.now();
 
         // Set a timeout to ensure changingCalendar is reset even if loading hangs
         const timeoutId = setTimeout(() => {
@@ -5073,11 +5077,10 @@ import ConflictDialog from './shared/ConflictDialog';
         initialLoadAttemptedRef.current = true;
         // Load events — routine navigation uses cached data; force refresh is
         // reserved for post-save reloads and explicit manual refreshes.
+        // Completion logging lives inside loadEventsUnified, where the fresh
+        // event count is in scope. Logging from a .then() here would read a
+        // stale `allEvents` closure and emit a phantom count=0 entry.
         loadEvents(false)
-          .then((result) => {
-            const duration = Date.now() - startTime;
-            calendarDebug.logEventLoadingComplete(selectedCalendarId, allEvents.length, duration);
-          })
           .catch((error) => {
             logger.error('Event loading failed:', error);
             calendarDebug.logError('loadEvents in useEffect', error, { selectedCalendarId });
