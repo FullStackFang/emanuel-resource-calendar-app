@@ -187,11 +187,25 @@ const CALENDAR_CONFIG = {
 };
 
 /**
- * Get the default calendar owner email based on CALENDAR_CONFIG mode.
- * Used as a fallback when calendarOwner is not provided by the frontend.
- * @returns {string} Calendar owner email (lowercase)
+ * Get the default calendar owner email.
+ *
+ * Source of truth: the admin-editable systemSettings doc ('calendar-settings').
+ * The env-driven CALENDAR_CONFIG.DEFAULT_MODE is only a bootstrap fallback for
+ * fresh deployments where the admin has never saved a default. Reads pass through
+ * the 5-minute settings cache, so cost is negligible; PUT /api/admin/calendar-settings
+ * invalidates that cache on save.
+ *
+ * Async because it reads MongoDB. Callers must await.
+ *
+ * @returns {Promise<string>} Calendar owner email (lowercase)
  */
-function getDefaultCalendarOwner() {
+async function getDefaultCalendarOwner() {
+  try {
+    const settings = await getCachedCalendarSettings();
+    if (settings?.defaultCalendar) return settings.defaultCalendar.toLowerCase();
+  } catch (err) {
+    logger.warn('getDefaultCalendarOwner: settings read failed, falling back to env mode:', err.message);
+  }
   const mode = CALENDAR_CONFIG.DEFAULT_MODE;
   return (mode === 'production'
     ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
@@ -6824,6 +6838,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // Ensure top-level totalEvents is accurate (per-calendar sub-objects update their own counts,
     // but the top-level field was never incremented — fix for frontend guards that check it)
     loadResults.totalEvents = transformedLoadEvents.length;
+
+    // When Graph sync is disabled AND the local cache produced zero events AND no
+    // cache errors occurred, the response would otherwise be indistinguishable from
+    // 'this calendar genuinely has no events' — a blank grid with no toast.
+    // Surface a structured warning so the frontend can render an informational
+    // empty-state instead of silently nothing. See plan
+    // /home/fullstackfang/.claude/plans/right-now-we-have-floofy-wozniak.md for context.
+    if (
+      loadResults.strategy === 'mongodb-only' &&
+      transformedLoadEvents.length === 0 &&
+      loadResults.errors.length === 0
+    ) {
+      loadResults.warnings.push({
+        code: 'NO_EVENTS_SYNC_DISABLED',
+        calendarOwners: calendarsToLoad.map(c => c.calendarOwner).filter(Boolean),
+        message:
+          'Graph sync is disabled in calendar-config.json and no events are stored locally ' +
+          'for the selected calendar. New events created from the app will appear here once saved.'
+      });
+    }
 
     return res.status(200).json({
       loadResults: loadResults,
@@ -15322,7 +15356,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       status: 'draft',
       draftCreatedAt: new Date(),
       lastDraftSaved: new Date(),
-      calendarOwner: getDefaultCalendarOwner(),
+      calendarOwner: await getDefaultCalendarOwner(),
       createdByEmail: userEmail,
       createdAt: new Date(),
       lastModified: new Date(),
@@ -15749,7 +15783,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       });
     }
 
-    const calendarOwner = draft.calendarOwner || getDefaultCalendarOwner();
+    const calendarOwner = draft.calendarOwner || (await getDefaultCalendarOwner());
 
     if (canAutoPublish) {
       // --- Auto-publish path for admins/approvers ---
@@ -16760,10 +16794,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
     );
 
     // Create reservation record
+    const guestReservationCalendarOwner = await getDefaultCalendarOwner();
     const reservation = {
       requesterId: guestUserId,
       status: 'pending',
-      calendarOwner: getDefaultCalendarOwner(),
+      calendarOwner: guestReservationCalendarOwner,
       isAllowedConcurrent: false,
       allowedConcurrentCategories: [],
       currentRevision: 1,
@@ -20514,6 +20549,15 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
     // Legacy field: calendarData.location (singular) — backward compatibility
     requestCalendarData.location = requestCalendarData.locationDisplayNames;
 
+    // Resolve calendarOwner: explicit > config-mapped > admin default. The OR-chain
+    // is hoisted out of the object literal because getDefaultCalendarOwner() is now
+    // async (admin-settings backed) and cannot be evaluated inline.
+    let resolvedCalendarOwner = calendarOwner
+      || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null);
+    if (!resolvedCalendarOwner) {
+      resolvedCalendarOwner = await getDefaultCalendarOwner();
+    }
+
     // Create event document with room reservation data
     const eventDoc = {
       eventId,
@@ -20551,7 +20595,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       lastModifiedDateTime: new Date(),
       lastSyncedAt: new Date(),
       calendarId: calendarId || null,
-      calendarOwner: (calendarOwner || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null) || getDefaultCalendarOwner()).toLowerCase(),
+      calendarOwner: resolvedCalendarOwner.toLowerCase(),
       sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
       syncStatus: 'pending',

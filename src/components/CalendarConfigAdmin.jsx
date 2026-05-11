@@ -106,12 +106,26 @@ export default function CalendarConfigAdmin({ apiToken }) {
       setDefaultCalendar(data.settings.defaultCalendar);
       setLastModifiedBy(data.settings.lastModifiedBy);
       setLastModifiedAt(data.settings.lastModifiedAt);
-      setSuccess('Calendar settings updated successfully!');
 
       logger.info('Calendar settings updated:', data.settings);
 
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(''), 3000);
+      // Changing the Default Calendar mutates state that is read at app boot:
+      //   - /api/config 'effective' calendar (drives APP_CONFIG.DEFAULT_DISPLAY_CALENDAR)
+      //   - availableCalendars (Calendar.jsx queries /api/graph/calendars keyed on the
+      //     prior default — that list is now stale)
+      //   - the cached default-owner used by creation endpoints (5-min cache, but
+      //     server-side cache is already invalidated by the PUT)
+      // Reloading is the simplest and safest way to converge all of those without
+      // hand-wiring half a dozen invalidations across React Query, contexts, and refs.
+      const changed = (data.settings.defaultCalendar || '').toLowerCase()
+        !== (defaultCalendar || '').toLowerCase();
+      if (changed) {
+        setSuccess('Calendar settings updated. Reloading...');
+        setTimeout(() => window.location.reload(), 800);
+      } else {
+        setSuccess('Calendar settings updated successfully!');
+        setTimeout(() => setSuccess(''), 3000);
+      }
 
     } catch (err) {
       logger.error('Error updating calendar settings:', err);

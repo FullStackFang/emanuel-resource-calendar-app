@@ -424,12 +424,18 @@ async function main() {
     // Indexes for the Outlook side.
     const graphById = new Map();
     const graphByContentKey = new Map();
+    const graphByTitleNormalized = new Map(); // title (normalized) -> [graphEvent]
     for (const g of graphEvents) {
       if (g.id) graphById.set(g.id, g);
       const ck = contentKey(g.subject, g.start?.dateTime, g.end?.dateTime);
       if (ck) {
         if (!graphByContentKey.has(ck)) graphByContentKey.set(ck, []);
         graphByContentKey.get(ck).push(g);
+      }
+      const t = normalizeTitle(g.subject);
+      if (t) {
+        if (!graphByTitleNormalized.has(t)) graphByTitleNormalized.set(t, []);
+        graphByTitleNormalized.get(t).push(g);
       }
     }
 
@@ -513,6 +519,28 @@ async function main() {
     const uncertain = bucketE_uncertain.length;
     const unmatchedOther = recurringProtect + singleOutlook + outlookMissing + uncertain;
 
+    // Diagnostic — for each Bucket C doc (Outlook says single), search
+    // Outlook by TITLE ONLY (ignoring time). If a different Outlook event
+    // with the same title is recurring, that's evidence the Mongo doc's
+    // graphData.id is stale and there's a hidden recurring counterpart.
+    const hiddenRecurringCandidates = [];
+    for (const { ev, graph } of bucketC_singleOutlook) {
+      const t = normalizeTitle(getEventTitle(ev));
+      if (!t) continue;
+      const hits = graphByTitleNormalized.get(t) || [];
+      const currentId = graph?.id;
+      const recurringHits = hits.filter(
+        (g) => g.id !== currentId && isGraphEventRecurring(g),
+      );
+      if (recurringHits.length > 0) {
+        hiddenRecurringCandidates.push({
+          ev,
+          currentGraph: graph,
+          recurringMatches: recurringHits,
+        });
+      }
+    }
+
     summary = {
       total,
       bySourceRsSched,
@@ -537,6 +565,7 @@ async function main() {
       graphFetched: graphEvents.length,
       graphCalendarUsed,
       graphFetchError,
+      hiddenRecurringCandidates,
     };
   } finally {
     await client.close();
@@ -614,6 +643,23 @@ async function main() {
   dumpSamples('Bucket C: single event in Outlook (would soft-delete)', summary.singleOutlookSamples, summary.singleOutlook, true);
   dumpSamples('Bucket D: had graphId, Outlook returned nothing (would soft-delete)', summary.outlookMissingSamples, summary.outlookMissing, false);
   dumpSamples('Bucket E: no graphId, no Outlook content match (would PROTECT)', summary.uncertainSamples, summary.uncertain, false);
+
+  if (summary.hiddenRecurringCandidates.length > 0) {
+    console.log(`\nHidden recurring candidates (Bucket C with title-only Outlook recurring match, ${summary.hiddenRecurringCandidates.length} found):`);
+    console.log('  ↳ The Mongo doc points to a stale single Outlook event, but a different Outlook event with the SAME TITLE is recurring.');
+    console.log('  ↳ These should likely move to Bucket B (re-link to the recurring series).\n');
+    for (const { ev, currentGraph, recurringMatches } of summary.hiddenRecurringCandidates.slice(0, 30)) {
+      console.log(`  Mongo: ${pad(getEventTitle(ev), 36)} ${pad(getStartDateTime(ev), 22)} graphId=…${(currentGraph?.id || '').slice(-12)}`);
+      for (const g of recurringMatches.slice(0, 3)) {
+        const recur = g.type === 'occurrence' ? `occ→…${(g.seriesMasterId || '').slice(-12)}` : (g.type || '-');
+        console.log(`     Outlook recurring: ${pad(g.subject, 30)} start=${pad(g.start?.dateTime || '', 22)} type=${recur}`);
+      }
+    }
+  } else {
+    console.log('\nHidden recurring candidates: 0 found.');
+    console.log('  ↳ No Bucket C doc has a different recurring Outlook event with the same title.');
+    console.log('  ↳ This means the events that look like they "should be recurring" actually aren\'t in this Outlook calendar as recurring series.');
+  }
   console.log('\nNo writes performed. Re-run with the reconcile script when ready.\n');
 }
 

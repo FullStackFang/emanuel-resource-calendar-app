@@ -179,6 +179,12 @@ import ConflictDialog from './shared/ConflictDialog';
     // Calendar access error (when user has no access to any allowed calendars)
     const [calendarAccessError, setCalendarAccessError] = useState(null);
 
+    // Benign empty-state notice (e.g. backend returned 0 events because Graph sync is
+    // disabled and nothing is cached locally yet). Rendered inline as a banner —
+    // intentionally NOT a toast, because 'no events yet for this calendar' is an
+    // ambient state, not a transient alert.
+    const [emptyStateNotice, setEmptyStateNotice] = useState(null);
+
     // Core calendar data
     const [allEvents, setAllEventsState] = useState([]);
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
@@ -1861,6 +1867,8 @@ import ConflictDialog from './shared/ConflictDialog';
           } : 'No events');
 
           setAllEvents(eventsToDisplay);
+          // Events arrived — clear any previously-shown empty-state notice
+          setEmptyStateNotice(null);
           calendarDebug.logEventLoadingComplete(selectedCalendarId, eventsToDisplay.length, Date.now() - (window._calendarLoadStart || Date.now()));
           return true;
         } else if (loadResult.loadResults && loadResult.loadResults.errors && loadResult.loadResults.errors.length > 0) {
@@ -1892,14 +1900,26 @@ import ConflictDialog from './shared/ConflictDialog';
             // The backend surfaces the former as a CALENDAR_NOT_CONFIGURED warning
             // so the frontend can guide the user to pick a different calendar
             // instead of leaving them staring at a silent blank grid.
-            const unconfigured = (loadResult.warnings || []).find(
-              w => w.code === 'CALENDAR_NOT_CONFIGURED'
-            );
+            const warnings = loadResult.warnings || [];
+            const unconfigured = warnings.find(w => w.code === 'CALENDAR_NOT_CONFIGURED');
             if (unconfigured) {
               showWarning(
                 'This calendar is not set up for reservations. ' +
                 'Pick another calendar from the dropdown above.'
               );
+            }
+
+            // Sync-disabled + zero cached events. Backend has decided this is benign
+            // (no errors, just no data). Render inline instead of letting the grid
+            // look like a silent failure.
+            const syncDisabled = warnings.find(w => w.code === 'NO_EVENTS_SYNC_DISABLED');
+            if (syncDisabled) {
+              setEmptyStateNotice(
+                syncDisabled.message ||
+                'No events found for this calendar yet. New events you create will appear here.'
+              );
+            } else {
+              setEmptyStateNotice(null);
             }
 
             setAllEvents([]);
@@ -5267,6 +5287,29 @@ import ConflictDialog from './shared/ConflictDialog';
 
         {/* Action bar - visible to all users */}
         {renderActionBar()}
+
+        {/* Empty-state notice — surfaced when backend returns 0 events with a benign
+            warning code (e.g. NO_EVENTS_SYNC_DISABLED). Inline + left-aligned per
+            project convention; not a toast (this is an ambient state, not transient).
+            Self-dismisses as soon as events appear. */}
+        {emptyStateNotice && (
+          <div
+            className="calendar-empty-state-notice"
+            role="status"
+            aria-live="polite"
+            style={{
+              margin: '8px 16px',
+              padding: '10px 14px',
+              borderLeft: '4px solid var(--color-info-500, #0078d4)',
+              background: 'var(--color-info-50, #eff6fc)',
+              color: 'var(--color-neutral-900, #201f1e)',
+              fontSize: '0.875rem',
+              borderRadius: '2px'
+            }}
+          >
+            {emptyStateNotice}
+          </div>
+        )}
 
         {/* MAIN LAYOUT CONTAINER */}
         <div className="calendar-layout-container">
