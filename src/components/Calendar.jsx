@@ -5359,11 +5359,10 @@ import ConflictDialog from './shared/ConflictDialog';
               <div className={`calendar-grid-wrapper ${isNavigating ? 'navigating' : ''}`}>
                   {viewType === 'month' ? (
                     <div className="calendar-content-wrapper">
-                      <div 
+                      <div
                         className="calendar-grid month-view"
-                        style={{ 
-                          transform: `scale(${zoomLevel / 100})`, 
-                          transformOrigin: 'top left',
+                        style={{
+                          ...(zoomLevel !== 100 ? { transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' } : null),
                           width: '100%',
                           flex: 1
                         }}
@@ -5409,8 +5408,7 @@ import ConflictDialog from './shared/ConflictDialog';
                     <div
                       className={`calendar-grid ${viewType}-view`}
                       style={{
-                        transform: `scale(${zoomLevel / 100})`,
-                        transformOrigin: 'top left',
+                        ...(zoomLevel !== 100 ? { transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' } : null),
                         width: '100%'
                       }}
                     >
