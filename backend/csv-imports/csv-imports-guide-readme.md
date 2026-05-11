@@ -65,6 +65,18 @@ node link-mongo-to-graph.js --owner=templeevents@emanuelnyc.org --from=2026-05-0
 
 Standalone link, no reconcile pass. Useful if some other operation cleared `graphData.id` on a set of docs.
 
+### 6. Backfill `calendarData.isAllDayEvent` canonical key (one-off data hygiene)
+
+```powershell
+node migrate-backfill-isAllDayEvent.js --dry-run
+node migrate-backfill-isAllDayEvent.js
+node migrate-backfill-isAllDayEvent.js --verify
+```
+
+The Rsched importer historically writes the all-day flag under the wrong key — `calendarData.isAllDay` instead of the canonical `calendarData.isAllDayEvent`. The calendar's rendering pipeline now tolerates either key, but backend operations (conflict detection, audit projection, future syncs) read only the canonical name. Run this once after a fresh Rsched bulk import to normalize the data so all consumers see the same flag.
+
+The dry-run output breaks the affected count into two source variants: rSched-style (`calendarData.isAllDay: true`) and Graph-style (`graphData.isAllDay: true` with calendarData missing the projection). Both are corrected in the apply pass. Idempotent — safe to re-run.
+
 ---
 
 ## Flag reference (reconcile script)

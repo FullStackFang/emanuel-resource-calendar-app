@@ -199,7 +199,10 @@ export const getEventEndDateExclusive = (event) => {
   const endDateTime = event.end?.dateTime || event.start?.dateTime;
   if (!endDateTime) return startStr;
   const [endDateStr, endTimeStr = ''] = String(endDateTime).split('T');
-  const isAllDay = event.calendarData?.isAllDayEvent === true || event.isAllDayEvent === true;
+  const isAllDay =
+    event.calendarData?.isAllDayEvent === true ||
+    event.isAllDayEvent === true ||
+    event.calendarData?.isAllDay === true;  // rSched-import schema variant (wrong key, same object)
   const endsAtMidnight = endTimeStr.startsWith('00:00');
   if (isAllDay && endsAtMidnight && endDateStr > startStr) {
     const d = new Date(`${endDateStr}T00:00:00Z`);

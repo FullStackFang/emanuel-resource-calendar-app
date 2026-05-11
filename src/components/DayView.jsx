@@ -276,8 +276,12 @@ const DayView = memo(({
                         const isMultiDay = event._multiDayInfo?.isMultiDay;
                         const multiDayPosition = event._multiDayInfo?.position;
 
-                        // Check if it's an all-day event - use authoritative flag, not just duration
+                        // Check if it's an all-day event - use authoritative flag, not just duration.
+                        // calendarData.isAllDay is the rSched-import schema variant (wrong key);
+                        // top-level isAllDayEvent is set by some import paths but not all rSched docs.
                         const isAllDay = event.calendarData?.isAllDayEvent === true ||
+                          event.calendarData?.isAllDay === true ||
+                          event.isAllDayEvent === true ||
                           (!isMultiDay && duration >= 1440);
 
                         // Detect drafts without specific times (no event AND no reservation times).

@@ -98,6 +98,27 @@ describe('getEventEndDateExclusive', () => {
     expect(getEventEndDateExclusive(event)).toBe('2026-05-08');
   });
 
+  it('recognizes calendarData.isAllDay (rSched import schema variant, wrong key)', () => {
+    // rSched import at rschedImportService.js:440 writes the all-day flag under
+    // the wrong key "isAllDay" instead of canonical "isAllDayEvent" inside calendarData.
+    // Some rSched-imported events also lack the top-level isAllDayEvent fallback.
+    const event = {
+      start: { dateTime: '2026-05-08T00:00:00' },
+      end: { dateTime: '2026-05-09T00:00:00' },
+      calendarData: { isAllDay: true /* note: isAllDayEvent absent */ }
+    };
+    expect(getEventEndDateExclusive(event)).toBe('2026-05-08');
+  });
+
+  it('does NOT decrement when calendarData.isAllDay is true but end is 23:59:59 (mixed convention)', () => {
+    const event = {
+      start: { dateTime: '2026-05-08T00:00:00' },
+      end: { dateTime: '2026-05-08T23:59:59' },
+      calendarData: { isAllDay: true }
+    };
+    expect(getEventEndDateExclusive(event)).toBe('2026-05-08');
+  });
+
   it('does not decrement when isAllDayEvent is false even with midnight end', () => {
     const event = {
       start: { dateTime: '2026-05-08T00:00:00' },

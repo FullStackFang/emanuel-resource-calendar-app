@@ -392,8 +392,13 @@ export function transformEventToFlatStructure(event) {
     // master are present. Empty array when no exceptions exist (or for non-master events).
     occurrenceOverrides: Array.isArray(event.occurrenceOverrides) ? event.occurrenceOverrides : [],
 
-    // All-day event flag
-    isAllDayEvent: getEventField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,
+    // All-day event flag. Fallback chain handles the rSched-import schema variant
+    // (calendarData.isAllDay — wrong key, same object) when getEventField's canonical
+    // lookup misses and graphData was projected out.
+    isAllDayEvent: getEventField(event, 'isAllDayEvent') ||
+      event.calendarData?.isAllDay === true ||
+      event.graphData?.isAllDay ||
+      false,
 
     // Public website publishing flag — when true, the form exposes a Web Page
     // tab inside the Resource Details section that previews the public MEC layout.
