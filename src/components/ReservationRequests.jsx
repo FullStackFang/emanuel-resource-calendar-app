@@ -79,7 +79,7 @@ export default function ReservationRequests({ graphToken }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [sortBy, setSortBy] = useState('date_desc');
+  const [sortBy, setSortBy] = useState('submitted_desc');
 
   // Any narrowing filter active? Used to gate the 'all' tab fetch — with no
   // filter the tab shows only the count, no DB request. Sort is excluded
@@ -524,7 +524,7 @@ export default function ReservationRequests({ graphToken }) {
   );
 
   // hasActiveFilters: used to show the "clear" button area (includes sort, which the user can reset)
-  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
+  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'submitted_desc';
   // hasActiveSearchFilters: used for empty-state messaging (sort alone can't filter out results)
   const hasActiveSearchFilters = !!(searchTerm || dateFrom || dateTo || statusFilter);
 
@@ -609,7 +609,7 @@ export default function ReservationRequests({ graphToken }) {
     setDateFrom('');
     setDateTo('');
     setStatusFilter('');
-    setSortBy('date_desc');
+    setSortBy('submitted_desc');
   }, []);
 
 
@@ -855,7 +855,7 @@ export default function ReservationRequests({ graphToken }) {
               {activeTab !== 'needs_attention' && <option value="rejected">Rejected</option>}
             </select>
           </div>
-          <div className={`rr-sort-filter${sortBy !== 'date_desc' ? ' active' : ''}`}>
+          <div className={`rr-sort-filter${sortBy !== 'submitted_desc' ? ' active' : ''}`}>
             <label>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19" />

@@ -126,7 +126,7 @@ export default function MyReservations() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [sortBy, setSortBy] = useState('date_desc');
+  const [sortBy, setSortBy] = useState('submitted_desc');
   const [page, setPage] = useState(1);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -338,14 +338,14 @@ export default function MyReservations() {
     [filteredReservations, sortBy]
   );
 
-  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
+  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'submitted_desc';
 
   const clearFilters = useCallback(() => {
     setSearchTerm('');
     setDateFrom('');
     setDateTo('');
     setStatusFilter('');
-    setSortBy('date_desc');
+    setSortBy('submitted_desc');
     setPage(1);
   }, []);
 
@@ -679,7 +679,7 @@ export default function MyReservations() {
               <option value="deleted">Deleted</option>
             </select>
           </div>
-          <div className={`rr-sort-filter${sortBy !== 'date_desc' ? ' active' : ''}`}>
+          <div className={`rr-sort-filter${sortBy !== 'submitted_desc' ? ' active' : ''}`}>
             <label>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19" />

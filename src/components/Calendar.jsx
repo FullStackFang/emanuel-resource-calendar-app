@@ -37,6 +37,7 @@
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import { selectDefaultCalendar, SELECT_DEFAULT_CALENDAR_REASONS } from '../utils/calendarSelection';
   import { dedupeCalendarsByOwner } from '../utils/dedupeCalendarsByOwner';
+  import { shouldClearEventsOnZeroResult, shouldShowSyncDisabledNotice, createReloadCoordinator } from '../utils/calendarLoadDecision';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -461,8 +462,12 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Department colleague edit state (for non-admin users editing pending/rejected events)
     const [isResubmitting, setIsResubmitting] = useState(false);
-    // Ref to loadEvents (defined later) so handlers declared before it can call it
+    // Refs to load functions (defined later) so handlers declared before them can call them.
+    // Prefer mutationReloadRef / navigationReloadRef in handlers — the bare loadEventsRef
+    // exists only for the pendingReload retry path which needs the internal isRetry flag.
     const loadEventsRef = useRef(null);
+    const mutationReloadRef = useRef(null);
+    const navigationReloadRef = useRef(null);
 
     // Recurring event scope dialog state
     const [recurringScopeDialog, setRecurringScopeDialog] = useState({
@@ -477,7 +482,7 @@ import ConflictDialog from './shared/ConflictDialog';
     // wipe the optimistically-patched state — matches the defense pattern
     // from commit 0743490 applied to the pendingReload retry.
     const handleReviewRefresh = useCallback(() => {
-      loadEventsRef.current?.(true, null, { silent: true });
+      mutationReloadRef.current?.();
     }, []);
 
     // Unified review modal experience (replaces useReviewModal + satellite state)
@@ -495,7 +500,7 @@ import ConflictDialog from './shared/ConflictDialog';
           if (eventData?._id) {
             setAllEvents(allEventsRef.current.filter(e => String(e._id) !== String(eventData._id)));
           } else {
-            loadEventsRef.current?.(true, null, { silent: true });
+            mutationReloadRef.current?.();
           }
         } else if (eventData?._id && eventData.eventType !== 'seriesMaster') {
           // Non-recurring: patch from PUT response
@@ -523,12 +528,12 @@ import ConflictDialog from './shared/ConflictDialog';
           } else {
             // Patch path couldn't find the event in allEventsRef — fall back to
             // a reload. silent: true so a 0-event response doesn't wipe state.
-            loadEventsRef.current?.(true, null, { silent: true });
+            mutationReloadRef.current?.();
           }
         } else {
           // Catch-all: unknown result shape (e.g. series-master save) — reload.
           // silent: true so a 0-event response doesn't wipe state.
-          loadEventsRef.current?.(true, null, { silent: true });
+          mutationReloadRef.current?.();
         }
 
         // Show success/warning toast based on action type
@@ -635,7 +640,7 @@ import ConflictDialog from './shared/ConflictDialog';
       apiToken,
       selectedCalendarId,
       availableCalendars,
-      onSuccess: () => loadEvents(true),
+      onSuccess: () => mutationReload(),
       refreshSource: 'calendar-creation',
     });
 
@@ -649,7 +654,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const prevSimulatedRoleRef = useRef(simulatedRole);
     useEffect(() => {
       if (prevSimulatedRoleRef.current !== simulatedRole && apiToken) {
-        loadEventsRef.current?.(true, null, { silent: true });
+        mutationReloadRef.current?.();
       }
       prevSimulatedRoleRef.current = simulatedRole;
     }, [simulatedRole, apiToken]);
@@ -728,7 +733,7 @@ import ConflictDialog from './shared/ConflictDialog';
         reviewModal.closeModal(true);
         // silent: true so a 0-event response on this post-resubmit reload
         // cannot wipe state (matches the 0743490 defense pattern).
-        loadEventsRef.current?.(true, null, { silent: true });
+        mutationReloadRef.current?.();
       } catch (err) {
         logger.error('Error resubmitting reservation:', err);
         showError(err, { context: 'Calendar.handleResubmitFromCalendar' });
@@ -921,7 +926,7 @@ import ConflictDialog from './shared/ConflictDialog';
         setDemoData(null);
 
         // Reload events from API
-        await loadEvents();
+        await mutationReload(false);
       } else {
         // Switching from API to demo mode - need to upload data first
         showError('Please upload JSON data to enable demo mode');
@@ -1904,27 +1909,12 @@ import ConflictDialog from './shared/ConflictDialog';
         } else {
           // No events returned but no errors
           if (loadResult.count === 0 && loadResult.events?.length === 0) {
-            // Stale-while-revalidate: silent refreshes (SSE/bus/polling) are a
-            // patch-only path — they never authoritatively empty the calendar.
-            // The truth source for "this calendar has 0 events" is an explicit
-            // non-silent load (initial mount, navigation, manual refresh).
-            // Without this, an SSE event-changed delivered during init can race
-            // the consolidated effect and leave allEvents=[] until the user
-            // manually refreshes. The previous guard required allEventsRef to
-            // already be non-empty to skip the clear, which fails open on
-            // initial mount when allEvents starts as [].
-            if (silent) {
-              logger.debug(`loadEventsUnified: Silent refresh returned 0 events — keeping current state (source: ${loadResult.source})`);
-              return false;
-            }
-
             // Distinguish "calendar not in calendar-config.json" from "calendar is
             // configured but genuinely has zero reservations in this date range".
             // The backend surfaces the former as a CALENDAR_NOT_CONFIGURED warning
             // so the frontend can guide the user to pick a different calendar
-            // instead of leaving them staring at a silent blank grid. Kept above
-            // the isRetry guard because the toast is a one-shot diagnostic, not
-            // persistent UI state — firing it on a retry call is benign.
+            // instead of leaving them staring at a silent blank grid. Toast fires
+            // even on silent/retry paths because it is a one-shot diagnostic.
             const warnings = loadResult.warnings || [];
             const unconfigured = warnings.find(w => w.code === 'CALENDAR_NOT_CONFIGURED');
             if (unconfigured) {
@@ -1934,27 +1924,23 @@ import ConflictDialog from './shared/ConflictDialog';
               );
             }
 
-            if (isRetry) {
-              // A retry that returns 0 events is a delta-sync no-op, not an
-              // authoritative empty-calendar signal. Preserve current state to
-              // avoid wiping events the first load already rendered. Placed
-              // ABOVE the banner setter so a future non-silent isRetry caller
-              // cannot leak the onboarding banner.
-              logger.debug(`loadEventsUnified: isRetry 0-event result — preserving existing state (source: ${loadResult.source})`);
+            // Wipe-decision contract lives in calendarLoadDecision.js so the
+            // protected paths (silent: mutations/SSE/polling, isRetry: pendingReload)
+            // can be unit-tested without mounting Calendar. See
+            // calendarLoadDecision.test.jsx for the locked-in matrix.
+            if (!shouldClearEventsOnZeroResult(loadResult, { silent, isRetry })) {
+              logger.debug(`loadEventsUnified: 0-event result preserved (silent=${silent}, isRetry=${isRetry}, source: ${loadResult.source})`);
               return false;
             }
 
-            // Sync-disabled + zero cached events. Backend has decided this is benign
-            // (no errors, just no data). Render inline instead of letting the grid
-            // look like a silent failure. Gated on hasObservedEventsRef so the
-            // banner only paints for genuine cold-start sessions — once the user
-            // has seen events render in this session, a later 0-event response
-            // (post-delete, navigation to empty range, calendar switch) must not
-            // regress to the onboarding banner.
-            const syncDisabled = warnings.find(w => w.code === 'NO_EVENTS_SYNC_DISABLED');
-            if (syncDisabled && !hasObservedEventsRef.current) {
+            // Sync-disabled cold-start banner. Once the user has seen events
+            // render in this session, a later 0-event response (post-delete,
+            // navigation to empty range, calendar switch) must not regress to
+            // the onboarding banner — gated by hasObservedEventsRef.
+            if (shouldShowSyncDisabledNotice(loadResult, { hasObservedEvents: hasObservedEventsRef.current })) {
+              const syncDisabled = warnings.find(w => w.code === 'NO_EVENTS_SYNC_DISABLED');
               setEmptyStateNotice(
-                syncDisabled.message ||
+                syncDisabled?.message ||
                 'No events found for this calendar yet. New events you create will appear here.'
               );
             } else {
@@ -1998,6 +1984,17 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {boolean} forceRefresh - Force refresh from backend
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
+    /**
+     * @internal — call mutationReload or navigationReload instead.
+     *
+     * The raw load primitive. Direct callers must remember to pass { silent: true }
+     * for any reload triggered by a mutation, SSE, polling, or bus event — failing
+     * to do so re-introduces the post-mutation blank-grid bug (see commits
+     * 0743490, 0dfbf02, eadaba8 history). Use the coordinator wrappers below.
+     *
+     * The only legitimate direct caller is the pendingReload retry inside
+     * loadEventsUnified, which threads the internal { isRetry: true } flag.
+     */
     const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false, isRetry = false } = {}) => {
       calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
 
@@ -2017,18 +2014,29 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [isDemoMode, loadDemoEvents, loadEventsUnified]);
     loadEventsRef.current = loadEvents;
 
-    // Shared silent-refresh callback used by both polling and the data-refresh bus.
-    // Accepts forceRefresh so polling (false = use cache) and bus events (true = fresh
-    // data after a real change) can share the same modal guard without duplication.
+    // Reload coordinator — single chokepoint for every legitimate caller.
+    // mutationReload is silent (preserves state on transient 0-event response);
+    // navigationReload is not (authoritative on new scope). The factory
+    // contract is locked by calendarLoadDecision.test.js so the silent flag
+    // cannot be silently dropped by a future refactor. The internal isRetry
+    // path stays inside loadEventsUnified itself.
+    const { mutationReload, navigationReload } = useMemo(
+      () => createReloadCoordinator(loadEvents),
+      [loadEvents]
+    );
+    mutationReloadRef.current = mutationReload;
+    navigationReloadRef.current = navigationReload;
+
+    // Background-refresh wrapper for polling and SSE bus events.
+    // Adds modal-open and initial-load guards on top of mutationReload.
+    // Polling (false = use cache) and bus events (true = fresh after change)
+    // share these guards — without them, an SSE 'event-changed' delivered
+    // during init races the consolidated mount effect's first load.
     const silentCalendarRefresh = useCallback((forceRefresh = false) => {
       if (reviewModal.isOpen || eventCreation.isOpen) return;
-      // Don't run before the consolidated mount effect has even dispatched its
-      // first non-silent load — otherwise an SSE 'event-changed' delivered
-      // during init races the initial load. The bus event will replay via
-      // dispatchRefresh's debounce buffer if needed.
       if (!initialLoadAttemptedRef.current) return;
-      loadEvents(forceRefresh, null, { silent: true });
-    }, [loadEvents, reviewModal.isOpen, eventCreation.isOpen]);
+      mutationReload(forceRefresh);
+    }, [mutationReload, reviewModal.isOpen, eventCreation.isOpen]);
 
     // Poll for updates every 5 min (no spinner, skip while modal is open).
     // Tighten to 30s while SSE is unavailable so staleness is bounded to tens of seconds.
@@ -2092,11 +2100,11 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleManualCalendarRefresh = useCallback(async () => {
       setIsManualRefreshing(true);
       try {
-        await loadEvents(true, null, { silent: true });
+        await mutationReload();
       } finally {
         setIsManualRefreshing(false);
       }
-    }, [loadEvents]);
+    }, [mutationReload]);
 
     /**
      * Sync events to internal database
@@ -2139,14 +2147,14 @@ import ConflictDialog from './shared/ConflictDialog';
         const syncResult = await eventDataService.syncEvents(allEvents, selectedCalendarId);
 
         // Reload events to show updated data
-        await loadEvents(true);
+        await mutationReload();
 
         return { success: true, result: syncResult };
       } catch (error) {
         logger.error('Sync failed:', error);
         return { success: false, error: error.message };
       }
-    }, [apiToken, selectedCalendarId, loadEvents]);
+    }, [apiToken, selectedCalendarId, mutationReload]);
 
 
     /**
@@ -2432,22 +2440,6 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [apiToken, loadUserProfile, loadSchemaExtensions]);
 
     //---------------------------------------------------------------------------
-    // CACHE MANAGEMENT FUNCTIONS
-    //---------------------------------------------------------------------------
-    
-    /**
-     * Refresh events with cache control
-     * @param {boolean} forceRefresh - Force refresh from Graph API
-     */
-    const refreshEvents = useCallback(async (forceRefresh = false) => {
-      logger.debug('refreshEvents called', { forceRefresh });
-      const startTime = Date.now();
-      await loadEvents(forceRefresh);
-      const duration = Date.now() - startTime;
-      logger.debug(`Refresh complete in ${duration}ms - ${allEvents.length} events`);
-    }, [loadEvents, allEvents]);
-
-    //---------------------------------------------------------------------------
     // UTILITY/HELPER FUNCTIONS
     //---------------------------------------------------------------------------
 
@@ -2458,12 +2450,12 @@ import ConflictDialog from './shared/ConflictDialog';
     const retryEventLoadAfterCreation = useCallback(async (eventId, eventSubject) => {
       logger.debug(`Refreshing after ${eventId ? 'update' : 'creation'}: ${eventSubject}`);
       try {
-        await loadEvents(true);
+        await mutationReload();
       } catch (error) {
         logger.error('Error refreshing after save:', error);
         showError('Event saved but refresh failed. Try manual refresh if needed.');
       }
-    }, [loadEvents, showError]);
+    }, [mutationReload, showError]);
 
     /**
      * Get the target calendar name for event creation/editing
@@ -4940,7 +4932,7 @@ import ConflictDialog from './shared/ConflictDialog';
         // Step 5: Reload events to ensure consistency.
         // silent: true so a 0-event response can't wipe state on top of the
         // optimistic filter above (matches the 0743490 defense pattern).
-        await loadEvents(false, null, { silent: true });
+        await mutationReload(false);
         
         logger.debug(`[handleDeleteApiEvent] Successfully deleted event:`, {
           eventId,
@@ -5110,15 +5102,16 @@ import ConflictDialog from './shared/ConflictDialog';
         // 'event-changed' debounced by dispatchRefresh during init will
         // replay against a real in-flight (or completed) load.
         initialLoadAttemptedRef.current = true;
-        // Load events — routine navigation uses cached data; force refresh is
-        // reserved for post-save reloads and explicit manual refreshes.
-        // Completion logging lives inside loadEventsUnified, where the fresh
-        // event count is in scope. Logging from a .then() here would read a
-        // stale `allEvents` closure and emit a phantom count=0 entry.
-        loadEvents(false)
+        // Initial mount + date-range/calendar-change load — navigation intent,
+        // so a 0-event response IS authoritative for the new scope (with the
+        // cold-start banner gated by hasObservedEventsRef). Completion logging
+        // lives inside loadEventsUnified where the fresh event count is in
+        // scope; logging from a .then() here would read a stale `allEvents`
+        // closure and emit a phantom count=0 entry.
+        navigationReload()
           .catch((error) => {
             logger.error('Event loading failed:', error);
-            calendarDebug.logError('loadEvents in useEffect', error, { selectedCalendarId });
+            calendarDebug.logError('navigationReload in useEffect', error, { selectedCalendarId });
           })
           .finally(() => {
             clearTimeout(timeoutId);
@@ -5705,7 +5698,7 @@ import ConflictDialog from './shared/ConflictDialog';
           savingPendingEdit={reviewModal.isSavingOwnerEdit}
           onSaveRejectedEdit={reviewModal.handleOwnerEdit}
           savingRejectedEdit={reviewModal.isSavingOwnerEdit}
-          onConflictRefresh={() => loadEvents(true, null, { silent: true })}
+          onConflictRefresh={() => mutationReload()}
         />
 
         {/* Review Modal for Event Creation (via useEventCreation hook) */}
