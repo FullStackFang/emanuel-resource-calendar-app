@@ -18,12 +18,15 @@
       --radius-lg: 12px;
     }
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
+      height: 100%;
+    }
+    body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg-secondary);
       color: var(--text-primary);
-      min-height: 100vh;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
