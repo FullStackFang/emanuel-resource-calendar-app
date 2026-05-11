@@ -733,7 +733,6 @@ main {
 
 .calendar-grid {
   width: 100%;
-  overflow-x: hidden;
   flex: 1;
 }
 
