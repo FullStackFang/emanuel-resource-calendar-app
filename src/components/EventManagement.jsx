@@ -1020,6 +1020,7 @@ export default function EventManagement() {
       <EventReviewExperience
         experience={reviewModal}
         title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
+        defaultCalendar={reviewModal.editableData?.calendarOwner || undefined}
       />
     </div>
   );

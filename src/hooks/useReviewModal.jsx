@@ -17,6 +17,42 @@ import {
   rejectEditRequest as rejectEditRequestApi,
 } from '../services/editRequestsApi';
 
+// Pure helper: builds the URLSearchParams used by the modal-open availability
+// prefetch. Exported so the calendarOwner scoping contract can be unit-tested
+// without instantiating the whole hook (see prefetchParams.test.js).
+//
+// Why calendarOwner matters here: rsSched events legitimately exist as one
+// document per (rsId, calendarOwner). Without scoping, the availability
+// endpoint returns BOTH the sandbox and prod copies, and the
+// SchedulingAssistant renders them as side-by-side duplicates. Form-base
+// fetches were scoped in commit a98c66b; this prefetch site was missed.
+export function buildPrefetchAvailabilityParams(item, gates) {
+  const { itemStartDate, roomIds } = gates;
+  const startDateTime = `${itemStartDate}T00:00:00`;
+  const endDateTime = `${itemStartDate}T23:59:59`;
+
+  const params = new URLSearchParams({
+    startDateTime,
+    endDateTime,
+    roomIds: roomIds.join(','),
+    setupTimeMinutes: 0,
+    teardownTimeMinutes: 0,
+  });
+  if (item._id) params.append('excludeEventId', item._id);
+
+  // Prefer the event's own calendarOwner so editing a sandbox event in a
+  // prod-default session (or vice-versa) still scopes to the event's calendar.
+  // Fall back to the runtime default (mutated by App.jsx from /api/config).
+  // Normalize to lowercase — the backend also lowercases the param and stores
+  // calendarOwner lowercased, so this keeps URLs identical across callers.
+  const rawCalendarOwner = item.calendarOwner || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR || '';
+  if (rawCalendarOwner) {
+    params.append('calendarOwner', String(rawCalendarOwner).toLowerCase());
+  }
+
+  return params;
+}
+
 // Pure helper: extracts room/date gates from any event format (raw MongoDB,
 // flat, or Graph). Used by openModal and navigateToEvent to gate the content
 // reveal until availability prefetch completes.
@@ -265,19 +301,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // Availability prefetch — uses full-day + room-specific params to match
       // checkDayAvailability() exactly, so the form won't re-fetch on mount.
+      // Param construction is in buildPrefetchAvailabilityParams so the
+      // calendarOwner scoping contract is independently testable.
       if (hasDates && hasRooms) {
         const availabilityPromise = (async () => {
           try {
-            const startDateTime = `${itemStartDate}T00:00:00`;
-            const endDateTime = `${itemStartDate}T23:59:59`;
-            const params = new URLSearchParams({
-              startDateTime,
-              endDateTime,
-              roomIds: roomIds.join(','),
-              setupTimeMinutes: 0,
-              teardownTimeMinutes: 0
-            });
-            if (item._id) params.append('excludeEventId', item._id);
+            const params = buildPrefetchAvailabilityParams(item, { itemStartDate, roomIds });
             const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
             if (response.ok) {
               return await response.json();

@@ -987,6 +987,7 @@ export default function MyReservations() {
         experience={reviewModal}
         title={getModalTitle()}
         modalMode={getModalMode()}
+        defaultCalendar={reviewModal.editableData?.calendarOwner || undefined}
         onResubmit={handleResubmit}
         isResubmitting={isResubmitting}
         onRestore={reviewModal.currentItem?.status === 'deleted' ? handleRestore : null}

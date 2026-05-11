@@ -242,6 +242,103 @@ describe('Cross-Calendar Conflict Isolation (CC-1 to CC-4)', () => {
   });
 
   // =========================================================================
+  // CC-5: availability endpoint dedupes rsSched cross-calendar duplicates
+  //   when calendarOwner param is absent (defensive belt-and-suspenders for
+  //   missed call sites). rsSched events live as one doc per
+  //   (eventId, calendarOwner) by design, so unfiltered queries return BOTH
+  //   the sandbox + prod copies of the same logical event. The
+  //   SchedulingAssistant rendered these as side-by-side duplicate blocks
+  //   before the fix.
+  // =========================================================================
+  describe('CC-5: availability dedupes duplicates sharing eventId when calendarOwner is omitted', () => {
+    test('two docs sharing eventId across calendars collapse to one entry', async () => {
+      const { start, end } = tomorrowWindow();
+
+      // Build the sandbox copy first (older lastModifiedDateTime), then the
+      // prod copy (newer). Dedup should keep the prod copy.
+      const sandboxCopy = buildPublished({ calendarOwner: SANDBOX_OWNER, start, end });
+      const prodCopy = buildPublished({ calendarOwner: PRODUCTION_OWNER, start, end });
+      // Shared logical eventId (mirrors how the rsSched importer keys docs).
+      sandboxCopy.eventId = 'rssched-test-CC5-1';
+      prodCopy.eventId = 'rssched-test-CC5-1';
+      sandboxCopy.lastModifiedDateTime = new Date(start.getTime() - 7 * 86400000); // 7 days before
+      prodCopy.lastModifiedDateTime = new Date(start.getTime() - 1 * 86400000);    // 1 day before
+
+      await insertEvents(db, [sandboxCopy, prodCopy]);
+
+      const date = start.toISOString().split('T')[0];
+      const response = await request(app)
+        .get('/api/rooms/availability')
+        .query({
+          startDateTime: `${date}T00:00:00`,
+          endDateTime: `${date}T23:59:59`,
+          roomIds: locationA._id.toString(),
+          // Intentionally NO calendarOwner — exercises the dedup path
+        })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      const roomBuckets = response.body.flatMap((roomEntry) => {
+        const c = roomEntry?.conflicts || {};
+        return [
+          ...(c.reservations || []),
+          ...(c.events || []),
+          ...(c.pendingReservations || []),
+          ...(c.pendingEdits || []),
+        ];
+      });
+      const ids = roomBuckets
+        .map((e) => (e && (e._id || e.id) ? (e._id || e.id).toString() : null))
+        .filter(Boolean);
+
+      // Exactly one of the two should remain (the more-recently-modified prod copy)
+      const sandboxAppears = ids.includes(sandboxCopy._id.toString());
+      const prodAppears = ids.includes(prodCopy._id.toString());
+      expect(prodAppears).toBe(true);
+      expect(sandboxAppears).toBe(false);
+    });
+
+    test('two docs with DIFFERENT eventIds in different calendars both still appear (CC-2 regression guard)', async () => {
+      // Sanity: dedup must NOT collapse genuinely-distinct events that
+      // happen to share a room/time across calendars. Only same-eventId
+      // duplicates collapse.
+      const { start, end } = tomorrowWindow();
+      const sandboxEvent = buildPublished({ calendarOwner: SANDBOX_OWNER, start, end });
+      const productionEvent = buildPublished({ calendarOwner: PRODUCTION_OWNER, start, end });
+      // Factory generates unique eventIds — leaving them as-is.
+
+      await insertEvents(db, [sandboxEvent, productionEvent]);
+
+      const date = start.toISOString().split('T')[0];
+      const response = await request(app)
+        .get('/api/rooms/availability')
+        .query({
+          startDateTime: `${date}T00:00:00`,
+          endDateTime: `${date}T23:59:59`,
+          roomIds: locationA._id.toString(),
+        })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      const roomBuckets = response.body.flatMap((roomEntry) => {
+        const c = roomEntry?.conflicts || {};
+        return [
+          ...(c.reservations || []),
+          ...(c.events || []),
+          ...(c.pendingReservations || []),
+          ...(c.pendingEdits || []),
+        ];
+      });
+      const ids = roomBuckets
+        .map((e) => (e && (e._id || e.id) ? (e._id || e.id).toString() : null))
+        .filter(Boolean);
+
+      expect(ids).toContain(sandboxEvent._id.toString());
+      expect(ids).toContain(productionEvent._id.toString());
+    });
+  });
+
+  // =========================================================================
   // CC-4: Publish MUST 409 on same-calendar overlap (regression guard)
   // =========================================================================
   describe('CC-4: publish still 409s on same-calendar overlap', () => {

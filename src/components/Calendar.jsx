@@ -5651,6 +5651,7 @@ import ConflictDialog from './shared/ConflictDialog';
           title={reviewModal.editableData?.eventTitle || reviewModal.editableData?.subject || reviewModal.editableData?.calendarData?.eventTitle || 'Event'}
           isNavigating={reviewModalIsNavigating}
           graphToken={graphToken}
+          defaultCalendar={reviewModal.editableData?.calendarOwner || undefined}
           onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
           onIsNavigatingChange={setReviewModalIsNavigating}
           onResubmit={handleResubmitFromCalendar}

@@ -129,6 +129,15 @@ export default function RoomReservationFormBase({
   // Pre-fetched series events data from parent (for non-blocking modal open)
   prefetchedSeriesEvents = null,
 }) {
+  // Resolve the calendar this form is booking against. ReservationRequests
+  // (Approval Queue) passes an explicit `defaultCalendar` prop — that wins.
+  // Other entry points (NewReservationModal, Calendar.jsx, MyReservations.jsx)
+  // don't load admin calendar settings, so we fall back to the public runtime
+  // default that App.jsx already fetches into APP_CONFIG.DEFAULT_DISPLAY_CALENDAR
+  // from /api/config on mount. This drives both the cross-calendar availability
+  // filter and the SchedulingAssistant tooltip label.
+  const effectiveDefaultCalendar = defaultCalendar || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR || '';
+
   // Form state
   const [formData, setFormData] = useState({
     requesterName: '',
@@ -720,6 +729,7 @@ export default function RoomReservationFormBase({
         reservationEndMinutes
       });
       if (currentReservationId) params.append('excludeEventId', currentReservationId);
+      if (effectiveDefaultCalendar) params.append('calendarOwner', effectiveDefaultCalendar);
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
       if (!response.ok) throw new Error('Failed to check availability');
@@ -777,7 +787,7 @@ export default function RoomReservationFormBase({
       if (currentReservationId) params.append('excludeEventId', currentReservationId);
       // Scope availability to the calendar being booked against so cross-calendar
       // events (e.g. sandbox vs production) don't appear as conflicts.
-      if (defaultCalendar) params.append('calendarOwner', defaultCalendar);
+      if (effectiveDefaultCalendar) params.append('calendarOwner', effectiveDefaultCalendar);
 
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`,
@@ -2179,8 +2189,8 @@ export default function RoomReservationFormBase({
                     onClearEventTime={handleClearEventTime}
                     currentReservationId={currentReservationId}
                     onLockedEventClick={onLockedEventClick}
-                    defaultCalendar={defaultCalendar}
-                    calendarDisplayName={defaultCalendar ? defaultCalendar.split('@')[0] : ''}
+                    defaultCalendar={effectiveDefaultCalendar}
+                    calendarDisplayName={effectiveDefaultCalendar ? effectiveDefaultCalendar.split('@')[0] : ''}
                     isAllDayEvent={formData.isAllDayEvent}
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}

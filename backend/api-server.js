@@ -2454,6 +2454,7 @@ const AVAILABILITY_PROJECTION = {
   eventType: 1,                                // identify series masters for recurrence expansion
   seriesMasterEventId: 1, occurrenceDate: 1,   // exception/addition docs: suppress master expansion
   recurrence: 1,                               // expandRecurringOccurrencesInWindow reads top-level
+  lastModifiedDateTime: 1,                     // tiebreaker for cross-calendar dedup (when calendarOwner is omitted)
   'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1,
   'calendarData.startTime': 1, 'calendarData.endTime': 1,
   'calendarData.locations': 1, 'calendarData.locationDisplayNames': 1,
@@ -14756,11 +14757,17 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     // Scope conflict checks to a single mailbox calendar so cross-calendar
     // events (e.g. sandbox vs production) don't appear as conflicts. Absent
-    // param keeps legacy callers/tests on the unfiltered behavior.
+    // param keeps legacy callers/tests on the unfiltered behavior, but we
+    // log a warning so missed call sites are visible (the rsSched importer
+    // intentionally writes one doc per (eventId, calendarOwner), so unfiltered
+    // queries surface duplicates).
     const calendarOwnerParam = req.query.calendarOwner
       ? String(req.query.calendarOwner).toLowerCase()
       : null;
     const calendarOwnerFilter = calendarOwnerParam ? { calendarOwner: calendarOwnerParam } : {};
+    if (!calendarOwnerParam) {
+      logger.warn('[AVAILABILITY] calendarOwner query param missing — results will be deduped by eventId across calendars. Caller should pass calendarOwner for accurate cross-calendar scoping.');
+    }
 
     // Calculate buffer times (new reservation fields take precedence over legacy setup/teardown)
     const setupMinutes = parseInt(reservationStartMinutes) || parseInt(setupTimeMinutes) || 0;
@@ -14899,6 +14906,49 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     logger.log('[AVAILABILITY DEBUG] Found events from unified query:', allEventsAndPending.length);
     logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
+
+    // Defensive dedup for callers that omit calendarOwner. rsSched-imported
+    // events legitimately exist as one document per (eventId, calendarOwner),
+    // so unfiltered queries return TWO docs for the same logical event
+    // (sandbox + prod), which the SchedulingAssistant renders as side-by-side
+    // duplicate blocks. When the caller scopes by calendarOwner, only one
+    // copy is in the result set anyway, so dedup is a no-op there.
+    //
+    // We dedupe by eventId (NOT graphData.id or iCalUId — those differ across
+    // mailbox copies; eventId is the shared logical key for rsSched events).
+    // Preference: keep the most-recently-modified copy (best proxy for "the
+    // active record"). Events without an eventId are passed through unchanged.
+    if (!calendarOwnerParam) {
+      const dedupeByEventId = (events) => {
+        const byId = new Map();
+        const withoutId = [];
+        for (const e of events) {
+          if (!e?.eventId) {
+            withoutId.push(e);
+            continue;
+          }
+          const existing = byId.get(e.eventId);
+          if (!existing) {
+            byId.set(e.eventId, e);
+          } else {
+            const existingMs = new Date(existing.lastModifiedDateTime || existing.lastSyncedAt || 0).getTime();
+            const candidateMs = new Date(e.lastModifiedDateTime || e.lastSyncedAt || 0).getTime();
+            if (candidateMs > existingMs) byId.set(e.eventId, e);
+          }
+        }
+        return [...byId.values(), ...withoutId];
+      };
+      const beforeMain = allEventsAndPending.length;
+      const beforeMasters = seriesMasters.length;
+      allEventsAndPending = dedupeByEventId(allEventsAndPending);
+      seriesMasters = dedupeByEventId(seriesMasters);
+      pendingEditEvents = dedupeByEventId(pendingEditEvents);
+      if (allEventsAndPending.length !== beforeMain || seriesMasters.length !== beforeMasters) {
+        logger.warn(
+          `[AVAILABILITY] Deduped cross-calendar duplicates: main ${beforeMain}->${allEventsAndPending.length}, masters ${beforeMasters}->${seriesMasters.length}`
+        );
+      }
+    }
 
     // Split merged results in-memory (no extra DB queries)
     // Resolve series-aware exclusion: a recurring series spans master + N
