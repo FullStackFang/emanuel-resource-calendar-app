@@ -34,7 +34,6 @@ require('dotenv').config();
 
 const fsPath = require('path');
 const rschedImportService = require('./services/rschedImportService');
-const graphApiService = require('./services/graphApiService');
 const { ensureCsvHeader } = require('./utils/rschedCsvShim');
 const {
   getStartDateTime,
@@ -43,8 +42,11 @@ const {
   getLocationIdStrings,
   startDateTimeOrFilter,
 } = require('./utils/eventFieldAccessors');
+const {
+  fetchGraphCalendarView,
+  isGraphEventRecurring,
+} = require('./utils/graphRecurrenceFetch');
 
-const CALENDAR_TIMEZONE = 'Eastern Standard Time';
 const CALENDAR_CONFIG_PATH = fsPath.join(__dirname, 'calendar-config.json');
 function loadCalendarConfig() {
   return JSON.parse(fs.readFileSync(CALENDAR_CONFIG_PATH, 'utf8'));
@@ -54,62 +56,6 @@ function resolveCalendarId(owner, cfg) {
     if (typeof v === 'string' && k.toLowerCase() === owner) return v;
   }
   return null;
-}
-
-async function fetchGraphCalendarView(owner, calendarIdHint, fromIso, toIso) {
-  const headers = { Prefer: `outlook.timezone="${CALENDAR_TIMEZONE}"` };
-  const basePath = `/users/${encodeURIComponent(owner)}`;
-  const params = new URLSearchParams({
-    startDateTime: fromIso,
-    endDateTime: toIso,
-    $top: '250',
-    $select:
-      'id,subject,start,end,iCalUId,seriesMasterId,type,recurrence,isCancelled',
-  });
-
-  // Stored events' graphData.id encodes a different mailbox/store prefix
-  // than the calendarId in calendar-config.json, which means the events
-  // live in the user's *default* calendar, not the specific calendar the
-  // config points at. Try default first; fall back to the config'd id.
-  const candidates = [
-    { label: 'default', path: `${basePath}/calendar/calendarView` },
-  ];
-  if (calendarIdHint) {
-    candidates.push({
-      label: 'config-id',
-      path: `${basePath}/calendars/${calendarIdHint}/calendarView`,
-    });
-  }
-
-  let lastErr = null;
-  for (const c of candidates) {
-    try {
-      let nextLink = `${c.path}?${params}`;
-      let all = [];
-      while (nextLink) {
-        const data = await graphApiService.graphRequest(nextLink, { headers });
-        all = all.concat(data.value || []);
-        nextLink = data['@odata.nextLink'] || null;
-      }
-      if (all.length > 0 || c.label === 'default') {
-        return { events: all, calendarUsed: c.label };
-      }
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  if (lastErr) throw lastErr;
-  return { events: [], calendarUsed: 'none' };
-}
-
-function isGraphEventRecurring(g) {
-  if (!g) return false;
-  if (g.seriesMasterId) return true;
-  if (g.type === 'occurrence') return true;
-  if (g.type === 'seriesMaster') return true;
-  if (g.type === 'exception') return true;
-  if (g.recurrence) return true;
-  return false;
 }
 
 const DEFAULT_CSV = 'rsched_all_asof_5_8_2026.csv';

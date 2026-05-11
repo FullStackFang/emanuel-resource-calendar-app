@@ -3,6 +3,46 @@
 // Used by EventSearchExport.jsx and AIChat.jsx
 import { jsPDF } from 'jspdf';
 
+// jsPDF's built-in fonts (helvetica/times/courier) only support WinAnsi
+// (Windows-1252) encoding. Codepoints >0xFF render as mojibake — e.g.
+// '○' (U+25CB) becomes '%Ë' because jsPDF splits 0x25CB into 0x25 ('%')
+// and 0xCB ('Ë'). sanitizeForPdfText() maps known offenders to WinAnsi-safe
+// glyphs and replaces any remaining out-of-range codepoint with '?'.
+const PDF_TEXT_SUBSTITUTIONS = {
+  '​': '', '‌': '', '‍': '', '‎': '', '‏': '',
+  '‪': '', '‫': '', '‬': '', '‭': '', '‮': '',
+  '﻿': '', '­': '',
+  ' ': ' ', ' ': ' ',
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ',
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ',
+  ' ': ' ', ' ': ' ', ' ': ' ', '　': ' ',
+  '○': 'o', '□': 'o', '▫': 'o',
+  '●': '•', '■': '•', '▪': '•',
+  '▶': '>', '►': '>',
+  '◀': '<', '◄': '<',
+  '★': '*', '☆': '*',
+  '←': '<-', '→': '->', '↔': '<->',
+  '⇐': '<=', '⇒': '=>', '⇔': '<=>',
+  '≤': '<=', '≥': '>=', '≠': '!=', '×': 'x',
+  '✓': '[x]', '✔': '[x]', '✅': '[x]',
+  '✗': '[ ]', '✘': '[ ]', '❌': '[X]',
+};
+// WinAnsi-renderable codepoints: printable ASCII + tab/LF/CR, Latin-1 supplement
+// (0xA0-0xFF), plus the 27 Win1252-extension glyphs (curly quotes, em/en dash,
+// •, …, €, ™, etc.) that map to bytes 0x80-0x9F. Anything else is replaced
+// with '?' rather than risking jsPDF's byte-split mojibake.
+const WIN_ANSI_DISALLOWED = /[^\t\n\r\x20-\x7E\xA0-\xFFŒœŠšŸŽžƒˆ˜–—‘’‚“”„†‡•…‰‹›€™]/g;
+export const sanitizeForPdfText = (input) => {
+  if (input == null) return '';
+  let out = String(input);
+  for (const from in PDF_TEXT_SUBSTITUTIONS) {
+    if (out.indexOf(from) !== -1) {
+      out = out.split(from).join(PDF_TEXT_SUBSTITUTIONS[from]);
+    }
+  }
+  return out.replace(WIN_ANSI_DISALLOWED, '?');
+};
+
 /**
  * Generate a styled PDF calendar report
  * @param {Object} options
@@ -162,7 +202,7 @@ export function generateCalendarPdf({
         doc.setTextColor(...colors.muted);
         doc.text(`${item.label}:`, x, rowY);
         doc.setTextColor(...colors.primary);
-        const valueText = doc.splitTextToSize(item.value, colWidth - 25);
+        const valueText = doc.splitTextToSize(sanitizeForPdfText(item.value), colWidth - 25);
         doc.text(valueText[0], x + 22, rowY);
 
         col++;
@@ -318,17 +358,17 @@ export function generateCalendarPdf({
     const evtContentWidth = eventColWidth - 4;
 
     let rowHeight = 8;
-    const eventTitle = event.subject || 'Untitled Event';
+    const eventTitle = sanitizeForPdfText(event.subject || 'Untitled Event');
     const wrappedTitle = doc.splitTextToSize(eventTitle, evtContentWidth);
 
-    const bodyText = (event.bodyPreview || event.body?.content || '').trim();
+    const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '').trim();
     const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [];
 
     const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
-      ? doc.splitTextToSize(`Setup: ${event.setupNotes}`, evtContentWidth)
+      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth)
       : [];
     const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
-      ? doc.splitTextToSize(`Door/Access: ${event.doorNotes}`, evtContentWidth)
+      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth)
       : [];
 
     // Normalize multi-location strings: semicolons → newlines, arrays → newlines
@@ -338,10 +378,10 @@ export function generateCalendarPdf({
     } else if (typeof locationRaw === 'string' && locationRaw.includes(';')) {
       locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
     }
-    const wrappedLocation = doc.splitTextToSize(locationRaw, colWidths[2] - 4);
+    const wrappedLocation = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4);
     const locationHeight = wrappedLocation.length * 3.5;
 
-    const categoryText = event.categories?.[0] || '\u2014';
+    const categoryText = sanitizeForPdfText(event.categories?.[0] || '\u2014');
     const wrappedCategory = doc.splitTextToSize(categoryText, colWidths[3] - 4);
     const categoryHeight = wrappedCategory.length * 3.5;
 
@@ -400,7 +440,7 @@ export function generateCalendarPdf({
       if (category !== currentGroup) {
         currentGroup = category;
         if (previousDateStr !== '' || i > 0) y += 3;
-        currentGroupLabel = category.toUpperCase();
+        currentGroupLabel = sanitizeForPdfText(category.toUpperCase());
         y = drawGroupSeparator(y, currentGroupLabel);
       }
     } else if (sortBy === 'location') {
@@ -408,7 +448,7 @@ export function generateCalendarPdf({
       if (location !== currentGroup) {
         currentGroup = location;
         if (previousDateStr !== '' || i > 0) y += 3;
-        currentGroupLabel = location;
+        currentGroupLabel = sanitizeForPdfText(location);
         y = drawGroupSeparator(y, currentGroupLabel);
       }
     }

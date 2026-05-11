@@ -5847,12 +5847,18 @@ function projectEventForSSE(event) {
  * cache stampedes when N clients simultaneously refetched counts.
  */
 function invalidateCountsCacheTargeted() {
-  // approval-queue and admin-browse are shared (not per-user) — always invalidate
-  countsCache.delete('approval-queue');
-  countsCache.delete('admin-browse');
-  // my-events entries are per-user (keyed as 'my-events:<email>') — invalidate all
+  // admin-browse is shared and calendar-agnostic — invalidate by exact key.
+  // my-events and approval-queue are calendar-scoped (keys include a calendar
+  // segment, e.g. 'approval-queue:templeevents@…' or 'my-events:default:user@…'),
+  // so a prefix match catches every calendar variant.
   for (const key of countsCache.keys()) {
-    if (key.startsWith('my-events:')) countsCache.delete(key);
+    if (
+      key === 'admin-browse' ||
+      key.startsWith('approval-queue') ||
+      key.startsWith('my-events:')
+    ) {
+      countsCache.delete(key);
+    }
   }
 }
 
@@ -7320,6 +7326,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         { 'roomReservationData.requestedBy.email': normalizedEmail },
         { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
       ] }];
+      // Calendar scoping — 1:1 with the environment. Production always scopes
+      // to templeevents@…, sandbox to templeeventssandbox@…. There is no
+      // ?calendarOwner= override on this view; the only source of truth is the
+      // system-settings doc (with env fallback) read via getDefaultCalendarOwner().
+      query.calendarOwner = await getDefaultCalendarOwner();
       // Status filtering
       if (status === 'deleted') {
         query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -7349,6 +7360,10 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
       query.isDeleted = { $ne: true };
       query.eventType = NON_CHILD_EVENT_TYPE_FILTER;
+      // Calendar scoping — 1:1 with the environment. Approvers in production
+      // never see sandbox events and vice versa. No override is exposed; the
+      // system-settings default (with env fallback) is the only source.
+      query.calendarOwner = await getDefaultCalendarOwner();
       query.$or = [
         { roomReservationData: { $exists: true, $ne: null } },
         { 'pendingCancellationRequest.status': 'pending' },
@@ -7383,17 +7398,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         }
       }
 
-      // Date range filter — calendarData.startDateTime is stored as local-time strings
-      // (e.g., "2026-03-15T14:00:00"), so compare with local-time boundaries, not UTC
-      if (startDate) {
-        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        // startDate is already "YYYY-MM-DD" from the query param
-        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
-      }
-      if (endDate) {
-        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
-      }
+      // Date range filter is applied below in the shared block.
 
       // Status filter
       if (status === 'published') {
@@ -7441,15 +7446,22 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         }
       }
 
-      // Date range filter — local-time string comparison
-      if (startDate) {
-        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
-      }
-      if (endDate) {
-        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-        query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
-      }
+      // Date range filter is applied below in the shared block.
+    }
+
+    // ── Date range filter (applies to every view, including approval-queue / my-events) ──
+    // calendarData.startDateTime is stored as local-time ISO strings (e.g.,
+    // '2026-03-15T14:00:00'), so we compare with local-time boundaries rather
+    // than constructing Date objects (which would shift on non-UTC machines).
+    // Only the search view requires both bounds (enforced above); the other
+    // views treat dates as optional narrowing filters.
+    if (startDate) {
+      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+      query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
+    }
+    if (endDate) {
+      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+      query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
     }
 
     // ── Search filter (admin-browse, approval-queue, and search) ──
@@ -7691,8 +7703,21 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    // Server-side counts cache — shared for approval-queue/admin-browse, per-user for my-events
-    const countsCacheKey = view === 'my-events' ? `${view}:${userEmail}` : view;
+    // Calendar scoping applies to my-events and approval-queue only — admin-browse
+    // counts intentionally remain cross-calendar (admins inspect the whole DB).
+    // Resolved up-front so it can participate in the cache key — when an admin
+    // flips the system-settings default mid-deployment, the new calendar slug
+    // produces a different cache key, so the old entry is naturally bypassed.
+    const calendarFilter = (view === 'my-events' || view === 'approval-queue')
+      ? await getDefaultCalendarOwner()
+      : null;
+
+    // Server-side counts cache — shared for approval-queue/admin-browse, per-user for my-events.
+    const countsCacheKey = view === 'my-events'
+      ? `${view}:${calendarFilter}:${userEmail}`
+      : view === 'approval-queue'
+        ? `${view}:${calendarFilter}`
+        : view;
     const cachedCounts = countsCache.get(countsCacheKey);
     if (cachedCounts && cachedCounts.expiresAt > Date.now()) {
       return res.json(cachedCounts.data);
@@ -7718,15 +7743,18 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
             { createdByEmail: normalizedEmail, createdSource: { $in: ['unified-form', 'batch-create'] } }
           ]
         };
+        if (calendarFilter) baseQuery.calendarOwner = calendarFilter;
 
         const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
         const published = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published', isDeleted: { $ne: true } });
         const rejected = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected', isDeleted: { $ne: true } });
         const draft = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft', isDeleted: { $ne: true } });
-        const deleted = await unifiedEventsCollection.countDocuments({
+        const deletedBaseQuery = {
           eventType: NON_CHILD_EVENT_TYPE_FILTER,
           $and: [{ $or: baseQuery.$or }, { $or: [{ status: 'deleted' }, { isDeleted: true }] }]
-        });
+        };
+        if (calendarFilter) deletedBaseQuery.calendarOwner = calendarFilter;
+        const deleted = await unifiedEventsCollection.countDocuments(deletedBaseQuery);
 
         const all = pending + published + rejected + draft;
         const responseData = { all, pending, published, rejected, draft, deleted };
@@ -7747,6 +7775,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
             { eventId: { $in: pendingEditEventIds } },
           ],
         };
+        if (calendarFilter) baseQuery.calendarOwner = calendarFilter;
 
         const pending = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } });
         const publishedTotal = await unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' });
@@ -26837,4 +26866,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { app, connectToDatabase, startServer, setDatabase, setTestAuthMiddleware, setGraphApiService, invalidateCountsCacheTargeted };
+module.exports = { app, connectToDatabase, startServer, setDatabase, setTestAuthMiddleware, setGraphApiService, invalidateCountsCacheTargeted, invalidateCalendarSettingsCache };

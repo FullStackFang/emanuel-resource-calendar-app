@@ -68,10 +68,23 @@ export default function ReservationRequests({ graphToken }) {
 
   // Search & date filter state
   const [searchTerm, setSearchTerm] = useState('');
+  // 300ms debounce so each keystroke doesn't fire a network request when the
+  // 'all' tab uses server-side search. The needs_attention tab still does its
+  // filtering client-side, but consumes the same debounced value harmlessly.
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => clearTimeout(handle);
+  }, [searchTerm]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
+
+  // Any narrowing filter active? Used to gate the 'all' tab fetch — with no
+  // filter the tab shows only the count, no DB request. Sort is excluded
+  // because it can't narrow the result set, only reorder it.
+  const hasAnyFilter = !!(debouncedSearchTerm || dateFrom || dateTo || statusFilter);
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -135,21 +148,56 @@ export default function ReservationRequests({ graphToken }) {
   // true before mutation-driven, manual, mount, and recovery refetches so
   // they write through unconditionally.
 
-  const listKey = keys.events.list({ view: 'approval-queue', tab: activeTab });
+  // List query key. The 'all' tab participates in server-side filtering, so
+  // its filter values are part of the cache identity — flipping a date, search,
+  // or status produces a new key (refetch) but switching back hits the cached
+  // result. The 'needs_attention' tab still filters client-side from a bounded
+  // result set, so its key only carries the tab name.
+  const listKey = activeTab === 'all'
+    ? keys.events.list({
+        view: 'approval-queue',
+        tab: 'all',
+        search: debouncedSearchTerm,
+        startDate: dateFrom,
+        endDate: dateTo,
+        status: statusFilter,
+        page,
+      })
+    : keys.events.list({ view: 'approval-queue', tab: activeTab });
   const countsKey = keys.events.counts({ view: 'approval-queue' });
 
-  const queryEnabled = !!apiToken && canApproveReservations && !permissionsLoading;
+  // The counts query always runs when authorized — the badge needs a number
+  // even on the empty 'all' tab. The list query is more discriminating: on
+  // the 'all' tab with no filters active, we skip the fetch entirely (the
+  // user sees the count + a search prompt). This prevents the previous
+  // 1000-record blast on every Approval Queue mount.
+  const countsQueryEnabled = !!apiToken && canApproveReservations && !permissionsLoading;
+  const listQueryEnabled = countsQueryEnabled
+    && (activeTab === 'needs_attention' || hasAnyFilter);
 
   const reservationsQuery = useQuery({
     queryKey: listKey,
     queryFn: async ({ queryKey, signal }) => {
       const scope = queryKey[2] || {};
       const tab = scope.tab;
-      const statusParam = tab === 'needs_attention' ? '&status=needs_attention' : '';
-      const response = await authFetch(
-        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000${statusParam}`,
-        { signal }
-      );
+      let url;
+      if (tab === 'all') {
+        // Server-side filter + pagination. Build URLSearchParams so a missing
+        // value is omitted (not sent as &search=) — keeps the query string
+        // tight and avoids surprising backend behavior on empty strings.
+        const params = new URLSearchParams({ view: 'approval-queue' });
+        if (scope.search) params.set('search', scope.search);
+        if (scope.startDate) params.set('startDate', scope.startDate);
+        if (scope.endDate) params.set('endDate', scope.endDate);
+        if (scope.status) params.set('status', scope.status);
+        params.set('page', String(scope.page || 1));
+        params.set('limit', String(PAGE_SIZE));
+        url = `${APP_CONFIG.API_BASE_URL}/events/list?${params.toString()}`;
+      } else {
+        // needs_attention tab keeps the bounded-set + client-filter shape.
+        url = `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000&status=needs_attention`;
+      }
+      const response = await authFetch(url, { signal });
       if (!response.ok) {
         throw new Error('Failed to load room reservation events');
       }
@@ -158,7 +206,10 @@ export default function ReservationRequests({ graphToken }) {
 
       // Stale-write guard: bypass when explicitly flagged (post-mutation,
       // manual refresh, mount, recovery). Otherwise, never blank a populated
-      // list on a polling/bus empty result.
+      // list on a polling/bus empty result. The guard reads `previous` from
+      // the cache, which is per-cache-key — on the 'all' tab a different
+      // filter combination already has its own key, so a zero result there
+      // is legitimately empty and writes through.
       if (transformed.length === 0 && !bypassEmptyGuardRef.current) {
         const previous = queryClient.getQueryData(queryKey);
         if (Array.isArray(previous) && previous.length > 0) {
@@ -167,9 +218,13 @@ export default function ReservationRequests({ graphToken }) {
         }
       }
       bypassEmptyGuardRef.current = false;
+      // Attach pagination so the consumer can read totalCount without a separate
+      // query. React Query stores `data` verbatim, so we return the array plus
+      // an object property — the consumer destructures both via the result type.
+      transformed.__pagination = data.pagination || null;
       return transformed;
     },
-    enabled: queryEnabled,
+    enabled: listQueryEnabled,
     staleTime: 5 * 60 * 1000,
     refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
     refetchIntervalInBackground: false,
@@ -192,7 +247,7 @@ export default function ReservationRequests({ graphToken }) {
         all: data.all || 0,
       };
     },
-    enabled: queryEnabled,
+    enabled: countsQueryEnabled,
     staleTime: 5 * 60 * 1000,
     refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
     refetchIntervalInBackground: false,
@@ -201,11 +256,18 @@ export default function ReservationRequests({ graphToken }) {
 
   // Derived bindings — preserve the names the rest of the component expects.
   const allReservations = reservationsQuery.data ?? [];
+  // Server-side pagination metadata for the 'all' tab. The 'needs_attention'
+  // tab still paginates client-side from its bounded fetch.
+  const serverPagination = reservationsQuery.data?.__pagination ?? null;
   // First-load gate: `isPending` covers both `pending && idle` (one-tick window
   // when `enabled` flips true) and `pending && fetching`. Prevents the
   // empty-state from rendering before the fetch starts. See CLAUDE.md
   // "React Query loading primitives" for the convention.
-  const loading = reservationsQuery.isPending;
+  //
+  // Gated on `listQueryEnabled` because `useQuery` keeps `isPending: true`
+  // forever when `enabled: false` — without the gate, the 'all' tab with no
+  // filters would render a perpetual spinner instead of the empty state.
+  const loading = listQueryEnabled && reservationsQuery.isPending;
   const error = reservationsQuery.error?.message || '';
   const lastFetchedAt = Math.max(
     reservationsQuery.dataUpdatedAt || 0,
@@ -467,19 +529,33 @@ export default function ReservationRequests({ graphToken }) {
     if (loading || isSilentRefreshing) return;
     if (hasActiveSearchFilters) return;    // client filters can legitimately empty the list
     if (!countsLoaded) return;             // no cross-check available yet
+    // On the 'all' tab with no filters we never fetch, so the cross-check
+    // (counts > 0 but list empty) is expected — don't trigger a recovery
+    // fetch that would re-introduce the full-list blast.
+    if (activeTab === 'all' && !hasAnyFilter) return;
     const expected = activeTab === 'needs_attention' ? serverCounts.needs_attention : serverCounts.all;
     if (expected > 0 && allReservations.length === 0 && !recoveryAttemptedRef.current) {
       recoveryAttemptedRef.current = true;
       loadReservations(); // non-silent — updates `loading` and unconditionally writes through
     }
   }, [apiToken, loading, isSilentRefreshing, hasActiveSearchFilters, countsLoaded,
-      serverCounts, activeTab, allReservations.length, loadReservations,
+      serverCounts, activeTab, hasAnyFilter, allReservations.length, loadReservations,
       permissionsLoading, canApproveReservations]);
 
-  // Client-side pagination
-  const totalPages = Math.ceil(sortedReservations.length / PAGE_SIZE);
-  const startIndex = (page - 1) * PAGE_SIZE;
-  const paginatedReservations = sortedReservations.slice(startIndex, startIndex + PAGE_SIZE);
+  // Pagination is tab-aware:
+  //   - 'all' tab: server-paginated. `paginatedReservations` is the server's
+  //     20-record page directly; `totalPages` comes from server pagination.
+  //   - 'needs_attention' tab: client-paginated from the bounded fetch.
+  let totalPages;
+  let paginatedReservations;
+  if (activeTab === 'all') {
+    totalPages = serverPagination?.totalPages || 1;
+    paginatedReservations = sortedReservations;
+  } else {
+    totalPages = Math.ceil(sortedReservations.length / PAGE_SIZE);
+    const startIndex = (page - 1) * PAGE_SIZE;
+    paginatedReservations = sortedReservations.slice(startIndex, startIndex + PAGE_SIZE);
+  }
 
   // Handle tab changes. With React Query, the tab is part of the queryKey,
   // so changing `activeTab` triggers an automatic fetch (or cache hit if the
@@ -920,27 +996,40 @@ export default function ReservationRequests({ graphToken }) {
           transiently returned [] but counts reported the real count. See RC-6.
           hasActiveSearchFilters bypasses the cross-check because counts doesn't
           know about client-side search/date filters.
+
+          The 'all' tab with no filters is its own special case: we never fetch,
+          so paginatedReservations.length is always 0 — render the search prompt
+          instead of either of the other empty states.
         */}
-        {paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
-          hasActiveSearchFilters ||
-          (activeTab === 'needs_attention'
-            ? serverCounts.needs_attention === 0
-            : serverCounts.all === 0)
-        ) && (
+        {activeTab === 'all' && !hasAnyFilter && !loading && !isSilentRefreshing && (
           <div className="rr-empty-state">
-            <div className="rr-empty-icon">
-              {hasActiveSearchFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
-            </div>
-            <h3>{hasActiveSearchFilters ? 'No matching requests' : activeTab === 'needs_attention' ? 'All caught up!' : 'No requests'}</h3>
-            <p>
-              {hasActiveSearchFilters
-                ? 'Try adjusting your search or date filters.'
-                : activeTab === 'needs_attention'
-                ? 'No pending requests or edit requests to review.'
-                : 'No reservation requests found.'}
-            </p>
+            <div className="rr-empty-icon">🔍</div>
+            <h3>Search {serverCounts.all} request{serverCounts.all === 1 ? '' : 's'}</h3>
+            <p>Type a search term, set a date range, or pick a status to browse.</p>
           </div>
         )}
+        {activeTab !== 'all' || hasAnyFilter ? (
+          paginatedReservations.length === 0 && !loading && !isSilentRefreshing && (
+            hasActiveSearchFilters ||
+            (activeTab === 'needs_attention'
+              ? serverCounts.needs_attention === 0
+              : serverCounts.all === 0)
+          ) && (
+            <div className="rr-empty-state">
+              <div className="rr-empty-icon">
+                {hasActiveSearchFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
+              </div>
+              <h3>{hasActiveSearchFilters ? 'No matching requests' : activeTab === 'needs_attention' ? 'All caught up!' : 'No requests'}</h3>
+              <p>
+                {hasActiveSearchFilters
+                  ? 'Try adjusting your search or date filters.'
+                  : activeTab === 'needs_attention'
+                  ? 'No pending requests or edit requests to review.'
+                  : 'No reservation requests found.'}
+              </p>
+            </div>
+          )
+        ) : null}
       </div>
 
       {/* Pagination */}

@@ -3,6 +3,7 @@ import React from 'react';
 import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 import { logger } from '../utils/logger';
+import { sanitizeForPdfText } from '../utils/calendarPdfGenerator';
 
 const ExportToPdfButton = ({ events, dateRange }) => {
   const { showError } = useNotification();
@@ -157,7 +158,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
           }
           
           // Wrap text for room field
-          const roomText = event.location?.displayName || '';
+          const roomText = sanitizeForPdfText(event.location?.displayName || '');
           const wrappedRoom = doc.splitTextToSize(roomText, colWidths[2] - 2);
           doc.text(wrappedRoom, colPositions[2], y);
           maxHeight = Math.max(maxHeight, wrappedRoom.length * 5);
@@ -167,13 +168,13 @@ const ExportToPdfButton = ({ events, dateRange }) => {
           doc.text(formatTime(event.end.dateTime), colPositions[4], y);
           
           // Handle multiline event subject/description
-          const eventTitle = event.subject || 'Untitled Event';
+          const eventTitle = sanitizeForPdfText(event.subject || 'Untitled Event');
           const wrappedTitle = doc.splitTextToSize(eventTitle, colWidths[5] - 2);
           doc.text(wrappedTitle, colPositions[5], y);
           let titleHeight = wrappedTitle.length * 5;
-          
+
           // Add body preview/description in smaller font below title
-          const bodyText = event.bodyPreview || event.body?.content || '';
+          const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '');
           if (bodyText && bodyText.trim() !== '') {
             doc.setFontSize(8); // Smaller font for description
             doc.setTextColor(100, 100, 100); // Gray color for description
