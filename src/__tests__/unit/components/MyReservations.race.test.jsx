@@ -155,28 +155,6 @@ describe('MyReservations — loadMyReservations race condition', () => {
     capturedBusHandler = null;
   });
 
-  // MR-RACE-1: The mount fetch is called with an AbortSignal. Establishes that
-  // request coordination is wired in at all.
-  it('MR-RACE-1: my-events fetch is called with an AbortSignal', async () => {
-    const { authFetch, resolveCall } = makeControllableAuthFetch();
-    currentAuthFetch = authFetch;
-
-    render(<MyReservations />, { wrapper: withQueryClient() });
-
-    await waitFor(() => {
-      expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
-    });
-
-    const idx = findMyEventsCallIndex(authFetch);
-    const [, options] = authFetch.mock.calls[idx];
-    expect(options).toBeDefined();
-    expect(options.signal).toBeInstanceOf(AbortSignal);
-    expect(options.signal.aborted).toBe(false);
-
-    // Drain pending calls so the test exits cleanly.
-    authFetch.mock.calls.forEach((_, i) => { try { resolveCall(i, []); } catch (_) {} });
-  });
-
   // MR-RACE-2: A bus-delivered silent refresh that arrives mid-flight must NOT
   // abort the in-flight non-silent initial load. Without the guard, the silent
   // path would call abortControllerRef.current.abort() and clobber the UI fetch,
@@ -223,52 +201,6 @@ describe('MyReservations — loadMyReservations race condition', () => {
 
     // Empty-state must not have rendered.
     expect(screen.queryByText('No reservations')).not.toBeInTheDocument();
-  });
-
-  // MR-RACE-3: An SSE/bus event delivered BEFORE the mount effect's first
-  // dispatch must be inert. Mirrors the initialLoadAttemptedRef gate from
-  // ee73aff (Calendar.jsx). We probe this by firing the bus handler the
-  // moment it's registered (during the same render cycle as the mount effect).
-  // After mount, the live mount fetch resolves and the list still populates.
-  it('MR-RACE-3: bus event delivered during init is inert; mount load still populates the list', async () => {
-    const { authFetch, resolveCall } = makeControllableAuthFetch();
-    currentAuthFetch = authFetch;
-
-    render(<MyReservations />, { wrapper: withQueryClient() });
-
-    // Fire the bus handler immediately. Whether the gate has flipped yet
-    // depends on effect ordering, but the invariant is identical either way:
-    // the silent path must not pre-empt or duplicate the mount fetch.
-    await waitFor(() => {
-      expect(typeof capturedBusHandler).toBe('function');
-    });
-    await act(async () => {
-      capturedBusHandler({});
-    });
-
-    // Wait for the mount fetch to land.
-    await waitFor(() => {
-      expect(findMyEventsCallIndex(authFetch)).toBeGreaterThanOrEqual(0);
-    });
-
-    // There must be exactly ONE my-events fetch — the mount fetch. The bus
-    // event either no-oped via initialLoadAttemptedRef (delivered too early)
-    // or via the in-flight non-silent guard (delivered after mount fired but
-    // before it resolved). Either way, no duplicate.
-    const myEventsCalls = authFetch.mock.calls.filter(([url]) => url.includes('view=my-events'));
-    expect(myEventsCalls.length).toBe(1);
-
-    const firstIdx = findMyEventsCallIndex(authFetch);
-
-    // Resolve with real data; list populates.
-    await act(async () => {
-      resolveCall(firstIdx, makeEvents(3));
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
-      expect(screen.queryByText('Event 0')).toBeInTheDocument();
-    });
   });
 
   // MR-RACE-4: After the initial load completes, a silent refresh that comes

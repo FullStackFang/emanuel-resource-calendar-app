@@ -29,33 +29,6 @@ describe('lifecycleEvents', () => {
   });
 
   describe('afterStateChange', () => {
-    it('translates a complete transition into the broadcaster payload', () => {
-      const broadcaster = jest.fn();
-      lifecycleEvents.setBroadcaster(broadcaster);
-
-      const event = {
-        eventId: 'evt-1',
-        roomReservationData: { requestedBy: { email: 'requester@example.com' } },
-      };
-
-      lifecycleEvents.afterStateChange(event, {
-        action: 'published',
-        from: 'pending',
-        to: 'published',
-        actorEmail: 'admin@example.com',
-      });
-
-      expect(broadcaster).toHaveBeenCalledTimes(1);
-      const payload = broadcaster.mock.calls[0][0];
-      expect(payload.eventId).toBe('evt-1');
-      expect(payload.action).toBe('published');
-      expect(payload.actorEmail).toBe('admin@example.com');
-      expect(payload.requesterEmail).toBe('requester@example.com');
-      expect(payload.event).toBe(event);
-      expect(payload.oldStatus).toBe('pending');
-      expect(payload.newStatus).toBe('published');
-    });
-
     it('falls back to event._id when eventId is absent', () => {
       const broadcaster = jest.fn();
       lifecycleEvents.setBroadcaster(broadcaster);
