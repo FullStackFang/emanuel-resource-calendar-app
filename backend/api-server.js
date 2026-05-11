@@ -13882,17 +13882,32 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Public config endpoint - allows frontend to read runtime configuration
-app.get('/api/config', (req, res) => {
+// Public config endpoint - allows frontend to read runtime configuration.
+//
+// The admin-editable system-settings doc (templeEvents__SystemSettings -> 'calendar-settings')
+// is the source of truth for which calendar the app should default to. The env-driven
+// CALENDAR_CONFIG.DEFAULT_MODE is only used as a bootstrap fallback for fresh deployments
+// that have never had the admin save a default. PUT /api/admin/calendar-settings invalidates
+// the 5-minute cache on save, so admin changes propagate on the next load.
+app.get('/api/config', async (req, res) => {
+  let adminDefault = null;
+  try {
+    const settings = await getCachedCalendarSettings();
+    if (settings?.defaultCalendar) {
+      adminDefault = settings.defaultCalendar.toLowerCase();
+    }
+  } catch (err) {
+    logger.warn('Could not read calendar settings for /api/config, falling back to env mode:', err.message);
+  }
   const mode = CALENDAR_CONFIG.DEFAULT_MODE;
+  const envDefault = (mode === 'production'
+    ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
+    : CALENDAR_CONFIG.SANDBOX_CALENDAR).toLowerCase();
+  const effective = adminDefault || envDefault;
   res.status(200).json({
     calendarMode: mode,
-    defaultDisplayCalendar: mode === 'production'
-      ? 'templeevents@emanuelnyc.org'
-      : 'templeeventssandbox@emanuelnyc.org',
-    roomReservationCalendar: mode === 'production'
-      ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
-      : CALENDAR_CONFIG.SANDBOX_CALENDAR
+    defaultDisplayCalendar: effective,
+    roomReservationCalendar: effective
   });
 });
 

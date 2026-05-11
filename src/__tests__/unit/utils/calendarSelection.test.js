@@ -7,9 +7,9 @@
  * to the user's personal Outlook calendar, which has no reservations in
  * `templeEvents__Events` and produces a silently blank calendar grid.
  *
- * Cases C1-C6 directly correspond to the test list in the implementation plan.
- * C7 (recovery path) and C8 (preference-write guard) involve component-level
- * effects and are covered by the integration/E2E suite.
+ * Per-user saved preferences are intentionally NOT part of the cascade.
+ * The displayed calendar is a delegated-access, system-wide setting controlled
+ * by the admin's 'Default Calendar' config.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -35,38 +35,8 @@ const SHARED_CONFIG = {
 };
 
 describe('selectDefaultCalendar', () => {
-  describe('C1: saved preference', () => {
-    it('picks the calendar matching the saved owner email', () => {
-      const target = makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } });
-      const result = selectDefaultCalendar({
-        calendars: [
-          makeCal({ owner: { address: 'admin-default@example.com' } }),
-          target,
-          makeCal({ owner: { address: 'TempleEventsSandbox@emanuelnyc.org' } }),
-        ],
-        allowedConfig: SHARED_CONFIG,
-        savedOwner: 'templeevents@emanuelnyc.org',
-        appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
-      });
-      expect(result.calendar).toBe(target);
-      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.SAVED_PREF);
-    });
-
-    it('is case-insensitive on saved owner email', () => {
-      const target = makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } });
-      const result = selectDefaultCalendar({
-        calendars: [target],
-        allowedConfig: SHARED_CONFIG,
-        savedOwner: 'TEMPLEEVENTS@EMANUELNYC.ORG',
-        appConfigDefault: 'whatever@example.com',
-      });
-      expect(result.calendar).toBe(target);
-      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.SAVED_PREF);
-    });
-  });
-
-  describe('C2: admin-configured default', () => {
-    it('falls through to admin default when no saved pref', () => {
+  describe('CS-1: admin-configured default', () => {
+    it('picks the calendar matching admin defaultCalendar', () => {
       const target = makeCal({ owner: { address: 'admin-default@example.com' } });
       const result = selectDefaultCalendar({
         calendars: [
@@ -74,33 +44,47 @@ describe('selectDefaultCalendar', () => {
           makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } }),
         ],
         allowedConfig: SHARED_CONFIG,
-        savedOwner: null,
         appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
       });
       expect(result.calendar).toBe(target);
       expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.ADMIN_DEFAULT);
     });
 
-    it('skips admin default when saved-pref calendar no longer exists', () => {
-      const target = makeCal({ owner: { address: 'admin-default@example.com' } });
+    it('is case-insensitive on admin defaultCalendar', () => {
+      const target = makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } });
       const result = selectDefaultCalendar({
         calendars: [target],
-        allowedConfig: SHARED_CONFIG,
-        savedOwner: 'gone@elsewhere.org',
-        appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
+        allowedConfig: {
+          ...SHARED_CONFIG,
+          defaultCalendar: 'TEMPLEEVENTS@EMANUELNYC.ORG',
+        },
+        appConfigDefault: 'whatever@example.com',
       });
       expect(result.calendar).toBe(target);
       expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.ADMIN_DEFAULT);
     });
   });
 
-  describe('C3: APP_CONFIG default', () => {
-    it('falls through to APP_CONFIG default when admin default missing', () => {
+  describe('CS-2: APP_CONFIG default fallback', () => {
+    it('falls through to APP_CONFIG default when admin default is missing', () => {
       const target = makeCal({ owner: { address: 'TempleEventsSandbox@emanuelnyc.org' } });
       const result = selectDefaultCalendar({
         calendars: [target],
         allowedConfig: { allowedDisplayCalendars: SHARED_CONFIG.allowedDisplayCalendars },
-        savedOwner: null,
+        appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
+      });
+      expect(result.calendar).toBe(target);
+      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.APP_CONFIG_DEFAULT);
+    });
+
+    it('falls through to APP_CONFIG default when admin defaultCalendar does not match available calendars', () => {
+      const target = makeCal({ owner: { address: 'TempleEventsSandbox@emanuelnyc.org' } });
+      const result = selectDefaultCalendar({
+        calendars: [target],
+        allowedConfig: {
+          defaultCalendar: 'admin-default@example.com', // not in calendars
+          allowedDisplayCalendars: SHARED_CONFIG.allowedDisplayCalendars,
+        },
         appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
       });
       expect(result.calendar).toBe(target);
@@ -108,7 +92,7 @@ describe('selectDefaultCalendar', () => {
     });
   });
 
-  describe('C4: first allowed calendar', () => {
+  describe('CS-3: first allowed calendar fallback', () => {
     it('falls through to first calendar whose owner is in allowedDisplayCalendars', () => {
       const target = makeCal({ owner: { address: 'TempleEventsSandbox@emanuelnyc.org' } });
       const result = selectDefaultCalendar({
@@ -118,7 +102,6 @@ describe('selectDefaultCalendar', () => {
           makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } }),
         ],
         allowedConfig: { allowedDisplayCalendars: SHARED_CONFIG.allowedDisplayCalendars },
-        savedOwner: null,
         appConfigDefault: 'NotInList@example.com',
       });
       expect(result.calendar).toBe(target);
@@ -126,12 +109,11 @@ describe('selectDefaultCalendar', () => {
     });
   });
 
-  describe('C5: hard-fail when no allowed match', () => {
+  describe('CS-4: hard-fail when no allowed match', () => {
     it('returns null when calendars list is empty', () => {
       const result = selectDefaultCalendar({
         calendars: [],
         allowedConfig: SHARED_CONFIG,
-        savedOwner: null,
         appConfigDefault: 'whatever@example.com',
       });
       expect(result.calendar).toBeNull();
@@ -145,7 +127,6 @@ describe('selectDefaultCalendar', () => {
           makeCal({ owner: { address: 'another@example.com' } }),
         ],
         allowedConfig: SHARED_CONFIG,
-        savedOwner: 'gone@elsewhere.org',
         appConfigDefault: 'NotInList@example.com',
       });
       expect(result.calendar).toBeNull();
@@ -156,7 +137,6 @@ describe('selectDefaultCalendar', () => {
       const result = selectDefaultCalendar({
         calendars: [makeCal({ owner: { address: 'unrelated@example.com' } })],
         allowedConfig: {},
-        savedOwner: null,
         appConfigDefault: 'NotInList@example.com',
       });
       expect(result.calendar).toBeNull();
@@ -164,10 +144,8 @@ describe('selectDefaultCalendar', () => {
     });
   });
 
-  describe('C6: regression-lock — never picks personal Outlook calendar', () => {
+  describe('CS-5: regression-lock — never picks personal Outlook calendar', () => {
     it('does NOT pick a calendar with isDefaultCalendar=true if its owner is not allowed', () => {
-      // Simulates the bug: only the user's personal Outlook calendar is in scope.
-      // The legacy cascade would have picked this; the new cascade must NOT.
       const personalOutlook = makeCal({
         id: 'personal-outlook-id',
         name: 'Calendar',
@@ -176,8 +154,7 @@ describe('selectDefaultCalendar', () => {
       });
       const result = selectDefaultCalendar({
         calendars: [personalOutlook],
-        allowedConfig: SHARED_CONFIG, // does not include stephen.fang
-        savedOwner: null,
+        allowedConfig: SHARED_CONFIG,
         appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
       });
       expect(result.calendar).toBeNull();
@@ -192,15 +169,29 @@ describe('selectDefaultCalendar', () => {
           makeCal({ owner: { address: 'second@unrelated.com' } }),
         ],
         allowedConfig: SHARED_CONFIG,
-        savedOwner: null,
         appConfigDefault: 'whatever@example.com',
       });
       expect(result.calendar).toBeNull();
       expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.NONE);
-      // Sanity: the function did not silently pick `first` even though it's
-      // the first calendar in the array. This is the load-bearing assertion
-      // for the bug fix.
       expect(result.calendar).not.toBe(first);
+    });
+  });
+
+  describe('CS-6: per-user preference is intentionally ignored', () => {
+    // Lock-in test: extra fields like savedOwner must NOT influence the cascade.
+    // If someone reintroduces SAVED_PREF priority, this test fails.
+    it('ignores any savedOwner field and resolves via admin default', () => {
+      const adminPick = makeCal({ owner: { address: 'admin-default@example.com' } });
+      const userSavedPick = makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } });
+      const result = selectDefaultCalendar({
+        calendars: [adminPick, userSavedPick],
+        allowedConfig: SHARED_CONFIG,
+        appConfigDefault: 'TempleEventsSandbox@emanuelnyc.org',
+        // Even if a caller passes savedOwner, the function ignores it.
+        savedOwner: 'templeevents@emanuelnyc.org',
+      });
+      expect(result.calendar).toBe(adminPick);
+      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.ADMIN_DEFAULT);
     });
   });
 
@@ -214,16 +205,18 @@ describe('selectDefaultCalendar', () => {
     it('handles missing owner.address on individual calendars without throwing', () => {
       const result = selectDefaultCalendar({
         calendars: [
-          { id: 'a', name: 'No owner' }, // no owner field
+          { id: 'a', name: 'No owner' },
           { id: 'b', name: 'Owner without address', owner: {} },
           makeCal({ owner: { address: 'TempleEvents@emanuelnyc.org' } }),
         ],
-        allowedConfig: SHARED_CONFIG,
-        savedOwner: 'TempleEvents@emanuelnyc.org',
+        allowedConfig: {
+          defaultCalendar: 'TempleEvents@emanuelnyc.org',
+          allowedDisplayCalendars: SHARED_CONFIG.allowedDisplayCalendars,
+        },
         appConfigDefault: 'NotInList@example.com',
       });
       expect(result.calendar?.owner?.address).toBe('TempleEvents@emanuelnyc.org');
-      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.SAVED_PREF);
+      expect(result.reason).toBe(SELECT_DEFAULT_CALENDAR_REASONS.ADMIN_DEFAULT);
     });
   });
 });

@@ -336,10 +336,6 @@ import ConflictDialog from './shared/ConflictDialog';
     const { generalLocations, loading: locationsLoading } = useLocations();
     const { showSuccess, showWarning, showError } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
-    // Distinguishes a cascade-chosen default calendar (false) from a user-driven
-    // dropdown change (true). Only user-driven changes persist as a saved preference;
-    // otherwise initializeApp's first cascade pick would silently lock itself in.
-    const hasUserExplicitlyChoseCalendar = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
     // Role Simulation permissions - these override hardcoded permissions for UI testing
@@ -2278,9 +2274,7 @@ import ConflictDialog from './shared/ConflictDialog';
       logger.debug("Starting application initialization...");
       try {
         // Phase 1: Run independent API calls in parallel
-        // - loadUserProfile: fetches /users/current and sets permissions; returns the full
-        //   user document so we can read preferences (e.g. selectedCalendarOwner) without
-        //   waiting for setUserPermissions to flush through React.
+        // - loadUserProfile: fetches /users/current and sets permissions.
         // - loadAvailableCalendars: fetches calendars list + allowed config (parallelized internally)
         // - loadSchemaExtensions: fetches Graph schema extensions
         const [userResult, calendarResult] = await Promise.all([
@@ -2318,7 +2312,6 @@ import ConflictDialog from './shared/ConflictDialog';
           const { calendar: defaultCalToSelect, reason } = selectDefaultCalendar({
             calendars,
             allowedConfig,
-            savedOwner: userResult?.preferences?.selectedCalendarOwner,
             appConfigDefault: APP_CONFIG.DEFAULT_DISPLAY_CALENDAR,
           });
 
@@ -5083,23 +5076,6 @@ import ConflictDialog from './shared/ConflictDialog';
     }
   }, [userPermissions.preferredTimeZone, userTimezone]);
 
-    // Persist user-driven calendar selections.
-    //
-    // Gated on hasUserExplicitlyChoseCalendar.current so initializeApp's cascade-chosen
-    // default does NOT get written back as the saved preference (which would lock in
-    // the cascade pick on every reload, even when an admin later configures a default
-    // or the user's available-calendars list changes).
-    //
-    // Mirrors the hasUserManuallyChangedTimezone pattern used for timezone above.
-    useEffect(() => {
-      if (!hasUserExplicitlyChoseCalendar.current) return;
-      if (!selectedCalendarId || !availableCalendars?.length) return;
-      const cal = availableCalendars.find(c => c.id === selectedCalendarId);
-      const ownerEmail = cal?.owner?.address?.toLowerCase();
-      if (!ownerEmail) return;
-      updateUserProfilePreferences({ selectedCalendarOwner: ownerEmail });
-    }, [selectedCalendarId, availableCalendars, updateUserProfilePreferences]);
-
 
     // Update selected locations when dynamic locations change - smart merging with stale pruning
     useEffect(() => {
@@ -5272,10 +5248,9 @@ import ConflictDialog from './shared/ConflictDialog';
           selectedCalendarId={selectedCalendarId}
           availableCalendars={availableCalendars}
           onCalendarChange={(newCalendarId) => {
-            // User-driven dropdown change. Mark the ref so the persistence effect
-            // writes selectedCalendarOwner to user preferences (and so initializeApp's
-            // own cascade-chosen default does NOT trigger the same write).
-            hasUserExplicitlyChoseCalendar.current = true;
+            // In-session override only. The choice is not persisted to user
+            // preferences — the displayed calendar is a system-wide admin setting,
+            // not a per-user value. Next page load runs the cascade fresh.
             setSelectedCalendarId(newCalendarId);
           }}
           changingCalendar={changingCalendar}
