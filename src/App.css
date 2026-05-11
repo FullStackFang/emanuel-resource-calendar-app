@@ -330,9 +330,9 @@ main {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-primary);
-  min-height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   margin: 0;
   padding: 0;
   width: 100%;
@@ -347,10 +347,11 @@ main {
 .calendar-layout {
   display: flex;
   flex: 1;
-  overflow: auto;
-  align-items: flex-start;
+  overflow: hidden;
+  align-items: stretch;
   justify-content: flex-start;
   width: 100%;
+  min-height: 0;
 }
 
 /* ==========================================================================
