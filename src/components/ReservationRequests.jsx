@@ -1,6 +1,6 @@
 // src/components/ReservationRequests.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -225,6 +225,13 @@ export default function ReservationRequests({ graphToken }) {
       return transformed;
     },
     enabled: listQueryEnabled,
+    // Keep the previous fetch's rows visible while a new query (filter change,
+    // page change, search debounce, tab switch) is in flight. Without this the
+    // queryKey change makes data 'undefined' and the loading-gate at the top
+    // of the render function early-returns a full-screen spinner — the
+    // 'reload the whole screen' feel. With it, only the per-row content swaps
+    // in once the new fetch resolves; chrome stays put.
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
     refetchInterval: isConnected ? 5 * 60 * 1000 : 30 * 1000,
     refetchIntervalInBackground: false,
@@ -459,9 +466,17 @@ export default function ReservationRequests({ graphToken }) {
   }, [loadReservations, loadCounts]);
 
   // Stage 1: Apply search + date filters against all reservations
+  // The 'needs_attention' tab fetches a bounded set and filters client-side.
+  // The 'all' tab does the filtering server-side, so re-applying the same
+  // filters client-side here would (a) be redundant and (b) cause placeholder
+  // data to disappear mid-type whenever `searchTerm` (immediate) diverges
+  // from `debouncedSearchTerm` (the value the server actually fetched against).
+  // Skipping the client filter on 'all' preserves the quiet-refresh UX.
   const searchFiltered = useMemo(
-    () => filterBySearchAndDate(allReservations, { searchTerm, dateFrom, dateTo }),
-    [allReservations, searchTerm, dateFrom, dateTo]
+    () => activeTab === 'all'
+      ? allReservations
+      : filterBySearchAndDate(allReservations, { searchTerm, dateFrom, dateTo }),
+    [allReservations, activeTab, searchTerm, dateFrom, dateTo]
   );
 
   // Stage 2: Apply tab status filter + status dropdown filter
@@ -543,14 +558,23 @@ export default function ReservationRequests({ graphToken }) {
       permissionsLoading, canApproveReservations]);
 
   // Pagination is tab-aware:
-  //   - 'all' tab: server-paginated. `paginatedReservations` is the server's
-  //     20-record page directly; `totalPages` comes from server pagination.
+  //   - 'all' tab + filters: server-paginated. `paginatedReservations` is the
+  //     server's 20-record page directly; `totalPages` from server pagination.
+  //   - 'all' tab + no filters: no fetch fires, and we explicitly null out
+  //     paginatedReservations so any placeholder data carried over from a
+  //     previous tab (via React Query's keepPreviousData) doesn't bleed
+  //     through underneath the 'Search N requests' empty state.
   //   - 'needs_attention' tab: client-paginated from the bounded fetch.
   let totalPages;
   let paginatedReservations;
   if (activeTab === 'all') {
-    totalPages = serverPagination?.totalPages || 1;
-    paginatedReservations = sortedReservations;
+    if (!hasAnyFilter) {
+      totalPages = 1;
+      paginatedReservations = [];
+    } else {
+      totalPages = serverPagination?.totalPages || 1;
+      paginatedReservations = sortedReservations;
+    }
   } else {
     totalPages = Math.ceil(sortedReservations.length / PAGE_SIZE);
     const startIndex = (page - 1) * PAGE_SIZE;
@@ -724,11 +748,13 @@ export default function ReservationRequests({ graphToken }) {
     );
   }
 
-  // Hold the spinner until BOTH the list and counts have landed. The empty-state
-  // render gate (below) requires counts agreement, so if we cleared this spinner
-  // on `!loading` alone we'd briefly render a blank body while countsLoaded is
-  // still false (list resolved, counts in flight).
-  if ((loading || !countsLoaded) && allReservations.length === 0) {
+  // Cold-mount spinner: only fires while counts are still resolving. Once counts
+  // load, the page chrome (header, tabs, filter bar) renders for the lifetime
+  // of the view and never unmounts on filter/page/tab changes. The list area
+  // transitions silently via `placeholderData: keepPreviousData` + an inline
+  // dim/spinner on `.rr-reservations-list`, so the user never sees the full
+  // screen blank out again. This is what the user asked for: quiet refresh.
+  if (!countsLoaded) {
     return <LoadingSpinner variant="card" text="Loading..." />;
   }
 
@@ -860,7 +886,25 @@ export default function ReservationRequests({ graphToken }) {
       </div>
 
       {/* Reservations List */}
-      <div className="rr-reservations-list">
+      <div
+        className={`rr-reservations-list${isSilentRefreshing || loading ? ' is-refreshing' : ''}`}
+        aria-busy={isSilentRefreshing || loading || undefined}
+      >
+        {/*
+          Inline 'refreshing' indicator: appears in two situations.
+          (1) Transition with no placeholder available — e.g. first search on
+              the 'all' tab where the previous state was 'no fetch'. `loading`
+              is true and we have nothing to show yet.
+          (2) Silent refresh during an existing render — `isSilentRefreshing`
+              is true and we already have stale cards on screen.
+          We deliberately do NOT take over the screen; the cards (or empty
+          state) remain visible underneath and update once the fetch resolves.
+        */}
+        {(loading || isSilentRefreshing) && paginatedReservations.length === 0 && (
+          <div className="rr-list-loading-inline" aria-live="polite">
+            <LoadingSpinner size={32} minHeight={120} text="Loading..." />
+          </div>
+        )}
         {paginatedReservations.map(reservation => {
           const requesterName = reservation.roomReservationData?.requestedBy?.name || reservation.requesterName;
           const isOnBehalfOf = reservation.isOnBehalfOf;

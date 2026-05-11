@@ -8,6 +8,8 @@
 //         with ?search= against the all-requests endpoint
 // RRAS-3: All Requests with no filters renders the "Search N requests" prompt,
 //         not the legacy "No requests" empty state
+// RRAS-4: searching after results have rendered keeps the cards on screen
+//         during the new fetch (silent refresh, not full-screen spinner)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
@@ -305,5 +307,76 @@ describe('ReservationRequests — All Requests tab is search-only', () => {
     // And it carries the final search term, not the intermediate ones.
     expect(allRequestsCalls[0][0]).toContain('search=wedding');
     expect(allRequestsCalls[0][0]).not.toContain('search=w&');
+  });
+
+  // RRAS-4: After cards have rendered, changing the search term must NOT take
+  // over the screen with a full-page spinner. The page chrome (header, tabs,
+  // filter bar) and the previous cards stay on-screen until the new fetch
+  // resolves. Locked by `placeholderData: keepPreviousData` on the query.
+  it('RRAS-4: subsequent search keeps cards on screen (no full-screen spinner takeover)', async () => {
+    const { authFetch, resolveCall, resolveCallWith } = makeControllableAuthFetch();
+    currentAuthFetch = authFetch;
+
+    render(<ReservationRequests />, { wrapper: withQueryClient() });
+
+    // Resolve cold-mount queries.
+    await waitFor(() => {
+      expect(findCountsIdx(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findNeedsListIdx(authFetch)).toBeGreaterThanOrEqual(0);
+    });
+    await act(async () => {
+      resolveCallWith(findCountsIdx(authFetch), { needsAttention: 0, all: 2230, pending: 0, published: 0, rejected: 0 });
+      resolveCall(findNeedsListIdx(authFetch), []);
+      const remaining = authFetch.mock.calls.length;
+      for (let i = 0; i < remaining; i++) {
+        try { resolveCallWith(i, { availableCalendars: [], defaultCalendar: 'test@test.com' }); } catch { /* already resolved */ }
+      }
+    });
+
+    // Switch to All Requests, perform first search.
+    const allTabButton = await screen.findByRole('button', { name: /all requests/i });
+    await act(async () => { fireEvent.click(allTabButton); });
+    const searchInput = screen.getByPlaceholderText(/Search by title/i);
+    await act(async () => { fireEvent.change(searchInput, { target: { value: 'wedding' } }); });
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
+
+    // Resolve the first search fetch with one card.
+    const firstSearchIdx = findAllListIdx(authFetch);
+    expect(firstSearchIdx).toBeGreaterThanOrEqual(0);
+    await act(async () => {
+      resolveCallWith(firstSearchIdx, {
+        events: [{
+          _id: 'evt-1', eventId: 'evt-1', status: 'pending',
+          eventTitle: 'Wedding Reception',
+          startDate: '2026-04-10', startTime: '10:00',
+          endDate: '2026-04-10', endTime: '11:00',
+          submittedAt: '2026-04-01T10:00:00Z',
+          calendarData: { eventTitle: 'Wedding Reception', startDateTime: '2026-04-10T10:00:00', endDateTime: '2026-04-10T11:00:00', locationDisplayNames: [] },
+          roomReservationData: { requestedBy: { name: 'Alice', email: 'a@a.com' }, submittedAt: '2026-04-01T10:00:00Z' },
+          requestedRooms: [], locations: [], categories: [],
+        }],
+        pagination: { page: 1, limit: 20, totalCount: 1, totalPages: 1, hasMore: false },
+      });
+    });
+
+    // The card from the first search renders.
+    await waitFor(() => {
+      expect(screen.getByText('Wedding Reception')).toBeInTheDocument();
+    });
+
+    // Now change the search term — this triggers a new fetch.
+    await act(async () => { fireEvent.change(searchInput, { target: { value: 'wedding party' } }); });
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
+
+    // During the in-flight refetch:
+    //   - The full-screen 'Loading...' spinner gate at the top of the
+    //     component must NOT activate (page chrome is preserved).
+    //   - The previous card ('Wedding Reception') remains rendered as
+    //     placeholder data until the new fetch resolves.
+    // (Both conditions are necessary for the 'quiet refresh' UX.)
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(screen.getByText('Wedding Reception')).toBeInTheDocument();
+    // The page header is still mounted (sanity check that we didn't early-return).
+    expect(screen.getByText('Approval Queue')).toBeInTheDocument();
   });
 });

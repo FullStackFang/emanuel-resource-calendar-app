@@ -357,6 +357,31 @@
   flex-direction: column;
   gap: var(--space-3);
   width: 100%;
+  /* Brief opacity transition so the dim during refresh feels intentional,
+     not like a flicker. 150ms keeps it imperceptible-on-success while still
+     drawing the eye during a slow network. */
+  transition: opacity 150ms var(--ease-out, ease-out);
+}
+
+/* Dim the list slightly while a refresh is in flight. The cards stay
+   readable but the user gets a subtle 'updating' signal without the page
+   chrome disappearing. Combined with placeholderData: keepPreviousData on
+   the React Query side, this gives quiet, in-place refreshes instead of a
+   full-screen spinner takeover. */
+.rr-reservations-list.is-refreshing {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Inline loader inside the list area for the rare cold-transition case
+   (e.g. very first search on the 'all' tab, before any data has been
+   fetched for that filter combination). Sits centered above where the
+   first card would appear. */
+.rr-list-loading-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) 0;
 }
 
 /* ==========================================================================
