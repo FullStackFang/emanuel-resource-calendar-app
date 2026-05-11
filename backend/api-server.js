@@ -5908,8 +5908,9 @@ function getCalendarOwnerFromConfig(calendarId) {
 
     // Find the email that maps to this calendarId
     for (const [email, id] of Object.entries(calendarConfig)) {
-      if (email.startsWith('_')) continue; // Skip metadata keys
-      const trimmedConfigId = (id || '').trim();
+      if (email.startsWith('_')) continue; // Skip metadata keys (e.g. _instructions)
+      if (typeof id !== 'string') continue; // Skip non-mapping keys (disableGraphSync, allowedDisplayCalendars, ...)
+      const trimmedConfigId = id.trim();
       if (trimmedConfigId === trimmedCalendarId) {
         logger.debug(`getCalendarOwnerFromConfig: Found owner ${email} for calendarId`);
         return email.toLowerCase(); // Normalize to lowercase
@@ -20782,7 +20783,21 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           selectedCalendarOwner = targetCalendar.toLowerCase();
           selectedCalendarId = null;
         } else {
-          selectedCalendarOwner = (event.calendarOwner || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
+          // Reverse-lookup the owner from the calendar ID so owner + calendarId
+          // always come from the same mailbox. Graph calendar IDs are mailbox-scoped,
+          // so using event.calendarOwner here would cause cross-mailbox mismatches
+          // (e.g. sandbox owner + production calendar ID -> writes to sandbox default).
+          const ownerFromConfig = getCalendarOwnerFromConfig(targetCalendar);
+          if (!ownerFromConfig) {
+            logger.warn('Publish: targetCalendar not found in calendar-config.json, falling back to event.calendarOwner', {
+              targetCalendarPrefix: targetCalendar.substring(0, 50)
+            });
+          }
+          selectedCalendarOwner = (
+            ownerFromConfig ||
+            event.calendarOwner ||
+            'templeeventssandbox@emanuelnyc.org'
+          ).toLowerCase();
           selectedCalendarId = targetCalendar;
         }
       } else if (event.calendarOwner) {
