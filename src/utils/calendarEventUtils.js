@@ -186,6 +186,30 @@ export const standardizeDate = (date) => {
 };
 
 /**
+ * Returns the inclusive end-date string (YYYY-MM-DD) for day-range comparisons.
+ *
+ * Microsoft Graph / RFC 5545 all-day events store end as midnight of the day
+ * AFTER the last day (exclusive end). A naive `compareDay <= endDateStr` then
+ * includes one extra day. This helper subtracts one day when (and only when)
+ * the event is all-day AND its end time is exactly midnight, so the legacy
+ * 23:59:59-same-day convention is preserved unchanged.
+ */
+export const getEventEndDateExclusive = (event) => {
+  const startStr = event.start?.dateTime?.split('T')[0] || '';
+  const endDateTime = event.end?.dateTime || event.start?.dateTime;
+  if (!endDateTime) return startStr;
+  const [endDateStr, endTimeStr = ''] = String(endDateTime).split('T');
+  const isAllDay = event.calendarData?.isAllDayEvent === true || event.isAllDayEvent === true;
+  const endsAtMidnight = endTimeStr.startsWith('00:00');
+  if (isAllDay && endsAtMidnight && endDateStr > startStr) {
+    const d = new Date(`${endDateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
+  return endDateStr;
+};
+
+/**
  * Check if an event occurs on a specific day (supports multi-day events).
  * @returns {Object|null} Position info object (truthy) or null (falsy)
  *   { position: 'only'|'start'|'middle'|'end', isMultiDay: boolean, totalDays: number }
@@ -197,7 +221,7 @@ export const getEventPosition = (event, day) => {
       return null;
     }
     const startDateStr = event.start.dateTime.split('T')[0];
-    const endDateStr = (event.end?.dateTime || event.start.dateTime).split('T')[0];
+    const endDateStr = getEventEndDateExclusive(event);
     const compareDay = new Date(day);
     const compareDateStr = compareDay.toISOString().split('T')[0];
 

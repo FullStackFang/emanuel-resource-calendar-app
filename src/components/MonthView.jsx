@@ -2,6 +2,7 @@ import React, { memo, useState, useCallback } from 'react';
 import DayEventsPopup from './DayEventsPopup';
 import { useTimezone } from '../context/TimezoneContext';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { getEventPosition } from '../utils/calendarEventUtils';
 import './MonthView.css';
 
 const MAX_VISIBLE_EVENTS = 3;
@@ -81,22 +82,15 @@ const MonthView = memo(({
   // Get filtered events for a specific day cell
   const getDayFilteredEvents = useCallback((day) => {
     return filteredEvents.filter(event => {
-      const year = day.date.getFullYear();
-      const month = String(day.date.getMonth() + 1).padStart(2, '0');
-      const dayNum = String(day.date.getDate()).padStart(2, '0');
-      const dayDateStr = `${year}-${month}-${dayNum}`;
-
-      let startDateStr, endDateStr;
       if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) {
-        const regDate = new Date(event.registrationStart);
-        startDateStr = regDate.toISOString().split('T')[0];
-        endDateStr = startDateStr;
-      } else {
-        startDateStr = event.start.dateTime.split('T')[0];
-        endDateStr = (event.end?.dateTime || event.start.dateTime).split('T')[0];
+        const year = day.date.getFullYear();
+        const month = String(day.date.getMonth() + 1).padStart(2, '0');
+        const dayNum = String(day.date.getDate()).padStart(2, '0');
+        const dayDateStr = `${year}-${month}-${dayNum}`;
+        const regDateStr = new Date(event.registrationStart).toISOString().split('T')[0];
+        return dayDateStr === regDateStr;
       }
-
-      return dayDateStr >= startDateStr && dayDateStr <= endDateStr;
+      return !!getEventPosition(event, day.date);
     });
   }, [filteredEvents, showRegistrationTimes]);
 

@@ -30,7 +30,8 @@
     getEventCategories,
     isUncategorizedEvent,
     standardizeDate,
-    getEventPosition
+    getEventPosition,
+    getEventEndDateExclusive
   } from '../utils/calendarEventUtils';
   import { isEventInDateRange } from '../utils/calendarRangeUtils';
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
@@ -1135,39 +1136,28 @@ import ConflictDialog from './shared/ConflictDialog';
       // child views (MonthView, WeekView, DayView) receive stable references.
 
       /**
-       * Position calculation for month-view events that depends on the user's
-       * timezone (state). Stays in the component because it closes over `userTimezone`.
+       * Position calculation for month-view events. Uses pure date-string
+       * comparison (matching getEventPosition) because event.start.dateTime
+       * and event.end.dateTime are stored as local-time strings (no Z suffix)
+       * in this codebase. The previous toUserTZDay approach appended Z and
+       * reinterpreted those strings as UTC, which silently shifted dates
+       * backward by the absolute timezone offset in non-UTC zones.
        */
       const getMonthDayEventPosition = useCallback((event, day) => {
         try {
-          // Helper to convert a dateTime string to a midnight Date in user timezone
-          const toUserTZDay = (dateTimeStr) => {
-            const utcStr = dateTimeStr.endsWith('Z') ? dateTimeStr : `${dateTimeStr}Z`;
-            const dateUTC = new Date(utcStr);
-            if (isNaN(dateUTC.getTime())) return null;
-            const inUserTZ = new Date(dateUTC.toLocaleString('en-US', { timeZone: userTimezone }));
-            inUserTZ.setHours(0, 0, 0, 0);
-            return inUserTZ;
-          };
-
           if (!event.start?.dateTime) return false;
-
-          const startDay = toUserTZDay(event.start.dateTime);
-          const endDay = toUserTZDay(event.end?.dateTime || event.start.dateTime);
-          if (!startDay || !endDay) {
-            logger.error('Invalid event date:', event.start.dateTime, event);
-            return false;
-          }
-
-          const compareDay = new Date(day);
-          compareDay.setHours(0, 0, 0, 0);
-
-          return compareDay.getTime() >= startDay.getTime() && compareDay.getTime() <= endDay.getTime();
+          const startDateStr = event.start.dateTime.split('T')[0];
+          const endDateStr = getEventEndDateExclusive(event);
+          const year = day.getFullYear();
+          const month = String(day.getMonth() + 1).padStart(2, '0');
+          const dayNum = String(day.getDate()).padStart(2, '0');
+          const compareDateStr = `${year}-${month}-${dayNum}`;
+          return compareDateStr >= startDateStr && compareDateStr <= endDateStr;
         } catch (err) {
           logger.error('Error comparing event date in month view:', err, event);
           return false;
         }
-      }, [userTimezone]);
+      }, []);
   
     //---------------------------------------------------------------------------
     // DATA FUNCTIONS
