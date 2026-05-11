@@ -208,6 +208,22 @@ export default function ReviewModal({
   // Soft conflicts: show warning but don't disable buttons (handled by useReviewModal confirmation)
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
 
+  // Generic disabled-reason tooltips so users understand why an action is unavailable.
+  // Reasons are ordered by severity: an unresolved conflict beats an invalid form,
+  // which beats a missing title/changes. Returns undefined when no blocker applies.
+  const getDisabledReason = ({
+    blockOnConflict = false,
+    requireValid = false,
+    requireCanDraft = false,
+    requireChanges = false
+  } = {}) => {
+    if (blockOnConflict && hardConflictBlocks) return 'Resolve the scheduling conflict before continuing';
+    if (requireValid && !isFormValid) return 'Please fill in all required fields';
+    if (requireCanDraft && !canSaveDraft) return 'An event title is required to save as draft';
+    if (requireChanges && !hasChanges) return 'Make a change first to enable this action';
+    return undefined;
+  };
+
   // Auto-detect recurrence from reservation if not explicitly provided
   const hasRecurrenceFromReservation = Boolean(getEventRecurrence(reservation) || reservation?.eventType === 'seriesMaster');
   const [liveHasRecurrence, setLiveHasRecurrence] = useState(false);
@@ -431,6 +447,8 @@ export default function ReviewModal({
                       className={`action-btn publish-btn ${isEditRequestConfirming ? 'confirming' : ''}`}
                       onClick={onSubmitEditRequest}
                       disabled={isSubmittingEditRequest || !hasChanges || (anyConfirming && !isEditRequestConfirming)}
+                      title={getDisabledReason({ requireChanges: true })}
+                      data-tooltip={getDisabledReason({ requireChanges: true })}
                     >
                       {isSubmittingEditRequest ? 'Submitting...' : (isEditRequestConfirming ? 'Confirm Submit?' : 'Submit Edit Request')}
                     </button>
@@ -505,6 +523,8 @@ export default function ReviewModal({
                         className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
                         onClick={onApprove}
                         disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
+                        title={getDisabledReason({ blockOnConflict: true })}
+                        data-tooltip={getDisabledReason({ blockOnConflict: true })}
                       >
                         {isApproving ? 'Publishing...' : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
                       </button>
@@ -522,6 +542,8 @@ export default function ReviewModal({
                         className={`action-btn publish-btn ${isSaveConfirming ? 'confirming' : ''}`}
                         onClick={onSave}
                         disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
+                        title={getDisabledReason({ requireValid: true, requireChanges: true })}
+                        data-tooltip={getDisabledReason({ requireValid: true, requireChanges: true })}
                       >
                         {isSaving ? 'Submitting...' : (isSaveConfirming ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?') : 'Submit Request')}
                       </button>
@@ -539,7 +561,8 @@ export default function ReviewModal({
                         className={`action-btn publish-btn ${localConfirming === 'submitDraft' ? 'confirming' : ''}`}
                         onClick={() => handleLocalConfirmClick('submitDraft', onSubmitDraft)}
                         disabled={isDraftOccurrenceEdit || isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
-                        title={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : undefined}
+                        title={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : getDisabledReason({ requireValid: true })}
+                        data-tooltip={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : getDisabledReason({ requireValid: true })}
                       >
                         {isSaving
                           ? 'Submitting...'
@@ -561,6 +584,8 @@ export default function ReviewModal({
                         className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
                         onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
                         disabled={savingRejectedEdit || !isFormValid || hardConflictBlocks || (anyConfirming && localConfirming !== 'rejectedEdit')}
+                        title={getDisabledReason({ blockOnConflict: true, requireValid: true })}
+                        data-tooltip={getDisabledReason({ blockOnConflict: true, requireValid: true })}
                       >
                         {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
                       </button>
@@ -649,6 +674,8 @@ export default function ReviewModal({
                         className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                         onClick={onSave}
                         disabled={!hasChanges || !isFormValid || isSaving || hardConflictBlocks || (anyConfirming && !isSaveConfirming)}
+                        title={getDisabledReason({ blockOnConflict: true, requireValid: true, requireChanges: true })}
+                        data-tooltip={getDisabledReason({ blockOnConflict: true, requireValid: true, requireChanges: true })}
                       >
                         {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
                       </button>
@@ -667,6 +694,8 @@ export default function ReviewModal({
                         className={`action-btn publish-btn ${localConfirming === 'pendingEdit' ? 'confirming' : ''}`}
                         onClick={() => handleLocalConfirmClick('pendingEdit', onSavePendingEdit)}
                         disabled={!hasChanges || !isFormValid || savingPendingEdit || (anyConfirming && localConfirming !== 'pendingEdit')}
+                        title={getDisabledReason({ requireValid: true, requireChanges: true })}
+                        data-tooltip={getDisabledReason({ requireValid: true, requireChanges: true })}
                       >
                         {savingPendingEdit ? 'Saving...' : (localConfirming === 'pendingEdit' ? 'Confirm Save?' : 'Save Changes')}
                       </button>
@@ -684,6 +713,8 @@ export default function ReviewModal({
                         className={`action-btn draft-btn ${isDraftConfirming ? 'confirming' : ''}`}
                         onClick={onSaveDraft}
                         disabled={savingDraft || isSaving || !canSaveDraft || (anyConfirming && !isDraftConfirming)}
+                        title={getDisabledReason({ requireCanDraft: true })}
+                        data-tooltip={getDisabledReason({ requireCanDraft: true })}
                       >
                         {savingDraft ? 'Drafting...' : (isDraftConfirming ? 'Confirm Draft?' : 'Save Draft')}
                       </button>
