@@ -95,13 +95,6 @@ const DEFAULT_TEMPLATES = {
   Our team will review your request and you will receive another email once it has been approved or if we need additional information.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you have any questions, please contact our office.
@@ -153,13 +146,6 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Request
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px;">
   Please review this request at your earliest convenience.
@@ -224,13 +210,6 @@ const DEFAULT_TEMPLATES = {
   If you need to make any changes to your reservation, please contact our office.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
@@ -286,13 +265,6 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision or submit a revised request, please contact our office. We're happy to help you find an alternative that works.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
@@ -347,13 +319,6 @@ const DEFAULT_TEMPLATES = {
   If you have any questions about this cancellation, please contact our office.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
@@ -401,13 +366,6 @@ const DEFAULT_TEMPLATES = {
   Our team will review the updated information and you will receive another email with our decision.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your patience.
@@ -434,13 +392,6 @@ const DEFAULT_TEMPLATES = {
   You will receive another email shortly with the final decision.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your patience.
@@ -493,13 +444,6 @@ const DEFAULT_TEMPLATES = {
   Our team will review your edit request. The original event will remain unchanged until your request is approved.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you have any questions, please contact our office.
@@ -547,13 +491,6 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Request
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px;">
   Please review this edit request at your earliest convenience.
@@ -618,13 +555,6 @@ const DEFAULT_TEMPLATES = {
   If you need to make any further changes, please submit a new edit request.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
@@ -680,13 +610,6 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision or submit a revised edit request, please contact our office.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
@@ -739,13 +662,6 @@ const DEFAULT_TEMPLATES = {
   <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
 </div>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   You will be notified once a decision has been made regarding your cancellation request.
@@ -798,13 +714,6 @@ const DEFAULT_TEMPLATES = {
   <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
 </div>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    Review Request
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px;">
   Please review this cancellation request at your earliest convenience.
@@ -855,13 +764,6 @@ const DEFAULT_TEMPLATES = {
 </div>
 {{/approvalNotes}}
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you need to rebook this event, please submit a new reservation request.
@@ -917,13 +819,6 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision, please contact our office.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
@@ -989,13 +884,6 @@ const DEFAULT_TEMPLATES = {
   If you have any questions about these changes, please contact our office.
 </p>
 
-{{#eventUrl}}
-<p style="text-align: center; margin: 30px 0;">
-  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-    View Reservation
-  </a>
-</p>
-{{/eventUrl}}
 
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
@@ -1477,6 +1365,104 @@ function extractVariables(reservation, extras = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Centralized CTA (Call-to-Action) button rendering.
+//
+// History: every transactional template body used to carry an inline
+// {{#eventUrl}}...{{/eventUrl}} block that rendered a deep-link button to the
+// event review modal. That worked for default bodies but silently broke for
+// templates customized through the admin UI: getTemplate() resolves
+// `body: override?.body || defaultTemplate.body`, so once a DB override exists,
+// the in-code default body is never used. Overrides saved before the CTA
+// feature shipped therefore had no button.
+//
+// Fix: render the CTA in a centralized append step, keyed by template ID.
+// applyCta() is shared by generateFromTemplate() (send path) and
+// previewTemplate() (admin-UI preview path) so the two never diverge.
+// Idempotency: applyCta strips any legacy inline {{#eventUrl}} block from the
+// body string before rendering, so even overrides that still carry the block
+// produce exactly one button.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-template-ID CTA configuration. Templates not present here are treated
+ * as having no CTA. NO_CTA_TEMPLATES makes the "no CTA" decision explicit so
+ * adding a new TEMPLATE_ID without choosing a policy is caught by EU-14.
+ *
+ * - Admin/approver alerts: red, "Review …" label.
+ * - Requester-facing notifications: blue, "View Reservation" label.
+ */
+const CTA_CONFIG = {
+  [TEMPLATE_IDS.SUBMISSION_CONFIRMATION]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.ADMIN_NEW_REQUEST]: { label: 'Review Request', color: '#c53030' },
+  [TEMPLATE_IDS.APPROVAL]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.REJECTION]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.RESUBMISSION]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.REVIEW_STARTED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.EDIT_REQUEST_SUBMITTED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT]: { label: 'Review Request', color: '#c53030' },
+  [TEMPLATE_IDS.EDIT_REQUEST_APPROVED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.EDIT_REQUEST_REJECTED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_SUBMITTED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT]: { label: 'Review Request', color: '#c53030' },
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.EVENT_UPDATED]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.DELETION]: { label: 'View Reservation', color: '#2b6cb0' }
+};
+
+/**
+ * Templates that intentionally render no CTA button. ERROR_NOTIFICATION is a
+ * system alert to admins (no event scope). USER_REPORT_ACKNOWLEDGMENT is a
+ * support reply that does not pass eventUrl through extractVariables() at all.
+ */
+const NO_CTA_TEMPLATES = new Set([
+  TEMPLATE_IDS.ERROR_NOTIFICATION,
+  TEMPLATE_IDS.USER_REPORT_ACKNOWLEDGMENT
+]);
+
+/**
+ * Strip legacy inline {{#eventUrl}}...{{/eventUrl}} blocks from a body string.
+ * Applied to body templates only — never to subjects. Non-greedy match handles
+ * the single-block case correctly; there is no nested-block usage in the
+ * codebase.
+ */
+function stripLegacyEventUrlBlocks(bodyTemplate) {
+  if (typeof bodyTemplate !== 'string') return bodyTemplate;
+  return bodyTemplate.replace(/\{\{#eventUrl\}\}[\s\S]*?\{\{\/eventUrl\}\}/g, '');
+}
+
+/**
+ * Render the centralized CTA button HTML for a template ID. Returns '' when
+ * the template is in NO_CTA_TEMPLATES, has no CTA_CONFIG entry, or the
+ * eventUrl is missing. The empty string preserves the prior behavior where
+ * {{#eventUrl}} guards collapsed cleanly for events without an _id.
+ */
+function renderCtaButton(templateId, eventUrl) {
+  if (!eventUrl) return '';
+  if (NO_CTA_TEMPLATES.has(templateId)) return '';
+  const cta = CTA_CONFIG[templateId];
+  if (!cta) return '';
+  return `
+<p style="text-align: center; margin: 30px 0;">
+  <a href="${eventUrl}" style="display: inline-block; background-color: ${cta.color}; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    ${cta.label}
+  </a>
+</p>`;
+}
+
+/**
+ * Shared body-render pipeline: strip legacy CTA blocks, render Mustache
+ * variables, append the centralized CTA. Used by both generateFromTemplate
+ * (send path) and previewTemplate (admin-UI preview path).
+ */
+function applyCta(bodyTemplate, templateId, variables) {
+  const stripped = stripLegacyEventUrlBlocks(bodyTemplate);
+  const rendered = renderTemplate(stripped, variables);
+  const cta = renderCtaButton(templateId, variables && variables.eventUrl);
+  return rendered + cta;
+}
+
 /**
  * Generate email from template
  * @param {string} templateId - Template ID
@@ -1491,7 +1477,7 @@ async function generateFromTemplate(templateId, variables) {
 
   // Subject is plain text — decode HTML entities so "Rodney&#39;s" becomes "Rodney's"
   const subject = decodeHtmlEntities(renderTemplate(template.subject, variables));
-  const body = renderTemplate(template.body, variables);
+  const body = applyCta(template.body, templateId, variables);
 
   return {
     subject,
@@ -1729,6 +1715,10 @@ async function generateUserReportAcknowledgment(reportData, userContext = {}) {
 
 /**
  * Preview a template with sample data
+ *
+ * IMPORTANT: routes the body through applyCta() so the preview matches what
+ * the recipient actually receives. Without this, admins editing an override
+ * see no CTA button in the preview even though the send path now appends one.
  */
 async function previewTemplate(templateId, customSubject = null, customBody = null) {
   const sampleData = {
@@ -1742,7 +1732,10 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
     submittedAt: formatDateTime(new Date()),
     adminNotes: 'Please arrive 15 minutes early for setup.',
     rejectionReason: 'The requested space is not available on this date.',
-    cancellationReason: 'The requested space is no longer available.'
+    cancellationReason: 'The requested space is no longer available.',
+    // Sample deep-link URL — without this, applyCta would suppress the CTA in
+    // previews (eventUrl falsy), diverging from real sent emails.
+    eventUrl: buildEventDeepLinkUrl('preview-sample-id')
   };
 
   const template = await getTemplate(templateId);
@@ -1755,7 +1748,7 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
 
   return {
     subject: decodeHtmlEntities(renderTemplate(subjectToRender, sampleData)),
-    html: wrapEmailTemplate(renderTemplate(bodyToRender, sampleData)),
+    html: wrapEmailTemplate(applyCta(bodyToRender, templateId, sampleData)),
     sampleData
   };
 }
@@ -1840,6 +1833,8 @@ module.exports = {
   // Template management
   TEMPLATE_IDS,
   DEFAULT_TEMPLATES,
+  CTA_CONFIG,
+  NO_CTA_TEMPLATES,
   getAllTemplates,
   getTemplate,
   getDefaultTemplates,

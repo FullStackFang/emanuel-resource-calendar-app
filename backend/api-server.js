@@ -24550,11 +24550,20 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           graphUpdate.categories = event.graphData.categories;
         }
 
-        // Handle recurrence pattern updates (only when editing entire series).
-        // Split into two branches so explicit null (removal) is sent to Graph as null —
-        // Graph ignores absent fields in PATCH, so omitting recurrence would silently
-        // leave the series intact instead of converting it to a singleInstance.
-        if (editScope === 'allEvents') {
+        // Handle recurrence pattern updates. Apply whenever the master is the
+        // PATCH target — that's editScope === 'allEvents' OR null (default save).
+        // The 'thisEvent' branch targets an occurrence at line 24407, not the
+        // master; sending recurrence there would 400 from Graph. This gate
+        // mirrors the cascade-to-children gate at line 24597 so both halves of
+        // the master update stay consistent. They diverged previously, leaving
+        // a class of recurring edits where the subject propagated but
+        // recurrence changes were silently dropped on null-scope saves.
+        //
+        // Split into two inner branches so explicit null (removal) is sent to
+        // Graph as null — Graph ignores absent fields in PATCH, so omitting
+        // recurrence would silently leave the series intact instead of
+        // converting it to a singleInstance.
+        if (!editScope || editScope === 'allEvents') {
           const recurrenceTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
           if (updates.recurrence?.pattern && updates.recurrence?.range) {
             const recurrenceUpdate = buildGraphRecurrence(updates.recurrence, recurrenceTimezone);

@@ -1,11 +1,16 @@
 /**
- * Email Template Tests (EU-1 to EU-7, TZ-1 to TZ-5)
+ * Email Template Tests (EU-1 to EU-14, TZ-1 to TZ-5, RC-*)
  *
  * EU-1, EU-2: Admin alert emails render event details AND a deep-link CTA button.
  * EU-3: Requester-facing emails render a "View Reservation" CTA button.
  * EU-4: When _id is missing, the {{#eventUrl}} guard suppresses the CTA cleanly.
  * EU-5: Cancellation alert (third email shape) renders the CTA.
  * EU-6, EU-7: Existing template literals do not leak when variables are absent.
+ * EU-10: DB override body without {{#eventUrl}} still renders the centralized CTA.
+ * EU-11: DB override body with legacy {{#eventUrl}} block renders the CTA exactly once.
+ * EU-12: ERROR_NOTIFICATION renders no CTA button.
+ * EU-13: previewTemplate path renders CTA for an overridden body (parity with send path).
+ * EU-14: Every TEMPLATE_ID is classified (has CTA config OR is in NO_CTA set).
  * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
@@ -14,6 +19,12 @@ const {
   generateAdminNewRequestAlert,
   generateAdminEditRequestAlert,
   generateAdminCancellationRequestAlert,
+  generateErrorNotification,
+  previewTemplate,
+  setDbConnection,
+  TEMPLATE_IDS,
+  CTA_CONFIG,
+  NO_CTA_TEMPLATES,
   formatDateTime,
   formatDate,
   formatTime,
@@ -164,6 +175,133 @@ describe('Email Template Content Tests', () => {
         delete process.env.FRONTEND_URL;
       }
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // EU-10 to EU-14: Centralized CTA rendering (override-resilient).
+  //
+  // The CTA button used to live inline in every template body via a
+  // {{#eventUrl}}...{{/eventUrl}} block. When admins customized a template
+  // through the admin UI, the override (stored in templeEvents__SystemSettings)
+  // replaced the default body — and if the override predated the CTA feature,
+  // the button silently disappeared. The fix hoists the CTA into a centralized
+  // append step inside generateFromTemplate() (and previewTemplate()), so every
+  // template — default or override — gets the button automatically.
+  // ---------------------------------------------------------------------------
+
+  describe('Centralized CTA rendering', () => {
+    // Build a fake dbConnection that returns whatever override we configure.
+    // setDbConnection(null) restores the default-only path.
+    function makeFakeDb(overrideDoc) {
+      return {
+        collection: () => ({
+          findOne: async () => overrideDoc
+        })
+      };
+    }
+
+    afterEach(() => {
+      setDbConnection(null);
+    });
+
+    it('EU-10: DB override body without {{#eventUrl}} block still renders the CTA button', async () => {
+      // Regression test for the production bug. An admin saved a customized
+      // body BEFORE the CTA feature shipped; the override has no eventUrl block.
+      // The centralized append must still attach the button.
+      setDbConnection(makeFakeDb({
+        _id: 'email-template-admin-new-request',
+        subject: 'Action Required: New Reservation Request',
+        body: '<p>Hello {{requesterName}} — new request for {{eventTitle}}.</p>'
+      }));
+
+      const { subject, html } = await generateAdminNewRequestAlert(mockReservation);
+
+      expect(subject).toBe('Action Required: New Reservation Request');
+      expect(html).toContain('Hello Jane Doe');
+      expect(html).toContain('new request for Board Meeting');
+      // The CTA must be present even though the override body lacks it.
+      expect(html).toContain('Review Request');
+      expect(html).toContain('?eventId=507f1f77bcf86cd799439011');
+    });
+
+    it('EU-11: DB override body with legacy {{#eventUrl}} block renders the CTA exactly once', async () => {
+      // Some overrides may have been saved AFTER the CTA shipped and carry the
+      // legacy inline block. The strip-then-append logic must neutralize it so
+      // we never render two buttons.
+      setDbConnection(makeFakeDb({
+        _id: 'email-template-admin-new-request',
+        subject: 'Action Required: New Reservation Request',
+        body: `<p>Hello {{requesterName}}.</p>
+{{#eventUrl}}<p><a href="{{eventUrl}}">Review Request</a></p>{{/eventUrl}}`
+      }));
+
+      const { html } = await generateAdminNewRequestAlert(mockReservation);
+
+      const matches = html.match(/Review Request/g) || [];
+      expect(matches.length).toBe(1);
+      // And no leaked Mustache markers.
+      expect(html).not.toContain('{{#eventUrl}}');
+      expect(html).not.toContain('{{/eventUrl}}');
+    });
+
+    it('EU-12: ERROR_NOTIFICATION renders no CTA button', async () => {
+      // Error notifications are system alerts to admins about backend errors;
+      // they have no event scope and must not surface a "View Reservation" link.
+      const { html } = await generateErrorNotification({
+        correlationId: 'corr-123',
+        userMessage: 'Something went wrong',
+        errorMessage: 'TypeError: foo is not a function',
+        stack: 'at thing.js:42',
+        timestamp: new Date()
+      });
+
+      // No CTA anchor pointing at the scheduler should appear.
+      expect(html).not.toMatch(/href="[^"]*scheduler/);
+      expect(html).not.toContain('View Reservation');
+      expect(html).not.toContain('Review Request');
+    });
+
+    it('EU-13: previewTemplate renders CTA for an overridden body (parity with send path)', async () => {
+      // The admin UI preview path must agree with the send path. Otherwise
+      // admins editing a template will see the preview without the CTA and
+      // conclude the fix did not land.
+      setDbConnection(makeFakeDb({
+        _id: 'email-template-admin-new-request',
+        subject: 'Action Required: New Reservation Request',
+        body: '<p>Custom override body.</p>'
+      }));
+
+      const { html } = await previewTemplate('admin-new-request');
+
+      expect(html).toContain('Custom override body.');
+      expect(html).toContain('Review Request');
+      // Preview should use a sample eventUrl so the button has a real-looking href.
+      expect(html).toMatch(/href="[^"]*scheduler[^"]*\?eventId=/);
+    });
+
+    it('EU-14: Every TEMPLATE_ID is classified as either CTA-bearing or CTA-omitted', () => {
+      // Classification lock — adding a new TEMPLATE_ID without deciding its CTA
+      // policy will fail this test. Prevents silent reintroduction of the bug.
+      expect(CTA_CONFIG).toBeDefined();
+      expect(NO_CTA_TEMPLATES).toBeDefined();
+      expect(NO_CTA_TEMPLATES instanceof Set).toBe(true);
+
+      const allIds = Object.values(TEMPLATE_IDS);
+      const unclassified = allIds.filter(
+        id => !Object.prototype.hasOwnProperty.call(CTA_CONFIG, id) && !NO_CTA_TEMPLATES.has(id)
+      );
+      expect(unclassified).toEqual([]);
+
+      // Sanity: admin alerts use "Review Request" label and red color.
+      expect(CTA_CONFIG[TEMPLATE_IDS.ADMIN_NEW_REQUEST].label).toBe('Review Request');
+      expect(CTA_CONFIG[TEMPLATE_IDS.ADMIN_NEW_REQUEST].color).toBe('#c53030');
+      // Sanity: requester-facing uses "View Reservation" label and blue color.
+      expect(CTA_CONFIG[TEMPLATE_IDS.SUBMISSION_CONFIRMATION].label).toBe('View Reservation');
+      expect(CTA_CONFIG[TEMPLATE_IDS.SUBMISSION_CONFIRMATION].color).toBe('#2b6cb0');
+      // Sanity: error/user-report templates are NOT CTA-bearing.
+      expect(NO_CTA_TEMPLATES.has(TEMPLATE_IDS.ERROR_NOTIFICATION)).toBe(true);
+      expect(NO_CTA_TEMPLATES.has(TEMPLATE_IDS.USER_REPORT_ACKNOWLEDGMENT)).toBe(true);
+    });
   });
 });
 

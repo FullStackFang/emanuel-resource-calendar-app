@@ -32,6 +32,9 @@
  *   node recover-untethered-publishes.js --dry-run
  *   node recover-untethered-publishes.js
  *   node recover-untethered-publishes.js --verify
+ *   node recover-untethered-publishes.js --diagnose <_id>
+ *   node recover-untethered-publishes.js --relink <_id> [--force]
+ *   node recover-untethered-publishes.js --clean-orphans <_id> [--force]
  *
  * Isolation: imports (does not modify) backend/utils/retryWithBackoff.js and
  * backend/services/graphApiService.js. Adds zero exports to any file that
@@ -86,6 +89,16 @@ const isForce = process.argv.includes('--force');
 const diagnoseArgIdx = process.argv.indexOf('--diagnose');
 const diagnoseId = diagnoseArgIdx >= 0 ? process.argv[diagnoseArgIdx + 1] : null;
 const isDiagnose = !!diagnoseId;
+
+// --clean-orphans <_id> mode: targeted single-record cleanup. Walks
+// roomReservationData.createdGraphEventIds and deletes every Graph event that
+// is NOT the currently-linked graphData.id. Use after a --relink/--republish
+// has been verified working — the previous Graph event(s) remain in the
+// owner mailbox as orphans (publish/republish are non-destructive by design
+// to preserve a manual escape hatch). Without --force this is a dry-run.
+const cleanOrphansArgIdx = process.argv.indexOf('--clean-orphans');
+const cleanOrphansId = cleanOrphansArgIdx >= 0 ? process.argv[cleanOrphansArgIdx + 1] : null;
+const isCleanOrphans = !!cleanOrphansId;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -449,6 +462,191 @@ async function diagnose(collection, id) {
 }
 
 // ---------------------------------------------------------------------------
+// Clean-orphans mode — targeted single-record cleanup. Walks
+// roomReservationData.createdGraphEventIds, probes each id in Graph, and
+// deletes the ones that are NOT the currently-linked graphData.id. The
+// non-destructive design of relink/republish means every recovery action
+// leaves behind a stale Outlook event; this mode is the operator-driven
+// counterpart that cleans them up after the new event is verified working.
+//
+// Safety rails:
+//   - Refuses to operate when graphData.id is missing (untethered records
+//     belong to the main repair flow, not to this cleanup).
+//   - Refuses to operate when calendarOwner is missing (can't talk to Graph).
+//   - Never touches the linked graphData.id.
+//   - Default is a dry-run; --force is required to actually delete.
+//   - createdGraphEventIds array is preserved for audit trail (delete from
+//     Graph only, not from the Mongo array).
+//   - Pushes a statusHistory entry recording every Graph id we deleted.
+// ---------------------------------------------------------------------------
+
+async function cleanOrphans(collection, id) {
+  console.log(`\n📋 Clean orphans: ${id}`);
+  console.log(`   Database: ${DB_NAME}`);
+  console.log(`   Mode: ${isForce ? 'APPLY (--force)' : 'DRY RUN (default; pass --force to delete)'}`);
+
+  let _id;
+  try {
+    _id = new ObjectId(id);
+  } catch (err) {
+    console.error(`❌ Invalid ObjectId: ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const event = await withCosmosRetry(() => collection.findOne({ _id }));
+  if (!event) {
+    console.error(`❌ No record found with _id ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const linkedId = event.graphData?.id;
+  const owner = event.calendarOwner;
+  const calendarId = event.calendarId || null;
+  const createdIds = event.roomReservationData?.createdGraphEventIds || [];
+
+  console.log(`   eventId: ${event.eventId}`);
+  console.log(`   title: "${event.calendarData?.eventTitle || '(no title)'}"`);
+  console.log(`   calendarOwner: ${owner || '(missing)'}`);
+  console.log(`   linked graphData.id: ${linkedId || '(missing)'}`);
+  console.log(`   createdGraphEventIds.length: ${createdIds.length}\n`);
+
+  if (!owner) {
+    console.error(`❌ Cannot clean orphans: calendarOwner is missing — no way to call Graph.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!linkedId) {
+    console.error(`❌ Cannot clean orphans: graphData.id is missing.`);
+    console.error(`   This record is untethered. Run the main repair flow first:`);
+    console.error(`     node recover-untethered-publishes.js --dry-run`);
+    console.error(`     node recover-untethered-publishes.js`);
+    console.error(`   …then come back to clean orphans.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (createdIds.length === 0) {
+    console.log(`✅ Nothing to clean: createdGraphEventIds is empty.`);
+    return;
+  }
+
+  // Probe every candidate so the report is honest about what's already gone
+  // vs what we'd actually delete. Skip the linked id from the probe — we
+  // don't want to risk a transient error against it influencing the plan.
+  const candidates = createdIds.filter((gid) => gid !== linkedId);
+  if (candidates.length === 0) {
+    console.log(`✅ Nothing to clean: every id in createdGraphEventIds is the linked one.`);
+    return;
+  }
+
+  console.log(`   Probing ${candidates.length} candidate orphan id(s)...\n`);
+
+  const probed = [];
+  for (const gid of candidates) {
+    try {
+      const fetched = await fetchGraphEvent(owner, calendarId, gid);
+      if (fetched) {
+        probed.push({
+          id: gid,
+          status: 'found',
+          subject: fetched.subject,
+          lastModifiedDateTime: fetched.lastModifiedDateTime,
+          webLink: fetched.webLink,
+        });
+      } else {
+        probed.push({ id: gid, status: '404' });
+      }
+    } catch (err) {
+      probed.push({ id: gid, status: 'error', error: err.message });
+    }
+  }
+
+  // Report
+  for (const p of probed) {
+    const tail = p.id.slice(-40);
+    if (p.status === 'found') {
+      console.log(`   · ${tail}`);
+      console.log(`       subject: "${p.subject || '(no subject)'}"`);
+      console.log(`       lastModified: ${p.lastModifiedDateTime || '(unknown)'}`);
+      console.log(`       webLink: ${p.webLink || '(unknown)'}`);
+      console.log(`       ACTION: ${isForce ? 'DELETE' : 'WOULD DELETE'}`);
+    } else if (p.status === '404') {
+      console.log(`   · ${tail} → already gone (HTTP 404), skipping`);
+    } else {
+      console.log(`   · ${tail} → probe error: ${p.error} (skipping for safety)`);
+    }
+    console.log('');
+  }
+
+  const toDelete = probed.filter((p) => p.status === 'found');
+  if (toDelete.length === 0) {
+    console.log(`✅ Nothing to delete: every orphan candidate is either gone or unreachable.`);
+    return;
+  }
+
+  if (!isForce) {
+    console.log(`\n   Dry-run summary: would delete ${toDelete.length} orphan Graph event(s).`);
+    console.log(`   Re-run with --force to actually delete:\n`);
+    console.log(`     node recover-untethered-publishes.js --clean-orphans ${id} --force\n`);
+    return;
+  }
+
+  // Apply phase — delete each surviving orphan, swallow per-id failures so
+  // one bad id doesn't block the rest. Track deletes for the statusHistory
+  // entry so audit trail is complete even if some delete attempts fail.
+  const deleted = [];
+  const failed = [];
+  for (const p of toDelete) {
+    try {
+      await withGraphRetry(() =>
+        graphApiService.deleteCalendarEvent(owner, calendarId, p.id)
+      );
+      deleted.push(p.id);
+      console.log(`   ✅ Deleted ${p.id.slice(-40)}`);
+    } catch (err) {
+      failed.push({ id: p.id, error: err.message });
+      console.error(`   ❌ Failed to delete ${p.id.slice(-40)}: ${err.message}`);
+    }
+  }
+
+  // Audit entry — even if some deletes failed, record what DID happen so the
+  // record's history reflects the cleanup attempt. Don't bump _version: this
+  // is metadata-only, not a state transition.
+  if (deleted.length > 0) {
+    const reason = `Cleaned ${deleted.length} orphan Graph event(s) via recovery script` +
+      (failed.length > 0 ? ` (${failed.length} delete attempt(s) failed)` : '') +
+      `: ${deleted.map((gid) => gid.slice(-32)).join(', ')}`;
+    await withCosmosRetry(() => collection.updateOne(
+      { _id },
+      {
+        $push: {
+          statusHistory: {
+            status: event.status,
+            changedAt: new Date().toISOString(),
+            changedBy: 'recovery-script',
+            changedByEmail: 'recovery-script@internal',
+            reason,
+          },
+        },
+      },
+    ));
+  }
+
+  console.log(`\n   Cleanup summary:`);
+  console.log(`     deleted: ${deleted.length}`);
+  console.log(`     failed:  ${failed.length}`);
+  console.log(`     already gone (404): ${probed.filter((p) => p.status === '404').length}`);
+  if (failed.length > 0) {
+    console.log(`\n   Failed deletes (retry individually or delete from Outlook UI):`);
+    for (const f of failed) {
+      console.log(`     · ${f.id} — ${f.error}`);
+    }
+    process.exitCode = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Relink mode — single-record recovery: create a fresh Graph event from the
 // current MongoDB state and overwrite graphData.id. Operator manually deletes
 // the stale Outlook events afterward. See plan Fix 5c for the rationale and
@@ -612,6 +810,15 @@ async function main() {
     // single record. See plan Fix 6.
     if (isDiagnose) {
       await diagnose(collection, diagnoseId);
+      return;
+    }
+
+    // Clean-orphans mode short-circuits the batch loop — operates on a
+    // single record and deletes Graph events listed in
+    // roomReservationData.createdGraphEventIds that aren't graphData.id.
+    // Default dry-run; pass --force to actually delete.
+    if (isCleanOrphans) {
+      await cleanOrphans(collection, cleanOrphansId);
       return;
     }
 
