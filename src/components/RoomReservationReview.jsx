@@ -1,8 +1,10 @@
 // src/components/RoomReservationReview.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure, getEventRecurrence } from '../utils/eventTransformers';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
@@ -62,12 +64,94 @@ export default function RoomReservationReview({
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
   createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
 }) {
-  const { showError } = useNotification();
+  const { showError, showSuccess } = useNotification();
   const { isAdmin } = usePermissions();
+  const authFetch = useAuthenticatedFetch();
 
   // In edit request mode, override readOnly to allow editing
   // In viewing edit request mode, force readOnly
   const effectiveReadOnly = isViewingEditRequest || (readOnly && !isEditRequestMode);
+
+  // ── Republish to Outlook (admin recovery — lives in the Admin tab) ──────
+  // Creates a fresh Graph event from current MongoDB state and overwrites
+  // graphData.id. Used when the linked Outlook event is stale, missing, or
+  // sync is broken. The backend re-enforces admin-only (api-server.js
+  // POST /api/admin/events/:id/republish). See plan Fix 8c.
+  const [isRepublishConfirming, setIsRepublishConfirming] = useState(false);
+  const republishMutation = useMutation({
+    mutationFn: async ({ event, force = false }) => {
+      const res = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${event._id}/republish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ _version: event._version, force }),
+      });
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === 'EXISTING_GRAPH_LINK') {
+          // Operator must explicitly acknowledge that the existing Outlook event
+          // will be orphaned. window.confirm is intentionally low-tech — the
+          // operator already opened the troubleshooting tab, so a system prompt
+          // is appropriate friction.
+          const ok = window.confirm(
+            `This will create a NEW Outlook event and orphan the existing one.\n\n` +
+            `Existing Outlook event id (last 24 chars):\n  …${data.currentGraphId?.slice(-24)}\n\n` +
+            `You'll need to manually delete the old Outlook event afterward.\n\nContinue?`
+          );
+          if (!ok) {
+            const cancelErr = new Error('Republish canceled by operator.');
+            cancelErr.canceled = true;
+            throw cancelErr;
+          }
+          const retry = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${event._id}/republish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ _version: event._version, force: true }),
+          });
+          if (!retry.ok) {
+            const errData = await retry.json().catch(() => ({}));
+            throw new Error(errData.message || errData.error || `Republish failed (HTTP ${retry.status})`);
+          }
+          return retry.json();
+        }
+        const err = new Error(data.message || data.error || 'Version conflict');
+        err.orphanedGraphId = data.orphanedGraphId;
+        throw err;
+      }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || errData.error || `Republish failed (HTTP ${res.status})`);
+      }
+      return res.json();
+    },
+    onError: (err) => {
+      if (err.canceled) return;
+      showError(err, { context: 'RoomReservationReview.republish' });
+    },
+    onSuccess: (data) => {
+      const msg = data.message || 'Republished to Outlook.';
+      showSuccess(msg);
+      if (data.webLink && typeof window !== 'undefined') {
+        // Surface webLink as a follow-up — user can open it to verify
+        window.setTimeout(() => {
+          // eslint-disable-next-line no-console
+          console.info('[Republish] New Outlook event webLink:', data.webLink);
+        }, 0);
+      }
+    },
+    onSettled: () => {
+      setIsRepublishConfirming(false);
+    },
+  });
+
+  const handleRepublishClick = useCallback(() => {
+    if (!reservation) return;
+    if (isRepublishConfirming) {
+      setIsRepublishConfirming(false);
+      republishMutation.mutate({ event: reservation });
+    } else {
+      setIsRepublishConfirming(true);
+    }
+  }, [reservation, isRepublishConfirming, republishMutation]);
 
   // Lifted recurrence state — shared between Details tab (form) and Recurrence tab
   const [recurrencePattern, setRecurrencePattern] = useState(null);
@@ -555,6 +639,54 @@ export default function RoomReservationReview({
               {/* Tab: Admin (for troubleshooting) */}
               {activeTab === 'admin' && isAdmin && reservation && (
                 <div className="tab-content-pad">
+                  {/* Republish to Outlook — at the top of the troubleshooting tab.
+                      Recovery action: creates a fresh Graph event from current
+                      MongoDB state and overwrites graphData.id. Use when the
+                      linked Outlook event is stale, missing, or sync is broken.
+                      Gated on reservation.status === 'published' — pending/draft
+                      records use the normal publish flow. */}
+                  {reservation.status === 'published' && (
+                    <div className="db-section admin-republish-section" style={{ marginBottom: '1rem' }}>
+                      <div className="db-header">
+                        <div className="db-header-left">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="23 4 23 10 17 10" />
+                            <polyline points="1 20 1 14 7 14" />
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                          </svg>
+                          <span>Republish to Outlook</span>
+                        </div>
+                      </div>
+                      <div style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          Recreates the linked Outlook event from the current MongoDB record. Use this when the Outlook event is missing, stale, or edits aren't reaching Outlook.
+                          {reservation.graphData?.id && (
+                            <> The existing Outlook event (<code style={{ fontSize: '0.75rem' }}>…{reservation.graphData.id.slice(-16)}</code>) will be orphaned and require manual deletion afterward.</>
+                          )}
+                        </p>
+                        <div className="confirm-button-group" style={{ alignSelf: 'flex-start' }}>
+                          <button
+                            type="button"
+                            className={`action-btn republish-btn ${isRepublishConfirming ? 'confirming' : ''}`}
+                            onClick={handleRepublishClick}
+                            disabled={republishMutation.isPending}
+                            title="Create a fresh Outlook event from current MongoDB state"
+                          >
+                            {republishMutation.isPending
+                              ? 'Republishing...'
+                              : (isRepublishConfirming ? 'Confirm Republish?' : 'Republish to Outlook')}
+                          </button>
+                          {isRepublishConfirming && !republishMutation.isPending && (
+                            <button
+                              type="button"
+                              className="confirm-cancel-x republish-cancel-x"
+                              onClick={() => setIsRepublishConfirming(false)}
+                            >✕</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="db-section">
                     <div className="db-header">
                       <div className="db-header-left">

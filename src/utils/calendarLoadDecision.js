@@ -50,10 +50,3 @@ export function shouldClearEventsOnZeroResult(loadResult, { silent = false, isRe
   if (isRetry) return false;
   return true;
 }
-
-export function shouldShowSyncDisabledNotice(loadResult, { hasObservedEvents = false } = {}) {
-  if (hasObservedEvents) return false;
-  if (!loadResult) return false;
-  const warnings = loadResult.warnings || [];
-  return warnings.some(w => w?.code === 'NO_EVENTS_SYNC_DISABLED');
-}

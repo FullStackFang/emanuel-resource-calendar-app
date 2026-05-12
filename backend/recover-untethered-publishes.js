@@ -43,8 +43,11 @@ require('dotenv').config();
 
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const graphApiService = require('./services/graphApiService');
-// Recurrence builder lives in a focused util, safe to import.
-const { buildGraphRecurrence } = require('./utils/recurrenceGraphMapping');
+// Shared Graph event builder — same logic as the publish endpoint and the
+// new POST /api/admin/events/:id/republish endpoint. Centralized so all three
+// call sites stay in sync (buildGraphSubject/buildOffsiteGraphLocation are used
+// transitively inside buildGraphEventDataFromRecord).
+const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 
 const MONGODB_URI = process.env.MONGODB_CONNECTION_STRING || 'mongodb://localhost:27017';
 const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
@@ -61,13 +64,19 @@ const isVerify = process.argv.includes('--verify');
 // override (only after manual review).
 const includeAdditions = process.argv.includes('--include-additions');
 
-// --relink <_id> mode: targeted single-record recovery. Creates a fresh Graph
-// event from current MongoDB state and overwrites graphData.id. Operator is
-// expected to delete the stale Outlook events manually AFTER verifying the
-// fresh one looks correct (see plan Fix 5c).
+// --relink <_id> / --republish <_id> mode (aliases): targeted single-record
+// recovery. Creates a fresh Graph event from current MongoDB state and
+// overwrites graphData.id. Operator is expected to delete the stale Outlook
+// events manually AFTER verifying the fresh one looks correct (see plan Fix
+// 5c). "Republish" is the user-facing name (see plan Fix 8a); "relink"
+// describes the database operation. Both flags accepted — operator can pick
+// whichever reads better.
 const relinkArgIdx = process.argv.indexOf('--relink');
+const republishArgIdx = process.argv.indexOf('--republish');
 const relinkId = relinkArgIdx >= 0 ? process.argv[relinkArgIdx + 1] : null;
-const isRelink = !!relinkId;
+const republishId = republishArgIdx >= 0 ? process.argv[republishArgIdx + 1] : null;
+const targetSingleRecordId = relinkId || republishId;
+const isRelink = !!targetSingleRecordId;
 const isForce = process.argv.includes('--force');
 
 // --diagnose <_id> mode: read-only probe. Compares MongoDB calendarData.eventTitle
@@ -446,76 +455,10 @@ async function diagnose(collection, id) {
 // safety rails.
 // ---------------------------------------------------------------------------
 
-// Trivial helpers inlined from api-server.js (lines 231 and 2127) so the
-// script stays import-isolated. Both are tiny pure functions.
-function buildGraphSubject(title, startTime, endTime) {
-  const base = title || 'Untitled Event';
-  return (startTime && endTime) ? base : `[Hold] ${base}`;
-}
-
-function buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon) {
-  const location = {
-    displayName: `${offsiteName} (Offsite) - ${offsiteAddress}`,
-    locationType: 'default',
-  };
-  if (offsiteLat != null && offsiteLon != null) {
-    location.coordinates = {
-      latitude: parseFloat(offsiteLat),
-      longitude: parseFloat(offsiteLon),
-    };
-  }
-  return location;
-}
-
-/**
- * Build the Graph event payload from a MongoDB record's current state.
- * Mirrors the publish endpoint's construction at api-server.js:21018-21062
- * but reads from already-stored calendarData (no request body involved).
- */
-function buildGraphEventDataFromRecord(event) {
-  const cd = event.calendarData || {};
-  const isOffsite = !!cd.isOffsite;
-  const rawNames = cd.locationDisplayNames || '';
-  const locationDisplayNames = Array.isArray(rawNames) ? rawNames.join('; ') : rawNames;
-
-  let graphLocation = { displayName: locationDisplayNames };
-  if (isOffsite && cd.offsiteName && cd.offsiteAddress) {
-    graphLocation = buildOffsiteGraphLocation(cd.offsiteName, cd.offsiteAddress, cd.offsiteLat, cd.offsiteLon);
-  }
-
-  const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
-  const graphEventData = {
-    subject: buildGraphSubject(cd.eventTitle, cd.startTime, cd.endTime),
-    start: { dateTime: cd.startDateTime, timeZone: eventTimezone },
-    end: { dateTime: cd.endDateTime, timeZone: eventTimezone },
-    location: graphLocation,
-    locations: isOffsite
-      ? [graphLocation]
-      : locationDisplayNames.split('; ').filter(Boolean).map((name) => ({ displayName: name, locationType: 'default' })),
-    body: { contentType: 'Text', content: cd.eventDescription || '' },
-    categories: cd.categories || [],
-    importance: 'normal',
-    showAs: 'busy',
-  };
-
-  // Recurrence: align start/end date to range.startDate so Graph treats this
-  // as the master occurrence (mirrors publish endpoint at api-server.js:21049-21062).
-  if (event.recurrence?.pattern && event.recurrence?.range) {
-    const graphRecurrence = buildGraphRecurrence(event.recurrence, eventTimezone);
-    if (graphRecurrence) {
-      graphEventData.recurrence = graphRecurrence;
-      const rangeStart = graphRecurrence.range.startDate;
-      if (rangeStart) {
-        const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
-        const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
-        graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
-        graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
-      }
-    }
-  }
-
-  return graphEventData;
-}
+// buildGraphSubject, buildOffsiteGraphLocation, buildGraphEventDataFromRecord
+// now live in backend/utils/graphEventBuilder.js — imported at the top of this
+// file. Removed inline copies to keep this script in lockstep with the
+// publish/republish endpoint's payload construction.
 
 async function relink(collection, id) {
   console.log(`\n📋 Relink: ${id}`);
@@ -672,11 +615,11 @@ async function main() {
       return;
     }
 
-    // Relink mode short-circuits the batch loop entirely — it operates on a
-    // single record by _id and creates a fresh Graph event rather than
-    // linking to an existing one. See plan Fix 5c.
+    // Relink/republish mode short-circuits the batch loop entirely — it
+    // operates on a single record by _id and creates a fresh Graph event
+    // rather than linking to an existing one. See plan Fix 5c + Fix 8a.
     if (isRelink) {
-      await relink(collection, relinkId);
+      await relink(collection, targetSingleRecordId);
       return;
     }
 

@@ -37,7 +37,7 @@
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import { selectDefaultCalendar, SELECT_DEFAULT_CALENDAR_REASONS } from '../utils/calendarSelection';
   import { dedupeCalendarsByOwner } from '../utils/dedupeCalendarsByOwner';
-  import { shouldClearEventsOnZeroResult, shouldShowSyncDisabledNotice, createReloadCoordinator } from '../utils/calendarLoadDecision';
+  import { shouldClearEventsOnZeroResult, createReloadCoordinator } from '../utils/calendarLoadDecision';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -183,12 +183,6 @@ import ConflictDialog from './shared/ConflictDialog';
     // Calendar access error (when user has no access to any allowed calendars)
     const [calendarAccessError, setCalendarAccessError] = useState(null);
 
-    // Benign empty-state notice (e.g. backend returned 0 events because Graph sync is
-    // disabled and nothing is cached locally yet). Rendered inline as a banner —
-    // intentionally NOT a toast, because 'no events yet for this calendar' is an
-    // ambient state, not a transient alert.
-    const [emptyStateNotice, setEmptyStateNotice] = useState(null);
-
     // Core calendar data
     const [allEvents, setAllEventsState] = useState([]);
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
@@ -221,14 +215,6 @@ import ConflictDialog from './shared/ConflictDialog';
     // Set to true when a navigation fires while a load is in progress (skipped guard).
     // The finally block checks this and retries with the latest dateRange.
     const pendingReloadRef = useRef(false);
-    // Flips true the first time loadEventsUnified renders > 0 events in this
-    // session, and persists across calendar switches, date navigation, and
-    // SSE-driven state changes. Gates the NO_EVENTS_SYNC_DISABLED onboarding
-    // banner so it only paints for genuine cold-start users — once the user
-    // has been onboarded, a later transient 0-event response (last-event
-    // delete, navigation to an empty range, switch to an empty calendar)
-    // must not regress the UI to the onboarding banner.
-    const hasObservedEventsRef = useRef(false);
     // Flipped true the moment the consolidated mount effect dispatches its first
     // non-silent loadEvents(false). Silent refreshes (SSE/bus/polling) no-op until
     // this is true, so an SSE 'event-changed' delivered during init cannot race
@@ -1890,14 +1876,6 @@ import ConflictDialog from './shared/ConflictDialog';
           } : 'No events');
 
           setAllEvents(eventsToDisplay);
-          // Gate the cold-start onboarding banner: once we've shown events at
-          // least once in this session, a later 0-event response (post-delete,
-          // navigation, calendar switch) must not regress to the banner. The
-          // ref flip here is intentionally for future loads — the
-          // setEmptyStateNotice(null) below already clears it for this render.
-          if (eventsToDisplay.length > 0) hasObservedEventsRef.current = true;
-          // Events arrived — clear any previously-shown empty-state notice
-          setEmptyStateNotice(null);
           calendarDebug.logEventLoadingComplete(selectedCalendarId, eventsToDisplay.length, Date.now() - (window._calendarLoadStart || Date.now()));
           return true;
         } else if (loadResult.loadResults && loadResult.loadResults.errors && loadResult.loadResults.errors.length > 0) {
@@ -1934,19 +1912,6 @@ import ConflictDialog from './shared/ConflictDialog';
               return false;
             }
 
-            // Sync-disabled cold-start banner. Once the user has seen events
-            // render in this session, a later 0-event response (post-delete,
-            // navigation to empty range, calendar switch) must not regress to
-            // the onboarding banner — gated by hasObservedEventsRef.
-            if (shouldShowSyncDisabledNotice(loadResult, { hasObservedEvents: hasObservedEventsRef.current })) {
-              const syncDisabled = warnings.find(w => w.code === 'NO_EVENTS_SYNC_DISABLED');
-              setEmptyStateNotice(
-                syncDisabled?.message ||
-                'No events found for this calendar yet. New events you create will appear here.'
-              );
-            } else {
-              setEmptyStateNotice(null);
-            }
             setAllEvents([]);
             calendarDebug.logEventLoadingComplete(
               selectedCalendarId,
@@ -5104,8 +5069,8 @@ import ConflictDialog from './shared/ConflictDialog';
         // replay against a real in-flight (or completed) load.
         initialLoadAttemptedRef.current = true;
         // Initial mount + date-range/calendar-change load — navigation intent,
-        // so a 0-event response IS authoritative for the new scope (with the
-        // cold-start banner gated by hasObservedEventsRef). Completion logging
+        // so a 0-event response IS authoritative for the new scope (and the
+        // empty-state recovery card renders in that case). Completion logging
         // lives inside loadEventsUnified where the fresh event count is in
         // scope; logging from a .then() here would read a stale `allEvents`
         // closure and emit a phantom count=0 entry.
@@ -5328,29 +5293,6 @@ import ConflictDialog from './shared/ConflictDialog';
         {/* Action bar - visible to all users */}
         {renderActionBar()}
 
-        {/* Empty-state notice — surfaced when backend returns 0 events with a benign
-            warning code (e.g. NO_EVENTS_SYNC_DISABLED). Inline + left-aligned per
-            project convention; not a toast (this is an ambient state, not transient).
-            Self-dismisses as soon as events appear. */}
-        {emptyStateNotice && (
-          <div
-            className="calendar-empty-state-notice"
-            role="status"
-            aria-live="polite"
-            style={{
-              margin: '8px 16px',
-              padding: '10px 14px',
-              borderLeft: '4px solid var(--color-info-500, #0078d4)',
-              background: 'var(--color-info-50, #eff6fc)',
-              color: 'var(--color-neutral-900, #201f1e)',
-              fontSize: '0.875rem',
-              borderRadius: '2px'
-            }}
-          >
-            {emptyStateNotice}
-          </div>
-        )}
-
         {/* MAIN LAYOUT CONTAINER */}
         <div className="calendar-layout-container">
           {/* Calendar Main Content */}
@@ -5361,9 +5303,8 @@ import ConflictDialog from './shared/ConflictDialog';
                   truly empty (or wrongly so), give the user a visible refresh
                   affordance instead of staring at a blank scaffold. The
                   spinner overlay (`initializing || isNavigating || loading`)
-                  remains the authority during loads, and the existing
-                  NO_EVENTS_SYNC_DISABLED banner takes priority when present. */}
-              {allEvents.length === 0 && !initializing && !isNavigating && !loading && !emptyStateNotice && (
+                  remains the authority during loads. */}
+              {allEvents.length === 0 && !initializing && !isNavigating && !loading && (
                 <div
                   role="status"
                   aria-live="polite"

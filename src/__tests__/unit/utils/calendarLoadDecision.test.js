@@ -22,7 +22,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   shouldClearEventsOnZeroResult,
-  shouldShowSyncDisabledNotice,
   createReloadCoordinator,
 } from '../../../utils/calendarLoadDecision';
 
@@ -90,48 +89,6 @@ describe('shouldClearEventsOnZeroResult', () => {
         `${name} should not trigger wipe on transient zero result`
       ).toBe(false);
     }
-  });
-});
-
-describe('shouldShowSyncDisabledNotice', () => {
-  const syncDisabledWarning = {
-    count: 0,
-    events: [],
-    warnings: [{ code: 'NO_EVENTS_SYNC_DISABLED', message: 'sync off' }],
-  };
-
-  it('returns true on cold start when NO_EVENTS_SYNC_DISABLED warning is present', () => {
-    expect(shouldShowSyncDisabledNotice(syncDisabledWarning)).toBe(true);
-    expect(shouldShowSyncDisabledNotice(syncDisabledWarning, { hasObservedEvents: false })).toBe(true);
-  });
-
-  it('returns false once events have been observed in the session (no banner regression after delete or navigation)', () => {
-    expect(shouldShowSyncDisabledNotice(syncDisabledWarning, { hasObservedEvents: true })).toBe(false);
-  });
-
-  it('returns false when the warning is absent (other 0-event sources)', () => {
-    expect(shouldShowSyncDisabledNotice({ count: 0, events: [], warnings: [] })).toBe(false);
-    expect(shouldShowSyncDisabledNotice({ count: 0, events: [] })).toBe(false);
-  });
-
-  it('returns false when warning is present but a different code', () => {
-    const result = {
-      count: 0,
-      events: [],
-      warnings: [{ code: 'CALENDAR_NOT_CONFIGURED' }],
-    };
-    expect(shouldShowSyncDisabledNotice(result)).toBe(false);
-  });
-
-  it('returns false for null/undefined loadResult (defensive)', () => {
-    expect(shouldShowSyncDisabledNotice(null)).toBe(false);
-    expect(shouldShowSyncDisabledNotice(undefined)).toBe(false);
-  });
-
-  it('handles malformed warnings entries (null code) without throwing', () => {
-    const result = { count: 0, events: [], warnings: [null, { /* no code */ }] };
-    expect(() => shouldShowSyncDisabledNotice(result)).not.toThrow();
-    expect(shouldShowSyncDisabledNotice(result)).toBe(false);
   });
 });
 

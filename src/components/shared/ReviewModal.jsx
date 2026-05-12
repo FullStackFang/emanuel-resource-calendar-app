@@ -191,6 +191,9 @@ export default function ReviewModal({
   onRecurrenceWarningCancel = null,
   createRecurrenceRef = null,
   onHasUncommittedRecurrence = null,
+  // Republish to Outlook moved into the Admin tab in RoomReservationReview.jsx
+  // (it lives alongside the database-record troubleshooting view because that's
+  // the surface that already gates on isAdmin for the same audience).
   // Scheduling check complete: false while waiting for initial conflict check, defaults to true for parents that don't track it
   isSchedulingCheckComplete = true,
   // Series-child banner: when the opened item is an exception/addition/occurrence,
@@ -961,6 +964,9 @@ export default function ReviewModal({
                       )}
                     </div>
                   )}
+
+                  {/* Republish to Outlook moved to the Admin tab content in
+                      RoomReservationReview.jsx — see that file's admin-tab JSX. */}
 
                   {/* ── GROUP 5: Close (always last) ── */}
                   <button

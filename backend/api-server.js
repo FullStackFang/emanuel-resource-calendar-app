@@ -32,6 +32,7 @@ const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = requir
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { batchDelete } = require('./utils/batchDelete');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
+const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
@@ -21502,6 +21503,186 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error publishing room reservation:', error);
     res.status(500).json({ error: 'Failed to publish reservation' });
+  }
+});
+
+
+/**
+ * Republish a published event to Outlook (Admin only)
+ * POST /api/admin/events/:id/republish
+ *
+ * Recovery action for records whose Outlook Graph linkage is stale or broken
+ * (e.g. the original Graph event was deleted, or edits stopped propagating).
+ * Creates a fresh Graph event from the record's current calendarData and
+ * overwrites graphData.id to point at the new event.
+ *
+ * Status is unchanged ('published' in → 'published' out). The previous
+ * Outlook event is NOT deleted — operator must clean it up manually.
+ *
+ * Body:
+ *   { _version: <number>, force: <boolean> }
+ *
+ * Responses:
+ *   200 — Success. { success, graphData, webLink, previousGraphId, _version }
+ *   400 — Not published, or calendarOwner missing
+ *   403 — Caller is not admin
+ *   404 — Event not found
+ *   409 — { error: 'EXISTING_GRAPH_LINK', currentGraphId } when graphData.id
+ *         is already set and force !== true. Operator must acknowledge that
+ *         the existing Outlook event will be orphaned by setting force: true.
+ *   409 — { error: 'VERSION_CONFLICT', orphanedGraphId } when _version
+ *         changed between read and Mongo write (Graph event WAS created;
+ *         operator must clean it up manually before retrying).
+ *
+ * Mirrors the publish endpoint's auth gate, Graph create call, full-object
+ * graphData $set (Fix 2a — defends against null-parent dotted-path failures),
+ * OCC pattern, and SSE broadcast. Shares the buildGraphEventDataFromRecord
+ * payload construction with the recover-untethered-publishes.js script.
+ */
+app.post('/api/admin/events/:id/republish', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const id = req.params.id;
+    const { _version, force } = req.body || {};
+
+    // Admin-only gate — Republish is exposed in the Admin troubleshooting tab,
+    // which is also admin-gated on the frontend (RoomReservationReview.jsx
+    // line 556: `activeTab === 'admin' && isAdmin`). Keeping both gates in
+    // lockstep ensures the action surfaces and authorization match.
+    const user = await getCachedUser(userId);
+    const effectiveRole = resolveEffectiveRole(req, user, userEmail);
+    if (effectiveRole !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required for republish' });
+    }
+
+    let objectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid event id' });
+    }
+
+    const event = await withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: objectId }));
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    if (event.status !== 'published') {
+      return res.status(400).json({
+        error: 'Cannot republish: event status must be published',
+        currentStatus: event.status,
+      });
+    }
+    if (!event.calendarOwner) {
+      return res.status(400).json({ error: 'Cannot republish: calendarOwner missing on record' });
+    }
+    if (event.graphData?.id && !force) {
+      return res.status(409).json({
+        error: 'EXISTING_GRAPH_LINK',
+        message: 'graphData.id is already set. Republish will create a new Outlook event and orphan the existing one.',
+        currentGraphId: event.graphData.id,
+      });
+    }
+
+    // Build the Graph event payload from the record's current state (same
+    // logic the publish endpoint uses, centralized in graphEventBuilder.js).
+    const graphEventData = buildGraphEventDataFromRecord(event);
+
+    logger.info('Republish: creating fresh Graph event', {
+      eventId: id,
+      calendarOwner: event.calendarOwner,
+      previousGraphId: event.graphData?.id || null,
+      subject: graphEventData.subject,
+    });
+
+    // Create the fresh Graph event (app-only auth via graphApiService)
+    const createdEvent = await graphApiService.createCalendarEvent(
+      event.calendarOwner,
+      event.calendarId || null,
+      graphEventData
+    );
+
+    // Preserve any non-id auxiliary fields delta sync may have written
+    // (e.g. location.displayName) — only overwrite id/iCalUId.
+    const previousGraphId = event.graphData?.id || null;
+    const newGraphData = {
+      ...(event.graphData && typeof event.graphData === 'object' ? event.graphData : {}),
+      id: createdEvent.id,
+      iCalUId: createdEvent.iCalUId,
+    };
+
+    // OCC-guarded Mongo write. Filter on `_version` (from request body or
+    // freshly-read value) to ensure no concurrent admin save slipped in
+    // between our read and write. If matchedCount is 0, the Graph event
+    // was created but the link was NOT persisted — surface this clearly.
+    const expectedVersion = (typeof _version === 'number') ? _version : event._version;
+    const updateResult = await withCosmosRetry(() => unifiedEventsCollection.updateOne(
+      { _id: objectId, _version: expectedVersion },
+      {
+        $set: { graphData: newGraphData },
+        $inc: { _version: 1 },
+        $push: {
+          'roomReservationData.createdGraphEventIds': createdEvent.id,
+          statusHistory: buildStatusHistoryEntry(
+            'published',
+            userId,
+            userEmail,
+            previousGraphId
+              ? `Republished to Outlook (orphaned previous: ${previousGraphId})`
+              : 'Republished to Outlook'
+          ),
+        },
+      }
+    ));
+
+    if (updateResult.matchedCount === 0) {
+      // Concurrent admin save bumped _version. Graph event was created but
+      // not linked. Operator must handle the orphan manually before retry.
+      logger.error('Republish OCC conflict — Graph event created but not linked', {
+        eventId: id,
+        orphanedGraphId: createdEvent.id,
+        expectedVersion,
+      });
+      return res.status(409).json({
+        error: 'VERSION_CONFLICT',
+        message: 'Record was modified during republish. Graph event was created but not linked. Delete the orphan in Outlook and retry.',
+        orphanedGraphId: createdEvent.id,
+        orphanedWebLink: createdEvent.webLink,
+      });
+    }
+
+    // SSE broadcast so other admins see the new graphData immediately.
+    const refreshed = await withCosmosRetry(() => unifiedEventsCollection.findOne({ _id: objectId }));
+    broadcastEventChange({
+      eventId: id,
+      action: 'republished',
+      actorEmail: userEmail,
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      event: refreshed,
+      oldStatus: 'published',
+      newStatus: 'published',
+    });
+
+    logger.info('Republish: complete', {
+      eventId: id,
+      newGraphId: createdEvent.id,
+      previousGraphId,
+      _version: refreshed._version,
+    });
+
+    return res.json({
+      success: true,
+      graphData: newGraphData,
+      webLink: createdEvent.webLink,
+      previousGraphId,
+      _version: refreshed._version,
+      message: previousGraphId
+        ? `Republished. The previous Outlook event (${previousGraphId.slice(0, 20)}…) is orphaned and needs manual deletion.`
+        : 'Republished to Outlook.',
+    });
+  } catch (error) {
+    logger.error('Error republishing event:', error);
+    return res.status(500).json({ error: 'Failed to republish event', details: error.message });
   }
 });
 

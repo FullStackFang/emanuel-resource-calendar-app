@@ -106,6 +106,10 @@ export default function EventReviewExperience({
   // Compute detected changes once per render (not twice in JSX props)
   const detectedChanges = exp.isEditRequestMode ? exp.computeDetectedChanges() : [];
 
+  // Republish to Outlook moved into the Admin tab in RoomReservationReview.jsx —
+  // that surface already gates on isAdmin and is the dedicated troubleshooting
+  // view, so it's a more natural home than the modal's action bar.
+
   return (
     <>
       <ReviewModal
