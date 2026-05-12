@@ -52,6 +52,7 @@
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
+  import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
   import RoomReservationReview from './RoomReservationReview';
   import {
     setApiToken as setGraphServiceApiToken,
@@ -5355,7 +5356,51 @@ import ConflictDialog from './shared/ConflictDialog';
           {/* Calendar Main Content */}
           <div className="calendar-main-content">
             {/* Calendar grid section */}
-            <div className="calendar-grid-container">
+            <div className="calendar-grid-container" style={{ position: 'relative' }}>
+              {/* Empty-state recovery CTA. Defense-in-depth: if the grid is
+                  truly empty (or wrongly so), give the user a visible refresh
+                  affordance instead of staring at a blank scaffold. The
+                  spinner overlay (`initializing || isNavigating || loading`)
+                  remains the authority during loads, and the existing
+                  NO_EVENTS_SYNC_DISABLED banner takes priority when present. */}
+              {allEvents.length === 0 && !initializing && !isNavigating && !loading && !emptyStateNotice && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    zIndex: 5,
+                    background: 'var(--color-bg-surface, #fff)',
+                    border: '1px solid var(--color-border-subtle, rgba(0,0,0,0.1))',
+                    borderRadius: '8px',
+                    padding: '32px 28px',
+                    maxWidth: '360px',
+                    width: 'calc(100% - 32px)',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <div style={{ color: 'var(--color-text-muted, #888)', marginBottom: '12px' }}>
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" />
+                      <line x1="8" y1="2" x2="8" y2="6" />
+                      <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                  </div>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-text-primary, #201f1e)' }}>No events to display</h3>
+                  <p style={{ margin: '0 0 4px', fontSize: '0.875rem', color: 'var(--color-text-secondary, #605e5c)' }}>
+                    If this looks wrong, try refreshing the data.
+                  </p>
+                  <EmptyStateRefreshButton
+                    onClick={handleManualCalendarRefresh}
+                    isRefreshing={isManualRefreshing}
+                  />
+                </div>
+              )}
               <div className={`calendar-grid-wrapper ${isNavigating ? 'navigating' : ''}`}>
                   {viewType === 'month' ? (
                     <div className="calendar-content-wrapper">

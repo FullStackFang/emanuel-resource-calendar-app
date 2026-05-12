@@ -547,8 +547,9 @@ List components that consume a TanStack Query result MUST follow this convention
 - **`query.isFetching && !query.isPending`** — silent-refresh detector. `true` only when a fetch is in progress AND prior data has already resolved. Use this as the `isSilentRefreshing` binding to suppress the empty-state during background refetches (SSE invalidations, polling, mutation invalidations).
 - **`query.isLoading`** — DO NOT use as the first-load gate. Defined as `isPending && isFetching`, so it is `false` during the `pending && idle` tick. Components that gate their spinner on `isLoading` will render the empty-state for one render cycle before the fetch starts.
 - **Empty-state predicate**: render `<EmptyState/>` if and only if `!query.isPending && data.length === 0 && !isSilentRefreshing`. Anything looser causes flashes.
+- **Recovery affordance**: list-view empty states MUST render `<EmptyStateRefreshButton onClick={handleManualRefresh} isRefreshing={isManualRefreshing} />` from `src/components/shared/EmptyStateRefreshButton.jsx` so users have a user-actionable recovery path for any blank state that slips through. The calendar grid surfaces the same CTA inside an absolutely-positioned card (see `Calendar.jsx`, predicate excludes `initializing`, `isNavigating`, `loading`, and the `emptyStateNotice` banner).
 
-Reference implementations: `src/components/MyReservations.jsx` (lines ~193, ~198), `src/components/ReservationRequests.jsx` (lines ~204, ~210, ~217). Locked by `MyReservations.firstPaint.test.jsx` and `ReservationRequests.firstPaint.test.jsx`.
+Reference implementations: `src/components/MyReservations.jsx` (lines ~193, ~198), `src/components/ReservationRequests.jsx` (lines ~204, ~210, ~217), `src/components/EventManagement.jsx` (lines ~177-181, ~670). Locked by `MyReservations.firstPaint.test.jsx`, `ReservationRequests.firstPaint.test.jsx`, and `EventManagement.firstPaint.test.jsx`.
 
 ### Testing
 - **472 backend tests** (31 suites) — Jest with MongoDB Memory Server

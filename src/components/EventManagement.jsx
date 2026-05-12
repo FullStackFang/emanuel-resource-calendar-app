@@ -13,6 +13,7 @@ import { keys } from '../queries/keys';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
 import LoadingSpinner from './shared/LoadingSpinner';
+import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
 import EventReviewExperience from './shared/EventReviewExperience';
 import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
@@ -174,9 +175,13 @@ export default function EventManagement() {
   const events = eventsQuery.data?.events ?? [];
   const totalPages = eventsQuery.data?.totalPages ?? 1;
   const counts = countsQuery.data ?? { total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 };
-  const loading = eventsQuery.isLoading;
-  const isSilentRefreshing = (eventsQuery.isFetching && !eventsQuery.isLoading)
-    || (countsQuery.isFetching && !countsQuery.isLoading);
+  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
+  // when `enabled` flips true) and `pending && fetching`. Prevents the
+  // empty-state from rendering before the fetch starts. See CLAUDE.md
+  // "React Query loading primitives" for the convention.
+  const loading = eventsQuery.isPending;
+  const isSilentRefreshing = (eventsQuery.isFetching && !eventsQuery.isPending)
+    || (countsQuery.isFetching && !countsQuery.isPending);
   const lastFetchedAt = Math.max(
     eventsQuery.dataUpdatedAt || 0,
     countsQuery.dataUpdatedAt || 0
@@ -667,7 +672,7 @@ export default function EventManagement() {
             })}
           </div>
 
-          {events.length === 0 && !isSilentRefreshing && (
+          {events.length === 0 && !loading && !isSilentRefreshing && (
             <div className="em-empty-state">
               <div className="em-empty-state-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -685,6 +690,10 @@ export default function EventManagement() {
                     ? `No events match "${searchTerm}".`
                     : 'No events match the current filters.'}
               </p>
+              <EmptyStateRefreshButton
+                onClick={handleManualRefresh}
+                isRefreshing={isManualRefreshing}
+              />
             </div>
           )}
 

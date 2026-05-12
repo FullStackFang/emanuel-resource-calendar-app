@@ -22,6 +22,7 @@ import { buildOccurrenceVariants } from '../utils/recurrenceOverrideSummary';
 import EventReviewExperience from './shared/EventReviewExperience';
 import LoadingSpinner from './shared/LoadingSpinner';
 import FreshnessIndicator from './shared/FreshnessIndicator';
+import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
 import './shared/FilterBar.css';
 import './MyReservations.css';
 
@@ -959,6 +960,10 @@ export default function MyReservations() {
                 ? 'Try adjusting your search or filters.'
                 : "You don't have any reservation requests yet."}
             </p>
+            <EmptyStateRefreshButton
+              onClick={handleManualRefresh}
+              isRefreshing={isManualRefreshing}
+            />
           </div>
         )}
       </div>

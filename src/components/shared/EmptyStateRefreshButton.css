@@ -1,0 +1,42 @@
+.empty-state-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: var(--color-primary, #0078d4);
+  color: #fff;
+  border: 1px solid var(--color-primary, #0078d4);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  user-select: none;
+}
+
+.empty-state-refresh-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover, #106ebe);
+  border-color: var(--color-primary-hover, #106ebe);
+}
+
+.empty-state-refresh-btn:focus-visible {
+  outline: 2px solid var(--color-primary-focus, #2b88d8);
+  outline-offset: 2px;
+}
+
+.empty-state-refresh-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.empty-state-refresh-btn.refreshing .empty-state-refresh-icon {
+  animation: empty-state-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes empty-state-refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

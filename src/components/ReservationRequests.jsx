@@ -43,6 +43,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
+import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
 import './shared/FilterBar.css';
 import './ReservationRequests.css';
 
@@ -1050,6 +1051,10 @@ export default function ReservationRequests({ graphToken }) {
             <div className="rr-empty-icon">🔍</div>
             <h3>Search {serverCounts.all} request{serverCounts.all === 1 ? '' : 's'}</h3>
             <p>Type a search term, set a date range, or pick a status to browse.</p>
+            <EmptyStateRefreshButton
+              onClick={handleManualRefresh}
+              isRefreshing={isManualRefreshing}
+            />
           </div>
         )}
         {activeTab !== 'all' || hasAnyFilter ? (
@@ -1071,6 +1076,10 @@ export default function ReservationRequests({ graphToken }) {
                   ? 'No pending requests or edit requests to review.'
                   : 'No reservation requests found.'}
               </p>
+              <EmptyStateRefreshButton
+                onClick={handleManualRefresh}
+                isRefreshing={isManualRefreshing}
+              />
             </div>
           )
         ) : null}
