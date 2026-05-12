@@ -5732,13 +5732,25 @@ function combineNotes(existingNotes, newNotes) {
 /**
  * Retry wrapper for Cosmos DB operations that may hit rate limits (429).
  * Delegates to the shared retryWithBackoff utility which provides jitter,
- * Cosmos RetryAfterMs parsing, and process-level circuit breaker.
+ * Cosmos RetryAfterMs parsing, and process-level circuit breaker. Emits a
+ * warn log per retry so operators can see throttling in real time.
  * @param {Function} operation - Async function to execute
- * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
+ * @param {Object} [options]
+ * @param {string} [options.opName] - Identifier for logs (e.g. method name)
+ * @param {number} [options.maxAttempts=5] - Total attempts including the first
  * @returns {Promise} - Result of the operation
  */
-async function withCosmosRetry(operation, maxRetries = 3) {
-  return retryWithBackoff(operation, { maxAttempts: maxRetries });
+async function withCosmosRetry(operation, options = {}) {
+  const { opName = null, maxAttempts = 5 } = options;
+  return retryWithBackoff(operation, {
+    maxAttempts,
+    onRetry: ({ attempt, delay, error, maxAttempts: total }) => {
+      logger.warn(
+        '[withCosmosRetry] Cosmos throttle on %s (attempt %d/%d), retrying in %dms (code=%s)',
+        opName || 'operation', attempt, total, delay, error.code || 'unknown'
+      );
+    },
+  });
 }
 
 /**
@@ -5762,14 +5774,14 @@ function withRetryCollection(collection) {
       if (typeof value !== 'function') return value;
 
       if (PROMISE_METHODS.has(prop)) {
-        return (...args) => withCosmosRetry(() => value.apply(target, args));
+        return (...args) => withCosmosRetry(() => value.apply(target, args), { opName: prop });
       }
 
       if (CURSOR_METHODS.has(prop)) {
         return (...args) => {
           const cursor = value.apply(target, args);
           const originalToArray = cursor.toArray.bind(cursor);
-          cursor.toArray = () => withCosmosRetry(() => originalToArray());
+          cursor.toArray = () => withCosmosRetry(() => originalToArray(), { opName: `${prop}.toArray` });
           return cursor;
         };
       }

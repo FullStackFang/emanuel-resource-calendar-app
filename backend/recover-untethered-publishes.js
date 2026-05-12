@@ -43,6 +43,8 @@ require('dotenv').config();
 
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const graphApiService = require('./services/graphApiService');
+// Recurrence builder lives in a focused util, safe to import.
+const { buildGraphRecurrence } = require('./utils/recurrenceGraphMapping');
 
 const MONGODB_URI = process.env.MONGODB_CONNECTION_STRING || 'mongodb://localhost:27017';
 const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
@@ -58,6 +60,23 @@ const isVerify = process.argv.includes('--verify');
 // linking them would create incorrect references. Pass --include-addition to
 // override (only after manual review).
 const includeAdditions = process.argv.includes('--include-additions');
+
+// --relink <_id> mode: targeted single-record recovery. Creates a fresh Graph
+// event from current MongoDB state and overwrites graphData.id. Operator is
+// expected to delete the stale Outlook events manually AFTER verifying the
+// fresh one looks correct (see plan Fix 5c).
+const relinkArgIdx = process.argv.indexOf('--relink');
+const relinkId = relinkArgIdx >= 0 ? process.argv[relinkArgIdx + 1] : null;
+const isRelink = !!relinkId;
+const isForce = process.argv.includes('--force');
+
+// --diagnose <_id> mode: read-only probe. Compares MongoDB calendarData.eventTitle
+// to Outlook Graph subject for the linked event; reports MISMATCH if admin save
+// PATCH has not propagated. Single command for triaging "edits don't reach
+// Outlook" reports (see plan Fix 6).
+const diagnoseArgIdx = process.argv.indexOf('--diagnose');
+const diagnoseId = diagnoseArgIdx >= 0 ? process.argv[diagnoseArgIdx + 1] : null;
+const isDiagnose = !!diagnoseId;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -261,6 +280,380 @@ async function verify(collection) {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnose mode — read-only probe to triage "edits don't reach Outlook" reports.
+// Compares MongoDB calendarData.eventTitle against the linked Outlook Graph
+// event's subject. See plan Fix 6.
+// ---------------------------------------------------------------------------
+
+function pad(s, n) {
+  const str = String(s ?? '');
+  return str.length >= n ? str : str + ' '.repeat(n - str.length);
+}
+
+function printDiagnoseField(label, value) {
+  console.log(`     ${pad(label + ':', 30)} ${value ?? '(missing)'}`);
+}
+
+async function diagnose(collection, id) {
+  console.log(`\n📋 Diagnose: ${id}\n`);
+
+  let _id;
+  try {
+    _id = new ObjectId(id);
+  } catch (err) {
+    console.error(`❌ Invalid ObjectId: ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const event = await collection.findOne({ _id });
+  if (!event) {
+    console.error(`❌ No record found with _id ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const cd = event.calendarData || {};
+  const mongoTitle = cd.eventTitle;
+  const mongoStart = cd.startDateTime;
+  const mongoEnd = cd.endDateTime;
+  const graphId = event.graphData?.id;
+
+  console.log(`   MongoDB state:`);
+  printDiagnoseField('_id', event._id);
+  printDiagnoseField('eventId', event.eventId);
+  printDiagnoseField('eventType', event.eventType || 'singleInstance');
+  printDiagnoseField('status', event.status);
+  printDiagnoseField('isDeleted', !!event.isDeleted);
+  printDiagnoseField('calendarOwner', event.calendarOwner);
+  printDiagnoseField('calendarId', event.calendarId);
+  printDiagnoseField('_version', event._version);
+  printDiagnoseField('graphData.id', graphId);
+  printDiagnoseField('graphData.iCalUId', event.graphData?.iCalUId);
+  printDiagnoseField('calendarData.eventTitle', mongoTitle);
+  printDiagnoseField('calendarData.startDateTime', mongoStart);
+  printDiagnoseField('calendarData.endDateTime', mongoEnd);
+  printDiagnoseField('lastModifiedDateTime', event.lastModifiedDateTime);
+  printDiagnoseField('lastModifiedBy', event.lastModifiedBy);
+  printDiagnoseField('createdGraphEventIds.length', event.roomReservationData?.createdGraphEventIds?.length || 0);
+
+  // Show last 3 statusHistory entries to spot recovery / relink trail
+  const history = event.statusHistory || [];
+  console.log(`\n   Recent statusHistory (last ${Math.min(3, history.length)} of ${history.length}):`);
+  for (const entry of history.slice(-3)) {
+    const at = entry.changedAt?.$date || entry.changedAt;
+    console.log(`     · ${at} | ${entry.status} | by ${entry.changedBy || entry.changedByEmail || '?'}`);
+    console.log(`         reason: ${(entry.reason || '').slice(0, 140)}`);
+  }
+
+  // If no graphData.id, no Graph probe possible
+  if (!graphId) {
+    console.log(`\n   ⚠️  DIAGNOSIS: no graphData.id set — record is untethered.`);
+    console.log(`     This record is in the same shape as the original publish-rollback bug.`);
+    console.log(`     Run: node recover-untethered-publishes.js --dry-run`);
+    console.log(`     then: node recover-untethered-publishes.js   (apply)`);
+    return;
+  }
+  if (!event.calendarOwner) {
+    console.log(`\n   ⚠️  DIAGNOSIS: graphData.id is set but calendarOwner is missing.`);
+    console.log(`     Admin save would silently skip Graph sync (gate at api-server.js:24194 requires event.calendarOwner).`);
+    return;
+  }
+
+  // Probe Graph for the linked event
+  console.log(`\n   Graph state (probing graphData.id):`);
+  let graphEvent;
+  try {
+    graphEvent = await withGraphRetry(() =>
+      graphApiService.getEvent(event.calendarOwner, event.calendarId || null, graphId)
+    );
+  } catch (err) {
+    if (err?.statusCode === 404) {
+      printDiagnoseField('Found', 'NO (HTTP 404 — Graph event no longer exists)');
+      console.log(`\n   ⚠️  DIAGNOSIS: stale graphData.id`);
+      console.log(`     The Graph event referenced by graphData.id has been deleted from Outlook.`);
+      console.log(`     Admin save would call Graph PATCH against this id and get a 404, which the server`);
+      console.log(`     swallows silently (HTTP 200 returned to client, MongoDB updates, email fires, but`);
+      console.log(`     Outlook is never touched).`);
+      console.log(`\n     Fix path: relink to a fresh Graph event:`);
+      console.log(`       node recover-untethered-publishes.js --relink ${id} --force`);
+      return;
+    }
+    printDiagnoseField('Found', `ERROR (${err.message})`);
+    console.log(`\n   ⚠️  DIAGNOSIS: Graph probe failed with a non-404 error.`);
+    console.log(`     ${err.message}`);
+    return;
+  }
+
+  printDiagnoseField('Found', 'YES (HTTP 200)');
+  printDiagnoseField('Graph subject', graphEvent.subject);
+  printDiagnoseField('Graph type', graphEvent.type);
+  printDiagnoseField('Graph isCancelled', graphEvent.isCancelled);
+  printDiagnoseField('Graph lastModifiedDateTime', graphEvent.lastModifiedDateTime);
+  printDiagnoseField('Graph createdDateTime', graphEvent.createdDateTime);
+  printDiagnoseField('Graph webLink', graphEvent.webLink);
+  if (graphEvent.start) {
+    printDiagnoseField('Graph start.dateTime', graphEvent.start.dateTime);
+  }
+  if (graphEvent.end) {
+    printDiagnoseField('Graph end.dateTime', graphEvent.end.dateTime);
+  }
+
+  // Compare and diagnose
+  const titleMatches = (graphEvent.subject || '') === (mongoTitle || '');
+  const startMatches = !mongoStart || !graphEvent.start?.dateTime ||
+    graphEvent.start.dateTime.startsWith(mongoStart.slice(0, 16));
+  const endMatches = !mongoEnd || !graphEvent.end?.dateTime ||
+    graphEvent.end.dateTime.startsWith(mongoEnd.slice(0, 16));
+
+  console.log(`\n   Comparison:`);
+  printDiagnoseField('eventTitle === subject', titleMatches ? 'MATCH' : 'MISMATCH ⚠');
+  printDiagnoseField('startDateTime', startMatches ? 'MATCH' : 'MISMATCH ⚠');
+  printDiagnoseField('endDateTime', endMatches ? 'MATCH' : 'MISMATCH ⚠');
+
+  if (titleMatches && startMatches && endMatches) {
+    console.log(`\n   ✅ DIAGNOSIS: MongoDB and Outlook are in sync.`);
+    console.log(`     If users report otherwise, the Outlook calendar UI may be cached.`);
+    console.log(`     Have them refresh, or open the webLink above directly.`);
+    return;
+  }
+
+  console.log(`\n   ⚠️  DIAGNOSIS: MongoDB and Outlook have DIVERGED.`);
+  console.log(`     MongoDB calendarData.eventTitle is: "${mongoTitle}"`);
+  console.log(`     Outlook Graph subject is:           "${graphEvent.subject}"`);
+  console.log(`     Admin save PATCH is NOT propagating changes to Outlook.\n`);
+  console.log(`     Most likely causes (ranked):`);
+  console.log(`       H1 — Field-shape mismatch: frontend sends eventTitle in a shape that`);
+  console.log(`            api-server.js:hasFieldChanged doesn't see. Verify in DevTools:`);
+  console.log(`            • Open Network panel`);
+  console.log(`            • Edit the title in the app`);
+  console.log(`            • Find the PUT request to /api/admin/events/${id}`);
+  console.log(`            • Check the Request payload: is "eventTitle" a top-level key?`);
+  console.log(`            • Check the Response status: 200 or error?`);
+  console.log(`       H2 — Silent Graph 404: covered above (Graph event exists, so not this).`);
+  console.log(`       H3 — Frontend dispatching to the wrong endpoint (owner-edit instead of`);
+  console.log(`            admin save). The owner-edit endpoint at /api/room-reservations/:id/edit`);
+  console.log(`            does NOT sync to Graph. Confirm the PUT URL in DevTools.`);
+  console.log(`\n     If DevTools confirms an admin save PUT with eventTitle at top level returning 200,`);
+  console.log(`     the bug is in the api-server admin save endpoint's PATCH path — paste the DevTools`);
+  console.log(`     request/response and we'll deepen the investigation.`);
+}
+
+// ---------------------------------------------------------------------------
+// Relink mode — single-record recovery: create a fresh Graph event from the
+// current MongoDB state and overwrite graphData.id. Operator manually deletes
+// the stale Outlook events afterward. See plan Fix 5c for the rationale and
+// safety rails.
+// ---------------------------------------------------------------------------
+
+// Trivial helpers inlined from api-server.js (lines 231 and 2127) so the
+// script stays import-isolated. Both are tiny pure functions.
+function buildGraphSubject(title, startTime, endTime) {
+  const base = title || 'Untitled Event';
+  return (startTime && endTime) ? base : `[Hold] ${base}`;
+}
+
+function buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon) {
+  const location = {
+    displayName: `${offsiteName} (Offsite) - ${offsiteAddress}`,
+    locationType: 'default',
+  };
+  if (offsiteLat != null && offsiteLon != null) {
+    location.coordinates = {
+      latitude: parseFloat(offsiteLat),
+      longitude: parseFloat(offsiteLon),
+    };
+  }
+  return location;
+}
+
+/**
+ * Build the Graph event payload from a MongoDB record's current state.
+ * Mirrors the publish endpoint's construction at api-server.js:21018-21062
+ * but reads from already-stored calendarData (no request body involved).
+ */
+function buildGraphEventDataFromRecord(event) {
+  const cd = event.calendarData || {};
+  const isOffsite = !!cd.isOffsite;
+  const rawNames = cd.locationDisplayNames || '';
+  const locationDisplayNames = Array.isArray(rawNames) ? rawNames.join('; ') : rawNames;
+
+  let graphLocation = { displayName: locationDisplayNames };
+  if (isOffsite && cd.offsiteName && cd.offsiteAddress) {
+    graphLocation = buildOffsiteGraphLocation(cd.offsiteName, cd.offsiteAddress, cd.offsiteLat, cd.offsiteLon);
+  }
+
+  const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+  const graphEventData = {
+    subject: buildGraphSubject(cd.eventTitle, cd.startTime, cd.endTime),
+    start: { dateTime: cd.startDateTime, timeZone: eventTimezone },
+    end: { dateTime: cd.endDateTime, timeZone: eventTimezone },
+    location: graphLocation,
+    locations: isOffsite
+      ? [graphLocation]
+      : locationDisplayNames.split('; ').filter(Boolean).map((name) => ({ displayName: name, locationType: 'default' })),
+    body: { contentType: 'Text', content: cd.eventDescription || '' },
+    categories: cd.categories || [],
+    importance: 'normal',
+    showAs: 'busy',
+  };
+
+  // Recurrence: align start/end date to range.startDate so Graph treats this
+  // as the master occurrence (mirrors publish endpoint at api-server.js:21049-21062).
+  if (event.recurrence?.pattern && event.recurrence?.range) {
+    const graphRecurrence = buildGraphRecurrence(event.recurrence, eventTimezone);
+    if (graphRecurrence) {
+      graphEventData.recurrence = graphRecurrence;
+      const rangeStart = graphRecurrence.range.startDate;
+      if (rangeStart) {
+        const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+        const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+        graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+        graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+      }
+    }
+  }
+
+  return graphEventData;
+}
+
+async function relink(collection, id) {
+  console.log(`\n📋 Relink: ${id}`);
+  console.log(`   Database: ${DB_NAME}`);
+  console.log(`   Mode: ${isDryRun ? 'DRY RUN (no writes)' : 'APPLY'}`);
+
+  let _id;
+  try {
+    _id = new ObjectId(id);
+  } catch (err) {
+    console.error(`\n❌ Invalid ObjectId: ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const event = await collection.findOne({ _id });
+  if (!event) {
+    console.error(`\n❌ No record found with _id ${id}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Safety rails
+  if (event.status !== 'published') {
+    console.error(`\n❌ Refusing to relink: status is '${event.status}', expected 'published'.`);
+    console.error(`   For pending/draft records, publish via the UI instead.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!event.calendarOwner) {
+    console.error(`\n❌ Refusing to relink: calendarOwner is missing on this record.`);
+    process.exitCode = 1;
+    return;
+  }
+  // --force gate only applies to APPLY mode. Dry-run is read-only — let it
+  // proceed and print what WOULD happen so operators can review the plan
+  // before deciding to add --force.
+  if (event.graphData?.id && !isForce && !isDryRun) {
+    console.error(`\n❌ Refusing to relink: graphData.id is already set (${event.graphData.id}).`);
+    console.error(`   This would orphan the existing Outlook event.`);
+    console.error(`   Re-run with --force to acknowledge and proceed.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (event.graphData?.id && isDryRun) {
+    console.log(`\n   ⚠️  Note: graphData.id is already set (${event.graphData.id}).`);
+    console.log(`       Running with --force in apply mode WILL orphan this Outlook event.`);
+  }
+
+  // Build the Graph event payload from current state
+  const graphEventData = buildGraphEventDataFromRecord(event);
+  console.log(`\n   Record: ${event.calendarData?.eventTitle || event.eventTitle || '(no title)'}`);
+  console.log(`   eventType: ${event.eventType || 'singleInstance'}`);
+  console.log(`   calendarOwner: ${event.calendarOwner}`);
+  console.log(`   calendarId: ${event.calendarId || '(default)'}`);
+  console.log(`   Existing graphData.id: ${event.graphData?.id || '(none)'}`);
+  console.log(`   New Graph event subject: "${graphEventData.subject}"`);
+  console.log(`   New Graph event start:   ${graphEventData.start.dateTime} (${graphEventData.start.timeZone})`);
+  console.log(`   New Graph event end:     ${graphEventData.end.dateTime}`);
+  console.log(`   New Graph event location: ${graphEventData.location?.displayName}`);
+  if (graphEventData.recurrence) {
+    console.log(`   New Graph event recurrence: ${graphEventData.recurrence.pattern.type} (${graphEventData.recurrence.range.startDate} -> ${graphEventData.recurrence.range.endDate || '∞'})`);
+  }
+
+  if (isDryRun) {
+    console.log(`\n   (dry-run: WOULD create a fresh Graph event and overwrite graphData.id; no writes made)`);
+    return;
+  }
+
+  // Create the fresh Graph event
+  let createdEvent;
+  try {
+    createdEvent = await withGraphRetry(() =>
+      graphApiService.createCalendarEvent(event.calendarOwner, event.calendarId || null, graphEventData)
+    );
+  } catch (err) {
+    console.error(`\n❌ Graph createCalendarEvent failed: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`\n   ✅ Fresh Graph event created`);
+  console.log(`   New Graph id:     ${createdEvent.id}`);
+  console.log(`   New iCalUId:      ${createdEvent.iCalUId}`);
+  console.log(`   Web link:         ${createdEvent.webLink}`);
+
+  // Persist the new linkage (OCC-guarded). Preserve any existing graphData
+  // auxiliary fields (e.g. location.displayName from delta sync) — only the
+  // id and iCalUId need to point at the new event.
+  const previousGraphId = event.graphData?.id || null;
+  const newGraphData = {
+    ...(event.graphData && typeof event.graphData === 'object' ? event.graphData : {}),
+    id: createdEvent.id,
+    iCalUId: createdEvent.iCalUId,
+  };
+
+  const updateResult = await withCosmosRetry(() => collection.updateOne(
+    { _id, _version: event._version },
+    {
+      $set: { graphData: newGraphData },
+      $inc: { _version: 1 },
+      $push: {
+        'roomReservationData.createdGraphEventIds': createdEvent.id,
+        statusHistory: {
+          status: 'published',
+          changedAt: new Date(),
+          changedBy: 'recovery-script',
+          changedByEmail: 'recovery-script@internal',
+          reason: previousGraphId
+            ? `Relinked to fresh Graph event (orphaned previous: ${previousGraphId})`
+            : 'Relinked to fresh Graph event',
+        },
+      },
+    }
+  ));
+
+  if (updateResult.matchedCount === 0) {
+    console.error(`\n⚠️  OCC conflict: _version changed between read and write.`);
+    console.error(`   The Graph event WAS created (id: ${createdEvent.id}). To complete the relink:`);
+    console.error(`   1. Manually update MongoDB with the new graphData, OR`);
+    console.error(`   2. Delete the orphan Graph event from Outlook and re-run.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`\n   ✅ MongoDB updated. _version: ${event._version} → ${event._version + 1}`);
+  if (previousGraphId) {
+    console.log(`\n   ⚠️  Previous Graph event is now ORPHANED in Outlook: ${previousGraphId}`);
+    console.log(`       Manually delete it from Outlook after verifying the new one works.`);
+  }
+  console.log(`\n   Next steps:`);
+  console.log(`   1. Open the web link above and verify subject/recurrence/room are correct.`);
+  console.log(`   2. Edit the record in the app and confirm the new Outlook event reflects the change.`);
+  console.log(`   3. If sync works, manually delete the old Outlook event(s).`);
+  console.log(`   4. If sync DOESN'T work, the admin save PATCH path has a deeper bug; do not delete anything yet.`);
+}
+
+// ---------------------------------------------------------------------------
 // Main repair loop
 // ---------------------------------------------------------------------------
 
@@ -271,6 +664,21 @@ async function main() {
     await client.connect();
     const db = client.db(DB_NAME);
     const collection = db.collection(COLLECTION);
+
+    // Diagnose mode short-circuits the batch loop — read-only probe for a
+    // single record. See plan Fix 6.
+    if (isDiagnose) {
+      await diagnose(collection, diagnoseId);
+      return;
+    }
+
+    // Relink mode short-circuits the batch loop entirely — it operates on a
+    // single record by _id and creates a fresh Graph event rather than
+    // linking to an existing one. See plan Fix 5c.
+    if (isRelink) {
+      await relink(collection, relinkId);
+      return;
+    }
 
     console.log(`\n📋 Recovery: Untethered Published Events`);
     console.log(`   Database: ${DB_NAME}`);

@@ -171,6 +171,12 @@ async function retryWithBackoff(fn, options = {}) {
     } catch (err) {
       // Non-retryable errors fail fast — don't consume retry budget
       if (!retryableError(err) || attempt === maxAttempts) {
+        if (retryableError(err) && attempt === maxAttempts) {
+          logger.error(
+            '[retryWithBackoff] Cosmos retry exhausted after %d attempts: %s',
+            maxAttempts, err.message
+          );
+        }
         throw err;
       }
 
