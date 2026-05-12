@@ -24570,6 +24570,28 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             if (recurrenceUpdate) {
               graphUpdate.recurrence = recurrenceUpdate;
               logger.info('Added recurrence to Graph update:', recurrenceUpdate);
+
+              // Align start/end to range.startDate. Graph requires start.dateTime
+              // and end.dateTime to define the time-of-day for the FIRST
+              // occurrence (same calendar day, duration = one occurrence) — the
+              // series span lives in recurrence.range. Mongo stores
+              // calendarData.endDateTime as the series END (e.g. 2027-07-19),
+              // so sending it through unaligned makes Graph compute a 10-month
+              // event that would overlap each weekly repeat, returning
+              // 400 ErrorOccurrenceTimeSpanTooBig. Mirrors the alignment in
+              // graphEventBuilder.js:82-96 used by the publish and republish
+              // paths.
+              const rangeStart = recurrenceUpdate.range.startDate;
+              if (rangeStart && graphUpdate.start?.dateTime && graphUpdate.end?.dateTime) {
+                const startTimeOfDay = graphUpdate.start.dateTime.split('T')[1] || '00:00:00';
+                const endTimeOfDay = graphUpdate.end.dateTime.split('T')[1] || '23:59:00';
+                graphUpdate.start.dateTime = `${rangeStart}T${startTimeOfDay}`;
+                graphUpdate.end.dateTime = `${rangeStart}T${endTimeOfDay}`;
+                logger.info('Aligned start/end to recurrence range.startDate:', {
+                  alignedStart: graphUpdate.start.dateTime,
+                  alignedEnd: graphUpdate.end.dateTime,
+                });
+              }
             }
           } else if ('recurrence' in updates && !updates.recurrence) {
             // Recurrence explicitly removed — null it out so Graph converts series → singleInstance

@@ -96,6 +96,9 @@ const isDiagnose = !!diagnoseId;
 // has been verified working — the previous Graph event(s) remain in the
 // owner mailbox as orphans (publish/republish are non-destructive by design
 // to preserve a manual escape hatch). Without --force this is a dry-run.
+// Auto-detects whether the argument is a Mongo ObjectId (24-char hex) or an
+// application-level eventId (e.g. 'evt-request-…'); the latter is resolved
+// via a findOne lookup before the cleanup runs.
 const cleanOrphansArgIdx = process.argv.indexOf('--clean-orphans');
 const cleanOrphansId = cleanOrphansArgIdx >= 0 ? process.argv[cleanOrphansArgIdx + 1] : null;
 const isCleanOrphans = !!cleanOrphansId;
@@ -480,25 +483,31 @@ async function diagnose(collection, id) {
 //   - Pushes a statusHistory entry recording every Graph id we deleted.
 // ---------------------------------------------------------------------------
 
-async function cleanOrphans(collection, id) {
-  console.log(`\n📋 Clean orphans: ${id}`);
+async function cleanOrphans(collection, idArg) {
+  console.log(`\n📋 Clean orphans: ${idArg}`);
   console.log(`   Database: ${DB_NAME}`);
   console.log(`   Mode: ${isForce ? 'APPLY (--force)' : 'DRY RUN (default; pass --force to delete)'}`);
 
-  let _id;
-  try {
-    _id = new ObjectId(id);
-  } catch (err) {
-    console.error(`❌ Invalid ObjectId: ${id}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const event = await withCosmosRetry(() => collection.findOne({ _id }));
-  if (!event) {
-    console.error(`❌ No record found with _id ${id}`);
-    process.exitCode = 1;
-    return;
+  // Accept either a Mongo ObjectId (24-char hex) or an application eventId
+  // ('evt-…'). ObjectId.isValid returns true only for the exact 24-hex form,
+  // so we use it as the discriminator and fall back to an eventId lookup.
+  let event;
+  if (ObjectId.isValid(idArg) && /^[0-9a-fA-F]{24}$/.test(idArg)) {
+    const _id = new ObjectId(idArg);
+    event = await withCosmosRetry(() => collection.findOne({ _id }));
+    if (!event) {
+      console.error(`❌ No record found with _id ${idArg}`);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    event = await withCosmosRetry(() => collection.findOne({ eventId: idArg }));
+    if (!event) {
+      console.error(`❌ No record found with eventId ${idArg}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`   Resolved eventId → _id: ${event._id}`);
   }
 
   const linkedId = event.graphData?.id;
@@ -618,7 +627,7 @@ async function cleanOrphans(collection, id) {
       (failed.length > 0 ? ` (${failed.length} delete attempt(s) failed)` : '') +
       `: ${deleted.map((gid) => gid.slice(-32)).join(', ')}`;
     await withCosmosRetry(() => collection.updateOne(
-      { _id },
+      { _id: event._id },
       {
         $push: {
           statusHistory: {
