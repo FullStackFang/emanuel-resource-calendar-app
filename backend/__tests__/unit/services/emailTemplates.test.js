@@ -121,16 +121,48 @@ describe('Email Template Content Tests', () => {
     expect(html).not.toMatch(/\{\{[^}]+\}\}/);
   });
 
-  it('EU-7: deep link URL falls back to default frontend URL when FRONTEND_URL env unset', async () => {
+  it('EU-7: deep link URL falls back to canonical production URL when FRONTEND_URL env unset', async () => {
     const originalEnv = process.env.FRONTEND_URL;
     delete process.env.FRONTEND_URL;
     try {
       const { html } = await generateAdminNewRequestAlert(mockReservation);
-      // Default URL is the production hostname
-      expect(html).toContain('emanuel-resourcescheduler');
-      expect(html).toContain('?eventId=507f1f77bcf86cd799439011');
+      // Default URL is the canonical custom domain + /scheduler sub-path
+      expect(html).toContain('https://emanuelnyc.org/scheduler');
+      expect(html).toContain('eventId=507f1f77bcf86cd799439011');
     } finally {
       if (originalEnv !== undefined) process.env.FRONTEND_URL = originalEnv;
+    }
+  });
+
+  it('EU-8: deep link respects FRONTEND_URL env override (e.g. for local dev)', async () => {
+    const originalEnv = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = 'https://localhost:5173';
+    try {
+      const { html } = await generateAdminNewRequestAlert(mockReservation);
+      expect(html).toContain('https://localhost:5173/?eventId=507f1f77bcf86cd799439011');
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.FRONTEND_URL = originalEnv;
+      } else {
+        delete process.env.FRONTEND_URL;
+      }
+    }
+  });
+
+  it('EU-9: malformed FRONTEND_URL falls back gracefully (no crash, uses default)', async () => {
+    const originalEnv = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = 'not a valid url';
+    try {
+      const { html } = await generateAdminNewRequestAlert(mockReservation);
+      // Falls back to the canonical default
+      expect(html).toContain('https://emanuelnyc.org/scheduler');
+      expect(html).toContain('eventId=507f1f77bcf86cd799439011');
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.FRONTEND_URL = originalEnv;
+      } else {
+        delete process.env.FRONTEND_URL;
+      }
     }
   });
 });

@@ -172,7 +172,22 @@ if (process.env.SENTRY_DSN) {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const webAppURL = 'https://emanuel-resourcescheduler-d4echehehaf3dxfg.canadacentral-01.azurewebsites.net';
+// Canonical public URL for the app. Includes the /scheduler sub-path because
+// the production app is mounted at https://emanuelnyc.org/scheduler. Used for
+// building user-facing URLs (public reservation tokens, admin panel links).
+// In production, override via FRONTEND_URL env var; otherwise this default is
+// the source of truth.
+const webAppURL = 'https://emanuelnyc.org/scheduler';
+
+// Origin (scheme://host[:port]) derived from a URL with a possible sub-path.
+// CORS matches against the browser's Origin header, which never includes a
+// path — so using webAppURL directly in the allowed-origins list would never
+// match. This helper derives the origin instead.
+function deriveOrigin(maybeUrl) {
+  if (!maybeUrl) return null;
+  try { return new URL(maybeUrl).origin; }
+  catch { return null; }
+}
 
 // Azure AD configuration (shared across backend services)
 const { APP_ID, TENANT_ID } = require('./config/azureConfig');
@@ -249,8 +264,11 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:5173', // Vite dev server
     'https://localhost:5173', // Vite dev server with HTTPS
-    process.env.FRONTEND_URL || webAppURL
-  ],
+    // Production frontend origin. Derived from a URL that may include a path
+    // (e.g. https://emanuelnyc.org/scheduler) because CORS only matches the
+    // origin portion (scheme://host[:port]).
+    deriveOrigin(process.env.FRONTEND_URL || webAppURL)
+  ].filter(Boolean),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token', 'If-Match', 'X-Simulated-Role'],
   credentials: true,
