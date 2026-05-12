@@ -12,7 +12,7 @@ import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import { CHUNK_RELOAD_FLAG } from './utils/lazyWithRetry';
-import { logger } from './utils/logger';
+import { bootstrapMsalAccount } from './utils/msalBootstrap';
 import './index.css'; // optional
 
 // Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
@@ -153,28 +153,25 @@ initializeGlobalErrorHandlers({
 // MSAL v3+ requires explicit initialize() before any API calls.
 // handleRedirectPromise() processes the auth response after mobile loginRedirect().
 // On desktop (no redirect in progress), it resolves to null immediately (no-op).
-// Render the app immediately — MsalProvider handles the async init internally.
-msalInstance.initialize()
-  .then(() => msalInstance.handleRedirectPromise())
-  .then((response) => {
-    if (response) {
-      msalInstance.setActiveAccount(response.account);
-    }
-  })
-  .catch((error) => {
-    logger.error('MSAL initialization/redirect error:', error);
-  });
+// After handling any redirect, if no account is cached, attempt ssoSilent() so
+// users already signed into Microsoft 365 elsewhere in this browser (Outlook,
+// Teams, etc.) are picked up without a sign-in prompt. Render is awaited until
+// this chain resolves so there is no flash of unauthenticated state for users
+// who would otherwise be silently authenticated.
+const renderApp = () => {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <ErrorBoundary>
+      <AuthProvider>
+        <NotificationProvider>
+          <MsalProvider instance={msalInstance}>
+            <App />
+          </MsalProvider>
+          <ToastNotification />
+          <CriticalErrorHandler />
+        </NotificationProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  );
+};
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <ErrorBoundary>
-    <AuthProvider>
-      <NotificationProvider>
-        <MsalProvider instance={msalInstance}>
-          <App />
-        </MsalProvider>
-        <ToastNotification />
-        <CriticalErrorHandler />
-      </NotificationProvider>
-    </AuthProvider>
-  </ErrorBoundary>
-);
+bootstrapMsalAccount(msalInstance).finally(renderApp);

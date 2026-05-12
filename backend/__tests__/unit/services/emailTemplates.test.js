@@ -1,13 +1,19 @@
 /**
- * Email Template Tests (EU-1 to EU-2, TZ-1 to TZ-5)
+ * Email Template Tests (EU-1 to EU-7, TZ-1 to TZ-5)
  *
- * EU-*: Verifies admin alert emails render without review links.
+ * EU-1, EU-2: Admin alert emails render event details AND a deep-link CTA button.
+ * EU-3: Requester-facing emails render a "View Reservation" CTA button.
+ * EU-4: When _id is missing, the {{#eventUrl}} guard suppresses the CTA cleanly.
+ * EU-5: Cancellation alert (third email shape) renders the CTA.
+ * EU-6, EU-7: Existing template literals do not leak when variables are absent.
  * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
 const {
+  generateSubmissionConfirmation,
   generateAdminNewRequestAlert,
   generateAdminEditRequestAlert,
+  generateAdminCancellationRequestAlert,
   formatDateTime,
   formatDate,
   formatTime,
@@ -39,22 +45,93 @@ describe('Email Template Content Tests', () => {
     proposedChanges: [],
   };
 
-  it('EU-1: new request alert renders event details without review link', async () => {
+  const mockCancellationEvent = {
+    _id: '507f1f77bcf86cd799439033',
+    eventTitle: 'Cancelled Workshop',
+    roomReservationData: {
+      requestedBy: { name: 'John Smith', email: 'john@example.com' },
+    },
+    calendarData: {
+      startDateTime: '2026-03-26T18:00:00',
+      endDateTime: '2026-03-26T20:00:00',
+      locationDisplayNames: 'Auditorium',
+    },
+  };
+
+  it('EU-1: new request alert renders event details AND review-request deep link', async () => {
     const { html } = await generateAdminNewRequestAlert(mockReservation);
 
     expect(html).toContain('Board Meeting');
     expect(html).toContain('Jane Doe');
-    expect(html).not.toContain('Review Request');
-    expect(html).not.toContain('adminPanelUrl');
+    expect(html).toContain('Review Request');
+    expect(html).toContain('?eventId=507f1f77bcf86cd799439011');
+    expect(html).toContain('<a href="');
   });
 
-  it('EU-2: edit request alert renders event details without review link', async () => {
+  it('EU-2: edit request alert renders event details AND review-request deep link', async () => {
     const { html } = await generateAdminEditRequestAlert(mockEditRequest);
 
     expect(html).toContain('Updated Board Meeting');
     expect(html).toContain('Jane Doe');
-    expect(html).not.toContain('Review Edit Request');
-    expect(html).not.toContain('adminPanelUrl');
+    expect(html).toContain('Review Request');
+    expect(html).toContain('?eventId=507f1f77bcf86cd799439022');
+  });
+
+  it('EU-3: requester-facing submission confirmation renders "View Reservation" deep link', async () => {
+    const { html } = await generateSubmissionConfirmation(mockReservation);
+
+    expect(html).toContain('Board Meeting');
+    expect(html).toContain('View Reservation');
+    expect(html).toContain('?eventId=507f1f77bcf86cd799439011');
+    // Should NOT use the approver label
+    expect(html).not.toContain('Review Request');
+  });
+
+  it('EU-4: missing _id suppresses CTA button via {{#eventUrl}} guard', async () => {
+    const reservationWithoutId = { ...mockReservation };
+    delete reservationWithoutId._id;
+    const { html } = await generateAdminNewRequestAlert(reservationWithoutId);
+
+    // No CTA anchor block should render
+    expect(html).not.toContain('Review Request');
+    expect(html).not.toContain('?eventId=');
+    // No template literal should leak through
+    expect(html).not.toContain('{{eventUrl}}');
+    expect(html).not.toContain('{{#eventUrl}}');
+    // Event content still renders normally
+    expect(html).toContain('Board Meeting');
+  });
+
+  it('EU-5: cancellation alert renders review-request deep link', async () => {
+    const { html } = await generateAdminCancellationRequestAlert(
+      mockCancellationEvent,
+      'Conflict with another booking'
+    );
+
+    expect(html).toContain('Cancelled Workshop');
+    expect(html).toContain('Review Request');
+    expect(html).toContain('?eventId=507f1f77bcf86cd799439033');
+    expect(html).toContain('Conflict with another booking');
+  });
+
+  it('EU-6: rendered output never contains unresolved {{...}} template markers', async () => {
+    const { html } = await generateAdminNewRequestAlert(mockReservation);
+
+    // No raw {{variable}} or {{#variable}} blocks should leak
+    expect(html).not.toMatch(/\{\{[^}]+\}\}/);
+  });
+
+  it('EU-7: deep link URL falls back to default frontend URL when FRONTEND_URL env unset', async () => {
+    const originalEnv = process.env.FRONTEND_URL;
+    delete process.env.FRONTEND_URL;
+    try {
+      const { html } = await generateAdminNewRequestAlert(mockReservation);
+      // Default URL is the production hostname
+      expect(html).toContain('emanuel-resourcescheduler');
+      expect(html).toContain('?eventId=507f1f77bcf86cd799439011');
+    } finally {
+      if (originalEnv !== undefined) process.env.FRONTEND_URL = originalEnv;
+    }
   });
 });
 

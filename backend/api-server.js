@@ -21136,6 +21136,12 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
     let graphEventId = null;
     let graphEventICalUId = null;
     let calendarEventResult = null;
+    // Track which phase of publish-after-status-write completed, so the rollback
+    // catch can report exactly where the failure occurred (graph_create vs
+    // cascade_status_update vs graph_data_persist) instead of always blaming
+    // Graph creation. Phases advance to true as we pass each await boundary.
+    let cascadeCompleted = false;
+    let graphDataPayload = null;
 
     if (createCalendarEvent && graphEventData) {
       try {
@@ -21195,12 +21201,92 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
             selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
           ).catch(err => logger.warn('Failed to sync exception documents to Graph on publish:', err.message));
         }
+        // Mark cascade phase complete (no-op for non-recurring events).
+        cascadeCompleted = true;
+
+        // Persist the Graph linkage synchronously. This MUST complete before
+        // the response — otherwise we publish an "untethered" event whose
+        // graphData.id gate fails on every subsequent admin save.
+        //
+        // Uses full-object $set on `graphData` rather than dotted-path
+        // (`$set: {'graphData.id': X}`). Documents created via the room-
+        // reservation request endpoint have `graphData: null` initially
+        // (see line ~20695); Cosmos cannot $set a sub-field through a null
+        // parent, so dotted-path silently drops the write while letting
+        // sibling $push operations apply — the exact defect that produced
+        // published-but-untethered records in production.
+        graphDataPayload = {
+          id: graphEventId,
+          iCalUId: graphEventICalUId,
+        };
+        const persistSyncResults = calendarEventResult?.recurrenceSyncResults;
+        if (persistSyncResults?.cancelledOccurrences?.length) {
+          graphDataPayload.cancelledOccurrences = persistSyncResults.cancelledOccurrences;
+        }
+        await withCosmosRetry(() => unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              graphData: graphDataPayload,
+              ...(selectedCalendarId ? { calendarId: selectedCalendarId } : {}),
+              ...(selectedCalendarOwner ? { calendarOwner: selectedCalendarOwner } : {}),
+            },
+            $push: { 'roomReservationData.createdGraphEventIds': graphEventId },
+          }
+        ));
       } catch (error) {
-        logger.error('Graph event creation failed after MongoDB publish, rolling back status:', error);
+        logger.error('Publish failed after MongoDB status change, rolling back:', {
+          phase: !graphEventId ? 'graph_create'
+            : !cascadeCompleted ? 'cascade_status_update'
+            : 'graph_data_persist',
+          errorMessage: error.message,
+          graphEventId
+        });
+
+        // Compensating action: if Graph event was created before the failure,
+        // delete it so we don't leak an orphan on retry. Best-effort — the
+        // recovery script (backend/scripts/recover-untethered-publishes.js)
+        // provides the long-tail backstop.
+        //
+        // Note: withCosmosRetry's predicate (isCosmosRetryable) only matches
+        // Cosmos throttle signals (code 16500, RequestRateTooLarge,
+        // RetryAfterMs). Graph 429s/503s do NOT match, so we use
+        // retryWithBackoff directly with a Graph-specific predicate.
+        if (graphEventId) {
+          try {
+            await retryWithBackoff(
+              () => graphApiService.deleteCalendarEvent(
+                selectedCalendarOwner, selectedCalendarId, graphEventId
+              ),
+              {
+                maxAttempts: 3,
+                retryableError: (err) =>
+                  err?.statusCode === 429 || err?.statusCode === 503 ||
+                  err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET'
+              }
+            );
+            logger.info('Rolled back orphan Graph event during publish failure', {
+              graphEventId, calendarOwner: selectedCalendarOwner
+            });
+          } catch (cleanupErr) {
+            logger.error('Failed to delete orphan Graph event during rollback — manual cleanup required (recovery script can fix)', {
+              eventId: id, graphEventId, calendarOwner: selectedCalendarOwner,
+              cleanupError: cleanupErr.message
+            });
+          }
+        }
+
         // Roll back: revert status to pre-publish state.
         // $pop removes the phantom 'published' statusHistory entry pushed by conditionalUpdate,
         // then $push adds the rollback entry so the history reads: [..., rollback] not [..., published, rollback].
-        // _version is set to event._version + 2 (publish incremented to +1, rollback to +2).
+        // _version is set to event._version + 2: +1 from the initial conditionalUpdate,
+        // +1 for this rollback. The synchronous graphData updateOne above uses plain
+        // $set (no $inc) so it does not affect this arithmetic regardless of which
+        // phase failed.
+        const failurePhase = !graphEventId ? 'graph_create'
+          : !cascadeCompleted ? 'cascade_status_update'
+          : 'graph_data_persist';
+        const rollbackReason = `Publish rolled back during '${failurePhase}': ${error.message}`;
         try {
           // Step 1: Remove phantom 'published' statusHistory entry
           await withCosmosRetry(() => unifiedEventsCollection.updateOne(
@@ -21219,7 +21305,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
                 'roomReservationData.reviewingBy': null,
               },
               $push: {
-                statusHistory: buildStatusHistoryEntry(event.status, userId, userEmail, `Publish rolled back: Graph event creation failed (${error.message})`)
+                statusHistory: buildStatusHistoryEntry(event.status, userId, userEmail, rollbackReason)
               },
             }
           ));
@@ -21229,30 +21315,19 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         return res.status(500).json({
           error: 'CalendarEventCreationFailed',
           details: error.message,
+          failurePhase,
           message: 'Publish failed: Could not create calendar event. The event has been reverted to its previous status. Please try again.'
         });
       }
     }
 
-    // Step 3: Post-publish writes (fire-and-forget with retry — none affect the response)
+    // Step 3: Post-publish writes (fire-and-forget — none affect the response).
+    // graphData persistence moved into the try block above to make it part of
+    // the rollback contract; only non-load-bearing bookkeeping remains here.
     const reviewChanges = event.roomReservationData?.reviewChanges || [];
 
-    // Build merged event update: graphData storage (step 6) + reviewChanges cleanup (step 7)
     const mergedEventUpdate = { $set: {} };
     let hasEventUpdates = false;
-
-    if (graphEventId) {
-      mergedEventUpdate.$set['graphData.id'] = graphEventId;
-      mergedEventUpdate.$set['graphData.iCalUId'] = graphEventICalUId;
-      mergedEventUpdate.$push = { 'roomReservationData.createdGraphEventIds': graphEventId };
-      if (selectedCalendarId) mergedEventUpdate.$set.calendarId = selectedCalendarId;
-      if (selectedCalendarOwner) mergedEventUpdate.$set.calendarOwner = selectedCalendarOwner;
-      const syncResults = calendarEventResult?.recurrenceSyncResults;
-      if (syncResults?.cancelledOccurrences?.length) {
-        mergedEventUpdate.$set['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
-      }
-      hasEventUpdates = true;
-    }
 
     if (reviewChanges.length > 0) {
       mergedEventUpdate.$unset = { 'roomReservationData.reviewChanges': '' };
@@ -21314,6 +21389,23 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       message: 'Reservation published successfully',
       ...(recurringConflicts && recurringConflicts.conflictingOccurrences > 0 ? { recurringConflicts } : {}),
     });
+
+    // Merge the freshly-persisted graphData into publishedEvent BEFORE broadcasting.
+    // publishedEvent was captured by the initial conditionalUpdate (line ~21113)
+    // before the Graph event existed; without this merge, projectEventForSSE
+    // would emit graphData: null and Calendar.jsx's in-place SSE patch would
+    // leave the just-published event showing hasGraphId: false until refetch.
+    if (graphDataPayload) {
+      publishedEvent.graphData = graphDataPayload;
+      if (selectedCalendarId) publishedEvent.calendarId = selectedCalendarId;
+      if (selectedCalendarOwner) publishedEvent.calendarOwner = selectedCalendarOwner;
+      if (publishedEvent.roomReservationData) {
+        publishedEvent.roomReservationData.createdGraphEventIds = [
+          ...(publishedEvent.roomReservationData.createdGraphEventIds || []),
+          graphEventId
+        ];
+      }
+    }
 
     broadcastEventChange({
       eventId: id,
@@ -21685,6 +21777,10 @@ function buildEditRequestEmailPayload(event, editRequest, options = {}) {
   const { finalChanges = {}, requesterOverride = null, locationDisplayNameFallback = null, proposedChanges = null } = options;
   const cd = event.calendarData || {};
   return {
+    // _id is intentionally the parent EVENT's _id, NOT the edit-request document's _id.
+    // This is the contract used by extractVariables() in emailTemplates.js to build
+    // the deep-link URL (GET /api/events/:id). Passing editRequest._id here would
+    // 404 the email's CTA button.
     _id: event._id,
     eventId: event.eventId,
     eventTitle: finalChanges.eventTitle || cd.eventTitle || event.eventTitle,

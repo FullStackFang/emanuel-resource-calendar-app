@@ -6,6 +6,7 @@
 
 const escapeHtml = require('escape-html');
 const logger = require('../utils/logger');
+const { buildEventDeepLinkUrl } = require('../utils/eventDeepLink');
 
 // Database connection for fetching template overrides
 let dbConnection = null;
@@ -94,10 +95,18 @@ const DEFAULT_TEMPLATES = {
   Our team will review your request and you will receive another email once it has been approved or if we need additional information.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you have any questions, please contact our office.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'attendeeCount']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'attendeeCount', 'eventUrl']
   },
 
   [TEMPLATE_IDS.ADMIN_NEW_REQUEST]: {
@@ -144,10 +153,18 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Request
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px;">
   Please review this request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'attendeeCount', 'submittedAt']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'attendeeCount', 'submittedAt', 'eventUrl']
   },
 
   [TEMPLATE_IDS.APPROVAL]: {
@@ -207,10 +224,18 @@ const DEFAULT_TEMPLATES = {
   If you need to make any changes to your reservation, please contact our office.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable', 'eventUrl']
   },
 
   [TEMPLATE_IDS.REJECTION]: {
@@ -261,10 +286,18 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision or submit a revised request, please contact our office. We're happy to help you find an alternative that works.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason', 'eventUrl']
   },
 
   [TEMPLATE_IDS.DELETION]: {
@@ -314,10 +347,18 @@ const DEFAULT_TEMPLATES = {
   If you have any questions about this cancellation, please contact our office.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'deletedByName', 'deletionReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'deletedByName', 'deletionReason', 'eventUrl']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -360,10 +401,18 @@ const DEFAULT_TEMPLATES = {
   Our team will review the updated information and you will receive another email with our decision.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your patience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'eventUrl']
   },
 
   [TEMPLATE_IDS.REVIEW_STARTED]: {
@@ -385,10 +434,18 @@ const DEFAULT_TEMPLATES = {
   You will receive another email shortly with the final decision.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your patience.
 </p>`,
-    variables: ['eventTitle', 'requesterName']
+    variables: ['eventTitle', 'requesterName', 'eventUrl']
   },
 
   // =========================================================================
@@ -436,10 +493,18 @@ const DEFAULT_TEMPLATES = {
   Our team will review your edit request. The original event will remain unchanged until your request is approved.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you have any questions, please contact our office.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'eventUrl']
   },
 
   [TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT]: {
@@ -482,10 +547,18 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Request
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px;">
   Please review this edit request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'eventUrl']
   },
 
   [TEMPLATE_IDS.EDIT_REQUEST_APPROVED]: {
@@ -545,10 +618,18 @@ const DEFAULT_TEMPLATES = {
   If you need to make any further changes, please submit a new edit request.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable', 'eventUrl']
   },
 
   [TEMPLATE_IDS.EDIT_REQUEST_REJECTED]: {
@@ -599,10 +680,18 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision or submit a revised edit request, please contact our office.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason', 'eventUrl']
   },
 
   // =========================================================================
@@ -650,10 +739,18 @@ const DEFAULT_TEMPLATES = {
   <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
 </div>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   You will be notified once a decision has been made regarding your cancellation request.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'cancellationReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'cancellationReason', 'eventUrl']
   },
 
   [TEMPLATE_IDS.ADMIN_CANCELLATION_REQUEST_ALERT]: {
@@ -701,10 +798,18 @@ const DEFAULT_TEMPLATES = {
   <p style="margin: 0; color: #4a5568;">{{cancellationReason}}</p>
 </div>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Request
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px;">
   Please review this cancellation request at your earliest convenience.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'cancellationReason']
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'cancellationReason', 'eventUrl']
   },
 
   [TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED]: {
@@ -750,10 +855,18 @@ const DEFAULT_TEMPLATES = {
 </div>
 {{/approvalNotes}}
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   If you need to rebook this event, please submit a new reservation request.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'approvalNotes']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'approvalNotes', 'eventUrl']
   },
 
   [TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED]: {
@@ -804,10 +917,18 @@ const DEFAULT_TEMPLATES = {
   If you would like to discuss this decision, please contact our office.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for your understanding.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'rejectionReason']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'rejectionReason', 'eventUrl']
   },
 
   // =========================================================================
@@ -868,10 +989,18 @@ const DEFAULT_TEMPLATES = {
   If you have any questions about these changes, please contact our office.
 </p>
 
+{{#eventUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{eventUrl}}" style="display: inline-block; background-color: #2b6cb0; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Reservation
+  </a>
+</p>
+{{/eventUrl}}
+
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable', 'eventUrl']
   },
 
   // =========================================================================
@@ -1326,6 +1455,14 @@ function extractVariables(reservation, extras = {}) {
   // Created/submitted date
   const createdAt = reservation.createdAt || reqData.createdAt || new Date();
 
+  // Deep-link URL into the event's review modal. The reservation/event object
+  // passed here always carries the parent event's _id (set explicitly by the
+  // email-data builders at every call site, e.g. buildEditRequestEmailPayload
+  // intentionally copies event._id, NOT editRequest._id). When _id is missing,
+  // buildEventDeepLinkUrl returns '' and the {{#eventUrl}} guard in each
+  // template body omits the CTA button — emails still render correctly.
+  const eventUrl = buildEventDeepLinkUrl(reservation._id || reservation.eventId);
+
   return {
     eventTitle: escapeHtml(eventTitle),
     requesterName: escapeHtml(requesterName),
@@ -1335,6 +1472,7 @@ function extractVariables(reservation, extras = {}) {
     locations: escapeHtml(locationsStr),
     attendeeCount: String(attendeeCount),
     submittedAt: formatDateTime(createdAt),
+    eventUrl,
     ...extras
   };
 }

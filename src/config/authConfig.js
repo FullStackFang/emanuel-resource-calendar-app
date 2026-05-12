@@ -16,7 +16,14 @@ export const msalConfig = {
       postLogoutRedirectUri: window.location.origin
     },
     cache: {
-      cacheLocation: "sessionStorage",
+      // localStorage (vs sessionStorage) so the MSAL account cache is shared
+      // across browser tabs. Required for email-deep-link UX: a fresh tab opened
+      // from an email must see the account cached by an existing app tab so the
+      // user is not re-prompted to sign in. Note: this is intentionally asymmetric
+      // with src/config/queryClient.js, which keeps the TanStack Query event-data
+      // cache in sessionStorage (event data should evaporate on tab close for
+      // shared-computer privacy; auth tokens need cross-tab continuity).
+      cacheLocation: "localStorage",
       storeAuthStateInCookie: false,
     }
   };
