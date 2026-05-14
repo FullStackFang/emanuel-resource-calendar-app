@@ -634,7 +634,32 @@ function SchedulingAssistant({
       }
     });
 
-    setEventBlocks(blocks);
+    // Defensive dedup: React key for each block is `${block.id}-${block.roomIndex}`.
+    // Series masters with first-occurrence in the viewed window can be returned by
+    // both conflicts.reservations (Q2) AND conflicts.reservations expanded-occurrences
+    // (Q4) when the backend's date-string dedup misses (e.g. timezone parsing differences
+    // or empty calendarData.startDateTime). Filter duplicates here to avoid React's
+    // duplicate-key warning, and surface the dropped block so we can diagnose root cause.
+    const seenBlockKeys = new Set();
+    const dedupedBlocks = blocks.filter(block => {
+      const key = `${block.id}-${block.roomIndex}`;
+      if (seenBlockKeys.has(key)) {
+        console.warn('[SchedulingAssistant] Dropped duplicate block (same id+roomIndex):', {
+          key,
+          id: block.id,
+          type: block.type,
+          title: block.title,
+          room: block.room?.name || block.room?.displayName,
+          startTimeStr: block.startTimeStr,
+          endTimeStr: block.endTimeStr,
+        });
+        return false;
+      }
+      seenBlockKeys.add(key);
+      return true;
+    });
+
+    setEventBlocks(dedupedBlocks);
     setRoomStats(stats);
 
     // Signal conflicts immediately using locally-computed stats (not roomStats state).
