@@ -634,30 +634,30 @@ function SchedulingAssistant({
       }
     });
 
-    // Defensive dedup: React key for each block is `${block.id}-${block.roomIndex}`.
-    // Series masters with first-occurrence in the viewed window can be returned by
-    // both conflicts.reservations (Q2) AND conflicts.reservations expanded-occurrences
-    // (Q4) when the backend's date-string dedup misses (e.g. timezone parsing differences
-    // or empty calendarData.startDateTime). Filter duplicates here to avoid React's
-    // duplicate-key warning, and surface the dropped block so we can diagnose root cause.
-    const seenBlockKeys = new Set();
-    const dedupedBlocks = blocks.filter(block => {
-      const key = `${block.id}-${block.roomIndex}`;
-      if (seenBlockKeys.has(key)) {
-        console.warn('[SchedulingAssistant] Dropped duplicate block (same id+roomIndex):', {
-          key,
-          id: block.id,
-          type: block.type,
-          title: block.title,
-          room: block.room?.name || block.room?.displayName,
-          startTimeStr: block.startTimeStr,
-          endTimeStr: block.endTimeStr,
-        });
-        return false;
+    // Dedup blocks by React key (`${block.id}-${block.roomIndex}`). The same logical
+    // event can land in `blocks` twice when the backend returns it in BOTH
+    // `conflicts.reservations` (Q2 main-overlap query) AND as an expanded
+    // occurrence (Q4 series-master expansion) — happens for series masters
+    // whose stored `calendarData.endDateTime` spans the whole range. Without
+    // dedup, React warns about duplicate keys.
+    // Tie-break: prefer the block whose source date == effectiveDate (the
+    // day-scoped occurrence) over a multi-day spanning block. Keeps the
+    // visually-correct block AND silences the React warning.
+    const blocksByKey = new Map();
+    for (const b of blocks) {
+      const key = `${b.id}-${b.roomIndex}`;
+      const existing = blocksByKey.get(key);
+      if (!existing) {
+        blocksByKey.set(key, b);
+        continue;
       }
-      seenBlockKeys.add(key);
-      return true;
-    });
+      const bDate = parseDateFromString(b.originalStartTimeStr || '');
+      const existingDate = parseDateFromString(existing.originalStartTimeStr || '');
+      if (bDate === effectiveDate && existingDate !== effectiveDate) {
+        blocksByKey.set(key, b);
+      }
+    }
+    const dedupedBlocks = [...blocksByKey.values()];
 
     setEventBlocks(dedupedBlocks);
     setRoomStats(stats);
