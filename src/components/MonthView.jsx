@@ -112,6 +112,7 @@ const MonthView = memo(({
   return (
     <div className="month-view-wrapper">
       <div className="month-view-container">
+        <div ref={monthSentinelRef} className="month-header-sentinel" aria-hidden="true" />
         <div className={`month-header${isMonthHeaderStuck ? ' is-stuck' : ''}`}>
           <div className="weekday-header">
             {getWeekdayHeaders().map((day, index) => (
@@ -120,7 +121,6 @@ const MonthView = memo(({
           </div>
         </div>
         <div className="month-days">
-          <div ref={monthSentinelRef} className="month-header-sentinel" aria-hidden="true" />
           {getMonthWeeks().map((week, weekIndex) => (
             <div key={weekIndex} className="week-row">
               {week.map((day, dayIndex) => {
