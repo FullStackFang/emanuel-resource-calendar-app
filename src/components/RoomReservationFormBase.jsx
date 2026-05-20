@@ -27,6 +27,7 @@ import {
   validateTimeOrdering,
 } from '../utils/timeClampUtils';
 import { usePermissions } from '../hooks/usePermissions';
+import { useNotification } from '../context/NotificationContext';
 import ClergySelectorModal from './ClergySelectorModal';
 import MecEventPreviewPanel from './preview/MecEventPreviewPanel';
 import './RoomReservationForm.css';
@@ -389,23 +390,104 @@ export default function RoomReservationFormBase({
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
 
-  // Floor plan placeholder (UI only — does not persist to formData/backend)
-  const [floorPlanPreview, setFloorPlanPreview] = useState(null);
+  // Floor plan upload — persisted through the shared GridFS attachment pipeline
+  // (POST/GET/DELETE /events/:eventId/attachments) tagged with isFloorPlan, so it
+  // reuses auth, storage, audit and preview. Needs a saved event to attach to,
+  // exactly like the Attachments tab.
+  const { showSuccess, showError } = useNotification();
+  const [floorPlanPreview, setFloorPlanPreview] = useState(null);     // blob: URL for <img>
   const [floorPlanFileName, setFloorPlanFileName] = useState('');
+  const [floorPlanAttachmentId, setFloorPlanAttachmentId] = useState(null);
+  const [floorPlanUploading, setFloorPlanUploading] = useState(false);
   const floorPlanInputRef = useRef(null);
 
-  const handleFloorPlanSelect = (e) => {
+  const floorPlanEventId = initialData?.eventId || currentEventId || null;
+
+  // Load an existing floor plan once an event id + token are available.
+  useEffect(() => {
+    if (!floorPlanEventId || !apiToken) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const listRes = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/${floorPlanEventId}/attachments`,
+          { headers: { Authorization: `Bearer ${apiToken}` } }
+        );
+        if (!listRes.ok || cancelled) return;
+        const data = await listRes.json();
+        const fp = (data.attachments || []).find((a) => a.isFloorPlan);
+        if (!fp || cancelled) return;
+        const fileRes = await fetch(`${APP_CONFIG.API_BASE_URL}${fp.downloadUrl}`, {
+          headers: { Authorization: `Bearer ${apiToken}` },
+        });
+        if (!fileRes.ok || cancelled) return;
+        const url = URL.createObjectURL(await fileRes.blob());
+        if (cancelled) { URL.revokeObjectURL(url); return; }
+        setFloorPlanPreview(url);
+        setFloorPlanFileName(fp.fileName);
+        setFloorPlanAttachmentId(fp.id);
+      } catch (err) {
+        if (!isAbortError(err)) logger.error('Failed to load floor plan:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [floorPlanEventId, apiToken]);
+
+  const handleFloorPlanSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (floorPlanPreview) URL.revokeObjectURL(floorPlanPreview);
-    setFloorPlanPreview(URL.createObjectURL(file));
-    setFloorPlanFileName(file.name);
+    if (!floorPlanEventId || !apiToken) {
+      showError('Please save the reservation first, then upload a floor plan.');
+      if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
+      return;
+    }
+    setFloorPlanUploading(true);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('isFloorPlan', 'true');
+      const res = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${floorPlanEventId}/attachments`,
+        { method: 'POST', headers: { Authorization: `Bearer ${apiToken}` }, body }
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Upload failed');
+      }
+      const data = await res.json();
+      // Show the just-selected file immediately (the prior preview URL, if any,
+      // is revoked by the cleanup effect when floorPlanPreview changes).
+      setFloorPlanPreview(URL.createObjectURL(file));
+      setFloorPlanFileName(file.name);
+      setFloorPlanAttachmentId(data.attachment?.id || null);
+      showSuccess('Floor plan saved');
+    } catch (err) {
+      logger.error('Floor plan upload failed:', err);
+      showError('Failed to save floor plan');
+    } finally {
+      setFloorPlanUploading(false);
+      if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
+    }
   };
 
-  const handleFloorPlanClear = () => {
-    if (floorPlanPreview) URL.revokeObjectURL(floorPlanPreview);
+  const handleFloorPlanClear = async () => {
+    if (floorPlanAttachmentId && floorPlanEventId && apiToken) {
+      try {
+        const res = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/${floorPlanEventId}/attachments/${floorPlanAttachmentId}`,
+          { method: 'DELETE', headers: { Authorization: `Bearer ${apiToken}` } }
+        );
+        if (!res.ok) throw new Error('Delete failed');
+        showSuccess('Floor plan removed');
+      } catch (err) {
+        logger.error('Floor plan delete failed:', err);
+        showError('Failed to remove floor plan');
+        return; // keep current preview so the user can retry
+      }
+    }
     setFloorPlanPreview(null);
     setFloorPlanFileName('');
+    setFloorPlanAttachmentId(null);
     if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
   };
 
@@ -2349,7 +2431,7 @@ export default function RoomReservationFormBase({
           </section>
           </div>
 
-          {/* Right Column: Floor Plan Upload (placeholder, UI only) */}
+          {/* Right Column: Floor Plan Upload — persisted as an isFloorPlan attachment */}
           <section className="form-section">
             <h2>Floor Plan</h2>
             <div className="form-group">
@@ -2358,13 +2440,18 @@ export default function RoomReservationFormBase({
                 ref={floorPlanInputRef}
                 id="floorPlanUpload"
                 name="floorPlanUpload"
+                data-testid="floor-plan-upload"
                 type="file"
                 accept="image/*,.pdf"
                 onChange={handleFloorPlanSelect}
-                disabled={fieldsDisabled}
+                disabled={fieldsDisabled || floorPlanUploading || !floorPlanEventId}
               />
               <div style={{ fontSize: '12px', color: 'var(--color-text-secondary, #666)', marginTop: '6px' }}>
-                Upload a floor plan image to visualize room setup. (Preview only — not yet saved.)
+                {floorPlanUploading
+                  ? 'Saving floor plan…'
+                  : !floorPlanEventId
+                    ? 'Save the reservation first to upload a floor plan.'
+                    : 'Upload a floor plan image to visualize room setup. Saved with the reservation.'}
               </div>
             </div>
 
@@ -2390,7 +2477,7 @@ export default function RoomReservationFormBase({
                     <button
                       type="button"
                       onClick={handleFloorPlanClear}
-                      disabled={fieldsDisabled}
+                      disabled={fieldsDisabled || floorPlanUploading}
                       style={{
                         background: 'transparent',
                         border: '1px solid var(--color-border, #ccc)',
@@ -2412,7 +2499,9 @@ export default function RoomReservationFormBase({
               ) : (
                 <span style={{ color: 'var(--color-text-secondary, #888)', fontSize: '13px', textAlign: 'center' }}>
                   No floor plan uploaded.<br />
-                  Choose an image or PDF above to preview here.
+                  {floorPlanEventId
+                    ? 'Choose an image or PDF above to upload it here.'
+                    : 'Save the reservation first to enable floor plan upload.'}
                 </span>
               )}
             </div>

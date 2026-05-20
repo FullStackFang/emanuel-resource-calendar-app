@@ -31,6 +31,7 @@ require('dotenv').config();
 const rschedImportService = require('./services/rschedImportService');
 const graphApiService = require('./services/graphApiService');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
+const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { ensureCsvHeader } = require('./utils/rschedCsvShim');
 const {
   getStartDateTime,
@@ -42,8 +43,21 @@ const {
 
 const DEFAULT_CSV = 'rsched_all_asof_5_8_2026.csv';
 const TIME_TOLERANCE_MINUTES = 1;
-const BATCH_SIZE = 100;
+const BATCH_SIZE = 25;       // lowered from 100: keeps per-second Cosmos RU bursts
+                             // (and the retryWithBackoff circuit breaker) calm on
+                             // low-RU containers. Re-runs are idempotent, so a
+                             // smaller batch only costs wall-clock time.
 const BATCH_PAUSE_MS = 1000;
+
+// Per-row retry policy for Cosmos 429s (Error 16500). retryWithBackoff honors the
+// server's RetryAfterMs and is bounded (maxAttempts), so a throttled write waits
+// the exact recommended delay instead of being skipped — and can't retry forever.
+const RETRY_OPTS = {
+  maxAttempts: 8,
+  initialDelayMs: 500,
+  onRetry: ({ attempt, delay, error, maxAttempts }) =>
+    console.warn(`   [429 backoff] attempt ${attempt}/${maxAttempts}, waiting ${delay}ms — ${String(error.message).split(';')[0]}`),
+};
 const CALENDAR_TIMEZONE = 'Eastern Standard Time';
 
 const IMPORT_USER_ID = '69fda879-0c61-4aa5-b02d-cad292c0777e';
@@ -780,7 +794,7 @@ async function main() {
       for (let i = 0; i < plan.update.length; i += BATCH_SIZE) {
         const batch = plan.update.slice(i, i + BATCH_SIZE);
         for (const { row, doc } of batch) {
-          try { await applyUpdate(events, row, doc, sessionId, { targetCalendarId: calendarId }); done++; }
+          try { await retryWithBackoff(() => applyUpdate(events, row, doc, sessionId, { targetCalendarId: calendarId }), RETRY_OPTS); done++; }
           catch (err) { failed++; console.warn(`\n   update failed _id=${doc._id}: ${err.message}`); }
         }
         printProgress('Update', Math.min(i + BATCH_SIZE, plan.update.length), plan.update.length);
@@ -802,7 +816,7 @@ async function main() {
         const batch = plan.create.slice(i, i + BATCH_SIZE);
         for (const row of batch) {
           try {
-            const r = await applyInsert(events, row, sessionId, calendarId);
+            const r = await retryWithBackoff(() => applyInsert(events, row, sessionId, calendarId), RETRY_OPTS);
             if (r.outcome === 'inserted') inserted++;
             else if (r.outcome === 'updated-collision') collisionsRedirected++;
             if (r.doc?._id) touchedIds.add(String(r.doc._id));
@@ -839,7 +853,7 @@ async function main() {
         for (let i = 0; i < sdPlan.length; i += BATCH_SIZE) {
           const batch = sdPlan.slice(i, i + BATCH_SIZE);
           for (const { doc, reason } of batch) {
-            try { await applySoftDelete(events, doc, reason); done++; }
+            try { await retryWithBackoff(() => applySoftDelete(events, doc, reason), RETRY_OPTS); done++; }
             catch (err) { failed++; console.warn(`\n   soft-delete failed _id=${doc._id}: ${err.message}`); }
           }
           printProgress('SoftDelete', Math.min(i + BATCH_SIZE, sdPlan.length), sdPlan.length);
@@ -856,7 +870,7 @@ async function main() {
       for (let i = 0; i < bucketB.length; i += BATCH_SIZE) {
         const batch = bucketB.slice(i, i + BATCH_SIZE);
         for (const { doc, graph } of batch) {
-          try { await applyRefreshFromOutlook(events, doc, graph); done++; }
+          try { await retryWithBackoff(() => applyRefreshFromOutlook(events, doc, graph), RETRY_OPTS); done++; }
           catch (err) { failed++; console.warn(`\n   refresh failed _id=${doc._id}: ${err.message}`); }
         }
         printProgress('Refresh', Math.min(i + BATCH_SIZE, bucketB.length), bucketB.length);

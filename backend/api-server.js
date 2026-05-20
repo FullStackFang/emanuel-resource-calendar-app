@@ -8527,6 +8527,9 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
     const userId = req.user.userId;
     const file = req.file;
     const { description = '' } = req.body;
+    // FormData transmits booleans as strings — coerce. A floor plan is a
+    // special, single-per-event attachment surfaced in the Floor Plan section.
+    const isFloorPlan = req.body.isFloorPlan === 'true' || req.body.isFloorPlan === true;
 
     if (!file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -8547,6 +8550,24 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
 
     if (!event) {
       return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+
+    // A floor plan is single-per-event: replace any existing one so we never
+    // accumulate duplicates or orphaned GridFS blobs. Done server-side (not by
+    // the client) so a failed second upload can't strand the old record.
+    if (isFloorPlan) {
+      const priorFloorPlans = await eventAttachmentsCollection
+        .find({ eventId: eventId, isFloorPlan: true })
+        .toArray();
+      for (const prior of priorFloorPlans) {
+        try {
+          await filesBucket.delete(prior.gridfsFileId);
+        } catch (delErr) {
+          // GridFS file may already be gone — log and continue cleanup
+          logger.warn(`Failed to delete prior floor plan GridFS file ${prior.gridfsFileId}:`, delErr.message);
+        }
+        await eventAttachmentsCollection.deleteOne({ _id: prior._id });
+      }
     }
 
     // Create a readable stream from the buffer
@@ -8580,7 +8601,8 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
       mimeType: file.mimetype,
       uploadedBy: userId,
       uploadedAt: new Date(),
-      description: description
+      description: description,
+      isFloorPlan: isFloorPlan
     };
 
     const insertResult = await eventAttachmentsCollection.insertOne(attachmentRecord);
@@ -8590,11 +8612,11 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
       eventId: eventId,
       userId: userId,
       changeType: 'update',
-      source: 'File Attachment',
+      source: isFloorPlan ? 'Floor Plan' : 'File Attachment',
       changeSet: [{
-        field: 'attachments',
+        field: isFloorPlan ? 'floorPlan' : 'attachments',
         oldValue: null,
-        newValue: `Added file: ${file.originalname} (${Math.round(file.size / 1024)}KB)`
+        newValue: `${isFloorPlan ? 'Set floor plan' : 'Added file'}: ${file.originalname} (${Math.round(file.size / 1024)}KB)`
       }],
       metadata: {
         userAgent: req.headers['user-agent'] || 'Unknown',
@@ -8620,6 +8642,7 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
         mimeType: file.mimetype,
         uploadedAt: attachmentRecord.uploadedAt,
         description: description,
+        isFloorPlan: isFloorPlan,
         downloadUrl: `/files/${fileId}`
       }
     });
@@ -8665,6 +8688,7 @@ app.get('/api/events/:eventId/attachments', verifyToken, async (req, res) => {
       uploadedBy: attachment.uploadedBy,
       uploadedAt: attachment.uploadedAt,
       description: attachment.description,
+      isFloorPlan: attachment.isFloorPlan || false,
       downloadUrl: `/files/${attachment.gridfsFileId}`
     }));
 
@@ -9027,6 +9051,7 @@ app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req,
       uploadedBy: attachment.uploadedBy,
       uploadedAt: attachment.uploadedAt,
       description: attachment.description,
+      isFloorPlan: attachment.isFloorPlan || false,
       downloadUrl: `/files/${attachment.gridfsFileId}`
     }));
 

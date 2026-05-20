@@ -1,6 +1,6 @@
 // src/__tests__/unit/components/RoomReservationFormBase.test.jsx
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Mock all heavy child components to isolate the form base
 vi.mock('../../../components/SchedulingAssistant', () => ({
@@ -28,6 +28,12 @@ vi.mock('../../../components/OffsiteLocationModal', () => ({
 vi.mock('../../../components/CategorySelectorModal', () => ({
   default: () => null,
 }));
+vi.mock('../../../components/ClergySelectorModal', () => ({
+  default: () => null,
+}));
+vi.mock('../../../components/preview/MecEventPreviewPanel', () => ({
+  default: () => null,
+}));
 vi.mock('../../../components/ServicesSelectorModal', () => ({
   default: () => null,
   ServicesContent: () => null,
@@ -41,6 +47,15 @@ vi.mock('../../../components/shared/CalendarIcons', () => ({
 vi.mock('../../../config/config', () => ({
   default: { API_BASE_URL: 'http://localhost:3001/api' },
 }));
+const mockShowSuccess = vi.fn();
+const mockShowError = vi.fn();
+vi.mock('../../../context/NotificationContext', () => ({
+  useNotification: () => ({
+    showSuccess: mockShowSuccess,
+    showError: mockShowError,
+    showWarning: vi.fn(),
+  }),
+}));
 vi.mock('../../../utils/logger', () => ({
   logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
@@ -51,7 +66,7 @@ vi.mock('../../../hooks/useCategoriesQuery', () => ({
   useBaseCategoriesQuery: () => ({ data: [], isLoading: false }),
 }));
 vi.mock('../../../hooks/usePermissions', () => ({
-  usePermissions: () => ({ role: 'admin', canEditEvents: true }),
+  usePermissions: () => ({ role: 'admin', canEditEvents: true, isAdmin: true, canEditField: () => true }),
 }));
 vi.mock('../../../utils/textUtils', () => ({
   extractTextFromHtml: (html) => html || '',
@@ -177,5 +192,108 @@ describe('RoomReservationFormBase', () => {
     const banner = screen.getByTestId('recurrence-change-banner');
     expect(banner.textContent).toContain('(none)');
     expect(banner.textContent).toContain('Monday');
+  });
+
+  // ─── Floor Plan Upload (Additional Info tab) ───────────────
+  // The floor plan upload must persist through the shared attachment pipeline
+  // (POST /events/:eventId/attachments with isFloorPlan), not just preview.
+
+  describe('floor plan upload', () => {
+    const additionalTabProps = {
+      showAllTabs: false,
+      activeTab: 'additional',
+      apiToken: 'test-token',
+    };
+
+    beforeEach(() => {
+      // jsdom lacks object-URL support — stub it for the <img> preview path.
+      global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+      global.URL.revokeObjectURL = vi.fn();
+      // Default: no existing attachments (load effect finds no floor plan).
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ attachments: [] }),
+      }));
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('uploads the selected file with the isFloorPlan flag once the event is saved', async () => {
+      global.fetch = vi.fn(async (url, opts) => {
+        if (opts?.method === 'POST') {
+          return { ok: true, json: async () => ({ attachment: { id: 'att-1', isFloorPlan: true } }) };
+        }
+        return { ok: true, json: async () => ({ attachments: [] }) };
+      });
+
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventId: 'evt-1', eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+        />
+      );
+
+      const input = screen.getByTestId('floor-plan-upload');
+      expect(input.disabled).toBe(false);
+
+      const file = new File(['plan-bytes'], 'floor-plan.png', { type: 'image/png' });
+      fireEvent.change(input, { target: { files: [file] } });
+
+      await waitFor(() => {
+        const postCall = global.fetch.mock.calls.find(([, o]) => o?.method === 'POST');
+        expect(postCall).toBeTruthy();
+        expect(postCall[0]).toBe('http://localhost:3001/api/events/evt-1/attachments');
+        const body = postCall[1].body;
+        expect(body.get('isFloorPlan')).toBe('true');
+        expect(body.get('file')).toBeInstanceOf(File);
+      });
+
+      await waitFor(() => expect(mockShowSuccess).toHaveBeenCalled());
+    });
+
+    it('blocks upload and guides the user when the reservation is unsaved', () => {
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+        />
+      );
+
+      const input = screen.getByTestId('floor-plan-upload');
+      // Guard is enforced at the UI level: input disabled, save-first hint shown.
+      expect(input.disabled).toBe(true);
+      expect(screen.getByText(/Save the reservation first to upload a floor plan/i)).toBeTruthy();
+      // No upload POST should ever fire without an event id.
+      const postCall = global.fetch.mock.calls.find(([, o]) => o?.method === 'POST');
+      expect(postCall).toBeUndefined();
+    });
+
+    it('loads and previews an existing floor plan on open', async () => {
+      global.fetch = vi.fn(async (url) => {
+        if (typeof url === 'string' && url.endsWith('/events/evt-1/attachments')) {
+          return {
+            ok: true,
+            json: async () => ({
+              attachments: [
+                { id: 'att-9', fileName: 'existing-plan.pdf', isFloorPlan: true, downloadUrl: '/files/gridfs-9' },
+              ],
+            }),
+          };
+        }
+        // The /files/:id blob fetch
+        return { ok: true, blob: async () => new Blob(['x'], { type: 'application/pdf' }) };
+      });
+
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventId: 'evt-1', eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+        />
+      );
+
+      await waitFor(() => expect(screen.getByText('existing-plan.pdf')).toBeTruthy());
+    });
   });
 });

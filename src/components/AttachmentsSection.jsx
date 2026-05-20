@@ -160,7 +160,9 @@ export default function AttachmentsSection({
 
       if (response.ok) {
         const data = await response.json();
-        setAttachments(data.attachments || []);
+        // Floor plans live in the dedicated Floor Plan section (Additional Info
+        // tab), not this generic list — filter them out to avoid double-display.
+        setAttachments((data.attachments || []).filter(att => !att.isFloorPlan));
       }
     } catch (error) {
       logger.error('Failed to load attachments:', error);
