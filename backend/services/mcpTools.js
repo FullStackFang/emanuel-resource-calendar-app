@@ -1023,6 +1023,7 @@ class MCPToolExecutor {
         location: 1, locationDisplayNames: 1, locationDisplayName: 1,
         categories: 1,
         eventDescription: 1,
+        attendeeCount: 1,
         calendarData: 1,
         graphData: 1,
         setupTime: 1, teardownTime: 1,
@@ -1072,6 +1073,7 @@ class MCPToolExecutor {
         displayName: event.calendarData?.locationDisplayNames || event.locationDisplayNames || event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
       },
       categories: event.calendarData?.categories || event.categories || event.graphData?.categories || [],
+      attendeeCount: event.calendarData?.attendeeCount ?? event.attendeeCount ?? '',
       bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
       setupTime: event.calendarData?.setupTime || event.setupTime || '',
       teardownTime: event.calendarData?.teardownTime || event.teardownTime || '',

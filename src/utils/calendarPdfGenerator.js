@@ -372,6 +372,15 @@ export function generateCalendarPdf({
       ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth)
       : [];
 
+    // Expected attendance (booking-form headcount). Coerce because attendeeCount
+    // may arrive as a numeric string; only render a positive, finite count.
+    const attendeeNum = Number(event.attendeeCount);
+    const showAttendees = Number.isFinite(attendeeNum) && attendeeNum > 0;
+    const attendeeLabel = showAttendees
+      ? `${attendeeNum} ${attendeeNum === 1 ? 'attendee' : 'attendees'}`
+      : '';
+    const attendeeHeight = showAttendees ? 4 : 0;
+
     // Normalize multi-location strings: semicolons → newlines, arrays → newlines
     let locationRaw = event.location?.displayName || '\u2014';
     if (Array.isArray(locationRaw)) {
@@ -392,7 +401,7 @@ export function generateCalendarPdf({
     const doorNotesHeight = wrappedDoorNotes.length * 3;
     rowHeight = Math.max(
       rowHeight,
-      titleHeight + bodyHeight + setupNotesHeight + doorNotesHeight + 4,
+      titleHeight + attendeeHeight + bodyHeight + setupNotesHeight + doorNotesHeight + 4,
       locationHeight + 4,
       categoryHeight + 4
     );
@@ -523,6 +532,14 @@ export function generateCalendarPdf({
     doc.setTextColor(...colors.primary);
     doc.text(wrappedTitle, eventColX + 2, contentY);
     contentY += wrappedTitle.length * 3.5;
+
+    if (showAttendees) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(fontSize.tiny);
+      doc.setTextColor(...colors.accent);
+      doc.text(attendeeLabel, eventColX + 2, contentY);
+      contentY += 4;
+    }
 
     if (wrappedBody.length > 0) {
       doc.setFont('helvetica', 'normal');

@@ -117,6 +117,7 @@ const EventSearchExport = ({
             displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
           },
           categories: event.calendarData?.categories || event.categories || event.graphData?.categories || [],
+          attendeeCount: event.calendarData?.attendeeCount ?? event.attendeeCount ?? '',
           body: {
             content: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || ''
           },
