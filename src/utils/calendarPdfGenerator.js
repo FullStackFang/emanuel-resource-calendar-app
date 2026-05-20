@@ -69,6 +69,7 @@ export function generateCalendarPdf({
   const colors = {
     primary: [45, 52, 64],
     secondary: [107, 114, 128],
+    bodyText: [51, 51, 51],
     accent: [180, 142, 73],
     light: [249, 250, 251],
     border: [229, 231, 235],
@@ -78,16 +79,16 @@ export function generateCalendarPdf({
   };
 
   const fontSize = {
-    title: 18,
-    subtitle: 11,
-    sectionHeader: 10,
-    body: 8.5,
-    small: 7.5,
-    tiny: 6.5,
+    title: 20,
+    subtitle: 12.5,
+    sectionHeader: 11,
+    body: 9.5,
+    small: 8.5,
+    tiny: 7.5,
   };
 
   const spacing = {
-    margin: 15,
+    margin: 10,
     gutter: 8,
     lineHeight: 4.5,
   };
@@ -526,7 +527,7 @@ export function generateCalendarPdf({
     if (wrappedBody.length > 0) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(fontSize.tiny);
-      doc.setTextColor(...colors.muted);
+      doc.setTextColor(...colors.bodyText);
       doc.text(wrappedBody, eventColX + 2, contentY);
       contentY += (wrappedBody.length * 3) + 2;
     }
