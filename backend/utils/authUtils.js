@@ -69,12 +69,55 @@ function canSubmitReservation(user, userEmail) {
   return hasRole(user, userEmail, 'requester');
 }
 
+/**
+ * Determine whether a user may access (view or manage) an event's attachments.
+ *
+ * Access is granted to:
+ *  - Staff (approver or admin): they review reservation requests in the Approval
+ *    Queue / EventReviewExperience and may manage floor plans during review.
+ *  - The requester: matched on roomReservationData.requestedBy.email, the
+ *    canonical requester source for evt-request-* events.
+ *  - The owner: matched on the event's top-level userId (OID). Covers events that
+ *    carry a userId but no requestedBy yet (e.g. drafts).
+ *
+ * Replaces the prior `{ userId, eventId }` ownership query that 404'd whenever a
+ * non-owner (any admin/approver reviewing someone else's request) opened it.
+ *
+ * @param {Object} event - Event document from templeEvents__Events
+ * @param {Object|null} user - User document from DB (may be null)
+ * @param {string} userEmail - Authenticated user's email
+ * @param {string} currentUserId - Authenticated user's OID (req.user.userId)
+ * @returns {boolean} True if the user may access the event's attachments
+ */
+function canAccessEventAttachments(event, user, userEmail, currentUserId) {
+  if (!event) return false;
+
+  // Staff: approver-or-higher (includes admin)
+  if (canViewAllReservations(user, userEmail)) return true;
+
+  // Requester (canonical source: roomReservationData.requestedBy.email)
+  const requesterEmail = event.roomReservationData?.requestedBy?.email;
+  if (requesterEmail && userEmail &&
+      requesterEmail.toLowerCase() === userEmail.toLowerCase()) {
+    return true;
+  }
+
+  // Owner by OID (covers events with a userId but no requestedBy)
+  if (event.userId && currentUserId &&
+      String(event.userId) === String(currentUserId)) {
+    return true;
+  }
+
+  return false;
+}
+
 module.exports = {
   isAdmin,
   canViewAllReservations,
   canGenerateReservationTokens,
   canApproveReservations,
   canSubmitReservation,
+  canAccessEventAttachments,
   hasRole,
   getPermissions,
   getEffectiveRole,

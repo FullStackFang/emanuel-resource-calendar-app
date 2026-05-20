@@ -19,7 +19,7 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remapToCalendarData } = require('./utils/eventFieldBuilder');
 const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
@@ -2605,6 +2605,14 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       $and: [
         calendarOwnerFilter,
         { status: 'published' }, // Only check against published events
+        // Series masters are matched via per-occurrence expansion below (line ~2753),
+        // NOT by their stored date range. A master's calendarData.endDateTime holds the
+        // SERIES END (e.g. 2027-06-30, see comment ~line 24602), so including masters here
+        // lets the Case-3 "encompassing" branch match ANY same-room event anywhere in the
+        // series span regardless of time-of-day — a phantom hard conflict. Mirrors the
+        // eventType filter in checkRecurringRoomConflicts() (line ~3072). `$in: [null]`
+        // also matches legacy docs with no eventType field.
+        { eventType: { $in: ['singleInstance', 'exception', 'addition', null] } },
         {
           // Check calendarData.locations (source of truth)
           'calendarData.locations': { $in: roomIds }
@@ -8542,14 +8550,17 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
       userId
     });
 
-    // Verify event exists and user has permission
-    const event = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
+    // Look the event up by id, THEN authorize. Scoping the query by userId 404'd
+    // for any non-owner (admins/approvers reviewing someone else's request).
+    const event = await unifiedEventsCollection.findOne({ eventId: eventId });
 
     if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const user = await usersCollection.findOne({ email: req.user.email });
+    if (!canAccessEventAttachments(event, user, req.user.email, userId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     // A floor plan is single-per-event: replace any existing one so we never
@@ -8660,17 +8671,21 @@ app.get('/api/events/:eventId/attachments', verifyToken, async (req, res) => {
   try {
     const { eventId } = req.params;
     const userId = req.user.userId;
+    const userEmail = req.user.email;
 
     logger.debug(`Fetching attachments for event ${eventId}`, { userId });
 
-    // Verify event exists and user has permission
-    const event = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
+    // Look the event up by id, THEN authorize. Scoping the query by userId 404'd
+    // for any non-owner (admins/approvers reviewing someone else's request).
+    const event = await unifiedEventsCollection.findOne({ eventId: eventId });
 
     if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const user = await usersCollection.findOne({ email: userEmail });
+    if (!canAccessEventAttachments(event, user, userEmail, userId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     // Get all attachments for this event
@@ -8716,14 +8731,17 @@ app.delete('/api/events/:eventId/attachments/:attachmentId', verifyToken, async 
 
     logger.debug(`Deleting attachment ${attachmentId} for event ${eventId}`, { userId });
 
-    // Verify event exists and user has permission
-    const event = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
+    // Look the event up by id, THEN authorize. Scoping the query by userId 404'd
+    // for any non-owner (admins/approvers reviewing someone else's request).
+    const event = await unifiedEventsCollection.findOne({ eventId: eventId });
 
     if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const user = await usersCollection.findOne({ email: req.user.email });
+    if (!canAccessEventAttachments(event, user, req.user.email, userId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     // Find the attachment
@@ -14940,6 +14958,11 @@ app.get('/api/rooms/availability', async (req, res) => {
           ...calendarOwnerFilter,
           isDeleted: { $ne: true },
           status: { $nin: ['draft', 'rejected', 'deleted'] },
+          // Exclude series masters: their calendarData.endDateTime is the SERIES END,
+          // so a date-range match returns a phantom block spanning the whole series
+          // (clamped to 0..24 in SchedulingAssistant). Masters are expanded per-occurrence
+          // below via Q4 + expandRecurringOccurrencesInWindow. Mirrors checkRoomConflicts().
+          eventType: { $in: ['singleInstance', 'exception', 'addition', null] },
           'calendarData.startDateTime': { $lt: end },
           'calendarData.endDateTime': { $gt: start },
           $or: [

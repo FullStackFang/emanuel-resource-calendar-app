@@ -409,4 +409,97 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)', () => {
       expect(res.body.success).toBe(true);
     });
   });
+
+  // ─── RCC-10 / RCC-11: Phantom conflict from a series master whose stored ───
+  // calendarData.endDateTime is the SERIES END (production storage reality,
+  // see api-server.js comment ~line 24602: "Mongo stores calendarData.endDateTime
+  // as the series END (e.g. 2027-07-19)"). The main conflict query's Case-3
+  // "encompassing" branch matches such a master against ANY same-room publish
+  // within the series span, regardless of time-of-day, manufacturing a phantom
+  // hard conflict. Mirrors the front-end SchedulingAssistant phantom badge.
+  //
+  // NOTE: unlike every other fixture in this file, the master below stores its
+  // endDateTime on the series-END date (2027-06-30) with the daily end TIME
+  // (14:30) — the faithful production shape that triggers the bug.
+  function createSpanningNurserySchoolMaster(overrides = {}) {
+    return createRecurringSeriesMaster({
+      status: STATUS.PUBLISHED,
+      eventTitle: 'Nursery School Drop off and Dismissal at 65th Street',
+      locations: [sharedRoomId],
+      locationDisplayNames: ['Conference Room B'],
+      startDateTime: new Date('2026-09-15T08:45:00'),
+      endDateTime: new Date('2027-06-30T14:30:00'), // series-END date, daily end time
+      calendarData: {
+        eventTitle: 'Nursery School Drop off and Dismissal at 65th Street',
+        startDateTime: '2026-09-15T08:45:00',
+        endDateTime: '2027-06-30T14:30:00', // SPANNING: series end date + daily end time
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+        categories: ['Meeting'],
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+      },
+      recurrence: {
+        pattern: { type: 'daily', interval: 1 },
+        range: { type: 'endDate', startDate: '2026-09-15', endDate: '2027-06-30' },
+        additions: [],
+        exclusions: [],
+      },
+      ...overrides,
+    });
+  }
+
+  describe('RCC-10: No phantom conflict at a non-overlapping time inside the series span', () => {
+    it('should publish (200) a 6-8 PM event in the same room as a daily 8:45 AM-2:30 PM series', async () => {
+      const master = createSpanningNurserySchoolMaster();
+      await insertEvents(db, [master]);
+
+      // Sept 16 (in range) 18:00-20:00 — the daily occurrence is 08:45-14:30, no overlap
+      const noConflict = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Teen High Holiday Rehearsal',
+        startDateTime: new Date('2026-09-16T18:00:00'),
+        endDateTime: new Date('2026-09-16T20:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const [saved] = await insertEvents(db, [noConflict]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+  });
+
+  describe('RCC-11: Real conflict still detected against a spanning series master', () => {
+    it('should return 409 for a 10 AM-noon event overlapping the daily 8:45 AM-2:30 PM occurrence', async () => {
+      const master = createSpanningNurserySchoolMaster();
+      await insertEvents(db, [master]);
+
+      // Sept 16 (in range) 10:00-12:00 — genuinely overlaps the 08:45-14:30 occurrence
+      const conflicting = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Daytime Meeting',
+        startDateTime: new Date('2026-09-16T10:00:00'),
+        endDateTime: new Date('2026-09-16T12:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const [saved] = await insertEvents(db, [conflicting]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('SchedulingConflict');
+    });
+  });
 });
