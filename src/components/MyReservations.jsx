@@ -797,7 +797,7 @@ export default function MyReservations() {
                     ) : reservation.startDate ? (
                       <>
                         <span className="mr-date">
-                          {new Date(reservation.startDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {new Date(reservation.startDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                         {reservation.startTime && reservation.endTime ? (
                           <span className="mr-time">

@@ -558,10 +558,38 @@ function SchedulingAssistant({
       });
     }
 
+    // Dedup blocks by React key (`${block.id}-${block.roomIndex}`) BEFORE conflict
+    // detection. The same logical event can land in `blocks` twice when the backend
+    // returns it in BOTH `conflicts.reservations` (Q2 main-overlap query) AND as an
+    // expanded occurrence (Q4 series-master expansion) — happens for series masters
+    // whose stored `calendarData.endDateTime` spans the whole range. The spanning
+    // copy gets clamped to the full day (0..24) by buildBlockFromStrings, so if it
+    // survives into conflict detection it manufactures a PHANTOM conflict against any
+    // user event (and double-counts real overlaps) even though it is dropped before
+    // render — the user sees a conflict badge with no visibly-overlapping block.
+    // Tie-break: prefer the block whose source date == effectiveDate (the day-scoped
+    // occurrence) over a multi-day spanning block. Keeps the visually-correct block,
+    // silences React's duplicate-key warning, AND keeps the conflict count honest.
+    const blocksByKey = new Map();
+    for (const b of blocks) {
+      const key = `${b.id}-${b.roomIndex}`;
+      const existing = blocksByKey.get(key);
+      if (!existing) {
+        blocksByKey.set(key, b);
+        continue;
+      }
+      const bDate = parseDateFromString(b.originalStartTimeStr || '');
+      const existingDate = parseDateFromString(existing.originalStartTimeStr || '');
+      if (bDate === effectiveDate && existingDate !== effectiveDate) {
+        blocksByKey.set(key, b);
+      }
+    }
+    const dedupedBlocks = [...blocksByKey.values()];
+
     // Calculate conflicts between all events (including user event)
     // Group blocks by room for conflict detection
     const blocksByRoom = {};
-    blocks.forEach(block => {
+    dedupedBlocks.forEach(block => {
       const roomId = block.room._id;
       if (!blocksByRoom[roomId]) {
         blocksByRoom[roomId] = [];
@@ -570,7 +598,7 @@ function SchedulingAssistant({
     });
 
     // Check each event against all other events in the same room
-    blocks.forEach(block => {
+    dedupedBlocks.forEach(block => {
       const roomBlocks = blocksByRoom[block.room._id] || [];
       const hasConflict = roomBlocks.some(otherBlock => {
         if (otherBlock.id === block.id) return false;
@@ -633,31 +661,6 @@ function SchedulingAssistant({
         }
       }
     });
-
-    // Dedup blocks by React key (`${block.id}-${block.roomIndex}`). The same logical
-    // event can land in `blocks` twice when the backend returns it in BOTH
-    // `conflicts.reservations` (Q2 main-overlap query) AND as an expanded
-    // occurrence (Q4 series-master expansion) — happens for series masters
-    // whose stored `calendarData.endDateTime` spans the whole range. Without
-    // dedup, React warns about duplicate keys.
-    // Tie-break: prefer the block whose source date == effectiveDate (the
-    // day-scoped occurrence) over a multi-day spanning block. Keeps the
-    // visually-correct block AND silences the React warning.
-    const blocksByKey = new Map();
-    for (const b of blocks) {
-      const key = `${b.id}-${b.roomIndex}`;
-      const existing = blocksByKey.get(key);
-      if (!existing) {
-        blocksByKey.set(key, b);
-        continue;
-      }
-      const bDate = parseDateFromString(b.originalStartTimeStr || '');
-      const existingDate = parseDateFromString(existing.originalStartTimeStr || '');
-      if (bDate === effectiveDate && existingDate !== effectiveDate) {
-        blocksByKey.set(key, b);
-      }
-    }
-    const dedupedBlocks = [...blocksByKey.values()];
 
     setEventBlocks(dedupedBlocks);
     setRoomStats(stats);
