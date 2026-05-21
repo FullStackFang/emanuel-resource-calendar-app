@@ -186,6 +186,27 @@ describe('Cancellation Request Tests (CR-1 to CR-14)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.cancellationRequestId).toBeDefined();
     });
+
+    it('CR-7b: Submit on rsched-imported event by any requester -- succeeds', async () => {
+      // rsched imports (source:'rsSched') carry the legacy scheduler's email in
+      // requestedBy.email, so they are NOT ownerless — but remain community-cancellable.
+      const rsched = createPublishedEvent({
+        source: 'rsSched',
+        userId: 'legacy-scheduler-id',
+        requesterEmail: 'legacy.scheduler@emanuelnyc.org',
+        eventTitle: 'Imported From Rsched',
+      });
+      const [saved] = await insertEvents(db, [rsched]);
+
+      const res = await request(app)
+        .post(`/api/events/${saved._id}/request-cancellation`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({ reason: 'Event no longer happening' })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.cancellationRequestId).toBeDefined();
+    });
   });
 
   describe('Approve cancellation request', () => {

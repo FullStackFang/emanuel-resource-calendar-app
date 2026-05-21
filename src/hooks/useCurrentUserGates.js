@@ -52,6 +52,12 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   // requester record. In the old Calendar formula any requester could
   // propose edits on these (treated as "open for community stewardship").
   const isOwnerless = !event?.roomReservationData?.requestedBy?.email;
+  // Rsched imports: the legacy Resource Scheduler import (rschedImportService.js,
+  // source === 'rsSched') copies the original scheduler's address into
+  // requestedBy.email, so these events are NOT ownerless even though they have no
+  // app-side reservation owner. They are community-editable — any requester may
+  // propose edits/cancellations, the same as ownerless events.
+  const isRschedImported = event?.source === 'rsSched';
   const hasPendingEditRequest = event?.pendingEditRequest?.status === 'pending';
   const hasPendingCancellationRequest = event?.pendingCancellationRequest?.status === 'pending';
 
@@ -138,7 +144,7 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
     !isAdminEditor &&
     isPublished &&
     !isSeriesChild &&
-    (isOwner || departmentMatches || isOwnerless) &&
+    (isOwner || departmentMatches || isOwnerless || isRschedImported) &&
     !hasPendingEditRequest &&
     !isEditRequestMode &&
     !isViewingEditRequest;

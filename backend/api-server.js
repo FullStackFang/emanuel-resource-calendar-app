@@ -22165,8 +22165,12 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
     }
 
     const isOwnerlessEvent = !originalEvent.roomReservationData?.requestedBy?.email;
+    // rsched imports (source:'rsSched') carry the legacy scheduler's email in
+    // requestedBy.email, so they are not ownerless — but remain community-editable
+    // (any requester may propose edits). Mirrors useCurrentUserGates.canRequestEdit.
+    const isRschedImported = originalEvent.source === 'rsSched';
 
-    if (!isOwner && !isSameDepartment && !isOwnerlessEvent) {
+    if (!isOwner && !isSameDepartment && !isOwnerlessEvent && !isRschedImported) {
       return res.status(403).json({
         error: 'Only the event owner or users in the same department can request edits',
       });
@@ -23374,9 +23378,12 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
                     (event.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
 
     const isOwnerlessEvent = !event.roomReservationData?.requestedBy?.email;
+    // rsched imports (source:'rsSched') carry the legacy scheduler's email in
+    // requestedBy.email, so they are not ownerless — but remain community-cancellable.
+    const isRschedImported = event.source === 'rsSched';
 
     let isSameDepartment = false;
-    if (!isOwner && !isOwnerlessEvent) {
+    if (!isOwner && !isOwnerlessEvent && !isRschedImported) {
       const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
       const myDept = (requestingUser?.department || '').toLowerCase().trim();
       if (myDept) {
@@ -23401,7 +23408,7 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
       }
     }
 
-    if (!isOwner && !isSameDepartment && !isOwnerlessEvent) {
+    if (!isOwner && !isSameDepartment && !isOwnerlessEvent && !isRschedImported) {
       return res.status(403).json({
         error: 'Only the event owner, users in the same department, or any user for ownerless events can request cancellation'
       });

@@ -315,6 +315,31 @@ describe('POST /api/edit-requests — collection-model create', () => {
         .send({ eventId: saved.eventId, eventTitle: 'Allowed' })
         .expect(201);
     });
+
+    it('allows rsched-imported events to receive edit requests from any authenticated user', async () => {
+      const otherUser = createOtherRequester({
+        email: 'unrelated-rsched@external.com',
+        odataId: 'unrelated-rsched-odata-id',
+        department: 'OtherDepartment',
+      });
+      await insertUsers(db, [otherUser]);
+      const otherToken = await createMockToken(otherUser);
+
+      // rsched importer sets source:'rsSched' and copies the legacy scheduler's
+      // address into requestedBy.email — so the event is NOT ownerless, yet must
+      // remain community-editable for any requester.
+      const published = createPublishedEvent({
+        source: 'rsSched',
+        requesterEmail: 'legacy.scheduler@emanuelnyc.org',
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      await request(app)
+        .post('/api/edit-requests')
+        .set('Authorization', `Bearer ${otherToken}`)
+        .send({ eventId: saved.eventId, eventTitle: 'Allowed via rsched' })
+        .expect(201);
+    });
   });
 
   describe('event-state guards', () => {

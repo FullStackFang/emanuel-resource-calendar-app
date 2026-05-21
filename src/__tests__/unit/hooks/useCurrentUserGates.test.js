@@ -342,6 +342,43 @@ describe('deriveGates — invariants', () => {
       expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
     });
 
+    it('requester CAN request edit on an rsched-imported published event they do not own', () => {
+      // The rsched importer copies the legacy scheduler's address into
+      // roomReservationData.requestedBy.email, so these events are NOT ownerless
+      // and won't match the current requester. They are still community-editable:
+      // source === 'rsSched' opens edit/cancellation requests to any requester.
+      const event = {
+        status: 'published',
+        eventType: 'singleInstance',
+        source: 'rsSched',
+        roomReservationData: { requestedBy: { email: 'legacy.scheduler@emanuelnyc.org' } },
+      };
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canRequestEdit).toBe(true);
+      expect(gates.canRequestCancellation).toBe(true);
+    });
+
+    it('rsched marker is additive, not an override: a pending edit request still blocks', () => {
+      const event = {
+        status: 'published',
+        eventType: 'singleInstance',
+        source: 'rsSched',
+        roomReservationData: { requestedBy: { email: 'legacy.scheduler@emanuelnyc.org' } },
+        pendingEditRequest: { status: 'pending' },
+      };
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
+    });
+
+    it('rsched marker does not grant edit on a non-published rsched event', () => {
+      const event = {
+        status: 'pending',
+        eventType: 'singleInstance',
+        source: 'rsSched',
+        roomReservationData: { requestedBy: { email: 'legacy.scheduler@emanuelnyc.org' } },
+      };
+      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
+    });
+
     it('canRequestEdit BLOCKED when an edit request is already pending', () => {
       // Regression of a pre-refactor Calendar bug that MyReservations caught:
       // don't let user request a second edit while one is pending.
