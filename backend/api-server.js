@@ -104,9 +104,12 @@ async function findUserByIdentity(collection, userId, email) {
     user = await collection.findOne(emailQuery(email));
   }
 
-  // 4. Merge duplicate: if the found record has no role, look for a companion
-  //    record by email that DOES have a role (handles duplicate-user scenario
-  //    where admin set role on a different record for the same person).
+  // 4. Detect (do NOT silently merge) duplicate records: if the found record
+  //    has no role but another record with the same email DOES, surface the
+  //    role for THIS request only and log a loud warning for an admin to clean
+  //    up. We must never mutate or delete a record from this read path — doing
+  //    so silently undoes admin edits (admin sets a role on one record, then a
+  //    login deletes the very record they just edited).
   if (user && !user.role && email) {
     const companion = await collection.findOne({
       ...emailQuery(email),
@@ -114,24 +117,16 @@ async function findUserByIdentity(collection, userId, email) {
       role: { $exists: true, $ne: null }
     });
     if (companion) {
-      // Copy role + department to the primary record and delete the duplicate
-      const mergeFields = {};
-      if (companion.role) mergeFields.role = companion.role;
-      if (companion.department !== undefined) mergeFields.department = companion.department;
-
-      try {
-        await collection.updateOne(
-          { _id: user._id },
-          { $set: mergeFields }
-        );
-        await collection.deleteOne({ _id: companion._id });
-        Object.assign(user, mergeFields);
-        logger.log(`Merged duplicate user records for ${email}: copied role=${companion.role}, deleted duplicate _id=${companion._id}`);
-      } catch (err) {
-        // Non-fatal — at minimum copy the fields in-memory so this request works
-        Object.assign(user, mergeFields);
-        logger.error('Failed to merge duplicate user records:', err);
-      }
+      // In-memory only: let this request use the role so the user isn't broken
+      // mid-session. No DB write, no delete — the duplicate stays for an admin
+      // to resolve deliberately in the user management panel.
+      if (companion.role) user.role = companion.role;
+      if (companion.department !== undefined) user.department = companion.department;
+      logger.warn(
+        `Duplicate user records detected for ${email}: ` +
+        `roleless _id=${user._id} and role-bearing _id=${companion._id} (role=${companion.role}). ` +
+        `Using the role for this request only — NOT merging. Resolve the duplicate in the user management panel.`
+      );
     }
   }
 
