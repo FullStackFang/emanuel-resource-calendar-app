@@ -3903,6 +3903,16 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     }, [groupBy, favoriteCategories, favoriteLocations, updateUserProfilePreferences]);
 
+    const handleReorderGridFavorites = useCallback((newOrder) => {
+      if (groupBy === 'categories') {
+        setFavoriteCategories(newOrder);
+        updateUserProfilePreferences({ favoriteCategories: newOrder });
+      } else {
+        setFavoriteLocations(newOrder);
+        updateUserProfilePreferences({ favoriteLocations: newOrder });
+      }
+    }, [groupBy, updateUserProfilePreferences]);
+
     const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType, locationId = null) => {
       // Filter events by location and date range
       let filteredModalEvents = [];
@@ -5443,6 +5453,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}
+                          onReorderFavorites={handleReorderGridFavorites}
                           hideEmptyGroups={hideEmptyGroups}
                         />
                       ) : (
@@ -5478,6 +5489,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}
+                          onReorderFavorites={handleReorderGridFavorites}
                           hideEmptyGroups={hideEmptyGroups}
                         />
                       )}

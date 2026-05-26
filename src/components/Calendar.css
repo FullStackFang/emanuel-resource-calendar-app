@@ -1105,7 +1105,6 @@
   transition: color var(--duration-fast) var(--ease-out),
               transform var(--duration-fast) var(--ease-out),
               background-color var(--duration-fast) var(--ease-out);
-  margin-left: auto;
 }
 
 /* ---------- Hover timeline button (category/location row headers) ---------- */
@@ -1153,6 +1152,49 @@
 
 .grid-cell.category-cell:hover .grid-cell-pin-icon {
   color: var(--color-neutral-400);
+}
+
+/* Reorder buttons on pinned grid rows — hidden until row hover */
+.grid-cell-reorder-btns {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  visibility: hidden;
+  margin-left: auto;
+}
+
+.grid-cell.category-cell:hover .grid-cell-reorder-btns {
+  visibility: visible;
+}
+
+.grid-cell-reorder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--color-neutral-50);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 9px;
+  color: var(--color-neutral-500);
+  line-height: 1;
+  transition: color var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.grid-cell-reorder-btn:hover:not(:disabled) {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+  border-color: var(--color-primary-200);
+}
+
+.grid-cell-reorder-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .grid-cell-pin-icon:hover {
