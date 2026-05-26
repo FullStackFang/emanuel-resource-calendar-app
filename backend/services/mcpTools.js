@@ -16,6 +16,14 @@ function escapeRegex(str) {
 }
 
 // Build a MongoDB category filter clause (shared by searchEvents and exportCalendarPdf)
+//
+// Category migration note: the AI tool layer supplies category NAMES (not the
+// canonical categoryIds), so MCP intentionally keeps forgiving case-insensitive
+// name matching here rather than resolving to calendarData.categoryIds. This stays
+// correct after the categoryIds migration because calendarData.categories remains
+// the denormalized display field and is kept rename-synced by PUT /api/categories/:id
+// (see the categoryIds rename propagation). Fuzzy name matching also suits AI
+// queries better than exact-id matching. No id branch is needed here.
 function buildCategoryFilter(categories) {
   const categoryRegexes = categories.map(c => new RegExp(escapeRegex(c), 'i'));
   return {
