@@ -482,6 +482,48 @@
   100% { transform: scale(1) rotate(0deg); }
 }
 
+/* Reorder buttons on pinned rows — hidden until row is hovered */
+.multiselect-reorder-btns {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.multiselect-pin-row:hover .multiselect-reorder-btns {
+  visibility: visible;
+}
+
+.multiselect-reorder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--color-neutral-50);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--color-neutral-500);
+  line-height: 1;
+  transition: color var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.multiselect-reorder-btn:hover:not(:disabled) {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+  border-color: var(--color-primary-200);
+}
+
+.multiselect-reorder-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Favorites divider between pinned and unpinned sections */
 .multiselect-favorites-divider {
   height: 1px;

@@ -101,17 +101,36 @@ function MultiSelect({
     return options.filter(option => option.toLowerCase().includes(query));
   }, [options, searchQuery]);
 
-  // When favorites enabled, split filtered options into pinned (top) and unpinned (bottom)
+  // When favorites enabled, split filtered options into pinned (top) and unpinned (bottom).
+  // Pinned items preserve the user's custom order (favorites array order); unpinned are alphabetical.
   const sortedFilteredOptions = useMemo(() => {
     if (!hasFavorites) return { pinned: [], unpinned: filteredOptions };
-    const pinned = filteredOptions
-      .filter(opt => favorites.includes(opt))
-      .sort((a, b) => a.localeCompare(b));
+    const favSet = new Set(favorites);
+    const filteredSet = new Set(filteredOptions);
+    const pinned = favorites.filter(opt => filteredSet.has(opt));
     const unpinned = filteredOptions
-      .filter(opt => !favorites.includes(opt))
+      .filter(opt => !favSet.has(opt))
       .sort((a, b) => a.localeCompare(b));
     return { pinned, unpinned };
   }, [hasFavorites, filteredOptions, favorites]);
+
+  const handleMovePin = useCallback((option, direction) => {
+    if (!onFavoritesChange) return;
+    // Operate on the subset of favorites that currently exist in options,
+    // so orphaned pins (deleted locations/categories) don't shift visible items unexpectedly.
+    const visiblePinned = favorites.filter(f => options.includes(f));
+    const visibleIdx = visiblePinned.indexOf(option);
+    if (visibleIdx === -1) return;
+    const neighborIdx = direction === 'up' ? visibleIdx - 1 : visibleIdx + 1;
+    if (neighborIdx < 0 || neighborIdx >= visiblePinned.length) return;
+    const neighbor = visiblePinned[neighborIdx];
+    const next = [...favorites];
+    const idxA = next.indexOf(option);
+    const idxB = next.indexOf(neighbor);
+    if (idxA === -1 || idxB === -1) return;
+    [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+    onFavoritesChange(next);
+  }, [favorites, options, onFavoritesChange]);
 
   const toggleFavorite = useCallback((option, event) => {
     if (event) {
@@ -342,31 +361,56 @@ function MultiSelect({
               </div>
             ) : hasFavorites ? (
               <>
-                {sortedFilteredOptions.pinned.map((option) => (
-                  <div
-                    key={option}
-                    onClick={(e) => toggleOption(option, e)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className={`multiselect-option ${localSelected.includes(option) ? 'selected' : ''}`}
-                  >
-                    <span className="multiselect-check-box">
-                      {localSelected.includes(option) && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                          <path d="M2 5L4 7.5L8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </span>
-                    <span className="multiselect-option-label">{option}</span>
-                    <button
-                      className="multiselect-pin-icon pinned"
-                      onClick={(e) => toggleFavorite(option, e)}
+                {sortedFilteredOptions.pinned.map((option, idx) => {
+                  const pinnedCount = sortedFilteredOptions.pinned.length;
+                  // Hide reorder buttons while searching — indices only make sense in full list view
+                  const showReorder = !searchQuery;
+                  return (
+                    <div
+                      key={option}
+                      onClick={(e) => toggleOption(option, e)}
                       onMouseDown={(e) => e.stopPropagation()}
-                      title="Unpin favorite"
+                      className={`multiselect-option multiselect-pin-row ${localSelected.includes(option) ? 'selected' : ''}`}
                     >
-                      <ThumbTackIcon size={12} filled />
-                    </button>
-                  </div>
-                ))}
+                      <span className="multiselect-check-box">
+                        {localSelected.includes(option) && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5L4 7.5L8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </span>
+                      <span className="multiselect-option-label">{option}</span>
+                      {showReorder && (
+                        <div className="multiselect-reorder-btns">
+                          <button
+                            className="multiselect-reorder-btn"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMovePin(option, 'up'); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            disabled={idx === 0}
+                            title="Move up"
+                            aria-label={`Move ${option} up`}
+                          >↑</button>
+                          <button
+                            className="multiselect-reorder-btn"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMovePin(option, 'down'); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            disabled={idx === pinnedCount - 1}
+                            title="Move down"
+                            aria-label={`Move ${option} down`}
+                          >↓</button>
+                        </div>
+                      )}
+                      <button
+                        className="multiselect-pin-icon pinned"
+                        onClick={(e) => toggleFavorite(option, e)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        title="Unpin favorite"
+                      >
+                        <ThumbTackIcon size={12} filled />
+                      </button>
+                    </div>
+                  );
+                })}
                 {sortedFilteredOptions.pinned.length > 0 && sortedFilteredOptions.unpinned.length > 0 && (
                   <div className="multiselect-favorites-divider" />
                 )}
