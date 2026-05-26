@@ -120,4 +120,71 @@ describe('Category filter (calendarData source of truth) CF-1..CF-5', () => {
       expect(doc).toMatchObject({ name: 'Skirball', autoCreated: true });
     });
   });
+
+  describe('categoryIds dual-write on create (CI-2)', () => {
+    it('CI-2: an event with a category name but no categoryIds is matched via the name fallback', async () => {
+      const cats = db.collection(COLLECTIONS.CATEGORIES);
+      await cats.deleteMany({});
+      const { insertedId } = await cats.insertOne({ name: 'Adult Ed', color: '#111', displayOrder: 1, active: true, createdAt: new Date() });
+      const ev = createPublishedEvent({ eventTitle: 'Class', categories: ['Adult Ed'] });
+      ev.calendarData.startDateTime = '2026-05-26T10:00:00';
+      ev.calendarData.endDateTime = '2026-05-26T11:00:00';
+      delete ev.calendarData.categoryIds;
+      await insertEvents(db, [ev]);
+
+      const res = await request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS}?view=search&categoryIds=${insertedId}&categories=Adult%20Ed&categoryCount=10&startDate=2026-05-26&endDate=2026-06-01`)
+        .set('Authorization', `Bearer ${viewerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.events.map(e => e.calendarData?.eventTitle)).toContain('Class');
+    });
+  });
+
+  describe('categoryIds id-only match (CI-3)', () => {
+    it('CI-3: matches by categoryId alone (no name param) when the event has categoryIds', async () => {
+      const cats = db.collection(COLLECTIONS.CATEGORIES);
+      await cats.deleteMany({});
+      const { insertedId } = await cats.insertOne({ name: 'Skirball', displayOrder: 1, active: true, createdAt: new Date() });
+      const ev = createPublishedEvent({ eventTitle: 'Intro to Judaism', categories: ['Skirball'] });
+      ev.calendarData.startDateTime = '2026-05-26T18:30:00';
+      ev.calendarData.endDateTime = '2026-05-26T20:30:00';
+      ev.calendarData.categoryIds = [insertedId];
+      await insertEvents(db, [ev]);
+
+      const res = await request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS}?view=search&categoryIds=${insertedId}&categoryCount=10&startDate=2026-05-26&endDate=2026-06-01`)
+        .set('Authorization', `Bearer ${viewerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.events.map(e => e.calendarData?.eventTitle)).toContain('Intro to Judaism');
+    });
+  });
+
+  describe('search + category composition (CI-4)', () => {
+    it('CI-4: combining a search term with a categoryId returns only events matching BOTH', async () => {
+      const cats = db.collection(COLLECTIONS.CATEGORIES);
+      await cats.deleteMany({});
+      const { insertedId } = await cats.insertOne({ name: 'Skirball', displayOrder: 1, active: true, createdAt: new Date() });
+
+      const match = createPublishedEvent({ eventTitle: 'Intro to Judaism', categories: ['Skirball'] });
+      match.calendarData.startDateTime = '2026-05-26T18:30:00';
+      match.calendarData.endDateTime = '2026-05-26T20:30:00';
+      match.calendarData.categoryIds = [insertedId];
+
+      // Same category + same window, but title does NOT contain the search term.
+      const other = createPublishedEvent({ eventTitle: 'Yoga Class', categories: ['Skirball'] });
+      other.calendarData.startDateTime = '2026-05-26T09:00:00';
+      other.calendarData.endDateTime = '2026-05-26T10:00:00';
+      other.calendarData.categoryIds = [insertedId];
+
+      await insertEvents(db, [match, other]);
+
+      const res = await request(app)
+        .get(`${ENDPOINTS.LIST_EVENTS}?view=search&search=Judaism&categoryIds=${insertedId}&categoryCount=10&startDate=2026-05-26&endDate=2026-06-01`)
+        .set('Authorization', `Bearer ${viewerToken}`);
+      expect(res.status).toBe(200);
+      const titles = res.body.events.map(e => e.calendarData?.eventTitle);
+      expect(titles).toContain('Intro to Judaism');   // matches search AND category
+      expect(titles).not.toContain('Yoga Class');      // category matches but search does not
+    });
+  });
 });

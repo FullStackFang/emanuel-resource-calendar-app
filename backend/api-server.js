@@ -7336,6 +7336,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       calendarOwner: qCalendarOwner = '',
       calendarId: qCalendarId = '',
       categoryCount = '',
+      categoryIds = '',
       locationCount = ''
     } = req.query;
 
@@ -7545,17 +7546,19 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // ── Category filter ──
-    // calendarData.categories is the source of truth for what renders on the
-    // calendar, so the filter matches that field only.
-    if (categories) {
-      const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
+    // calendarData.categoryIds is authoritative (stable refs). During rollout,
+    // also OR a name-match fallback on calendarData.categories for events not yet
+    // backfilled. 'Uncategorized' = no categoryIds and no names.
+    if (categories || categoryIds) {
+      const nameList = categories.split(',').map(c => c.trim()).filter(Boolean);
+      const idList = categoryIds.split(',').map(s => s.trim()).filter(Boolean);
       const totalCategoryCount = parseInt(categoryCount) || 0;
-      const isAllCategoriesSelected = totalCategoryCount > 0 && categoryList.length >= totalCategoryCount;
+      const isAllSelected = totalCategoryCount > 0 && nameList.length >= totalCategoryCount;
 
-      if (categoryList.length > 0 && !isAllCategoriesSelected) {
+      if (!isAllSelected && (nameList.length > 0 || idList.length > 0)) {
         const categoryConditions = [];
 
-        if (categoryList.includes('Uncategorized')) {
+        if (nameList.includes('Uncategorized')) {
           categoryConditions.push(
             { 'calendarData.categories': { $exists: false } },
             { 'calendarData.categories': { $size: 0 } },
@@ -7563,9 +7566,17 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
           );
         }
 
-        const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
-        if (actualCategories.length > 0) {
-          categoryConditions.push({ 'calendarData.categories': { $in: actualCategories } });
+        const objectIds = idList
+          .filter(id => ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+        if (objectIds.length > 0) {
+          categoryConditions.push({ 'calendarData.categoryIds': { $in: objectIds } });
+        }
+
+        const actualNames = nameList.filter(c => c !== 'Uncategorized');
+        if (actualNames.length > 0) {
+          // Transitional name fallback for events not yet backfilled (Phase 5 removes this).
+          categoryConditions.push({ 'calendarData.categories': { $in: actualNames } });
         }
 
         if (categoryConditions.length > 0) {
