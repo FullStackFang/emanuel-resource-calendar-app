@@ -4415,13 +4415,12 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
 // Get available MEC categories
 app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => {
   try {
-    // Get distinct categories from calendarData (authoritative) and top-level
-    const [calCats, topCats] = await Promise.all([
-      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
-      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
-    ]);
+    // calendarData.categories is the source of truth for what renders on the
+    // calendar, so the dropdown is sourced from the distinct values of that
+    // field only — every category in use is therefore selectable.
+    const calCats = await withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories'));
 
-    const allCategories = [...new Set([...calCats, ...topCats])];
+    const allCategories = [...new Set(calCats)];
     const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();
@@ -7526,6 +7525,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // ── Category filter ──
+    // calendarData.categories is the source of truth for what renders on the
+    // calendar, so the filter matches that field only.
     if (categories) {
       const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
       const totalCategoryCount = parseInt(categoryCount) || 0;
@@ -14013,13 +14014,12 @@ app.get('/api/public/internal-events', async (req, res) => {
 // Public endpoint to get available MEC categories (for dropdowns)
 app.get('/api/public/mec-categories', async (req, res) => {
   try {
-    // Get distinct categories from calendarData (authoritative) and top-level
-    const [calCats, topCats] = await Promise.all([
-      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
-      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
-    ]);
+    // calendarData.categories is the source of truth for what renders on the
+    // calendar, so the dropdown is sourced from the distinct values of that
+    // field only — every category in use is therefore selectable.
+    const calCats = await withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories'));
 
-    const allCategories = [...new Set([...calCats, ...topCats])];
+    const allCategories = [...new Set(calCats)];
     const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();

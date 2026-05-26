@@ -15,6 +15,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
+import { useDistinctEventCategoriesQuery } from '../hooks/useCategoriesQuery';
 import {
   AVAILABLE_TIMEZONES,
   getOutlookTimezone,
@@ -207,17 +208,14 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       location: {
         displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.locationDisplayNames || event.graphData?.location?.displayName || ''
       },
-      // Categories - prioritize calendarData, then top-level, then graphData
-      categories: [
-        ...(event.calendarData?.categories || []),
-        ...(event.categories || []),
-        ...(event.graphData?.categories || [])
-      ].filter((cat, index, arr) => arr.indexOf(cat) === index), // Deduplicate
+      // Categories - calendarData is the source of truth for what renders on
+      // the calendar, so display (and the category filter) key off it alone.
+      categories: event.calendarData?.categories || [],
       bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
       calendarName: event.calendarName,
-      mecCategories: event.calendarData?.categories || event.categories || [],
+      mecCategories: event.calendarData?.categories || [],
       setupMinutes: event.calendarData?.setupTimeMinutes || event.setupTimeMinutes || 0,
       teardownMinutes: event.calendarData?.teardownTimeMinutes || event.teardownTimeMinutes || 0,
       reservationStartMinutes: event.calendarData?.reservationStartMinutes || event.reservationStartMinutes || 0,
@@ -304,17 +302,37 @@ function EventSearch({
   // Flag to control when to run the search query
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
 
+  // True once the user has run an initial search. After that, category/location
+  // filter changes re-run the search automatically so results always reflect the
+  // current selection (clearing all filters = no filter = all events), instead of
+  // swapping to an un-fetched query key and showing a stale/empty result set.
+  const hasSearchedRef = useRef(false);
+
   // Search version - only increments when Search button is clicked (prevents auto-search on typing)
   const [searchVersion, setSearchVersion] = useState(0);
 
-  // Compute full category/location option lists for "all selected" detection
-  const allCategoryOptions = useMemo(() => [
-    'Uncategorized',
-    ...baseCategories
+  // Distinct categories actually present on events (rsched imports carry
+  // free-text categories that aren't registered). Unioned with registered
+  // categories below so every category in use is selectable.
+  const { data: distinctEventCategories = [] } = useDistinctEventCategoriesQuery(apiToken);
+
+  // Compute full category option list for the dropdown AND "all selected"
+  // detection. Single source of truth: registered categories first (by
+  // displayOrder), then any additional in-use categories (alpha), with
+  // 'Uncategorized' pinned at the top. Both the MultiSelect options and the
+  // categoryCount sent to the backend read from this list so they stay
+  // consistent.
+  const allCategoryOptions = useMemo(() => {
+    const registered = baseCategories
       .filter(cat => cat.active !== false && cat.name)
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
-      .map(cat => cat.name)
-  ], [baseCategories]);
+      .map(cat => cat.name);
+    const registeredSet = new Set(registered);
+    const extras = distinctEventCategories
+      .filter(name => name && !registeredSet.has(name))
+      .sort((a, b) => a.localeCompare(b));
+    return ['Uncategorized', ...registered, ...extras];
+  }, [baseCategories, distinctEventCategories]);
 
   const allLocationOptions = useMemo(() => availableLocations || [], [availableLocations]);
 
@@ -617,6 +635,7 @@ function EventSearch({
     setSelectedEvent(null);  // Clear stale detail panel
     setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
+    hasSearchedRef.current = true;  // Enable reactive re-run on filter changes
     // Collapse filters after initiating search
     setShowAdvancedOptions(false);
   };
@@ -677,13 +696,24 @@ function EventSearch({
     updateEventMutation.mutate(eventToUpdate);
   };
 
-  // Handle category and location selection
+  // Handle category and location selection.
+  // The query key already reacts to these, so once an initial search has run we
+  // just re-enable the query to refetch with the new selection. An empty
+  // selection sends no filter param, which the backend treats as "all".
+  const rerunIfSearched = () => {
+    if (hasSearchedRef.current && dateRange.start && dateRange.end) {
+      setShouldRunSearch(true);
+    }
+  };
+
   const handleCategoryChange = (selected) => {
     setSelectedCategories(selected);
+    rerunIfSearched();
   };
-  
+
   const handleLocationChange = (selected) => {
     setSelectedLocations(selected);
+    rerunIfSearched();
   };
   
   // Updated result item renderer with timezone formatting
@@ -872,17 +902,13 @@ function EventSearch({
             </div>
             
             <div className="filters-container">
-              {/* Category filter - use baseCategories from MongoDB (templeEvents__Categories) */}
+              {/* Category filter - union of registered categories and every
+                  category actually in use (see allCategoryOptions). Single
+                  source shared with the "all selected" / categoryCount logic. */}
               <div className="filter-section">
                 <label>Categories:</label>
                 <MultiSelect
-                  options={[
-                    'Uncategorized',
-                    ...baseCategories
-                      .filter(cat => cat.active !== false && cat.name)
-                      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
-                      .map(cat => cat.name)
-                  ]}
+                  options={allCategoryOptions}
                   selected={selectedCategories}
                   onChange={handleCategoryChange}
                   customHeight="36px"

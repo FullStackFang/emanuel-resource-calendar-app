@@ -93,6 +93,48 @@ export const useBaseCategoriesQuery = (apiToken) => {
 };
 
 /**
+ * Fetch the distinct category strings actually present on events.
+ * Backend unions calendarData.categories, top-level categories, and
+ * graphData.categories — the same three the search filter matches — so the
+ * dropdown can offer every category in use, not just registered ones.
+ * @param {string} apiToken - API token for authentication
+ */
+const fetchDistinctEventCategories = async (apiToken) => {
+  const headers = {};
+  if (apiToken) {
+    headers.Authorization = `Bearer ${apiToken}`;
+  }
+
+  const response = await fetch(`${APP_CONFIG.API_BASE_URL}/internal-events/mec-categories`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    // Graceful fallback — the dropdown still works off registered categories.
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+};
+
+/**
+ * Hook for fetching distinct in-use event categories with TanStack Query.
+ * @param {string} apiToken - API token for authentication
+ */
+export const useDistinctEventCategoriesQuery = (apiToken) => {
+  const tokenRef = useRef(apiToken);
+  tokenRef.current = apiToken;
+
+  return useQuery({
+    queryKey: keys.distinctEventCategories.all(),
+    queryFn: () => fetchDistinctEventCategories(tokenRef.current),
+    staleTime: 30 * 60 * 1000, // 30 minutes - categories rarely change
+    enabled: !!apiToken,
+  });
+};
+
+/**
  * Hook for fetching Outlook categories with TanStack Query
  * Uses backend proxy with app-only authentication
  * @param {string} apiToken - API token for authentication
@@ -112,4 +154,4 @@ export const useOutlookCategoriesQuery = (apiToken, userId) => {
   });
 };
 
-export default { useBaseCategoriesQuery, useOutlookCategoriesQuery };
+export default { useBaseCategoriesQuery, useOutlookCategoriesQuery, useDistinctEventCategoriesQuery };

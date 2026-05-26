@@ -50,6 +50,13 @@ export const keys = {
   baseCategories: {
     all: () => ['baseCategories'],
   },
+  // Distinct category strings actually present on events (union of
+  // calendarData.categories, top-level categories, graphData.categories).
+  // Used to populate the search filter dropdown so every category in use
+  // is selectable, not just the registered ones.
+  distinctEventCategories: {
+    all: () => ['distinctEventCategories'],
+  },
   outlookCategories: {
     all: () => ['outlookCategories'],
     byUser: (userId) => ['outlookCategories', userId],
