@@ -507,6 +507,21 @@ function invalidateCategoryCache() {
   _categoryCacheExpiry = 0;
 }
 
+const { buildNormalizedCategoryMap, resolveCategoryIds: _resolveCategoryIds } = require('./utils/categoryResolver');
+
+/**
+ * Resolve category name strings to ObjectIds using the cached category map,
+ * auto-creating any missing records (holds the "every category maps" invariant).
+ */
+async function resolveCategoryIdsForNames(names) {
+  if (!Array.isArray(names) || names.length === 0) return [];
+  const cache = await getCachedCategories();
+  const normMap = buildNormalizedCategoryMap(cache);
+  const { ids, created } = await _resolveCategoryIds(names, { normMap, categoriesCollection });
+  if (created > 0) invalidateCategoryCache();
+  return ids;
+}
+
 // ── User cache: 5-min TTL, keyed by userId ──
 // Industry standard (Azure AD/Auth0 accept up to 1 hour).
 // Invalidated immediately on admin write paths for zero-staleness on known mutations.
@@ -4814,6 +4829,9 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
 
     // Category/assignment fields
     unifiedEvent.categories = internalData.mecCategories || graphEvent.categories || [];
+    // Stable category references (mirrors calendarData.locations). Names remain the
+    // denormalized display value; ids are authoritative for filtering.
+    unifiedEvent.categoryIds = await resolveCategoryIdsForNames(unifiedEvent.categories);
     unifiedEvent.assignedTo = internalData.assignedTo || '';
 
     // Build calendarData with all authoritative fields + enrichment-only fields
@@ -4829,6 +4847,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       locations: unifiedEvent.locations,
       locationDisplayNames: unifiedEvent.locationDisplayNames,
       categories: unifiedEvent.categories,
+      categoryIds: unifiedEvent.categoryIds,
       isAllDayEvent: unifiedEvent.isAllDayEvent,
       setupTime: unifiedEvent.setupTime,
       teardownTime: unifiedEvent.teardownTime,
@@ -5835,6 +5854,7 @@ function projectEventForSSE(event) {
       locations: cd.locations,
       locationDisplayNames: cd.locationDisplayNames,
       categories: cd.categories,
+      categoryIds: cd.categoryIds,
       services: cd.services,
       assignedTo: cd.assignedTo,
       attendeeCount: cd.attendeeCount,
