@@ -63,39 +63,60 @@ calendarData.categoryIds:  [ObjectId, ObjectId]        // NEW   — stable refer
 - `"Uncategorized"` is **not** a record — it is the absence of `categoryIds`
   (empty / missing / null), exactly as today.
 
-## Auto-Create Normalization (one-time, in the backfill script)
+## Category Reconciliation (guaranteed mapping)
 
-For every distinct in-use category name across all events:
+**Invariant:** every in-use category name MUST map to an existing
+`templeEvents__Categories` record. There are no permanent name-only categories.
+This is enforced at two points: a reviewed migration (below) and runtime
+auto-create-on-miss (Phase 2).
 
-1. **Trim** surrounding whitespace.
-2. **Case-insensitive dedup** against existing registered categories: a stray
-   `"skirball"` links to the existing `"Skirball"` record rather than creating a
-   duplicate. Matching is `name.trim().toLowerCase()`.
-3. Names with no match → create a record:
-   `{ name: <first-seen trimmed casing>, active: true, displayOrder: <max+N>, autoCreated: true, createdAt }`.
-   The `autoCreated: true` flag lets an admin review/merge later.
-4. `"Uncategorized"` and empty strings are skipped (never become records).
+The migration uses a **two-step, human-in-the-loop** reconciliation so that
+near-duplicates and typos merge into the correct existing record instead of
+spawning junk:
+
+1. **Report step** (`--report`): scan all events, compute the distinct set of
+   in-use category names with occurrence counts. For each name, propose a mapping:
+   - **MATCH** — case-insensitive trimmed match to an existing record
+     (`name.trim().toLowerCase()`), e.g. `"skirball "` → existing `"Skirball"`.
+   - **NEW** — no match found; would create a new record.
+   Write this to an editable mapping file (`category-mapping.json`):
+   `[{ name, count, action: "map"|"create"|"skip", targetId|newName }]`.
+2. **Confirm step** — the user reviews/edits the mapping file: merge names into
+   existing records, approve new ones, or skip (`"Uncategorized"`/empty).
+3. **Apply step** (`--apply --mapping category-mapping.json`): create the approved
+   NEW records, then backfill `categoryIds` per the confirmed mapping. The script
+   **asserts 100% coverage** — if any in-use name is unmapped after apply, it fails
+   loudly rather than leaving a name-only event.
+
+Newly created records carry `{ active: true, displayOrder: <max+N>,
+autoCreated: true, createdAt }`. `"Uncategorized"` and empty strings are never
+records (they mean "no categoryIds").
 
 ## Migration Phases (each independently verifiable)
 
 ### Phase 1 — Backfill script (standalone, isolated)
 A new `backend/migrate-backfill-category-ids.js` that edits **no file the
-api-server loads** (per one-off-script isolation rule). It:
-- Scans distinct in-use names, auto-creates missing categories (rules above).
-- Adds `calendarData.categoryIds` to every event by resolving
-  `calendarData.categories` names → `_id` via a case-insensitive map.
-- Supports `--dry-run` (reports unregistered names that would be created + before/after
-  counts, no writes), `--verify` (reports coverage), batch processing with a `\r`
-  progress bar, `withCosmosRetry`/batchDelete-style bounded retries, idempotent.
-- Output rules: config summary, counts, progress bar, final summary. No per-doc logging
-  except in `--dry-run`.
+api-server loads** (per one-off-script isolation rule). It implements the
+two-step reconciliation from "Category Reconciliation":
+- `--report` — emit `category-mapping.json` (distinct names + counts + proposed
+  MATCH/NEW action). No writes.
+- `--apply --mapping <file>` — create approved NEW records, backfill
+  `calendarData.categoryIds` per the confirmed mapping, **assert 100% coverage**.
+- `--verify` — report coverage (events with/without `categoryIds`, any unmapped names).
+- Batch processing with a `\r` progress bar, `withCosmosRetry`/`batchDelete`-style
+  bounded retries, idempotent.
+- Output rules: config summary, counts, progress bar, final summary. No per-doc
+  logging except in `--report`.
 
-### Phase 2 — Dual-write
+### Phase 2 — Dual-write (auto-create-on-miss to hold the invariant)
 Add a shared helper `resolveCategoryIds(names) -> [ObjectId]` that reads the
-in-memory category cache (the one invalidated by `invalidateCategoryCache`) and
-maps names case-insensitively, auto-creating on miss is NOT done here (writes only
-link to existing records; unregistered names left unlinked until next backfill or
-a dedicated create flow). Call the helper at the real entry points so anything
+in-memory category cache (the one invalidated by `invalidateCategoryCache`),
+maps names case-insensitively, and **auto-creates a record on miss** (flagged
+`autoCreated: true`, then invalidates the cache). This maintains the "every
+category maps to a record" invariant for category names that first appear via
+live Graph sync after the migration — no event is ever left name-only. The
+`autoCreated` flag surfaces these in the admin review list so junk from Outlook
+typos can be merged later. Call the helper at the real entry points so anything
 setting `calendarData.categories` also sets `calendarData.categoryIds`:
 
 Entry points (confirmed write sites):
@@ -114,10 +135,14 @@ param. Filter becomes:
 ```
 calendarData.categoryIds: { $in: [ObjectId...] }
 ```
-with a **name-match fallback** OR-ed in for events not yet backfilled:
+with a **transitional name-match fallback** OR-ed in for events not yet
+backfilled:
 ```
 $or: [ { categoryIds: { $in: ids } }, { 'calendarData.categories': { $in: names } } ]
 ```
+The fallback is only needed during the rollout window; once backfill completes
+and the runtime invariant holds (Phase 2), every event has `categoryIds` and the
+fallback can be removed in Phase 5.
 `"Uncategorized"` keeps its existing empty/missing/null branch.
 `services/mcpTools.js:24` updated to the same predicate.
 
@@ -149,7 +174,10 @@ Backend (extend `categoryFilterRepro.test.js` + new files):
 - `"Uncategorized"` matches empty `categoryIds`.
 - Rename propagation: rename a category → events previously tagged with the old
   name return under the new name (and old name no longer matches).
-- Backfill script unit test: resolve + case-insensitive dedup + auto-create + idempotency.
+- Backfill script unit test: report proposes MATCH/NEW correctly; apply backfills
+  per mapping; case-insensitive dedup; idempotency; **coverage assertion fails when
+  a name is left unmapped**.
+- Runtime `resolveCategoryIds` auto-creates on miss and reuses existing on match.
 
 Frontend:
 - Name→id mapping in the search filter (selected "Skirball" → its ObjectId on the wire).
@@ -166,16 +194,24 @@ Frontend:
   job, but requires rewiring every reader of `cd.categories` (15+ sites). Write-time
   `updateMany` keyed on the stable `_id` keeps all existing readers correct with a
   single touch point. Read-time derivation remains a viable future optimization.
-- **Auto-create over hybrid/manual.** Chosen by product owner: yields a complete
-  canonical set, every event resolves to ids, and the dropdown becomes just the
-  collection. Dedup + `autoCreated` flag mitigate proliferation.
+- **Guaranteed mapping via reviewed reconciliation.** Product owner requirement:
+  every in-use category maps to an existing record — no permanent name-only
+  categories. The two-step report → confirm → apply flow lets a human merge
+  near-duplicates into existing records (so dupes/typos don't spawn junk), and the
+  apply step asserts 100% coverage. Runtime auto-create-on-miss maintains the
+  invariant for names that first appear via live sync afterward. End state: a
+  complete canonical set, every event resolves to ids, dropdown = the collection.
 
 ## Risks / Rollback
 
 - **Rollback:** additive design — disabling `categoryIds` reads reverts to name
   matching. Safe until Phase 5.
 - **Cosmos rate limits** on backfill and rename `updateMany` → batch + `withCosmosRetry`.
-- **Auto-create proliferation** → case-insensitive dedup + `autoCreated` review flag;
-  `--dry-run` surfaces the create list before any write.
-- **Partial backfill coverage** during rollout → name-fallback in the filter keeps
-  results correct for un-backfilled events.
+- **Junk-record proliferation** → reviewed `--report`/confirm step merges
+  near-duplicates before any write; runtime auto-creates carry `autoCreated: true`
+  for periodic admin review/merge.
+- **Partial backfill coverage** during rollout → transitional name-fallback in the
+  filter keeps results correct for un-backfilled events; removed in Phase 5 once
+  coverage is complete.
+- **Apply-step coverage assertion** is the backstop: the migration fails loudly
+  rather than silently leaving an event with a name that maps to nothing.
