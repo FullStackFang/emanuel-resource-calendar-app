@@ -8388,6 +8388,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         updateOperations['calendarData.virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
         // calendarData categories mirrors graphData.categories
         updateOperations['calendarData.categories'] = updatedGraphData.categories || [];
+        // Stable category references (mirrors calendarData.locations); holds the
+        // categoryIds invariant on the admin-save path.
+        updateOperations['calendarData.categoryIds'] = await resolveCategoryIdsForNames(updatedGraphData.categories || []);
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -11877,6 +11880,12 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                 ]);
 
                 // Update existing event
+                // NOTE (category migration): this bulk CSV path writes
+                // calendarData.categories but NOT calendarData.categoryIds. After any
+                // CSV import, re-run `node migrate-backfill-category-ids.js --apply
+                // --mapping category-mapping.json` so categoryIds coverage stays 100%.
+                // The search filter's transitional name-fallback keeps results correct
+                // in the meantime.
                 await unifiedEventsCollection.updateOne(
                   { _id: existingEvent._id },
                   {
