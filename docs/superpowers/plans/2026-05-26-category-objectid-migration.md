@@ -161,6 +161,16 @@ module.exports = { normalizeCategoryName, buildNormalizedCategoryMap, resolveCat
 Run: `cd backend && npx jest __tests__/unit/utils/categoryResolver.test.js`
 Expected: PASS (5 tests).
 
+> **Hardening note (architecture review P2 — runtime auto-create race):** The
+> server wrapper `resolveCategoryIdsForNames` (Task 4) builds a fresh `normMap`
+> per call, so two sync events carrying the same brand-new name in quick
+> succession could each attempt an insert. Within a single call, the shared
+> `normMap` dedups; across calls the window is small and post-backfill rare (most
+> names are already registered). Acceptable for this pass. Recommended follow-up
+> (NOT this plan): add a unique index on a normalized category-name field and
+> switch the insert to `findOneAndUpdate({...}, { $setOnInsert }, { upsert: true })`
+> to make auto-create fully race-safe. Track in Phase 5.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -337,14 +347,15 @@ async function runApply(db, mappingPath) {
   }
   process.stdout.write('\n');
 
-  // 3. Assert 100% coverage: every event with a non-empty/non-Uncategorized name has categoryIds.
+  // 3. Assert 100% coverage: every event with a "real" category name (not
+  //    Uncategorized/empty) must have a non-empty categoryIds.
+  //    Cosmos-safe: $elemMatch + $size:0 + $exists (no $expr/aggregation in find).
   const unmapped = await db.collection(EVENTS).countDocuments({
-    'calendarData.categories.0': { $exists: true },
+    'calendarData.categories': { $elemMatch: { $nin: ['Uncategorized', ''] } },
     $or: [
       { 'calendarData.categoryIds': { $exists: false } },
-      { $expr: { $lt: [{ $size: '$calendarData.categoryIds' }, 1] } },
+      { 'calendarData.categoryIds': { $size: 0 } },
     ],
-    'calendarData.categories': { $not: { $size: 1 }, $elemMatch: { $nin: ['Uncategorized', ''] } },
   });
   if (unmapped > 0) {
     throw new Error(`Coverage assertion FAILED: ${unmapped} events still have categories but no categoryIds. Re-run --report and confirm all names.`);
@@ -356,8 +367,11 @@ async function runVerify(db) {
   const total = await db.collection(EVENTS).countDocuments({});
   const withIds = await db.collection(EVENTS).countDocuments({ 'calendarData.categoryIds.0': { $exists: true } });
   const withNamesNoIds = await db.collection(EVENTS).countDocuments({
-    'calendarData.categories.0': { $exists: true },
-    'calendarData.categoryIds.0': { $exists: false },
+    'calendarData.categories': { $elemMatch: { $nin: ['Uncategorized', ''] } },
+    $or: [
+      { 'calendarData.categoryIds': { $exists: false } },
+      { 'calendarData.categoryIds': { $size: 0 } },
+    ],
   });
   console.log(`\n   Total events: ${total}`);
   console.log(`   With categoryIds: ${withIds}`);
@@ -472,6 +486,23 @@ Then inside the `unifiedEvent.calendarData = { ... }` object literal, add the li
       categoryIds: unifiedEvent.categoryIds,
 ```
 
+Also make `categoryIds` visible to the read/SSE projections so it round-trips:
+
+- `EVENT_LIST_PROJECTION` (~api-server.js:2457) — after `'calendarData.categories': 1,` add:
+  ```js
+  'calendarData.categoryIds': 1,
+  ```
+- `projectEventForSSE` (~api-server.js:5837) — after `categories: cd.categories,` add:
+  ```js
+      categoryIds: cd.categoryIds,
+  ```
+
+> **Verified non-issue (architecture review P1):** `bulkUpsertEvents` (~4947-5132)
+> is a second Graph-sync path, but it builds a FLAT document with no `calendarData`
+> object at all and uses `upsert: false` (refresh-only). It never writes
+> `calendarData.categories`/`categoryIds`, so it needs NO change here. New Graph
+> events are created via `upsertUnifiedEvent` (covered above). Do not re-flag this.
+
 - [ ] **Step 3: Write the failing test (graph-synced event gets categoryIds)**
 
 Add to `categoryFilterRepro.test.js` a new describe block. Since `upsertUnifiedEvent` is internal, this test asserts at the data level via a direct insert path is not possible — instead assert the resolver wrapper behavior through the search filter (covered in Task 6). For Task 4, add a focused unit-style assertion using the resolver against a seeded category:
@@ -564,6 +595,15 @@ categoryIds,                               // inside a calendarData object liter
 ```
 
 In `reconcile-rsched-source-of-truth.js` (standalone — inline, do NOT import server utils): after line 327 (`'calendarData.categories': csvRow.categories || []`), the script cannot call the server resolver. Leave categoryIds unset here; the backfill (`--apply`) covers reconcile-written events. Add a comment noting this.
+
+> **Known gap (architecture review P2) — CSV import upload endpoint (~api-server.js:11860-11870):**
+> This legacy streaming bulk-import path sets `calendarData.categories` via the
+> `transformedEvent` spread and a `preserveEnrichments` branch. It is a high-volume
+> loop, so wiring the resolver inline risks the same cache-stampede concern as
+> delta sync. **Decision:** do NOT dual-write here; treat it as covered by the
+> backfill. Add a code comment at line ~11869 instructing operators to re-run
+> `node migrate-backfill-category-ids.js --apply --mapping category-mapping.json`
+> after any bulk CSV import. `--verify` will surface any residual gap.
 
 - [ ] **Step 4: Run the focused suite**
 
@@ -731,9 +771,26 @@ git commit -m "feat(categories): accept categoryIds in mcpTools category filter"
 ### Task 8: Frontend — map selected names → ids, send `categoryIds`
 
 **Files:**
+- Modify: `src/utils/eventTransformers.js` (add `categoryIds` passthrough — the "2 places" rule)
 - Modify: `src/components/EventSearch.jsx` (`searchEvents` params ~77-91; build name→id map from `baseCategories`; pass ids)
 - Modify: `src/components/EventSearchExport.jsx` (`fetchAllMatchingEvents` params ~64-78)
 - Test: `src/__tests__/unit/components/EventSearch.categoryIds.test.jsx`
+
+- [ ] **Step 0: Add `categoryIds` to the centralized transform (architecture review P2)**
+
+Per CLAUDE.md, `transformEventToFlatStructure` is the single read transform; new
+fields must be added here. After the `const categories = getEventField(...)` block
+(~line 283), add:
+
+```js
+  const categoryIds = getEventField(event, 'categoryIds', []);
+```
+
+Then in the returned object (after `categories,` / `mecCategories: categories,` ~line 372), add:
+
+```js
+    categoryIds,
+```
 
 - [ ] **Step 1: Write the failing frontend test (mapping helper)**
 
@@ -801,7 +858,7 @@ Expected: PASS (2 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/EventSearch.jsx src/components/EventSearchExport.jsx src/__tests__/unit/components/EventSearch.categoryIds.test.jsx
+git add src/utils/eventTransformers.js src/components/EventSearch.jsx src/components/EventSearchExport.jsx src/__tests__/unit/components/EventSearch.categoryIds.test.jsx
 git commit -m "feat(categories): send resolved categoryIds from search + export filters"
 ```
 
@@ -852,7 +909,16 @@ Expected: FAIL — `categories` still contains 'Skirball'.
 
 - [ ] **Step 3: Add propagation to `PUT /api/categories/:id`**
 
-Before `findOneAndUpdate`, capture the old name; after a successful name change, replace the old display string on all events that reference this id:
+Before `findOneAndUpdate`, capture the old name; after a successful name change, replace the old display string on all events that reference this id.
+
+> **Cosmos DB constraint (architecture review P1):** Do NOT use the positional
+> `$[elem]` operator with `arrayFilters` — Azure Cosmos DB's Mongo API does not
+> support `arrayFilters` (zero uses exist in this codebase), and it would silently
+> no-op, leaving stale display strings while returning 200. Use the supported
+> two-call `$pull` + `$addToSet` pattern instead. It is non-atomic across documents
+> but idempotent, and rename is an admin-only, low-frequency action.
+
+Capture the old name (place near the top of the handler):
 
 ```js
     // Capture old name to propagate a rename to denormalized event display strings.
@@ -863,15 +929,23 @@ After `invalidateCategoryCache();` and the `if (!result)` guard:
 
 ```js
     // Rename propagation: refresh the denormalized calendarData.categories display
-    // string on every event that references this category by its stable id.
+    // strings on every event that references this category by its stable id.
+    // Cosmos-safe: $pull old name, then $addToSet new name (no arrayFilters).
     if (before && name && before.name !== updateData.name) {
+      const catObjectId = new ObjectId(id);
       await withCosmosRetry(() => unifiedEventsCollection.updateMany(
-        { 'calendarData.categoryIds': new ObjectId(id), 'calendarData.categories': before.name },
-        { $set: { 'calendarData.categories.$[elem]': updateData.name } },
-        { arrayFilters: [{ elem: before.name }] }
+        { 'calendarData.categoryIds': catObjectId, 'calendarData.categories': before.name },
+        { $pull: { 'calendarData.categories': before.name } }
+      ));
+      await withCosmosRetry(() => unifiedEventsCollection.updateMany(
+        { 'calendarData.categoryIds': catObjectId },
+        { $addToSet: { 'calendarData.categories': updateData.name } }
       ));
     }
 ```
+
+Note: `$addToSet` may reorder the renamed category to the end of the display array.
+That is acceptable — display order of categories on an event is not significant.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -912,3 +986,10 @@ These are intentionally deferred until `--verify` shows full coverage in product
 **Type consistency:** Server wrapper is `resolveCategoryIdsForNames` (api-server) wrapping util `resolveCategoryIds`; frontend mapper `selectedNamesToCategoryIds`; script exports `buildReport`/`resolveIdsForEvent`. Field name `calendarData.categoryIds` used consistently throughout.
 
 **Open verification dependency:** Task 5 CI-2 is written to fail until Task 6 lands (documented in Task 5 Step 2). Task 9 requires an `adminToken` in the test file's `beforeEach` — add one (createAdmin + createMockToken) if not already present.
+
+**Architecture review incorporated (2026-05-26):**
+- P1 — Task 9 uses Cosmos-safe `$pull` + `$addToSet` (NOT `arrayFilters`, which Cosmos silently no-ops).
+- P1 — `bulkUpsertEvents` verified to write no `calendarData`; annotated as no-change in Task 4.
+- P2 — `categoryIds` added to `transformEventToFlatStructure` (Task 8 Step 0), `EVENT_LIST_PROJECTION` + `projectEventForSSE` (Task 4).
+- P2 — backfill coverage assertion rewritten without `$expr`/`$size`-aggregation (Cosmos-safe `$elemMatch` + `$size: 0`).
+- P2 — CSV-import endpoint (~11860) documented as backfill-covered (Task 5); runtime auto-create race documented with a Phase 5 unique-index follow-up (Task 1).

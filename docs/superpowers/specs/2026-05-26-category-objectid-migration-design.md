@@ -63,6 +63,11 @@ calendarData.categoryIds:  [ObjectId, ObjectId]        // NEW   — stable refer
 - `"Uncategorized"` is **not** a record — it is the absence of `categoryIds`
   (empty / missing / null), exactly as today.
 
+**Read-path visibility:** `categoryIds` must round-trip through the read layers it
+travels — added to `transformEventToFlatStructure` (the single FE transform),
+`EVENT_LIST_PROJECTION`, and `projectEventForSSE`. These are the "2 places + SSE"
+the field-addition rule covers.
+
 ## Category Reconciliation (guaranteed mapping)
 
 **Invariant:** every in-use category name MUST map to an existing
@@ -147,14 +152,28 @@ fallback can be removed in Phase 5.
 `services/mcpTools.js:24` updated to the same predicate.
 
 ### Phase 4 — Rename propagation
-In `PUT /api/categories/:id`, when `name` changes: batched `updateMany` refreshes
-the denormalized `categories` strings on all events whose `categoryIds` contains
-that `_id`. Because the join key is the stable `_id`, this is reliable. Batched +
-`withCosmosRetry` for Cosmos rate limits.
+In `PUT /api/categories/:id`, when `name` changes: refresh the denormalized
+`categories` strings on all events whose `categoryIds` contains that `_id`.
+Because the join key is the stable `_id`, this is reliable.
+
+**Cosmos DB constraint:** do NOT use `$[elem]`/`arrayFilters` — it is unsupported
+by Cosmos DB's Mongo API (and unused anywhere in this codebase); it would silently
+no-op. Use the supported two-call pattern, each wrapped in `withCosmosRetry`:
+`$pull` the old name (where `categoryIds` contains the id and `categories`
+contains the old name), then `$addToSet` the new name (where `categoryIds`
+contains the id). Non-atomic across documents but idempotent; rename is admin-only
+and low-frequency.
 
 ### Phase 5 — Cleanup (later)
+- Remove the transitional name-fallback from the search filter and `mcpTools.js`.
 - Dropdown sources purely from `templeEvents__Categories` (every in-use name is now
   registered), superseding the uncommitted `useDistinctEventCategoriesQuery` union.
+  Update `/api/internal-events/mec-categories` accordingly.
+- Add a unique index on a normalized category-name field and switch runtime
+  auto-create to `findOneAndUpdate(..., { $setOnInsert }, { upsert: true })` for
+  full race-safety.
+- Wire the resolver into (or document the backfill dependency of) the CSV import
+  upload endpoint (~api-server.js:11860).
 - Optionally reconcile stray top-level `categories` / `graphData.categories`.
 
 ## Frontend Wire Protocol
