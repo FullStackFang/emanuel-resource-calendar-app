@@ -6049,6 +6049,11 @@ const EVENT_LIST_PROJECTION = {
   // Fields previously only on the /api/events/list inline projection — kept so
   // admin-browse / search / approval-queue consumers don't regress.
   sourceCalendars: 1, lastSyncedAt: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+  // 'source' gates community-editability of rsched imports on the frontend
+  // (isRschedImported = source === 'rsSched'). Without it the "Request Edit"
+  // button never renders for requesters on rsched events. Do NOT remove — the
+  // downstream output mappers (source: event.source || null) depend on it.
+  source: 1,
   // Only the graphData subfields actually used downstream
   'graphData.id': 1, 'graphData.iCalUId': 1,
   'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
