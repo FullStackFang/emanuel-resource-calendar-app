@@ -284,6 +284,7 @@ export function transformEventToFlatStructure(event) {
                     event.graphData?.categories ||
                     getEventField(event, 'mecCategories') ||
                     [];
+  const categoryIds = getEventField(event, 'categoryIds', []);
 
   return {
     // === STANDARDIZED ID PROPERTIES ===
@@ -371,6 +372,7 @@ export function transformEventToFlatStructure(event) {
     // Categories and services
     categories,
     mecCategories: categories, // Backwards compatibility alias
+    categoryIds,
     services: getEventField(event, 'services') || {},
 
     // Concurrent event settings (admin-only)

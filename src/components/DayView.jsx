@@ -1,6 +1,6 @@
 // Fixed DayView.jsx with proper virtual location detection
 import { logger } from '../utils/logger';
-import React, { memo, useMemo, useRef } from 'react';
+import React, { memo, useMemo, useRef, useCallback } from 'react';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { isTimelessDraft } from '../utils/timelineUtils';
 import { useTimezone } from '../context/TimezoneContext';
@@ -43,6 +43,7 @@ const DayView = memo(({
   canAddEvent,
   favorites,
   onToggleFavorite,
+  onReorderFavorites,
   hideEmptyGroups
 }) => {
   // Get user's timezone preference from context
@@ -106,6 +107,7 @@ const DayView = memo(({
         const aFav = favorites?.includes(a) ? 0 : 1;
         const bFav = favorites?.includes(b) ? 0 : 1;
         if (aFav !== bFav) return aFav - bFav;
+        if (aFav === 0) return (favorites?.indexOf(a) ?? 0) - (favorites?.indexOf(b) ?? 0);
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
@@ -123,6 +125,7 @@ const DayView = memo(({
         const aFav = favorites?.includes(a) ? 0 : 1;
         const bFav = favorites?.includes(b) ? 0 : 1;
         if (aFav !== bFav) return aFav - bFav;
+        if (aFav === 0) return (favorites?.indexOf(a) ?? 0) - (favorites?.indexOf(b) ?? 0);
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
@@ -139,6 +142,25 @@ const DayView = memo(({
     filteredEvents.filter(e => getEventPosition(e, currentDay)),
     [filteredEvents, getEventPosition, currentDay]
   );
+
+  const handleMovePin = useCallback((group, direction) => {
+    if (!onReorderFavorites || !favorites) return;
+    const pinnedInGrid = activeGroupsForDay.filter(g => favorites.includes(g));
+    const idx = pinnedInGrid.indexOf(group);
+    const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= pinnedInGrid.length) return;
+    const neighbor = pinnedInGrid[neighborIdx];
+    const next = [...favorites];
+    const idxA = next.indexOf(group);
+    const idxB = next.indexOf(neighbor);
+    if (idxA === -1 || idxB === -1) return;
+    [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+    onReorderFavorites(next);
+  }, [onReorderFavorites, favorites, activeGroupsForDay]);
+
+  const pinnedGroups = onReorderFavorites
+    ? activeGroupsForDay.filter(g => favorites?.includes(g))
+    : [];
 
   const sentinelRef = useRef(null);
   const headerRef = useRef(null);
@@ -226,6 +248,24 @@ const DayView = memo(({
                 flex: 1,
                 minWidth: 0
               }}>{group}</span>
+              {onReorderFavorites && favorites?.includes(group) && (
+                <div className="grid-cell-reorder-btns">
+                  <button
+                    className="grid-cell-reorder-btn"
+                    onClick={(e) => { e.stopPropagation(); handleMovePin(group, 'up'); }}
+                    disabled={pinnedGroups[0] === group}
+                    title="Move up"
+                    aria-label={`Move ${group} up`}
+                  >↑</button>
+                  <button
+                    className="grid-cell-reorder-btn"
+                    onClick={(e) => { e.stopPropagation(); handleMovePin(group, 'down'); }}
+                    disabled={pinnedGroups[pinnedGroups.length - 1] === group}
+                    title="Move down"
+                    aria-label={`Move ${group} down`}
+                  >↓</button>
+                </div>
+              )}
               {onToggleFavorite && (
                 <button
                   className={`grid-cell-pin-icon${favorites?.includes(group) ? ' pinned' : ''}`}

@@ -10,11 +10,13 @@ import { logger } from '../utils/logger';
 import { keys } from '../queries/keys';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
+import { selectedNamesToCategoryIds } from '../utils/categoryFilterUtils';
 import CalendarSelector from './CalendarSelector';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
+import { useDistinctEventCategoriesQuery } from '../hooks/useCategoriesQuery';
 import {
   AVAILABLE_TIMEZONES,
   getOutlookTimezone,
@@ -49,7 +51,7 @@ const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
 
 
 // Search function implementation using unified backend search (includes CSV events)
-async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC', { allCategoryCount = 0, allLocationCount = 0 } = {}) {
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC', { allCategoryCount = 0, allLocationCount = 0, categoryIds = [] } = {}) {
   try {
     // Build search parameters
     const params = new URLSearchParams({
@@ -79,6 +81,11 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       if (allCategoryCount > 0) {
         params.append('categoryCount', allCategoryCount.toString());
       }
+    }
+
+    // Add resolved categoryIds (ObjectId strings) alongside name-based filter
+    if (categoryIds && categoryIds.length > 0) {
+      params.append('categoryIds', categoryIds.join(','));
     }
 
     // Add location filters (with count for backend all-selected detection)
@@ -207,17 +214,14 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       location: {
         displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.locationDisplayNames || event.graphData?.location?.displayName || ''
       },
-      // Categories - prioritize calendarData, then top-level, then graphData
-      categories: [
-        ...(event.calendarData?.categories || []),
-        ...(event.categories || []),
-        ...(event.graphData?.categories || [])
-      ].filter((cat, index, arr) => arr.indexOf(cat) === index), // Deduplicate
+      // Categories - calendarData is the source of truth for what renders on
+      // the calendar, so display (and the category filter) key off it alone.
+      categories: event.calendarData?.categories || [],
       bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
       calendarName: event.calendarName,
-      mecCategories: event.calendarData?.categories || event.categories || [],
+      mecCategories: event.calendarData?.categories || [],
       setupMinutes: event.calendarData?.setupTimeMinutes || event.setupTimeMinutes || 0,
       teardownMinutes: event.calendarData?.teardownTimeMinutes || event.teardownTimeMinutes || 0,
       reservationStartMinutes: event.calendarData?.reservationStartMinutes || event.reservationStartMinutes || 0,
@@ -300,36 +304,71 @@ function EventSearch({
   // Selected event state
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchError, setSearchError] = useState(null);
-  
-  // Flag to control when to run the search query
+  // Per-field required-date cues. Set by handleSearch when a date is missing,
+  // cleared the instant the user enters a valid value for that field.
+  const [dateErrors, setDateErrors] = useState({ start: false, end: false });
+
+  // Flag to control when to run the search query. Set true only by handleSearch
+  // (the Search button); the query's success handler resets it to false. Filter
+  // changes never set it, so the search runs exclusively on an explicit click.
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
 
   // Search version - only increments when Search button is clicked (prevents auto-search on typing)
   const [searchVersion, setSearchVersion] = useState(0);
 
-  // Compute full category/location option lists for "all selected" detection
-  const allCategoryOptions = useMemo(() => [
-    'Uncategorized',
-    ...baseCategories
+  // Snapshot of the filters that produced the currently-displayed results.
+  // With manual search, the form fields (selectedCategories, dateRange, ...) are
+  // a DRAFT until the user clicks Search. The visible results are frozen to the
+  // last applied search, so anything that consumes "what was searched" (notably
+  // the export) MUST read this snapshot, not the live draft — otherwise the
+  // export filters on values the user never searched with (e.g. shows 3 results
+  // but exports 0). INVARIANT: every path that bumps searchVersion must also
+  // refresh this snapshot (see handleSearch and handleTimezoneChange).
+  const [appliedFilters, setAppliedFilters] = useState({
+    searchTerm: '',
+    categories: [],
+    locations: [],
+    dateRange: { start: '', end: '' },
+    calendarOwner: null,
+  });
+
+  // Distinct categories actually present on events (rsched imports carry
+  // free-text categories that aren't registered). Unioned with registered
+  // categories below so every category in use is selectable.
+  const { data: distinctEventCategories = [] } = useDistinctEventCategoriesQuery(apiToken);
+
+  // Compute full category option list for the dropdown AND "all selected"
+  // detection. Single source of truth: registered categories first (by
+  // displayOrder), then any additional in-use categories (alpha), with
+  // 'Uncategorized' pinned at the top. Both the MultiSelect options and the
+  // categoryCount sent to the backend read from this list so they stay
+  // consistent.
+  const allCategoryOptions = useMemo(() => {
+    const registered = baseCategories
       .filter(cat => cat.active !== false && cat.name)
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
-      .map(cat => cat.name)
-  ], [baseCategories]);
+      .map(cat => cat.name);
+    const registeredSet = new Set(registered);
+    const extras = distinctEventCategories
+      .filter(name => name && !registeredSet.has(name))
+      .sort((a, b) => a.localeCompare(b));
+    return ['Uncategorized', ...registered, ...extras];
+  }, [baseCategories, distinctEventCategories]);
 
   const allLocationOptions = useMemo(() => availableLocations || [], [availableLocations]);
 
-  // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing).
+  // Query key is keyed SOLELY on searchVersion, which increments only when the
+  // user clicks Search (handleSearch) or changes timezone with results present
+  // (handleTimezoneChange). Live filter state (dateRange, categories, locations,
+  // timezone) is intentionally NOT part of the key: editing a filter must not
+  // re-key the query, otherwise the displayed results would swap to an un-fetched
+  // key and blank out. The queryFn reads the current filter values at fetch time,
+  // so an explicit Search always fetches with the latest selection.
   // Built via the central factory so a cross-cutting `keys.events.all()` invalidation
   // (e.g., from the SSE bridge on server restart) reaches search results too.
   const searchQueryKey = useMemo(() =>
-    keys.events.search({
-      version: searchVersion,
-      dateRange,
-      categories: selectedCategories,
-      locations: selectedLocations,
-      timezone: userTimezone,
-    }),
-    [searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone]
+    keys.events.search({ version: searchVersion }),
+    [searchVersion]
   );
   
   // Get the query client
@@ -378,7 +417,7 @@ function EventSearch({
         100, // Load first 100 results; user clicks Load More for next batch
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
         userTimezone, // Use shared timezone
-        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length, categoryIds: selectedNamesToCategoryIds(effectiveCategories, baseCategories) }
       );
 
       // Sort results by start date (latest first)
@@ -515,7 +554,7 @@ function EventSearch({
         100, // Load 100 at a time for pagination
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
         userTimezone, // Use shared timezone
-        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length, categoryIds: selectedNamesToCategoryIds(effectiveCategories, baseCategories) }
       );
       
       setHasNextPage(result.nextLink !== null);
@@ -576,7 +615,8 @@ function EventSearch({
     queryClient,
     currentPage,
     allCategoryOptions,
-    allLocationOptions
+    allLocationOptions,
+    baseCategories
   ]);
 
   const scheduleNextBatch = useCallback(() => {
@@ -599,10 +639,27 @@ function EventSearch({
     }, dynamicDelay);
   }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchResults, loadMoreResults]);
   
+  // Snapshot the current (live) filter values as the "applied" set. Called by
+  // every path that (re)runs the query, so the displayed results and the export
+  // always agree on what was searched. Reads the same calendarOwner resolution
+  // the search queryFn uses.
+  const captureAppliedFilters = () => ({
+    searchTerm,
+    categories: selectedCategories,
+    locations: selectedLocations,
+    dateRange: { ...dateRange },
+    calendarOwner:
+      availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null,
+  });
+
   // Handle search execution - only triggered by button click
   const handleSearch = () => {
-    // Both dates are required
+    // Both dates are required. Flag the empty field(s) so they get a red cue,
+    // and make sure the (possibly collapsed) filters panel is open so the cue
+    // is actually visible.
     if (!dateRange.start || !dateRange.end) {
+      setDateErrors({ start: !dateRange.start, end: !dateRange.end });
+      setShowAdvancedOptions(true);
       setSearchError('A start date and end date are both required');
       return;
     }
@@ -613,8 +670,10 @@ function EventSearch({
       return;
     }
 
+    setDateErrors({ start: false, end: false });  // Valid attempt — clear date cues
     setSearchError(null);
     setSelectedEvent(null);  // Clear stale detail panel
+    setAppliedFilters(captureAppliedFilters());  // Freeze filters for results + export
     setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
     // Collapse filters after initiating search
@@ -629,6 +688,9 @@ function EventSearch({
     // If there are existing search results, trigger a new search with the new timezone
     // Timezone is in query key, so incrementing version will refresh with new timezone
     if (searchResults.length > 0) {
+      // This re-runs the query against the current live filters, so keep the
+      // applied snapshot in lock-step (preserves the results↔export invariant).
+      setAppliedFilters(captureAppliedFilters());
       setSearchVersion(v => v + 1);
       setShouldRunSearch(true);
     }
@@ -677,11 +739,13 @@ function EventSearch({
     updateEventMutation.mutate(eventToUpdate);
   };
 
-  // Handle category and location selection
+  // Handle category and location selection.
+  // Filter changes only update state and the query key; they never run a search.
+  // The search executes exclusively when the user clicks Search (handleSearch).
   const handleCategoryChange = (selected) => {
     setSelectedCategories(selected);
   };
-  
+
   const handleLocationChange = (selected) => {
     setSelectedLocations(selected);
   };
@@ -778,16 +842,20 @@ function EventSearch({
           )}
           {searchResults.length > 0 && (
             <EventSearchExport
+              baseCategories={baseCategories}
               searchResults={searchResults}
-              searchTerm={searchTerm}
-              categories={selectedCategories}
-              locations={selectedLocations}
+              // Export must filter on the APPLIED snapshot (what produced these
+              // results), not the live draft fields — otherwise it can export a
+              // different set than what is shown. See appliedFilters above.
+              searchTerm={appliedFilters.searchTerm}
+              categories={appliedFilters.categories}
+              locations={appliedFilters.locations}
               apiToken={apiToken}
-              dateRange={dateRange}
+              dateRange={appliedFilters.dateRange}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               graphToken={graphToken}
               selectedCalendarId={searchCalendarId}
-              calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
+              calendarOwner={appliedFilters.calendarOwner}
               timezone={userTimezone}
               allCategoryOptions={allCategoryOptions}
               allLocationOptions={allLocationOptions}
@@ -855,34 +923,42 @@ function EventSearch({
             </div>
             
             <div className="date-filters">
-              <div className="form-group">
+              <div className={`form-group ${dateErrors.start ? 'has-error' : ''}`}>
                 <label>From:</label>
                 <DatePickerInput
                   value={dateRange.start}
-                  onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDateRange({...dateRange, start: value});
+                    if (value) setDateErrors(prev => (prev.start ? {...prev, start: false} : prev));
+                  }}
+                  className={dateErrors.start ? 'date-input-error' : ''}
+                  aria-invalid={dateErrors.start || undefined}
                 />
               </div>
-              <div className="form-group">
+              <div className={`form-group ${dateErrors.end ? 'has-error' : ''}`}>
                 <label>To:</label>
                 <DatePickerInput
                   value={dateRange.end}
-                  onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDateRange({...dateRange, end: value});
+                    if (value) setDateErrors(prev => (prev.end ? {...prev, end: false} : prev));
+                  }}
+                  className={dateErrors.end ? 'date-input-error' : ''}
+                  aria-invalid={dateErrors.end || undefined}
                 />
               </div>
             </div>
             
             <div className="filters-container">
-              {/* Category filter - use baseCategories from MongoDB (templeEvents__Categories) */}
+              {/* Category filter - union of registered categories and every
+                  category actually in use (see allCategoryOptions). Single
+                  source shared with the "all selected" / categoryCount logic. */}
               <div className="filter-section">
                 <label>Categories:</label>
                 <MultiSelect
-                  options={[
-                    'Uncategorized',
-                    ...baseCategories
-                      .filter(cat => cat.active !== false && cat.name)
-                      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
-                      .map(cat => cat.name)
-                  ]}
+                  options={allCategoryOptions}
                   selected={selectedCategories}
                   onChange={handleCategoryChange}
                   customHeight="36px"
@@ -908,7 +984,10 @@ function EventSearch({
       </div>
       
       {searchError && (
-        <div className={`search-message ${searchError.type === 'success' ? 'success' : 'error'}`}>
+        <div
+          className={`search-message ${searchError.type === 'success' ? 'success' : 'error'}`}
+          role={searchError.type === 'success' ? undefined : 'alert'}
+        >
           {typeof searchError === 'string' ? searchError : searchError.message}
         </div>
       )}

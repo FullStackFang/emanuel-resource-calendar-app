@@ -101,14 +101,15 @@ function MultiSelect({
     return options.filter(option => option.toLowerCase().includes(query));
   }, [options, searchQuery]);
 
-  // When favorites enabled, split filtered options into pinned (top) and unpinned (bottom)
+  // When favorites enabled, split filtered options into pinned (top) and unpinned (bottom).
+  // Pinned items preserve the user's custom order (favorites array order); unpinned are alphabetical.
   const sortedFilteredOptions = useMemo(() => {
     if (!hasFavorites) return { pinned: [], unpinned: filteredOptions };
-    const pinned = filteredOptions
-      .filter(opt => favorites.includes(opt))
-      .sort((a, b) => a.localeCompare(b));
+    const favSet = new Set(favorites);
+    const filteredSet = new Set(filteredOptions);
+    const pinned = favorites.filter(opt => filteredSet.has(opt));
     const unpinned = filteredOptions
-      .filter(opt => !favorites.includes(opt))
+      .filter(opt => !favSet.has(opt))
       .sort((a, b) => a.localeCompare(b));
     return { pinned, unpinned };
   }, [hasFavorites, filteredOptions, favorites]);

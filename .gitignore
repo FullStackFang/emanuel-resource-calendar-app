@@ -43,3 +43,6 @@ backend/coverage
 
 # Superpowers brainstorming session files
 .superpowers/
+
+# One-time category migration mapping (operational artifact, may contain site-specific names)
+backend/category-mapping.json

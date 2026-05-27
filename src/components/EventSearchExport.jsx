@@ -4,6 +4,7 @@ import { useNotification } from '../context/NotificationContext';
 import { logger } from '../utils/logger';
 import { generateCalendarPdf } from '../utils/calendarPdfGenerator';
 import { getEventRecurrence } from '../utils/eventTransformers';
+import { selectedNamesToCategoryIds } from '../utils/categoryFilterUtils';
 
 const EventSearchExport = ({
   searchResults,
@@ -18,7 +19,8 @@ const EventSearchExport = ({
   calendarOwner = null,
   timezone = 'UTC',
   allCategoryOptions = [],
-  allLocationOptions = []
+  allLocationOptions = [],
+  baseCategories = []
 }) => {
   const { showError } = useNotification();
   const [sortBy, setSortBy] = useState('date');
@@ -67,6 +69,12 @@ const EventSearchExport = ({
         if (allCategoryOptions.length > 0) {
           params.append('categoryCount', allCategoryOptions.length.toString());
         }
+      }
+
+      // Add resolved categoryIds (ObjectId strings) alongside name-based filter
+      const effectiveCategoryIds = selectedNamesToCategoryIds(effectiveCategories, baseCategories);
+      if (effectiveCategoryIds.length > 0) {
+        params.append('categoryIds', effectiveCategoryIds.join(','));
       }
 
       // Add location filters (with count for backend all-selected detection)

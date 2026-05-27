@@ -507,6 +507,21 @@ function invalidateCategoryCache() {
   _categoryCacheExpiry = 0;
 }
 
+const { buildNormalizedCategoryMap, resolveCategoryIds: _resolveCategoryIds } = require('./utils/categoryResolver');
+
+/**
+ * Resolve category name strings to ObjectIds using the cached category map,
+ * auto-creating any missing records (holds the "every category maps" invariant).
+ */
+async function resolveCategoryIdsForNames(names) {
+  if (!Array.isArray(names) || names.length === 0) return [];
+  const cache = await getCachedCategories();
+  const normMap = buildNormalizedCategoryMap(cache);
+  const { ids, created } = await _resolveCategoryIds(names, { normMap, categoriesCollection });
+  if (created > 0) invalidateCategoryCache();
+  return ids;
+}
+
 // ── User cache: 5-min TTL, keyed by userId ──
 // Industry standard (Azure AD/Auth0 accept up to 1 hour).
 // Invalidated immediately on admin write paths for zero-staleness on known mutations.
@@ -4415,13 +4430,12 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
 // Get available MEC categories
 app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => {
   try {
-    // Get distinct categories from calendarData (authoritative) and top-level
-    const [calCats, topCats] = await Promise.all([
-      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
-      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
-    ]);
+    // calendarData.categories is the source of truth for what renders on the
+    // calendar, so the dropdown is sourced from the distinct values of that
+    // field only — every category in use is therefore selectable.
+    const calCats = await withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories'));
 
-    const allCategories = [...new Set([...calCats, ...topCats])];
+    const allCategories = [...new Set(calCats)];
     const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();
@@ -4815,6 +4829,9 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
 
     // Category/assignment fields
     unifiedEvent.categories = internalData.mecCategories || graphEvent.categories || [];
+    // Stable category references (mirrors calendarData.locations). Names remain the
+    // denormalized display value; ids are authoritative for filtering.
+    unifiedEvent.categoryIds = await resolveCategoryIdsForNames(unifiedEvent.categories);
     unifiedEvent.assignedTo = internalData.assignedTo || '';
 
     // Build calendarData with all authoritative fields + enrichment-only fields
@@ -4830,6 +4847,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       locations: unifiedEvent.locations,
       locationDisplayNames: unifiedEvent.locationDisplayNames,
       categories: unifiedEvent.categories,
+      categoryIds: unifiedEvent.categoryIds,
       isAllDayEvent: unifiedEvent.isAllDayEvent,
       setupTime: unifiedEvent.setupTime,
       teardownTime: unifiedEvent.teardownTime,
@@ -5836,6 +5854,7 @@ function projectEventForSSE(event) {
       locations: cd.locations,
       locationDisplayNames: cd.locationDisplayNames,
       categories: cd.categories,
+      categoryIds: cd.categoryIds,
       services: cd.services,
       assignedTo: cd.assignedTo,
       attendeeCount: cd.attendeeCount,
@@ -7317,6 +7336,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       calendarOwner: qCalendarOwner = '',
       calendarId: qCalendarId = '',
       categoryCount = '',
+      categoryIds = '',
       locationCount = ''
     } = req.query;
 
@@ -7526,15 +7546,22 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // ── Category filter ──
-    if (categories) {
-      const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
+    // calendarData.categoryIds is authoritative (stable refs). During rollout,
+    // also OR a name-match fallback on calendarData.categories for events not yet
+    // backfilled. 'Uncategorized' = no categoryIds and no names.
+    if (categories || categoryIds) {
+      const nameList = categories.split(',').map(c => c.trim()).filter(Boolean);
+      const idList = categoryIds.split(',').map(s => s.trim()).filter(Boolean);
       const totalCategoryCount = parseInt(categoryCount) || 0;
-      const isAllCategoriesSelected = totalCategoryCount > 0 && categoryList.length >= totalCategoryCount;
+      // "All selected" = no category narrowing. Check both lists so an id-only
+      // caller (no names) still short-circuits correctly.
+      const isAllSelected = totalCategoryCount > 0 &&
+        (nameList.length >= totalCategoryCount || idList.length >= totalCategoryCount);
 
-      if (categoryList.length > 0 && !isAllCategoriesSelected) {
+      if (!isAllSelected && (nameList.length > 0 || idList.length > 0)) {
         const categoryConditions = [];
 
-        if (categoryList.includes('Uncategorized')) {
+        if (nameList.includes('Uncategorized')) {
           categoryConditions.push(
             { 'calendarData.categories': { $exists: false } },
             { 'calendarData.categories': { $size: 0 } },
@@ -7542,9 +7569,17 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
           );
         }
 
-        const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
-        if (actualCategories.length > 0) {
-          categoryConditions.push({ 'calendarData.categories': { $in: actualCategories } });
+        const objectIds = idList
+          .filter(id => ObjectId.isValid(id))
+          .map(id => new ObjectId(id));
+        if (objectIds.length > 0) {
+          categoryConditions.push({ 'calendarData.categoryIds': { $in: objectIds } });
+        }
+
+        const actualNames = nameList.filter(c => c !== 'Uncategorized');
+        if (actualNames.length > 0) {
+          // Transitional name fallback for events not yet backfilled (Phase 5 removes this).
+          categoryConditions.push({ 'calendarData.categories': { $in: actualNames } });
         }
 
         if (categoryConditions.length > 0) {
@@ -7607,13 +7642,28 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       }
     }
 
-    let events = await withCosmosRetry(async () => {
+    const runFind = () => withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project(projection);
       if (limitNum > 0) {
         cursor = cursor.skip(skip).limit(limitNum);
       }
       return cursor.toArray();
     });
+
+    let events = await runFind();
+
+    // Cosmos cross-partition cold-query mitigation. The count and the find use
+    // the IDENTICAL query, so an empty find while the count is positive means the
+    // cross-partition find returned silently-empty on a cold call (index metadata
+    // warming) — the same behavior enrichSeriesMastersWithOverrides guards against
+    // for its secondary query. withCosmosRetry only retries thrown throttle errors,
+    // not a successful-but-empty result, so retry the find once here. This only
+    // fires on a provable count/find inconsistency, so a legitimately empty result
+    // (totalCount 0) never retries. Manifested as "Found N events. Showing first 0".
+    if (limitNum > 0 && totalCount > 0 && events.length === 0) {
+      logger.warn(`[events/list] view=${view}: count=${totalCount} but find returned 0; retrying find once (suspected Cosmos cold cross-partition query)`);
+      events = await runFind();
+    }
 
     // Sort client-side (Cosmos DB index limitations)
     events.sort((a, b) => {
@@ -8367,6 +8417,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         updateOperations['calendarData.virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
         // calendarData categories mirrors graphData.categories
         updateOperations['calendarData.categories'] = updatedGraphData.categories || [];
+        // Stable category references (mirrors calendarData.locations); holds the
+        // categoryIds invariant on the admin-save path.
+        updateOperations['calendarData.categoryIds'] = await resolveCategoryIdsForNames(updatedGraphData.categories || []);
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -11856,6 +11909,12 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                 ]);
 
                 // Update existing event
+                // NOTE (category migration): this bulk CSV path writes
+                // calendarData.categories but NOT calendarData.categoryIds. After any
+                // CSV import, re-run `node migrate-backfill-category-ids.js --apply
+                // --mapping category-mapping.json` so categoryIds coverage stays 100%.
+                // The search filter's transitional name-fallback keeps results correct
+                // in the meantime.
                 await unifiedEventsCollection.updateOne(
                   { _id: existingEvent._id },
                   {
@@ -14013,13 +14072,12 @@ app.get('/api/public/internal-events', async (req, res) => {
 // Public endpoint to get available MEC categories (for dropdowns)
 app.get('/api/public/mec-categories', async (req, res) => {
   try {
-    // Get distinct categories from calendarData (authoritative) and top-level
-    const [calCats, topCats] = await Promise.all([
-      withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories')),
-      withCosmosRetry(() => unifiedEventsCollection.distinct('categories'))
-    ]);
+    // calendarData.categories is the source of truth for what renders on the
+    // calendar, so the dropdown is sourced from the distinct values of that
+    // field only — every category in use is therefore selectable.
+    const calCats = await withCosmosRetry(() => unifiedEventsCollection.distinct('calendarData.categories'));
 
-    const allCategories = [...new Set([...calCats, ...topCats])];
+    const allCategories = [...new Set(calCats)];
     const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();
@@ -19087,6 +19145,9 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid category ID' });
     }
 
+    // Capture the pre-update doc so a rename can propagate to event display strings.
+    const before = await categoriesCollection.findOne({ _id: new ObjectId(id) });
+
     const updateData = {
       updatedAt: new Date()
     };
@@ -19132,6 +19193,23 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
 
     if (!result) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    // Rename propagation: refresh the denormalized calendarData.categories display
+    // strings on every event that references this category by its stable id.
+    // Cosmos-safe: $pull the old name, then $addToSet the new name (arrayFilters /
+    // positional $[elem] is unsupported by Cosmos DB's Mongo API). Non-atomic across
+    // documents but idempotent; rename is admin-only and low-frequency.
+    if (before && name && before.name !== updateData.name) {
+      const catObjectId = new ObjectId(id);
+      await withCosmosRetry(() => unifiedEventsCollection.updateMany(
+        { 'calendarData.categoryIds': catObjectId, 'calendarData.categories': before.name },
+        { $pull: { 'calendarData.categories': before.name } }
+      ));
+      await withCosmosRetry(() => unifiedEventsCollection.updateMany(
+        { 'calendarData.categoryIds': catObjectId },
+        { $addToSet: { 'calendarData.categories': updateData.name } }
+      ));
     }
 
     res.json(result);
