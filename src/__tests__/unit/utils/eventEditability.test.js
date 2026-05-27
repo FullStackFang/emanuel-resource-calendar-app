@@ -9,4 +9,14 @@ describe('eventEditability shared contract (frontend)', () => {
       expect(canDirectEditEvent(c.event, c.user)).toBe(c.expect.canDirectEditEvent);
     });
   }
+
+  it('exports the expected 13-function surface', async () => {
+    const mod = await import('../../../utils/eventEditability');
+    expect(Object.keys(mod).sort()).toEqual([
+      'canDirectEditEvent', 'canRequestEditEvent', 'hasPendingEditRequest',
+      'isAdminEditor', 'isCommunityEditable', 'isEventOwner', 'isEventOwnerless',
+      'isRschedImported', 'isSameDepartment', 'isSeriesChild', 'normalizeDepartment',
+      'resolveEventDepartment', 'resolveOwnerEmail',
+    ]);
+  });
 });

@@ -82,5 +82,30 @@
   { "name": "same-dept / draft -> neither (status gate holds for dept branch)",
     "event": { "status": "draft", "eventType": "singleInstance", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "Music" } } },
     "user": { "email": "colleague@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
+    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
+
+  { "name": "owner via calendarData.requesterEmail fallback / pending -> directEdit",
+    "event": { "status": "pending", "eventType": "singleInstance", "calendarData": { "requesterEmail": "owner@x.org" } },
+    "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
+    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": true } },
+
+  { "name": "owner via top-level requesterEmail fallback / rejected -> directEdit",
+    "event": { "status": "rejected", "eventType": "singleInstance", "requesterEmail": "owner@x.org" },
+    "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
+    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": true } },
+
+  { "name": "series child (exception) / published / owner -> blocked",
+    "event": { "status": "published", "eventType": "exception", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "Music" } } },
+    "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
+    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
+
+  { "name": "series child (addition) / published / owner -> requestEdit blocked",
+    "event": { "status": "published", "eventType": "addition", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "Music" } } },
+    "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
+    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
+
+  { "name": "series child via graphData.type=occurrence (no eventType) / published -> blocked",
+    "event": { "status": "published", "graphData": { "type": "occurrence" }, "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "Music" } } },
+    "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
     "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } }
 ]
