@@ -7553,7 +7553,10 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       const nameList = categories.split(',').map(c => c.trim()).filter(Boolean);
       const idList = categoryIds.split(',').map(s => s.trim()).filter(Boolean);
       const totalCategoryCount = parseInt(categoryCount) || 0;
-      const isAllSelected = totalCategoryCount > 0 && nameList.length >= totalCategoryCount;
+      // "All selected" = no category narrowing. Check both lists so an id-only
+      // caller (no names) still short-circuits correctly.
+      const isAllSelected = totalCategoryCount > 0 &&
+        (nameList.length >= totalCategoryCount || idList.length >= totalCategoryCount);
 
       if (!isAllSelected && (nameList.length > 0 || idList.length > 0)) {
         const categoryConditions = [];
