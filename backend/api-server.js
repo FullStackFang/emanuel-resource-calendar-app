@@ -36,6 +36,7 @@ const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
+const { isCommunityEditable, isEventOwner, isSameDepartment } = require('./utils/eventEditability');
 
 // Per-occurrence child documents (exception/addition) must never surface as
 // independent targets in the Approval Queue, My Reservations, or the
@@ -17466,24 +17467,15 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
-    // Ownership + department check (email-based, consistent with restore/delete endpoints)
-    const ownerEmail = (event.roomReservationData?.requestedBy?.email || '').toLowerCase();
-    const isOwner = ownerEmail === (userEmail || '').toLowerCase();
-
-    if (!isOwner) {
-      // Check if same department
-      const currentUserRecord = await findUserByIdentity(usersCollection, userId, userEmail);
-      const eventDepartment = (
-        event.roomReservationData?.requestedBy?.department
-        || event.calendarData?.department
-        || ''
-      ).toLowerCase().trim();
-      const userDepartment = (currentUserRecord?.department || '').toLowerCase().trim();
-      const isSameDepartment = eventDepartment && userDepartment && eventDepartment === userDepartment;
-
-      if (!isSameDepartment) {
-        return res.status(403).json({ error: 'You can only edit reservations from your own department' });
-      }
+    // Ownership + department check. Reads the event's stored requestedBy.department
+    // only (no live creator-profile lookup — parity with the frontend; calendarData.department
+    // is migration-unset and intentionally ignored). This direct-edit path is
+    // owner-OR-same-department only: ownerless/rsched events are edited via the
+    // published request-edit flow, not here.
+    const currentUserRecord = await findUserByIdentity(usersCollection, userId, userEmail);
+    const currentUserDept = currentUserRecord?.department || '';
+    if (!isEventOwner(event, userEmail) && !isSameDepartment(event, currentUserDept)) {
+      return res.status(403).json({ error: 'You can only edit reservations from your own department' });
     }
 
     // Status guard: only pending and rejected events can be edited this way
@@ -22206,44 +22198,16 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
       });
     }
 
-    // Permission gate: isOwner OR isSameDepartment OR isOwnerlessEvent
-    const isOwner =
-      originalEvent.createdBy === userId ||
-      (originalEvent.createdByEmail || '').toLowerCase() === (userEmail || '').toLowerCase() ||
-      originalEvent.roomReservationData?.requestedBy?.userId === userId ||
-      (originalEvent.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
-
-    let isSameDepartment = false;
-    if (!isOwner) {
-      const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
-      const myDept = (requestingUser?.department || '').toLowerCase().trim();
-      if (myDept) {
-        const eventDept = (
-          originalEvent.roomReservationData?.requestedBy?.department ||
-          originalEvent.calendarData?.department ||
-          ''
-        ).toLowerCase().trim();
-        if (eventDept && eventDept === myDept) {
-          isSameDepartment = true;
-        } else {
-          const creatorUserId = originalEvent.roomReservationData?.requestedBy?.userId || originalEvent.createdBy;
-          const creatorEmail = originalEvent.roomReservationData?.requestedBy?.email || originalEvent.createdByEmail;
-          if (creatorUserId || creatorEmail) {
-            const creatorUser = await findUserByIdentity(usersCollection, creatorUserId, creatorEmail);
-            const creatorDept = (creatorUser?.department || '').toLowerCase().trim();
-            if (creatorDept && creatorDept === myDept) isSameDepartment = true;
-          }
-        }
-      }
-    }
-
-    const isOwnerlessEvent = !originalEvent.roomReservationData?.requestedBy?.email;
-    // rsched imports (source:'rsSched') carry the legacy scheduler's email in
-    // requestedBy.email, so they are not ownerless — but remain community-editable
-    // (any requester may propose edits). Mirrors useCurrentUserGates.canRequestEdit.
-    const isRschedImported = originalEvent.source === 'rsSched';
-
-    if (!isOwner && !isSameDepartment && !isOwnerlessEvent && !isRschedImported) {
+    // Permission gate: owner | same-department | ownerless | rsched.
+    // Department is read from the event's stored requestedBy.department only —
+    // no live creator-profile lookup (parity with the frontend). See
+    // backend/utils/eventEditability.js.
+    // Ownership now uses the requestedBy.email chain only (not createdBy/createdByEmail);
+    // requester-less/Graph-synced events remain editable via the ownerless arm of
+    // isCommunityEditable, so nothing is locked out.
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+    const editabilityUser = { email: userEmail, department: requestingUser?.department || '' };
+    if (!isCommunityEditable(originalEvent, editabilityUser)) {
       return res.status(403).json({
         error: 'Only the event owner or users in the same department can request edits',
       });
@@ -23444,46 +23408,17 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
       });
     }
 
-    // Permission check: owner OR same-department OR ownerless
-    const isOwner = event.createdBy === userId ||
-                    (event.createdByEmail || '').toLowerCase() === (userEmail || '').toLowerCase() ||
-                    event.roomReservationData?.requestedBy?.userId === userId ||
-                    (event.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
-
-    const isOwnerlessEvent = !event.roomReservationData?.requestedBy?.email;
-    // rsched imports (source:'rsSched') carry the legacy scheduler's email in
-    // requestedBy.email, so they are not ownerless — but remain community-cancellable.
-    const isRschedImported = event.source === 'rsSched';
-
-    let isSameDepartment = false;
-    if (!isOwner && !isOwnerlessEvent && !isRschedImported) {
-      const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
-      const myDept = (requestingUser?.department || '').toLowerCase().trim();
-      if (myDept) {
-        const eventDept = (
-          event.roomReservationData?.requestedBy?.department ||
-          event.calendarData?.department ||
-          ''
-        ).toLowerCase().trim();
-        if (eventDept && eventDept === myDept) {
-          isSameDepartment = true;
-        } else {
-          const creatorUserId = event.roomReservationData?.requestedBy?.userId || event.createdBy;
-          const creatorEmail = event.roomReservationData?.requestedBy?.email || event.createdByEmail;
-          if (creatorUserId || creatorEmail) {
-            const creatorUser = await findUserByIdentity(usersCollection, creatorUserId, creatorEmail);
-            const creatorDept = (creatorUser?.department || '').toLowerCase().trim();
-            if (creatorDept && creatorDept === myDept) {
-              isSameDepartment = true;
-            }
-          }
-        }
-      }
-    }
-
-    if (!isOwner && !isSameDepartment && !isOwnerlessEvent && !isRschedImported) {
+    // Permission gate: owner | same-department | ownerless | rsched (stored dept only).
+    // Ownership uses the requestedBy.email chain only (not createdBy/createdByEmail);
+    // requester-less/Graph-synced events remain editable via the ownerless arm of
+    // isCommunityEditable, so nothing is locked out.
+    // This record is reused below to build the cancellation-request payload
+    // (displayName/department/phone) — do not look the same user up twice.
+    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+    const editabilityUser = { email: userEmail, department: requestingUser?.department || '' };
+    if (!isCommunityEditable(event, editabilityUser)) {
       return res.status(403).json({
-        error: 'Only the event owner, users in the same department, or any user for ownerless events can request cancellation'
+        error: 'Only the event owner, users in the same department, or any user for ownerless events can request cancellation',
       });
     }
 
@@ -23507,10 +23442,9 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
       });
     }
 
-    // Build the cancellation request
+    // Build the cancellation request (reuses requestingUser from the permission gate above)
     const now = new Date();
     const cancellationRequestId = `cancel-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
 
     const pendingCancellationRequest = {
       id: cancellationRequestId,
