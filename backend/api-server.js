@@ -6186,35 +6186,9 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       });
     logger.debug(`Found ${events.length} displayable events for ${calendarOwner || userId}`);
 
-    // Batch lookup creator departments from user profiles
-    // Collect unique creator emails, then fetch their departments in one query
-    const creatorEmails = [...new Set(events
-      .map(e => (e.roomReservationData?.requestedBy?.email || e.createdByEmail || '').toLowerCase())
-      .filter(Boolean)
-    )];
-    const creatorDeptMap = {};
-    if (creatorEmails.length > 0) {
-      try {
-        const creators = await withCosmosRetry(() => usersCollection.find(
-          { email: { $in: creatorEmails } }, // creatorEmails already lowercased at line 5307
-          { projection: { email: 1, department: 1 } }
-        ).toArray());
-        for (const creator of creators) {
-          creatorDeptMap[creator.email.toLowerCase()] = creator.department || '';
-        }
-      } catch (err) {
-        logger.warn('Could not batch-lookup creator departments:', err.message);
-      }
-    }
-
     // Normalize events to ensure start/end are populated from calendarData
     // Frontend (Calendar.jsx) expects event.start.dateTime at top level
     const normalizedEvents = events.map(event => {
-      // Enrich with creator's department from user profile
-      const creatorEmail = (event.roomReservationData?.requestedBy?.email || event.createdByEmail || '').toLowerCase();
-      if (creatorEmail && creatorDeptMap[creatorEmail] !== undefined) {
-        event.creatorDepartment = creatorDeptMap[creatorEmail];
-      }
       // CRITICAL: Populate top-level start/end from calendarData
       // Frontend Calendar.jsx checks event.start.dateTime, not graphData.start.dateTime
       if (!event.start?.dateTime && event.calendarData?.startDateTime) {

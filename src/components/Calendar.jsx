@@ -646,62 +646,6 @@ import ConflictDialog from './shared/ConflictDialog';
       prevSimulatedRoleRef.current = simulatedRole;
     }, [simulatedRole, apiToken]);
 
-    // Per-event edit permission: considers ownership and department match
-    const canEditThisEvent = useMemo(() => {
-      if (canEditEvents || canApproveReservations) return true; // admin/approver
-      if (!reviewModal.currentItem) return false;
-
-      const item = reviewModal.currentItem;
-
-      // Check ownership
-      const requesterEmail = (
-        item.roomReservationData?.requestedBy?.email
-        || item.calendarData?.requesterEmail
-        || item.requesterEmail
-        || ''
-      ).toLowerCase();
-      const isOwner = currentUser?.email && requesterEmail === currentUser.email.toLowerCase();
-      if (isOwner) return true;
-
-      // Check department match (only for pending/rejected)
-      // Uses creator's user profile department, not event's stored fields
-      if (['pending', 'rejected'].includes(item.status)) {
-        const ownerDept = (item.creatorDepartment || '').toLowerCase().trim();
-        const myDept = (userDepartment || '').toLowerCase().trim();
-        if (myDept && ownerDept === myDept) return true;
-      }
-
-      return false;
-    }, [canEditEvents, canApproveReservations, reviewModal.currentItem, currentUser?.email, userDepartment]);
-
-    // Whether the current user can request edits on the current published event (owner OR same department)
-    const canRequestEditThisEvent = useMemo(() => {
-      if (!reviewModal.currentItem || !currentUser?.email) return false;
-      const item = reviewModal.currentItem;
-
-      // Ownerless events (imported/synced without requestedBy) are open to any requester
-      const hasOwner = !!item.roomReservationData?.requestedBy?.email;
-      if (!hasOwner) return true;
-
-      // Check ownership
-      const requesterEmail = (
-        item.roomReservationData?.requestedBy?.email
-        || item.createdByEmail
-        || ''
-      ).toLowerCase();
-      if (requesterEmail === currentUser.email.toLowerCase()) return true;
-
-      // Check department match — uses the creator's user profile department
-      // (enriched by backend as creatorDepartment), not the event's stored fields
-      const myDept = (userDepartment || '').toLowerCase().trim();
-      if (!myDept) return false;
-
-      const ownerDept = (item.creatorDepartment || '').toLowerCase().trim();
-      if (ownerDept === myDept) return true;
-
-      return false;
-    }, [reviewModal.currentItem, currentUser?.email, userDepartment]);
-
     // Resubmit handler (for non-admin users resubmitting rejected events without changes)
     const handleResubmitFromCalendar = useCallback(async () => {
       const item = reviewModal.currentItem;
