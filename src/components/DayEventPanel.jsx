@@ -1,6 +1,8 @@
 import React, { memo, useCallback } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { canRequestEditEvent } from '../utils/eventEditability';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import { sortEventsByStartTime, isRecurringEvent } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
@@ -25,7 +27,15 @@ const DayEventPanel = memo(({
   const { userTimezone } = useTimezone();
 
   // Get permissions for role simulation
-  const { canEditEvents, canDeleteEvents, canSubmitReservation } = usePermissions();
+  const { canEditEvents, canDeleteEvents, canSubmitReservation, canApproveReservations, department } = usePermissions();
+  const { accounts } = useMsal();
+  const editabilityUser = {
+    email: (accounts?.[0]?.username || '').toLowerCase(),
+    department,
+    canSubmitReservation,
+    canEditEvents,
+    canApproveReservations,
+  };
 
   // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
 
@@ -253,9 +263,8 @@ const DayEventPanel = memo(({
                     </span>
                   )}
 
-                  {/* Request Edit button for published events - visible to requesters and above */}
-                  {/* Hide if there's already a pending edit request (use raw data, not role-filtered badge) */}
-                  {event.status === 'published' && canSubmitReservation && !canEditEvents && onRequestEdit && event.pendingEditRequest?.status !== 'pending' && (
+                  {/* Request Edit button — gated by shared community-editable rule */}
+                  {onRequestEdit && canRequestEditEvent(event, editabilityUser) && (
                     <button
                       className="request-edit-btn"
                       onClick={(e) => {

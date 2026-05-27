@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useMsal } from '@azure/msal-react';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { canRequestEditEvent } from '../utils/eventEditability';
 import { sortEventsByStartTime, isRecurringEvent } from '../utils/eventTransformers';
 import { getLocationConflictInfo } from '../utils/eventOverlapUtils';
 import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon } from './shared/CalendarIcons';
@@ -68,7 +70,15 @@ const DayEventsPopup = ({
   onRequestEdit
 }) => {
   const { userTimezone } = useTimezone();
-  const { canSubmitReservation, canEditEvents } = usePermissions();
+  const { canSubmitReservation, canEditEvents, canApproveReservations, department } = usePermissions();
+  const { accounts } = useMsal();
+  const editabilityUser = {
+    email: (accounts?.[0]?.username || '').toLowerCase(),
+    department,
+    canSubmitReservation,
+    canEditEvents,
+    canApproveReservations,
+  };
   const popupRef = useRef(null);
   const [expandedOverlaps, setExpandedOverlaps] = useState({});
 
@@ -271,8 +281,8 @@ const DayEventsPopup = ({
                     </span>
                   )}
 
-                  {/* Request Edit button */}
-                  {event.status === 'published' && canSubmitReservation && !canEditEvents && onRequestEdit && event.pendingEditRequest?.status !== 'pending' && (
+                  {/* Request Edit button — gated by shared community-editable rule */}
+                  {onRequestEdit && canRequestEditEvent(event, editabilityUser) && (
                     <button
                       className="dep-request-edit-btn"
                       onClick={(e) => {
