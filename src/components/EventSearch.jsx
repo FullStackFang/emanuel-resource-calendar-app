@@ -305,14 +305,10 @@ function EventSearch({
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchError, setSearchError] = useState(null);
   
-  // Flag to control when to run the search query
+  // Flag to control when to run the search query. Set true only by handleSearch
+  // (the Search button); the query's success handler resets it to false. Filter
+  // changes never set it, so the search runs exclusively on an explicit click.
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
-
-  // True once the user has run an initial search. After that, category/location
-  // filter changes re-run the search automatically so results always reflect the
-  // current selection (clearing all filters = no filter = all events), instead of
-  // swapping to an un-fetched query key and showing a stale/empty result set.
-  const hasSearchedRef = useRef(false);
 
   // Search version - only increments when Search button is clicked (prevents auto-search on typing)
   const [searchVersion, setSearchVersion] = useState(0);
@@ -342,18 +338,18 @@ function EventSearch({
 
   const allLocationOptions = useMemo(() => availableLocations || [], [availableLocations]);
 
-  // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing).
+  // Query key is keyed SOLELY on searchVersion, which increments only when the
+  // user clicks Search (handleSearch) or changes timezone with results present
+  // (handleTimezoneChange). Live filter state (dateRange, categories, locations,
+  // timezone) is intentionally NOT part of the key: editing a filter must not
+  // re-key the query, otherwise the displayed results would swap to an un-fetched
+  // key and blank out. The queryFn reads the current filter values at fetch time,
+  // so an explicit Search always fetches with the latest selection.
   // Built via the central factory so a cross-cutting `keys.events.all()` invalidation
   // (e.g., from the SSE bridge on server restart) reaches search results too.
   const searchQueryKey = useMemo(() =>
-    keys.events.search({
-      version: searchVersion,
-      dateRange,
-      categories: selectedCategories,
-      locations: selectedLocations,
-      timezone: userTimezone,
-    }),
-    [searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone]
+    keys.events.search({ version: searchVersion }),
+    [searchVersion]
   );
   
   // Get the query client
@@ -642,7 +638,6 @@ function EventSearch({
     setSelectedEvent(null);  // Clear stale detail panel
     setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
-    hasSearchedRef.current = true;  // Enable reactive re-run on filter changes
     // Collapse filters after initiating search
     setShowAdvancedOptions(false);
   };
@@ -704,23 +699,14 @@ function EventSearch({
   };
 
   // Handle category and location selection.
-  // The query key already reacts to these, so once an initial search has run we
-  // just re-enable the query to refetch with the new selection. An empty
-  // selection sends no filter param, which the backend treats as "all".
-  const rerunIfSearched = () => {
-    if (hasSearchedRef.current && dateRange.start && dateRange.end) {
-      setShouldRunSearch(true);
-    }
-  };
-
+  // Filter changes only update state and the query key; they never run a search.
+  // The search executes exclusively when the user clicks Search (handleSearch).
   const handleCategoryChange = (selected) => {
     setSelectedCategories(selected);
-    rerunIfSearched();
   };
 
   const handleLocationChange = (selected) => {
     setSelectedLocations(selected);
-    rerunIfSearched();
   };
   
   // Updated result item renderer with timezone formatting
