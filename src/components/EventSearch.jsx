@@ -304,7 +304,10 @@ function EventSearch({
   // Selected event state
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchError, setSearchError] = useState(null);
-  
+  // Per-field required-date cues. Set by handleSearch when a date is missing,
+  // cleared the instant the user enters a valid value for that field.
+  const [dateErrors, setDateErrors] = useState({ start: false, end: false });
+
   // Flag to control when to run the search query. Set true only by handleSearch
   // (the Search button); the query's success handler resets it to false. Filter
   // changes never set it, so the search runs exclusively on an explicit click.
@@ -312,6 +315,22 @@ function EventSearch({
 
   // Search version - only increments when Search button is clicked (prevents auto-search on typing)
   const [searchVersion, setSearchVersion] = useState(0);
+
+  // Snapshot of the filters that produced the currently-displayed results.
+  // With manual search, the form fields (selectedCategories, dateRange, ...) are
+  // a DRAFT until the user clicks Search. The visible results are frozen to the
+  // last applied search, so anything that consumes "what was searched" (notably
+  // the export) MUST read this snapshot, not the live draft — otherwise the
+  // export filters on values the user never searched with (e.g. shows 3 results
+  // but exports 0). INVARIANT: every path that bumps searchVersion must also
+  // refresh this snapshot (see handleSearch and handleTimezoneChange).
+  const [appliedFilters, setAppliedFilters] = useState({
+    searchTerm: '',
+    categories: [],
+    locations: [],
+    dateRange: { start: '', end: '' },
+    calendarOwner: null,
+  });
 
   // Distinct categories actually present on events (rsched imports carry
   // free-text categories that aren't registered). Unioned with registered
@@ -620,10 +639,27 @@ function EventSearch({
     }, dynamicDelay);
   }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchResults, loadMoreResults]);
   
+  // Snapshot the current (live) filter values as the "applied" set. Called by
+  // every path that (re)runs the query, so the displayed results and the export
+  // always agree on what was searched. Reads the same calendarOwner resolution
+  // the search queryFn uses.
+  const captureAppliedFilters = () => ({
+    searchTerm,
+    categories: selectedCategories,
+    locations: selectedLocations,
+    dateRange: { ...dateRange },
+    calendarOwner:
+      availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null,
+  });
+
   // Handle search execution - only triggered by button click
   const handleSearch = () => {
-    // Both dates are required
+    // Both dates are required. Flag the empty field(s) so they get a red cue,
+    // and make sure the (possibly collapsed) filters panel is open so the cue
+    // is actually visible.
     if (!dateRange.start || !dateRange.end) {
+      setDateErrors({ start: !dateRange.start, end: !dateRange.end });
+      setShowAdvancedOptions(true);
       setSearchError('A start date and end date are both required');
       return;
     }
@@ -634,8 +670,10 @@ function EventSearch({
       return;
     }
 
+    setDateErrors({ start: false, end: false });  // Valid attempt — clear date cues
     setSearchError(null);
     setSelectedEvent(null);  // Clear stale detail panel
+    setAppliedFilters(captureAppliedFilters());  // Freeze filters for results + export
     setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
     // Collapse filters after initiating search
@@ -650,6 +688,9 @@ function EventSearch({
     // If there are existing search results, trigger a new search with the new timezone
     // Timezone is in query key, so incrementing version will refresh with new timezone
     if (searchResults.length > 0) {
+      // This re-runs the query against the current live filters, so keep the
+      // applied snapshot in lock-step (preserves the results↔export invariant).
+      setAppliedFilters(captureAppliedFilters());
       setSearchVersion(v => v + 1);
       setShouldRunSearch(true);
     }
@@ -803,15 +844,18 @@ function EventSearch({
             <EventSearchExport
               baseCategories={baseCategories}
               searchResults={searchResults}
-              searchTerm={searchTerm}
-              categories={selectedCategories}
-              locations={selectedLocations}
+              // Export must filter on the APPLIED snapshot (what produced these
+              // results), not the live draft fields — otherwise it can export a
+              // different set than what is shown. See appliedFilters above.
+              searchTerm={appliedFilters.searchTerm}
+              categories={appliedFilters.categories}
+              locations={appliedFilters.locations}
               apiToken={apiToken}
-              dateRange={dateRange}
+              dateRange={appliedFilters.dateRange}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               graphToken={graphToken}
               selectedCalendarId={searchCalendarId}
-              calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
+              calendarOwner={appliedFilters.calendarOwner}
               timezone={userTimezone}
               allCategoryOptions={allCategoryOptions}
               allLocationOptions={allLocationOptions}
@@ -879,18 +923,30 @@ function EventSearch({
             </div>
             
             <div className="date-filters">
-              <div className="form-group">
+              <div className={`form-group ${dateErrors.start ? 'has-error' : ''}`}>
                 <label>From:</label>
                 <DatePickerInput
                   value={dateRange.start}
-                  onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDateRange({...dateRange, start: value});
+                    if (value) setDateErrors(prev => (prev.start ? {...prev, start: false} : prev));
+                  }}
+                  className={dateErrors.start ? 'date-input-error' : ''}
+                  aria-invalid={dateErrors.start || undefined}
                 />
               </div>
-              <div className="form-group">
+              <div className={`form-group ${dateErrors.end ? 'has-error' : ''}`}>
                 <label>To:</label>
                 <DatePickerInput
                   value={dateRange.end}
-                  onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDateRange({...dateRange, end: value});
+                    if (value) setDateErrors(prev => (prev.end ? {...prev, end: false} : prev));
+                  }}
+                  className={dateErrors.end ? 'date-input-error' : ''}
+                  aria-invalid={dateErrors.end || undefined}
                 />
               </div>
             </div>
@@ -928,7 +984,10 @@ function EventSearch({
       </div>
       
       {searchError && (
-        <div className={`search-message ${searchError.type === 'success' ? 'success' : 'error'}`}>
+        <div
+          className={`search-message ${searchError.type === 'success' ? 'success' : 'error'}`}
+          role={searchError.type === 'success' ? undefined : 'alert'}
+        >
           {typeof searchError === 'string' ? searchError : searchError.message}
         </div>
       )}

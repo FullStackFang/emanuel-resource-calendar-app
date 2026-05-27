@@ -354,6 +354,43 @@
   -webkit-appearance: none;
 }
 
+/* Required-date cue: red border + soft red fill on the empty field(s).
+   Set by handleSearch when a date is missing; cleared on valid input. */
+.event-search-container .form-group input[type="date"].date-input-error,
+.event-search-container .form-group input[type="date"].date-input-error:hover {
+  border-color: var(--color-error-500);
+  background-color: var(--color-error-50);
+}
+
+.event-search-container .form-group input[type="date"].date-input-error:focus {
+  border-color: var(--color-error-500);
+  box-shadow: 0 0 0 3px var(--color-error-100);
+  background-color: var(--bg-primary);
+}
+
+/* The matching label turns red too, so "From:"/"To:" reads as the failing field. */
+.event-search-container .form-group.has-error label {
+  color: var(--color-error-600);
+}
+
+/* A single, gentle nudge to register "you missed this" — not a jarring shake. */
+.event-search-container .form-group.has-error {
+  animation: date-required-nudge 0.35s ease;
+}
+
+@keyframes date-required-nudge {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+
+/* Respect users who prefer reduced motion — keep the color cue, drop the nudge. */
+@media (prefers-reduced-motion: reduce) {
+  .event-search-container .form-group.has-error {
+    animation: none;
+  }
+}
+
 .event-search-container .filters-container {
   display: flex;
   gap: var(--space-5);

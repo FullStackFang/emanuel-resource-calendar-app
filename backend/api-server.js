@@ -7642,13 +7642,28 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       }
     }
 
-    let events = await withCosmosRetry(async () => {
+    const runFind = () => withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project(projection);
       if (limitNum > 0) {
         cursor = cursor.skip(skip).limit(limitNum);
       }
       return cursor.toArray();
     });
+
+    let events = await runFind();
+
+    // Cosmos cross-partition cold-query mitigation. The count and the find use
+    // the IDENTICAL query, so an empty find while the count is positive means the
+    // cross-partition find returned silently-empty on a cold call (index metadata
+    // warming) — the same behavior enrichSeriesMastersWithOverrides guards against
+    // for its secondary query. withCosmosRetry only retries thrown throttle errors,
+    // not a successful-but-empty result, so retry the find once here. This only
+    // fires on a provable count/find inconsistency, so a legitimately empty result
+    // (totalCount 0) never retries. Manifested as "Found N events. Showing first 0".
+    if (limitNum > 0 && totalCount > 0 && events.length === 0) {
+      logger.warn(`[events/list] view=${view}: count=${totalCount} but find returned 0; retrying find once (suspected Cosmos cold cross-partition query)`);
+      events = await runFind();
+    }
 
     // Sort client-side (Cosmos DB index limitations)
     events.sort((a, b) => {
