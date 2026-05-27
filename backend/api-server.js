@@ -19127,6 +19127,9 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid category ID' });
     }
 
+    // Capture the pre-update doc so a rename can propagate to event display strings.
+    const before = await categoriesCollection.findOne({ _id: new ObjectId(id) });
+
     const updateData = {
       updatedAt: new Date()
     };
@@ -19172,6 +19175,23 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
 
     if (!result) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    // Rename propagation: refresh the denormalized calendarData.categories display
+    // strings on every event that references this category by its stable id.
+    // Cosmos-safe: $pull the old name, then $addToSet the new name (arrayFilters /
+    // positional $[elem] is unsupported by Cosmos DB's Mongo API). Non-atomic across
+    // documents but idempotent; rename is admin-only and low-frequency.
+    if (before && name && before.name !== updateData.name) {
+      const catObjectId = new ObjectId(id);
+      await withCosmosRetry(() => unifiedEventsCollection.updateMany(
+        { 'calendarData.categoryIds': catObjectId, 'calendarData.categories': before.name },
+        { $pull: { 'calendarData.categories': before.name } }
+      ));
+      await withCosmosRetry(() => unifiedEventsCollection.updateMany(
+        { 'calendarData.categoryIds': catObjectId },
+        { $addToSet: { 'calendarData.categories': updateData.name } }
+      ));
     }
 
     res.json(result);

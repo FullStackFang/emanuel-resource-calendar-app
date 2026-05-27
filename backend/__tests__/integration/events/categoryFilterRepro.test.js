@@ -12,7 +12,7 @@ const request = require('supertest');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
-const { createViewer, insertUsers } = require('../../__helpers__/userFactory');
+const { createViewer, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const { createPublishedEvent, insertEvents } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
@@ -24,7 +24,7 @@ function search(app, token, { category, startDate, endDate }) {
 }
 
 describe('Category filter (calendarData source of truth) CF-1..CF-5', () => {
-  let mongoClient, db, app, viewerUser, viewerToken;
+  let mongoClient, db, app, viewerUser, viewerToken, adminUser, adminToken;
 
   beforeAll(async () => {
     await initTestKeys();
@@ -40,8 +40,10 @@ describe('Category filter (calendarData source of truth) CF-1..CF-5', () => {
     await db.collection(COLLECTIONS.USERS).deleteMany({});
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
     viewerUser = createViewer();
-    await insertUsers(db, [viewerUser]);
+    adminUser = createAdmin();
+    await insertUsers(db, [viewerUser, adminUser]);
     viewerToken = await createMockToken(viewerUser);
+    adminToken = await createMockToken(adminUser);
   });
 
   // The real event: Intro to Judaism, Skirball, 2026-05-26 18:30.
@@ -185,6 +187,30 @@ describe('Category filter (calendarData source of truth) CF-1..CF-5', () => {
       const titles = res.body.events.map(e => e.calendarData?.eventTitle);
       expect(titles).toContain('Intro to Judaism');   // matches search AND category
       expect(titles).not.toContain('Yoga Class');      // category matches but search does not
+    });
+  });
+
+  describe('category rename propagation (CR-1)', () => {
+    it('CR-1: after rename, events keep the id link and display the new name', async () => {
+      const cats = db.collection(COLLECTIONS.CATEGORIES);
+      await cats.deleteMany({});
+      const { insertedId } = await cats.insertOne({ name: 'Skirball', displayOrder: 1, active: true, createdAt: new Date() });
+      const ev = createPublishedEvent({ eventTitle: 'Intro to Judaism', categories: ['Skirball'] });
+      ev.calendarData.startDateTime = '2026-05-26T18:30:00';
+      ev.calendarData.endDateTime = '2026-05-26T20:30:00';
+      ev.calendarData.categoryIds = [insertedId];
+      await insertEvents(db, [ev]);
+
+      const res = await request(app)
+        .put(`/api/categories/${insertedId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Skirball Center' });
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ 'calendarData.eventTitle': 'Intro to Judaism' });
+      expect(updated.calendarData.categories).toContain('Skirball Center');
+      expect(updated.calendarData.categories).not.toContain('Skirball');
+      expect(updated.calendarData.categoryIds.map(String)).toContain(String(insertedId));
     });
   });
 });
