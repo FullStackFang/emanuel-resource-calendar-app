@@ -10,6 +10,7 @@ import { logger } from '../utils/logger';
 import { keys } from '../queries/keys';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
+import { selectedNamesToCategoryIds } from '../utils/categoryFilterUtils';
 import CalendarSelector from './CalendarSelector';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './EventSearch.css';
@@ -50,7 +51,7 @@ const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
 
 
 // Search function implementation using unified backend search (includes CSV events)
-async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC', { allCategoryCount = 0, allLocationCount = 0 } = {}) {
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC', { allCategoryCount = 0, allLocationCount = 0, categoryIds = [] } = {}) {
   try {
     // Build search parameters
     const params = new URLSearchParams({
@@ -80,6 +81,11 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       if (allCategoryCount > 0) {
         params.append('categoryCount', allCategoryCount.toString());
       }
+    }
+
+    // Add resolved categoryIds (ObjectId strings) alongside name-based filter
+    if (categoryIds && categoryIds.length > 0) {
+      params.append('categoryIds', categoryIds.join(','));
     }
 
     // Add location filters (with count for backend all-selected detection)
@@ -396,7 +402,7 @@ function EventSearch({
         100, // Load first 100 results; user clicks Load More for next batch
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
         userTimezone, // Use shared timezone
-        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length, categoryIds: selectedNamesToCategoryIds(effectiveCategories, baseCategories) }
       );
 
       // Sort results by start date (latest first)
@@ -533,7 +539,7 @@ function EventSearch({
         100, // Load 100 at a time for pagination
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
         userTimezone, // Use shared timezone
-        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length, categoryIds: selectedNamesToCategoryIds(effectiveCategories, baseCategories) }
       );
       
       setHasNextPage(result.nextLink !== null);
@@ -594,7 +600,8 @@ function EventSearch({
     queryClient,
     currentPage,
     allCategoryOptions,
-    allLocationOptions
+    allLocationOptions,
+    baseCategories
   ]);
 
   const scheduleNextBatch = useCallback(() => {
@@ -808,6 +815,7 @@ function EventSearch({
           )}
           {searchResults.length > 0 && (
             <EventSearchExport
+              baseCategories={baseCategories}
               searchResults={searchResults}
               searchTerm={searchTerm}
               categories={selectedCategories}
