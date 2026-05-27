@@ -2,8 +2,7 @@
 import { useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { usePermissions } from './usePermissions';
-
-const normalizeDepartment = (d) => (d || '').toLowerCase().trim();
+import { isEventOwner, canRequestEditEvent, canDirectEditEvent } from '../utils/eventEditability';
 
 /**
  * Single source of truth for per-event permission gates.
@@ -41,24 +40,9 @@ export function useCurrentUserGates(event, modalContext = {}) {
 export function deriveGates(event, permissions = {}, accounts = [], modalContext = {}) {
   const { isEditRequestMode = false, isViewingEditRequest = false } = modalContext;
   const currentUserEmail = (accounts?.[0]?.username || '').toLowerCase();
-  const requesterEmail = (
-    event?.roomReservationData?.requestedBy?.email
-    || event?.calendarData?.requesterEmail
-    || event?.requesterEmail
-    || ''
-  ).toLowerCase();
-  const isOwner = !!currentUserEmail && !!requesterEmail && currentUserEmail === requesterEmail;
-  // Ownerless: events imported from Graph sync without a roomReservationData
-  // requester record. In the old Calendar formula any requester could
-  // propose edits on these (treated as "open for community stewardship").
-  const isOwnerless = !event?.roomReservationData?.requestedBy?.email;
-  // Rsched imports: the legacy Resource Scheduler import (rschedImportService.js,
-  // source === 'rsSched') copies the original scheduler's address into
-  // requestedBy.email, so these events are NOT ownerless even though they have no
-  // app-side reservation owner. They are community-editable — any requester may
-  // propose edits/cancellations, the same as ownerless events.
-  const isRschedImported = event?.source === 'rsSched';
-  const hasPendingEditRequest = event?.pendingEditRequest?.status === 'pending';
+  const isOwner = isEventOwner(event, currentUserEmail);
+  // hasPendingEditRequest is now encapsulated inside canRequestEditEvent (shared module).
+  // canRequestCancellation still needs the cancellation-request guard locally.
   const hasPendingCancellationRequest = event?.pendingCancellationRequest?.status === 'pending';
 
   const status = event?.status || null;
@@ -105,15 +89,19 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   // the normal "published events are read-only for requesters" rule gets lifted.
   const canProposeViaEditRequest =
     isEditRequestMode && isOwner && canSubmitReservation && isPublished;
-  // Department-match editing: a colleague in the same department may edit a
-  // teammate's pending or rejected event (e.g. help them refine the draft
-  // before admin approval). Published events use the request-edit flow; drafts
-  // are owner-only visible.
-  const userDept = normalizeDepartment(department);
-  const ownerDept = normalizeDepartment(event?.creatorDepartment);
-  const departmentMatches = Boolean(userDept && ownerDept === userDept);
-  const canDeptColleagueEdit =
-    departmentMatches && canSubmitReservation && !isOwner && (isPending || isRejected);
+
+  const editabilityUser = {
+    email: currentUserEmail,
+    department,
+    canSubmitReservation,
+    canEditEvents,
+    canApproveReservations,
+  };
+
+  // Department-match editing: delegates to the shared canDirectEditEvent /
+  // canRequestEditEvent, which read requestedBy.department (creation-time
+  // canonical source).
+  const canDirectEdit = canDirectEditEvent(event, editabilityUser);
 
   // Hard gates: state-level blocks that override every role-based permission.
   // Deleted events are immutable; viewing an existing edit request is a
@@ -121,7 +109,7 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   const canSaveAtAll = !isDeleted && !isViewingEditRequest;
   const canSave =
     canSaveAtAll &&
-    (isAdminEditor || isOwnerEditable || canProposeViaEditRequest || canDeptColleagueEdit);
+    (isAdminEditor || isOwnerEditable || canProposeViaEditRequest || canDirectEdit);
 
   // Recurrence pattern edit: applies to seriesMaster (modify) and
   // singleInstance (promote to recurring). Never on occurrence or
@@ -135,17 +123,11 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
   const canRestore = canDeleteEvents && isDeleted;
 
   // canRequestEdit: requester proposes changes to a PUBLISHED event.
-  // Allowed for owner, department colleague, or any requester on an
-  // ownerless (Graph-synced) event. Blocked while another edit request
-  // is already pending, while the user is actively composing a request,
-  // or while viewing an existing request's preview.
+  // Allowed for owner, department colleague (via shared canRequestEditEvent), or
+  // any requester on an ownerless/rsched event. Modal guards isEditRequestMode/
+  // isViewingEditRequest are layered here; canRequestEditEvent is data-layer only.
   const canRequestEdit =
-    canSubmitReservation &&
-    !isAdminEditor &&
-    isPublished &&
-    !isSeriesChild &&
-    (isOwner || departmentMatches || isOwnerless || isRschedImported) &&
-    !hasPendingEditRequest &&
+    canRequestEditEvent(event, editabilityUser) &&
     !isEditRequestMode &&
     !isViewingEditRequest;
 
@@ -154,16 +136,10 @@ export function deriveGates(event, permissions = {}, accounts = [], modalContext
     canRequestEdit && !hasPendingCancellationRequest;
 
   // Non-admin owner-or-dept-colleague edit path: uses the owner-edit endpoint
-  // for pending/rejected events. Admins use the direct admin-save path, not
-  // this one, so this gate excludes admins explicitly.
-  const canNonAdminOwnerEdit =
-    !isAdminEditor &&
-    canSubmitReservation &&
-    (isOwner || departmentMatches) &&
-    (isPending || isRejected);
-
-  const canSavePendingEdit = canNonAdminOwnerEdit && isPending;
-  const canSaveRejectedEdit = canNonAdminOwnerEdit && isRejected;
+  // for pending/rejected events. canDirectEdit already encodes !isAdminEditor,
+  // canSubmitReservation, (owner|sameDept), and status in {pending,rejected}.
+  const canSavePendingEdit = canDirectEdit && isPending;
+  const canSaveRejectedEdit = canDirectEdit && isRejected;
   // canResubmit gates the "resubmit-without-changes" path (PUT /resubmit),
   // canSaveRejectedEdit gates "save-edits-and-resubmit" (owner-edit endpoint).
   // Different actions/endpoints but the same permission — same gate value.

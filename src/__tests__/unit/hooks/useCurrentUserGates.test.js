@@ -326,8 +326,7 @@ describe('deriveGates — invariants', () => {
       const event = {
         status: 'published',
         eventType: 'singleInstance',
-        roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
-        creatorDepartment: 'membership',
+        roomReservationData: { requestedBy: { email: 'teammate@example.com', department: 'membership' } },
       };
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
       expect(deriveGates(event, deptRequester, accounts).canRequestEdit).toBe(true);
@@ -420,8 +419,7 @@ describe('deriveGates — invariants', () => {
       const event = {
         status: 'rejected',
         eventType: 'singleInstance',
-        roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
-        creatorDepartment: 'membership',
+        roomReservationData: { requestedBy: { email: 'teammate@example.com', department: 'membership' } },
       };
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
       expect(deriveGates(event, deptRequester, accounts).canResubmit).toBe(true);
@@ -464,8 +462,7 @@ describe('deriveGates — invariants', () => {
         const event = {
           status,
           eventType: 'singleInstance',
-          roomReservationData: { requestedBy: { email: 'teammate@example.com' } },
-          creatorDepartment: 'membership',
+          roomReservationData: { requestedBy: { email: 'teammate@example.com', department: 'membership' } },
         };
         const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'membership' };
         const gates = deriveGates(event, deptRequester, accounts);
@@ -608,17 +605,27 @@ describe('deriveGates — invariants', () => {
   describe('department-match editing (requester peers collaborate on pending/rejected)', () => {
     const SAME_DEPT = 'membership';
     const DIFF_DEPT = 'communications';
-    const makeEventWithDept = ({ status, eventType, isOwner, creatorDepartment }) => ({
-      ...makeEvent({ status, eventType, isOwner }),
-      creatorDepartment,
-    });
+    // Department is read from roomReservationData.requestedBy.department
+    // (creation-time canonical source).
+    const makeEventWithDept = ({ status, eventType, isOwner, ownerDepartment }) => {
+      const base = makeEvent({ status, eventType, isOwner });
+      return {
+        ...base,
+        roomReservationData: {
+          requestedBy: {
+            ...base.roomReservationData.requestedBy,
+            department: ownerDepartment,
+          },
+        },
+      };
+    };
 
     it('requester with matching department CAN edit a teammate\'s pending event', () => {
       const event = makeEventWithDept({
         status: 'pending',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -631,7 +638,7 @@ describe('deriveGates — invariants', () => {
         status: 'rejected',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -643,7 +650,7 @@ describe('deriveGates — invariants', () => {
         status: 'pending',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: DIFF_DEPT,
+        ownerDepartment: DIFF_DEPT,
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -656,7 +663,7 @@ describe('deriveGates — invariants', () => {
         status: 'pending',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       // No department field set on the user
       const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
@@ -668,7 +675,7 @@ describe('deriveGates — invariants', () => {
         status: 'published',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -680,7 +687,7 @@ describe('deriveGates — invariants', () => {
         status: 'draft',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: SAME_DEPT };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -692,7 +699,7 @@ describe('deriveGates — invariants', () => {
         status: 'pending',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: ' Membership ',
+        ownerDepartment: ' Membership ',
       });
       const deptRequester = { ...PERMISSION_FIXTURES.requester, department: 'MEMBERSHIP' };
       const gates = deriveGates(event, deptRequester, accounts);
@@ -704,11 +711,36 @@ describe('deriveGates — invariants', () => {
         status: 'pending',
         eventType: 'singleInstance',
         isOwner: false,
-        creatorDepartment: SAME_DEPT,
+        ownerDepartment: SAME_DEPT,
       });
       const deptViewer = { ...PERMISSION_FIXTURES.viewer, department: SAME_DEPT };
       const gates = deriveGates(event, deptViewer, accounts);
       expect(gates.canSave).toBe(false);
+    });
+  });
+
+  describe('department-match editing (stored requestedBy.department)', () => {
+    const deptEvent = (status) => ({
+      status,
+      eventType: 'singleInstance',
+      roomReservationData: { requestedBy: { email: OTHER, department: 'Music' } },
+    });
+    const colleague = { ...PERMISSION_FIXTURES.requester, department: 'music' };
+
+    it('same-dept colleague can request-edit a published event', () => {
+      const g = deriveGates(deptEvent('published'), colleague, [{ username: 'me@x.org' }]);
+      expect(g.canRequestEdit).toBe(true);
+    });
+
+    it('same-dept colleague can save a pending event (direct edit)', () => {
+      const g = deriveGates(deptEvent('pending'), colleague, [{ username: 'me@x.org' }]);
+      expect(g.canSavePendingEdit).toBe(true);
+    });
+
+    it('different-dept user cannot request-edit', () => {
+      const stranger = { ...PERMISSION_FIXTURES.requester, department: 'Finance' };
+      const g = deriveGates(deptEvent('published'), stranger, [{ username: 'me@x.org' }]);
+      expect(g.canRequestEdit).toBe(false);
     });
   });
 
