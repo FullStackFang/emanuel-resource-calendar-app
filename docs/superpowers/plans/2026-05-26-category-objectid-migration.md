@@ -969,6 +969,12 @@ These are intentionally deferred until `--verify` shows full coverage in product
 - [ ] Simplify the dropdown to source from `templeEvents__Categories` only; remove the uncommitted `useDistinctEventCategoriesQuery` union in `EventSearch.jsx` / `useCategoriesQuery.js` / `keys.js`.
 - [ ] Optionally reconcile stray top-level `categories` / `graphData.categories` divergence.
 
+**Final-review follow-ups (surfaced 2026-05-26, deferred — not merge-blocking):**
+- [ ] **Race-safe auto-create:** add a unique index on a normalized category-name field and switch the resolver insert to `findOneAndUpdate({...}, { $setOnInsert }, { upsert: true })`. Closes the concurrent-insert phantom-duplicate window.
+- [ ] **Graph-category divergence:** `upsertUnifiedEvent` overwrites `calendarData.categories` from `graphEvent.categories` on every delta sync. Since our category rename is NOT pushed to Outlook, a delta sync of a renamed-category event re-introduces the old Graph name AND auto-creates a phantom record for it. Decide ownership: either push category renames to Graph, or stop overwriting `calendarData.categories` for events with app-managed `categoryIds`. (Pre-existing delta-overwrite behavior; the migration surfaces it via auto-create.)
+- [ ] **Reservation/publish write coverage:** `buildEventFields` (`backend/utils/eventFieldBuilder.js`) and `PUT /api/admin/events/:id/publish` write `calendarData.categories` without `categoryIds`. Cleanest fix: resolve `categoryIds` inside a shared write layer. Until then, covered by backfill `--apply` + name-fallback. Add the CSV-style operator comment to these sites.
+- [ ] **SSE on rename:** emit `event-updated` (or targeted invalidation) after rename propagation so clients refresh the renamed display name before the 30-min category stale-time.
+
 ---
 
 ## Self-Review
