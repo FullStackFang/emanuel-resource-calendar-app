@@ -20,12 +20,18 @@ const {
 // ---------------------------------------------------------------------------
 // Mock locationUtils — unit tests should not hit MongoDB
 // ---------------------------------------------------------------------------
-jest.mock('../../../utils/locationUtils', () => ({
-  calculateLocationDisplayNames: jest.fn(async (ids) => {
-    // Return semicolon-joined fake names based on ID count
-    return ids.map((_, i) => `Room ${i + 1}`).join('; ');
-  }),
-}));
+jest.mock('../../../utils/locationUtils', () => {
+  // getVirtualPlatform is a pure string→string helper (no DB) — use the real
+  // implementation so platform-derivation assertions exercise actual behavior.
+  const actual = jest.requireActual('../../../utils/locationUtils');
+  return {
+    calculateLocationDisplayNames: jest.fn(async (ids) => {
+      // Return semicolon-joined fake names based on ID count
+      return ids.map((_, i) => `Room ${i + 1}`).join('; ');
+    }),
+    getVirtualPlatform: actual.getVirtualPlatform,
+  };
+});
 
 const { calculateLocationDisplayNames } = require('../../../utils/locationUtils');
 
@@ -275,6 +281,51 @@ describe('buildEventFields (mode=create)', () => {
     expect(cd.organizerEmail).toBe('');
     expect(cd.assignedRabbi).toEqual([]);
     expect(cd.assignedCantor).toEqual([]);
+  });
+
+  test('derives virtualPlatform from a Zoom virtualMeetingUrl (create mode)', async () => {
+    const { calendarDataDoc: cd } = await buildEventFields(
+      { eventTitle: 'Zoom Call', virtualMeetingUrl: 'https://zoom.us/j/123456789' },
+      mockDb,
+      { mode: 'create' }
+    );
+
+    expect(cd.virtualMeetingUrl).toBe('https://zoom.us/j/123456789');
+    expect(cd.virtualPlatform).toBe('Zoom');
+  });
+
+  test('derives generic "Virtual Meeting" platform for an unrecognized meeting URL', async () => {
+    const { calendarDataDoc: cd } = await buildEventFields(
+      { eventTitle: 'Other Call', virtualMeetingUrl: 'https://example.com/room/abc' },
+      mockDb,
+      { mode: 'create' }
+    );
+
+    expect(cd.virtualPlatform).toBe('Virtual Meeting');
+  });
+
+  test('virtualPlatform is null when no virtualMeetingUrl is provided', async () => {
+    const { calendarDataDoc: cd } = await buildEventFields(
+      { eventTitle: 'In Person' },
+      mockDb,
+      { mode: 'create' }
+    );
+
+    expect(cd.virtualMeetingUrl).toBe(null);
+    expect(cd.virtualPlatform).toBe(null);
+  });
+
+  test('update mode derives calendarData.virtualPlatform from virtualMeetingUrl', async () => {
+    const { calendarDataFields } = await buildEventFields(
+      { virtualMeetingUrl: 'https://teams.microsoft.com/l/meetup-join/abc' },
+      mockDb,
+      { mode: 'update' }
+    );
+
+    expect(calendarDataFields['calendarData.virtualMeetingUrl']).toBe(
+      'https://teams.microsoft.com/l/meetup-join/abc'
+    );
+    expect(calendarDataFields['calendarData.virtualPlatform']).toBe('Microsoft Teams');
   });
 
   test('eventType derivation: singleInstance when no recurrence', async () => {

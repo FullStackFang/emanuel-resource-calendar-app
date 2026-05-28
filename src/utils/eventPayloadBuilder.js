@@ -86,6 +86,9 @@ export function buildInternalFields(data) {
     eventNotes: data.eventNotes || '',
     registrationNotes: data.registrationNotes || '',
     assignedTo: data.assignedTo || '',
+    // Virtual meeting URL (🎥 Virtual popover). Source of truth for virtual
+    // events; virtualPlatform is derived from this on the backend.
+    virtualMeetingUrl: data.virtualMeetingUrl || null,
     isOffsite: data.isOffsite || false,
     offsiteName: data.offsiteName || '',
     offsiteAddress: data.offsiteAddress || '',
@@ -417,6 +420,8 @@ export function buildRequesterPayload(data, { calendarId, calendarOwner } = {}) 
     organizerEmail: data.organizerEmail || '',
     calendarId: calendarId || data.calendarId || null,
     calendarOwner: calendarOwner || data.calendarOwner || null,
+    // Virtual meeting URL (🎥 Virtual popover); platform derived on the backend.
+    virtualMeetingUrl: data.virtualMeetingUrl || null,
     isOffsite: data.isOffsite || false,
     offsiteName: data.offsiteName || '',
     offsiteAddress: data.offsiteAddress || '',

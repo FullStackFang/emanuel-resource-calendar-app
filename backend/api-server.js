@@ -8198,6 +8198,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
       }
 
+      // Virtual meeting URL: prefer the form-provided value (🎥 Virtual popover);
+      // fall back to a real Graph online-meeting join URL. Platform is derived.
+      const resolvedVirtualUrl = internalFields?.virtualMeetingUrl
+        || updatedGraphData.onlineMeetingUrl
+        || updatedGraphData.onlineMeeting?.joinUrl
+        || null;
+
       newEventDoc.calendarData = {
         eventTitle: updatedGraphData.subject || 'Untitled Event',
         eventDescription: extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '',
@@ -8240,9 +8247,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         eventSeriesId: internalFields?.eventSeriesId || null,
         seriesLength: internalFields?.seriesLength || null,
         seriesIndex: internalFields?.seriesIndex !== undefined ? internalFields.seriesIndex : null,
-        // Virtual meeting fields
-        virtualMeetingUrl: updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null,
-        virtualPlatform: null,
+        // Virtual meeting fields (URL from form/Graph; platform derived from URL)
+        virtualMeetingUrl: resolvedVirtualUrl,
+        virtualPlatform: resolvedVirtualUrl ? getVirtualPlatform(resolvedVirtualUrl) : null,
         // Offsite location fields
         isOffsite: internalFields?.isOffsite || false,
         offsiteName: internalFields?.isOffsite ? (internalFields.offsiteName || '') : '',
@@ -8394,7 +8401,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ? ''
           : (endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '');
         updateOperations['calendarData.isAllDayEvent'] = updatedGraphData.isAllDay || false;
-        updateOperations['calendarData.virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
+        // Virtual meeting: prefer the form-provided URL (🎥 Virtual popover) over
+        // the Graph online-meeting URL; platform is derived from the resolved URL.
+        const updVirtualUrl = internalFields?.virtualMeetingUrl
+          || updatedGraphData.onlineMeetingUrl
+          || updatedGraphData.onlineMeeting?.joinUrl
+          || null;
+        updateOperations['calendarData.virtualMeetingUrl'] = updVirtualUrl;
+        updateOperations['calendarData.virtualPlatform'] = updVirtualUrl ? getVirtualPlatform(updVirtualUrl) : null;
         // calendarData categories mirrors graphData.categories
         updateOperations['calendarData.categories'] = updatedGraphData.categories || [];
         // Stable category references (mirrors calendarData.locations); holds the

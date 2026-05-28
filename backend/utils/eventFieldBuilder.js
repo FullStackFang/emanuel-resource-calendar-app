@@ -1,7 +1,7 @@
 'use strict';
 
 const { ObjectId } = require('mongodb');
-const { calculateLocationDisplayNames } = require('./locationUtils');
+const { calculateLocationDisplayNames, getVirtualPlatform } = require('./locationUtils');
 
 /**
  * Canonical list of fields that belong inside calendarData.
@@ -234,7 +234,11 @@ async function buildEventFields(body, db, options = {}) {
     services: body.services || {},
     assignedTo: body.assignedTo || '',
     virtualMeetingUrl: body.virtualMeetingUrl || null,
-    virtualPlatform: body.virtualPlatform || null,
+    // virtualPlatform is DERIVED from the URL (single source of truth). Falls
+    // back to an explicitly-provided platform only when no URL is present.
+    virtualPlatform: body.virtualMeetingUrl
+      ? getVirtualPlatform(body.virtualMeetingUrl)
+      : (body.virtualPlatform || null),
     occurrenceOverrides: body.occurrenceOverrides || [],
     requiredFeatures: body.requiredFeatures || [],
     assignedRabbi: body.assignedRabbi || [],
