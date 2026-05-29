@@ -514,6 +514,16 @@
   font-size: 13px;
 }
 
+/* Multi-day span indicator: quiet line tucked under the date row, shown only
+   when start date != end date on a non-recurring event. Mirrors the occurrence
+   date-lock hint's spacing so the two never collide. */
+.multiday-span-indicator {
+  margin-top: -8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #5f6368);
+}
+
 /* ==========================================================================
    TIME BLOCK: GROUP HEADERS
    ========================================================================== */

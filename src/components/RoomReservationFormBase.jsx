@@ -19,6 +19,7 @@ import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
 import { getSeriesMasterDisplayDates, getEventRecurrence } from '../utils/eventTransformers';
+import { formatDateSpanLabel } from '../utils/dateSpanUtils';
 import { getRecurrenceChangeBanner } from '../utils/editRequestUtils';
 import {
   clampEventTimesToReservation,
@@ -1904,6 +1905,12 @@ export default function RoomReservationFormBase({
                 />
               </div>
             </div>
+            {!recurrencePattern && (() => {
+              const spanLabel = formatDateSpanLabel(displayStartDate, displayEndDate);
+              return spanLabel ? (
+                <div className="multiday-span-indicator">{spanLabel}</div>
+              ) : null;
+            })()}
             {isOccurrenceView && (
               <div className="occurrence-date-lock-hint" style={{ fontSize: '12px', color: 'var(--color-text-secondary, #5f6368)', marginTop: '-8px', marginBottom: '12px' }}>
                 Date is locked for this occurrence. To move this event to a different day, click the target date on the calendar or edit the series schedule.

@@ -18,6 +18,7 @@
  */
 
 import { extractTextFromHtml } from './textUtils';
+import { computeEventSpanDays } from './dateSpanUtils';
 
 /**
  * Normalize a clergy field to an array.
@@ -487,15 +488,10 @@ export function transformEventToDuplicatePrefill(event) {
     return val !== undefined && val !== null ? val : fallback;
   };
 
-  // Calculate duration for multi-day events
+  // Calculate duration for multi-day events (shared helper)
   const startDate = get('startDate', '');
   const endDate = get('endDate', '');
-  let durationDays = 0;
-  if (startDate && endDate) {
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
-    durationDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
-  }
+  const durationDays = computeEventSpanDays(startDate, endDate);
 
   // Rooms: flat events use requestedRooms/locations; raw MongoDB uses calendarData.locations
   const rooms = event.requestedRooms || event.locations || event.calendarData?.locations || [];
