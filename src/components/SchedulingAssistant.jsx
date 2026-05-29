@@ -14,6 +14,8 @@ function SchedulingAssistant({
   selectedRooms,
   selectedDate,
   isMultiDaySpan = false, // True when the event spans >1 day; the timeline + verdict below are start-day only
+  spanConflicts = null, // Full-span dry-run result { hardConflicts, softConflicts } for multi-day events (same checkRoomConflicts the save runs)
+  spanConflictsLoading = false,
   eventStartTime,
   eventEndTime,
   setupTime, // Setup start time for room blocking
@@ -2228,15 +2230,42 @@ function SchedulingAssistant({
         </div>
       )}
 
-      {/* Multi-day scope note: the timeline + verdict above cover the START DAY only.
-          Shown for every multi-day event (independent of start-day event count) so an
-          empty-but-conflicting later day is never mistaken for a clear event. The
-          authoritative full-span conflict check runs on the backend at save time. */}
-      {isMultiDaySpan && selectedRooms.length > 0 && (
-        <div className="sa-multiday-scope-note">
-          Spans multiple days — this preview shows the start day only. All days are checked when you save.
-        </div>
-      )}
+      {/* Multi-day full-span verdict: the timeline above only covers the start day, so for
+          multi-day events we surface a backend dry-run of the SAME checkRoomConflicts the save
+          runs, across the WHOLE span. Falls back to a scope note until the check resolves. */}
+      {isMultiDaySpan && selectedRooms.length > 0 && (() => {
+        const hard = spanConflicts?.hardConflicts || [];
+        if (spanConflictsLoading && !spanConflicts) {
+          return <div className="sa-multiday-scope-note">Checking all days of this multi-day event…</div>;
+        }
+        if (spanConflicts && hard.length > 0) {
+          return (
+            <div className="sa-multiday-conflict">
+              <div className="sa-multiday-conflict-title">
+                {hard.length} conflict{hard.length !== 1 ? 's' : ''} across the event span:
+              </div>
+              <ul className="sa-multiday-conflict-list">
+                {hard.slice(0, 3).map((c, i) => {
+                  const dn = c.locationDisplayNames;
+                  const room = Array.isArray(dn) ? dn.filter(Boolean).join(', ') : (dn || 'Room');
+                  const iso = (c.startDateTime || '').split('T')[0];
+                  const day = iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+                  return <li key={i}>{room}{day ? ` · ${day}` : ''}{c.eventTitle ? ` — ${c.eventTitle}` : ''}</li>;
+                })}
+              </ul>
+              {hard.length > 3 && <div className="sa-multiday-more">+{hard.length - 3} more</div>}
+            </div>
+          );
+        }
+        if (spanConflicts) {
+          return <div className="sa-multiday-clear">No conflicts across any day of this multi-day event.</div>;
+        }
+        return (
+          <div className="sa-multiday-scope-note">
+            Spans multiple days — this preview shows the start day only. All days are checked when you save.
+          </div>
+        );
+      })()}
 
       {/* Tooltip for event blocks — follows mouse cursor, positioned via useLayoutEffect */}
       {tooltipInfo && (

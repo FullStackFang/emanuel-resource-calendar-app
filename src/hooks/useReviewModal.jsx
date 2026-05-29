@@ -1994,8 +1994,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         if (errorData.validationErrors) {
           throw new Error(`Incomplete draft: ${errorData.validationErrors.join(', ')}`);
         }
-        if (errorData.conflicts) {
-          throw new Error('Scheduling conflict detected. Please adjust your times.');
+        if (errorData.conflicts || errorData.hardConflicts) {
+          throw new Error(buildConflictErrorMessage(errorData.hardConflicts || errorData.conflicts, 'Cannot submit'));
         }
         throw new Error(errorData.error || 'Failed to submit draft');
       }

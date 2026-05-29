@@ -14908,6 +14908,51 @@ app.get('/api/locations', async (req, res) => {
 });
 
 /**
+ * Dry-run conflict check for a PROPOSED (unsaved) event. Runs the EXACT same
+ * checkRoomConflicts() that every save path uses, so the Scheduling Assistant can
+ * preview the real verdict across the FULL event span. The single-day timeline
+ * clamps events to the start day and cannot see conflicts on later days, so a
+ * multi-day event could show "clear" yet fail the save — this endpoint closes that
+ * gap by returning what the save would decide. Read-only; mutates nothing.
+ */
+app.get('/api/rooms/conflict-check', async (req, res) => {
+  try {
+    const { startDateTime, endDateTime, roomIds, excludeEventId } = req.query;
+    if (!startDateTime || !endDateTime || !roomIds) {
+      return res.status(400).json({ error: 'startDateTime, endDateTime and roomIds are required' });
+    }
+    const locations = String(roomIds).split(',').map(s => s.trim()).filter(Boolean);
+    if (locations.length === 0) {
+      return res.json({ hardConflicts: [], softConflicts: [] });
+    }
+    // Mirror the reservationForConflict literal that the save paths build (e.g. draft submit).
+    const reservationForConflict = {
+      calendarOwner: req.query.calendarOwner || null,
+      startDateTime,
+      endDateTime,
+      setupTimeMinutes: parseInt(req.query.setupTimeMinutes, 10) || 0,
+      teardownTimeMinutes: parseInt(req.query.teardownTimeMinutes, 10) || 0,
+      reservationStartMinutes: parseInt(req.query.reservationStartMinutes, 10) || 0,
+      reservationEndMinutes: parseInt(req.query.reservationEndMinutes, 10) || 0,
+      requestedRooms: locations,
+      locations,
+      isAllowedConcurrent: req.query.isAllowedConcurrent === 'true',
+      categories: req.query.categories
+        ? String(req.query.categories).split(',').map(s => s.trim()).filter(Boolean)
+        : [],
+    };
+    const { hardConflicts, softConflicts } = await checkRoomConflicts(
+      reservationForConflict,
+      excludeEventId || null
+    );
+    return res.json({ hardConflicts, softConflicts });
+  } catch (error) {
+    logger.error('Error in /api/rooms/conflict-check:', error);
+    return res.status(500).json({ error: 'Failed to check conflicts' });
+  }
+});
+
+/**
  * Get room availability for a specific date range
  */
 app.get('/api/rooms/availability', async (req, res) => {
