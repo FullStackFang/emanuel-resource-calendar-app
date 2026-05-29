@@ -998,13 +998,6 @@ export default function ReviewModal({
             >
               Additional Info
             </div>
-            <div
-              className={`event-type-tab ${activeTab === 'services' ? 'active' : ''}`}
-              onClick={() => setActiveTab('services')}
-            >
-              Services
-              {hasServices && <span className="tab-active-dot" />}
-            </div>
             {/* Recurrence tab — visible when recurrence exists OR user can create one */}
             {(hasRecurrence || canEditRecurrence) && (
               <div

@@ -1604,7 +1604,7 @@ export default function RoomReservationFormBase({
                       onDataChange({ ...formData, categories: selectedCategoriesRef.current, services: newServices });
                     }
                   }}
-                  rows="2"
+                  style={{ minHeight: '130px' }}
                   disabled={fieldsDisabled}
                   placeholder="Setup, teardown, and staging details - e.g., room layout, special lighting, additional furniture, A/V, accessibility requirements..."
                 />
