@@ -2967,6 +2967,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       startDateTime: conflict.startDateTime || conflict.calendarData?.startDateTime,
       endDateTime: conflict.endDateTime || conflict.calendarData?.endDateTime,
       rooms: conflict.requestedRooms || conflict.calendarData?.locations,
+      // Human-readable room name(s) so the 409 message can name the room (may be string or array)
+      locationDisplayNames: conflict.calendarData?.locationDisplayNames,
       status: conflict.status,
       setupTimeMinutes: conflict.setupTimeMinutes || conflict.calendarData?.setupTimeMinutes || 0,
       teardownTimeMinutes: conflict.teardownTimeMinutes || conflict.calendarData?.teardownTimeMinutes || 0,

@@ -17,6 +17,47 @@ import {
   rejectEditRequest as rejectEditRequestApi,
 } from '../services/editRequestsApi';
 
+// Pure helper: turns a 409 conflict array into a human-readable, actionable message
+// that names the room + day instead of a bare count ("Sanctuary is booked Jun 25
+// (Shabbat Service)."). `locationDisplayNames` may be a string or an array;
+// `conflict.startDateTime` is the conflicting event's OWN start (exact for same-day
+// conflicts; for a multi-day conflicting event it shows that event's start date).
+// Exported for unit testing.
+export function buildConflictErrorMessage(conflicts, prefix = 'Cannot save') {
+  const list = Array.isArray(conflicts) ? conflicts.filter(Boolean) : [];
+  if (list.length === 0) {
+    return `${prefix}: scheduling conflict with a published event. Adjust dates or rooms.`;
+  }
+
+  const roomName = (c) => {
+    const dn = c.locationDisplayNames;
+    const name = Array.isArray(dn) ? dn.filter(Boolean).join(', ') : dn;
+    return name || 'A room';
+  };
+  const dayLabel = (c) => {
+    const iso = (c.startDateTime || '').split('T')[0];
+    if (!iso) return '';
+    const d = new Date(iso + 'T00:00:00');
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  let core;
+  if (list.length <= 2) {
+    core = list.map((c) => {
+      const day = dayLabel(c);
+      const title = c.eventTitle ? ` (${c.eventTitle})` : '';
+      return day ? `${roomName(c)} is booked ${day}${title}` : `${roomName(c)} is booked${title}`;
+    }).join('; ');
+  } else {
+    const head = list.slice(0, 2).map((c) => {
+      const day = dayLabel(c);
+      return day ? `${roomName(c)} ${day}` : roomName(c);
+    }).join(', ');
+    core = `${list.length} conflicts: ${head}, +${list.length - 2} more`;
+  }
+  return `${prefix}: ${core}. Adjust dates or rooms.`;
+}
+
 // Pure helper: builds the URLSearchParams used by the modal-open availability
 // prefetch. Exported so the calendarOwner scoping contract can be unit-tested
 // without instantiating the whole hook (see prefetchParams.test.js).
@@ -708,12 +749,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           }
           if (data.conflictTier === 'hard' && data.canForce && data.forceField) {
             // Hard conflicts with admin force override available - show in error
-            const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Use force override to proceed.`;
+            const msg = buildConflictErrorMessage(data.hardConflicts, 'Cannot save');
             if (onError) onError(msg, data.conflicts);
             return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts, canForce: true, forceField: data.forceField };
           }
           // Hard conflicts without force option
-          const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Adjust times or rooms.`;
+          const msg = buildConflictErrorMessage(data.hardConflicts, 'Cannot save');
           if (onError) onError(msg, data.conflicts);
           return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts };
         }
@@ -848,7 +889,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                 return { success: false, error: 'SoftConflictPending' };
               } else {
                 // Hard conflicts
-                const msg = `Cannot publish: ${saveData.hardConflicts?.length || saveData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+                const msg = buildConflictErrorMessage(saveData.hardConflicts || saveData.conflicts, 'Cannot publish');
                 if (onError) onError(msg, saveData.conflicts);
                 setIsApproving(false);
                 return { success: false, error: 'SchedulingConflict', conflicts: saveData.conflicts, canForce: saveData.canForce, forceField: saveData.forceField };
@@ -957,7 +998,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             return { success: false, error: 'SoftConflictPending' };
           }
           // Hard conflicts
-          const message = `Cannot publish: ${data.hardConflicts?.length || data.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+          const message = buildConflictErrorMessage(data.hardConflicts || data.conflicts, 'Cannot publish');
           if (onError) onError(message, data.conflicts);
           return { success: false, error: message, conflicts: data.conflicts, canForce: data.canForce, forceField: data.forceField };
         }
