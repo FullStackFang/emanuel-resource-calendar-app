@@ -13,6 +13,7 @@ import './SchedulingAssistant.css';
 function SchedulingAssistant({
   selectedRooms,
   selectedDate,
+  isMultiDaySpan = false, // True when the event spans >1 day; the timeline + verdict below are start-day only
   eventStartTime,
   eventEndTime,
   setupTime, // Setup start time for room blocking
@@ -2221,9 +2222,19 @@ function SchedulingAssistant({
           </span>
           <span className={`sa-summary-badge ${activeRoomStats.conflictCount > 0 ? 'sa-badge-conflict' : 'sa-badge-clear'}`}>
             {activeRoomStats.conflictCount > 0
-              ? `${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''}`
-              : 'No conflicts'}
+              ? `${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''}${isMultiDaySpan ? ' on start day' : ''}`
+              : (isMultiDaySpan ? 'No conflicts on start day' : 'No conflicts')}
           </span>
+        </div>
+      )}
+
+      {/* Multi-day scope note: the timeline + verdict above cover the START DAY only.
+          Shown for every multi-day event (independent of start-day event count) so an
+          empty-but-conflicting later day is never mistaken for a clear event. The
+          authoritative full-span conflict check runs on the backend at save time. */}
+      {isMultiDaySpan && selectedRooms.length > 0 && (
+        <div className="sa-multiday-scope-note">
+          Spans multiple days — this preview shows the start day only. All days are checked when you save.
         </div>
       )}
 

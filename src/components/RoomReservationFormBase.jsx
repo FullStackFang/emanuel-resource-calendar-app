@@ -19,7 +19,7 @@ import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
 import { getSeriesMasterDisplayDates, getEventRecurrence } from '../utils/eventTransformers';
-import { formatDateSpanLabel } from '../utils/dateSpanUtils';
+import { computeEventSpanDays, formatDateSpanLabel } from '../utils/dateSpanUtils';
 import { getRecurrenceChangeBanner } from '../utils/editRequestUtils';
 import {
   clampEventTimesToReservation,
@@ -2349,6 +2349,7 @@ export default function RoomReservationFormBase({
                   <SchedulingAssistant
                     selectedRooms={assistantRooms}
                     selectedDate={formData.startDate}
+                    isMultiDaySpan={!recurrencePattern && computeEventSpanDays(formData.startDate, formData.endDate) > 0}
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
                     setupTime={formData.reservationStartTime}
