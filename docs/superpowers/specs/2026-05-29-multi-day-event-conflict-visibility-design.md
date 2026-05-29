@@ -29,15 +29,17 @@ Two distinct, correctly-built components with mismatched scopes:
 - Render a quiet `.multiday-span-indicator` line immediately after the `.date-attendees-row` grid (`RoomReservationFormBase.jsx:~1906`), full-width below the row (not inside the grid). Derived inline from `formData.startDate/endDate`; no new state.
 - CSS in `RoomReservationForm.css`: 12px, secondary text color, no icon. Move the row's `margin-bottom` onto the indicator so spacing stays clean. Coordinate with the existing occurrence date-lock hint div at `RoomReservationFormBase.jsx:~1908` (it already occupies that slot with `marginTop:-8px; marginBottom:12px`) so the two don't collide.
 
-### Part 2 — Honest full-span verdict (no new endpoint)
-The existing `/api/rooms/availability` endpoint (`api-server.js:14911-15014`) already queries any range correctly (incl. recurring expansion). The form just wasn't sending the end date.
-- `checkDayAvailability` gains an `endDate` argument; when multi-day, the API call uses `endDateTime = ${endDate}T23:59:59` (keep local-time, **no Z suffix**). The `date` arg still drives the timeline's display day (start day).
-- Add `formData.endDate` to the fetch effect dep array (`RoomReservationFormBase.jsx:~1016`) **and** to the `lastFetchParamsRef` dedup guard (init ~622, seed ~632, compare ~1002-1006). **Critical:** the dedup guard currently compares only `roomIds/date/excludeEventId`; without an `endDate` slot it silently suppresses the refetch when only the end date changes — defeating the whole fix. The abort/stale-request guards themselves are unaffected.
-- `SchedulingAssistant.jsx` gains optional `endDate` and `isMultiDaySpan` props.
-  - Timeline rendering unchanged — still draws the **start day only** (correct for arbitrarily long spans), with `effectiveDate` staying `selectedDate`.
-  - Header note when multi-day: `Showing start day (Jun 18). Full span: Jun 18 – Jun 28.`
-  - Verdict (the `sa-summary` block, `SchedulingAssistant.jsx:2217-2228`): when `isMultiDaySpan && totalConflicts > 0`, render a summarized list built from the already-present per-room conflict detail — `Sanctuary – Shabbat Service (Jun 25)` — capped at 3 with `+N more`. Room name from `selectedRooms`, date from `conflict.startDateTime.split('T')[0]`.
-- `onConflictChange` contract unchanged (already emits `{ hasHardConflicts, hardConflictCount }`); counts become honest automatically once the data covers the full span.
+### Part 2 — Honest start-day-scoped verdict (REVISED during implementation)
+**Discovery:** the verdict (`onConflictChange`, `SchedulingAssistant.jsx:600-685`) is computed from `dedupedBlocks`, and `buildBlockFromStrings` (`:218-226`) drops events outside the start day BEFORE counting. The conflict count is single-day **by construction** — widening the availability fetch would NOT make the verdict honest (other-day events are discarded before the count). A frontend full-span recompute was rejected: it would duplicate the backend's overlap + concurrent-category rules and risk false-positive warnings (preview flags a conflict the backend would allow). The backend stays the single source of truth.
+
+**Chosen approach (A) — make the preview honest about its scope, do not compute a full-span verdict:**
+- New prop `isMultiDaySpan` on `SchedulingAssistant` (default `false`), passed from the form as `!recurrencePattern && computeEventSpanDays(formData.startDate, formData.endDate) > 0`.
+- Verdict badge (`sa-summary`, `:2217-2228`): when multi-day, scope the claim — `No conflicts on start day` / `N conflicts on start day`.
+- Always-visible scope note, independent of start-day event count (so an empty-but-conflicting later day is never read as clear): `Spans multiple days — this preview shows the start day only. All days are checked when you save.` (`.sa-multiday-scope-note`).
+- Timeline unchanged (start day only; correct for arbitrarily long spans). **No fetch widening, no `lastFetchParamsRef`/effect-dep changes** — the verdict is honestly start-day-scoped, so single-day data is correct.
+- The authoritative full-span conflict detail reaches the user via Part 3 (clear save message) + Part 4 (Save Anyway).
+
+**Deferred option (B):** a live full-span pre-warning in the preview. Additive; requires replicating backend overlap + concurrent rules to avoid false positives. Not built.
 
 ### Part 3 — Clearer conflict info (message, not a wall)
 - Backend: the 409 already includes `hardConflicts[n].eventTitle` and `.startDateTime`; it's missing the room **name**. `CONFLICT_PROJECTION` (`api-server.js:2472`) **already projects** `calendarData.locationDisplayNames` — do **not** touch the projection (no-op). The real gap: `publishedConflictResults.map()` (`api-server.js:~2964`) fetches the field but **discards** it — add a normalized room-name field to the emitted conflict object there. Note `locationDisplayNames` may be a **string or an array** (normalized elsewhere at `:3205,:3225`).
@@ -69,24 +71,26 @@ Conflict-check call sites and current behavior (`api-server.js`):
 
 **Create**
 - `src/utils/dateSpanUtils.js`
-- `src/__tests__/dateSpanUtils.test.js` (Vitest)
+- `src/__tests__/unit/utils/dateSpanUtils.test.js` (Vitest)
+- `src/__tests__/unit/components/SchedulingAssistant.multiDayScope.test.jsx` (Vitest)
 
 **Modify**
 - `src/utils/eventTransformers.js` — use shared `computeEventSpanDays`
-- `src/components/RoomReservationFormBase.jsx` — indicator render; `checkDayAvailability` endDate arg + call site + effect dep; new SchedulingAssistant props
-- `src/components/SchedulingAssistant.jsx` — `endDate`/`isMultiDaySpan` props; header note; summarized verdict
-- `src/components/RoomReservationForm.css` — `.multiday-span-indicator`; date-row margin move
+- `src/components/RoomReservationFormBase.jsx` — indicator render; pass `isMultiDaySpan` to SchedulingAssistant (Part 2 needs no fetch/dedup changes)
+- `src/components/SchedulingAssistant.jsx` — `isMultiDaySpan` prop; scope-honest verdict badge + always-visible scope note
+- `src/components/SchedulingAssistant.css` — `.sa-multiday-scope-note`
+- `src/components/RoomReservationForm.css` — `.multiday-span-indicator` (mirrors occurrence-hint spacing; no date-row margin change)
 - `backend/api-server.js` — `publishedConflictResults.map()` (~2964): emit normalized room name (projection already has the field); Part 4: widen `forceUpdate` gate at `:23921` to `!hasApproverAccess`
 - `src/hooks/useReviewModal.jsx` (+ review-modal component) — `buildConflictErrorMessage`; net-new "Save Anyway" force-retry dialog for staff hard-conflict 409s (modeled on the soft-conflict state dialog)
 
 ## Build sequence
 1. **Shared helper + indicator** (no backend, no risk): `dateSpanUtils.js` + tests; migrate `eventTransformers.js`; CSS; render indicator.
-2. **Widen availability fetch**: `checkDayAvailability` endDate arg + call site + effect dep; SchedulingAssistant props + header note + summarized verdict.
+2. **Honest start-day scope** (revised — no fetch change): `isMultiDaySpan` prop → scope-honest verdict badge + always-visible scope note in SchedulingAssistant. See Part 2 note.
 3. **Clearer conflict info**: emit normalized room name in `publishedConflictResults.map()` (projection already has it); `buildConflictErrorMessage` (handle string|array). Backend Jest asserting the room name appears in the 409.
 4. **Save policy (Warn + Save Anyway, staff)**: widen `:23921` `forceUpdate` gate to `!hasApproverAccess` (admin-save path only); build net-new "Save Anyway" dialog wired to `canForce`/`forceField`, resending with `forceUpdate: true`. Backend Jest: approver force succeeds on `PUT /api/admin/events/:id`; requester/guest force still 403/blocked.
 
 ## Testing
-- Vitest: `dateSpanUtils` (same-day=0, 1-day, 10-day, 180-day, leap-year boundary, null/empty); fetch uses `endDate` when multi-day.
+- Vitest: `dateSpanUtils` (same-day=0, 1-day, 10-day, 180-day, leap-year, cross-year, null/empty/reversed); `SchedulingAssistant.multiDayScope` (note shown when multi-day; hidden single-day / no rooms).
 - Jest (MongoDB Memory Server): 409 conflict payload emits a room name; approver `forceUpdate` succeeds on `PUT /api/admin/events/:id` while requester/guest force stays 403/blocked.
 - Per CLAUDE.md: run only the touched test files, not the full suite.
 
@@ -100,4 +104,5 @@ All datetime strings stay local-time (`...T00:00:00` / `...T23:59:59`), **no Z s
 - Blocking or warning on the mere existence of a multi-day event (multi-day events are legitimate; we make them visible, not forbidden).
 
 ## Review log
-- **2026-05-29 — code-architecture-reviewer pass.** Corrections folded in: Part 3 — `CONFLICT_PROJECTION` already has `locationDisplayNames`; fix the `publishedConflictResults.map()` (it discards the field), handle string|array. Part 2 — must add an `endDate` slot to `lastFetchParamsRef` or the dedup guard suppresses the refetch. Part 4 — John's path is `PUT /api/admin/events/:id` (not the nonexistent `publish-edit`); two-gate force bug at `:23921` to widen to `!hasApproverAccess`; "Save Anyway" is net-new UI, not a reuse. Verified solid: Part 2 no-new-endpoint premise, availability response carries title/date for the verdict, most file:line refs, no OCC/SSE/status-machine impact.
+- **2026-05-29 — code-architecture-reviewer pass.** Corrections folded in: Part 3 — `CONFLICT_PROJECTION` already has `locationDisplayNames`; fix the `publishedConflictResults.map()` (it discards the field), handle string|array. Part 2 — must add an `endDate` slot to `lastFetchParamsRef` or the dedup guard suppresses the refetch. Part 4 — John's path is `PUT /api/admin/events/:id` (not the nonexistent `publish-edit`); two-gate force bug at `:23921` to widen to `!hasApproverAccess`; "Save Anyway" is net-new UI, not a reuse. Verified solid: most file:line refs, no OCC/SSE/status-machine impact.
+- **2026-05-29 — Part 2 re-planned during implementation.** Found the verdict is single-day **by construction** (`buildBlockFromStrings` drops other-day events before counting), so widening the fetch can't make it honest, and a frontend full-span recompute would duplicate backend overlap/concurrency and risk false positives. Switched to approach (A): scope-honest labeling (`isMultiDaySpan` → "on start day" verdict + always-visible scope note); no fetch/dedup changes. Authoritative full-span detail deferred to Parts 3+4; live pre-warning (B) deferred. **Parts 1+2 implemented, tested (14 + 3 new, existing suites green), committed.**
