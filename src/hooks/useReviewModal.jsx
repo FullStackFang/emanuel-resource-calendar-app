@@ -167,6 +167,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Soft conflict confirmation state (for scheduling conflicts with pending edits)
   const [softConflictConfirmation, setSoftConflictConfirmation] = useState(null);
+  // Hard-conflict "Save Anyway" confirmation for staff (when the 409 returns canForce).
+  // Same shape as softConflictConfirmation: { message, conflicts, retryFn }; retryFn resends
+  // the save with the force flag set.
+  const [forceConflictConfirmation, setForceConflictConfirmation] = useState(null);
 
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
@@ -476,6 +480,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setHasUncommittedRecurrence(false); // Reset recurrence warning state
     setShowRecurrenceWarning(false);
     setSoftConflictConfirmation(null); // Drop any pending soft-conflict prompt; otherwise it would re-surface on next open.
+    setForceConflictConfirmation(null);
   }, [hasChanges, isDraft, currentItem]);
 
   /**
@@ -748,10 +753,39 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             return { success: false, error: 'SoftConflictPending' };
           }
           if (data.conflictTier === 'hard' && data.canForce && data.forceField) {
-            // Hard conflicts with admin force override available - show in error
-            const msg = buildConflictErrorMessage(data.hardConflicts, 'Cannot save');
-            if (onError) onError(msg, data.conflicts);
-            return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts, canForce: true, forceField: data.forceField };
+            // Hard conflicts, but this staff user may override. Show a "Save Anyway"
+            // confirmation that resends with the force flag (mirrors the soft-conflict
+            // retry above) instead of dead-ending with an error toast.
+            const forceField = data.forceField;
+            setForceConflictConfirmation({
+              message: `${buildConflictErrorMessage(data.hardConflicts, 'This conflicts')} Save anyway?`,
+              conflicts: data.conflicts,
+              retryFn: async () => {
+                setForceConflictConfirmation(null);
+                setIsSaving(true);
+                try {
+                  const retryResponse = await authFetch(endpoint, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...bodyData, _version: eventVersion, [forceField]: true })
+                  });
+                  if (retryResponse.ok) {
+                    const retryResult = await retryResponse.json();
+                    notifySuccess('Changes saved (scheduling conflict overridden)', retryResult.event || retryResult);
+                    setEventVersion(retryResult.event?._version || retryResult._version);
+                    setHasChanges(false);
+                    return { success: true, event: retryResult.event || retryResult };
+                  }
+                  const retryData = await retryResponse.json().catch(() => ({}));
+                  const retryMsg = retryData.message || buildConflictErrorMessage(retryData.hardConflicts || retryData.conflicts, 'Cannot save');
+                  if (onError) onError(retryMsg, retryData.conflicts);
+                  return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
+                } finally {
+                  setIsSaving(false);
+                }
+              }
+            });
+            return { success: false, error: 'HardConflictForceable', canForce: true, forceField: data.forceField };
           }
           // Hard conflicts without force option
           const msg = buildConflictErrorMessage(data.hardConflicts, 'Cannot save');
@@ -1811,6 +1845,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setSoftConflictConfirmation(null);
   }, []);
 
+  const dismissForceConflictConfirmation = useCallback(() => {
+    setForceConflictConfirmation(null);
+  }, []);
+
   // buildDraftPayload is now imported from ../utils/eventPayloadBuilder
 
   /**
@@ -2209,6 +2247,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     eventVersion, // Current document version for optimistic concurrency
     conflictInfo, // Conflict dialog data (set on 409 VERSION_CONFLICT)
     softConflictConfirmation, // Soft conflict confirmation dialog data
+    forceConflictConfirmation, // Hard-conflict "Save Anyway" confirmation data (staff override)
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
     prefetchedSeriesEvents, // Pre-fetched series events data
@@ -2294,6 +2333,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     cancelSaveConfirmation,
     dismissConflict, // Dismiss the conflict dialog
     dismissSoftConflictConfirmation, // Dismiss the soft conflict confirmation dialog
+    dismissForceConflictConfirmation, // Dismiss the hard-conflict "Save Anyway" dialog
 
     // Draft-specific actions
     handleSaveDraft,

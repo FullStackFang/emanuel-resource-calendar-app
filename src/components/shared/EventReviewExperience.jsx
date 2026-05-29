@@ -253,6 +253,18 @@ export default function EventReviewExperience({
           details={{ message: exp.softConflictConfirmation.message }}
         />
       )}
+
+      {/* Hard Conflict "Save Anyway" Dialog (staff override) */}
+      {exp.forceConflictConfirmation && (
+        <ConflictDialog
+          isOpen={true}
+          onClose={exp.dismissForceConflictConfirmation}
+          onConfirm={exp.forceConflictConfirmation.retryFn}
+          conflictType="hard_conflict"
+          eventTitle={exp.currentItem?.eventTitle || 'Event'}
+          details={{ message: exp.forceConflictConfirmation.message }}
+        />
+      )}
     </>
   );
 }

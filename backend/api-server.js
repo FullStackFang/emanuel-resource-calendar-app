@@ -23964,9 +23964,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const id = req.params.id;
     const updates = req.body;
 
-    // Only admins can force-override scheduling conflicts
-    if (updates.forceUpdate && effectiveRole !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
+    // Staff (approver+) may force-override scheduling conflicts ("Save Anyway").
+    // Entry above already requires approver access, so this also blocks
+    // requesters/guests — they can never reach a forceable conflict here.
+    if (updates.forceUpdate && !hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required to override scheduling conflicts' });
     }
     const graphToken = updates.graphToken;
     const editScope = updates.editScope; // 'thisEvent' | 'allEvents' | null
