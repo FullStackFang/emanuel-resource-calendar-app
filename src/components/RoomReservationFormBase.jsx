@@ -973,6 +973,7 @@ export default function RoomReservationFormBase({
   // the whole proposed window so the assistant can warn about conflicts on days the
   // single-day timeline can't show. Mirrors the save's reservationForConflict literal.
   const spanConflictAbortController = useRef(null);
+  const lastSpanConflictSigRef = useRef(null); // dedup params so load-time re-render churn can't re-fire/cancel the check
   const checkSpanConflicts = async (roomIds, startDateTime, endDateTime) => {
     if (spanConflictAbortController.current) spanConflictAbortController.current.abort();
     spanConflictAbortController.current = new AbortController();
@@ -1059,23 +1060,31 @@ export default function RoomReservationFormBase({
     }
   }, [assistantRooms, formData.startDate, currentReservationId]);
 
-  // Multi-day full-span conflict preview (debounced). Single-day events rely on the
-  // timeline's own verdict; this runs only for multi-day spans.
+  // Multi-day full-span conflict preview. Single-day events rely on the timeline's own
+  // verdict; this runs only for multi-day spans. Fires DIRECTLY (no debounce timer) guarded
+  // by a params-signature dedup + the abort controller, mirroring checkDayAvailability.
+  // A debounce timer was unreliable on initial load: the effect cleanup cleared the pending
+  // timer on every re-render during data loading, so the check often never fired until the
+  // user toggled a room. The dedup ref fires it exactly once per distinct param set.
   useEffect(() => {
     const isMultiDay = !recurrencePattern && computeEventSpanDays(formData.startDate, formData.endDate) > 0;
     const roomIds = assistantRooms.map(r => r._id);
     const effStart = formData.startTime || formData.reservationStartTime;
     const effEnd = formData.endTime || formData.reservationEndTime;
     if (!isMultiDay || roomIds.length === 0 || !formData.startDate || !formData.endDate || !effStart || !effEnd) {
+      lastSpanConflictSigRef.current = null;
       setSpanConflicts(null);
       return;
     }
-    const timer = setTimeout(() => {
-      checkSpanConflicts(roomIds, `${formData.startDate}T${effStart}`, `${formData.endDate}T${effEnd}`);
-    }, 500);
-    return () => clearTimeout(timer);
+    const startDateTime = `${formData.startDate}T${effStart}`;
+    const endDateTime = `${formData.endDate}T${effEnd}`;
+    const sig = [...roomIds].sort().join(',') + '|' + startDateTime + '|' + endDateTime
+      + '|' + (currentReservationId || '') + '|' + (effectiveDefaultCalendar || '');
+    if (lastSpanConflictSigRef.current === sig) return; // params unchanged - don't refetch
+    lastSpanConflictSigRef.current = sig;
+    checkSpanConflicts(roomIds, startDateTime, endDateTime);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime, formData.reservationStartTime, formData.reservationEndTime, recurrencePattern, currentReservationId]);
+  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime, formData.reservationStartTime, formData.reservationEndTime, recurrencePattern, currentReservationId, effectiveDefaultCalendar]);
 
   // Cleanup: abort any in-flight availability requests on unmount
   useEffect(() => {
