@@ -400,6 +400,9 @@ export default function RoomReservationFormBase({
   const [floorPlanAttachmentId, setFloorPlanAttachmentId] = useState(null);
   const [floorPlanUploading, setFloorPlanUploading] = useState(false);
   const floorPlanInputRef = useRef(null);
+  const [floorPlanDragging, setFloorPlanDragging] = useState(false);
+  const [floorPlanRemoving, setFloorPlanRemoving] = useState(false);
+  const [confirmFloorPlanRemove, setConfirmFloorPlanRemove] = useState(false);
 
   const floorPlanEventId = initialData?.eventId || currentEventId || null;
 
@@ -433,41 +436,84 @@ export default function RoomReservationFormBase({
     return () => { cancelled = true; };
   }, [floorPlanEventId, apiToken]);
 
-  const handleFloorPlanSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!floorPlanEventId || !apiToken) {
-      showError('Please save the reservation first, then upload a floor plan.');
-      if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
-      return;
-    }
-    setFloorPlanUploading(true);
+  // Floor plans are images only — a PDF/doc can't render in the <img> preview
+  // and isn't useful for visualizing a room. Enforced in three layers: the
+  // input `accept`, this guard (covers drag-drop + the OS "all files" escape
+  // hatch), and a friendly error message.
+  const isImageFile = (file) =>
+    !!file && typeof file.type === 'string' && file.type.startsWith('image/');
+
+  // Single upload path shared by the file picker and drag-and-drop so both
+  // enforce identical validation, auth, persistence and preview behavior.
+  const uploadFloorPlanFile = async (file) => {
     try {
-      const body = new FormData();
-      body.append('file', file);
-      body.append('isFloorPlan', 'true');
-      const res = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/events/${floorPlanEventId}/attachments`,
-        { method: 'POST', headers: { Authorization: `Bearer ${apiToken}` }, body }
-      );
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Upload failed');
+      if (!file) return;
+      if (!isImageFile(file)) {
+        showError('Floor plans must be an image (PNG, JPG, GIF or WebP). PDFs and documents are not supported.');
+        return;
       }
-      const data = await res.json();
-      // Show the just-selected file immediately (the prior preview URL, if any,
-      // is revoked by the cleanup effect when floorPlanPreview changes).
-      setFloorPlanPreview(URL.createObjectURL(file));
-      setFloorPlanFileName(file.name);
-      setFloorPlanAttachmentId(data.attachment?.id || null);
-      showSuccess('Floor plan saved');
-    } catch (err) {
-      logger.error('Floor plan upload failed:', err);
-      showError('Failed to save floor plan');
+      if (!floorPlanEventId || !apiToken) {
+        showError('Please save the reservation first, then upload a floor plan.');
+        return;
+      }
+      setFloorPlanUploading(true);
+      try {
+        const body = new FormData();
+        body.append('file', file);
+        body.append('isFloorPlan', 'true');
+        const res = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/${floorPlanEventId}/attachments`,
+          { method: 'POST', headers: { Authorization: `Bearer ${apiToken}` }, body }
+        );
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Upload failed');
+        }
+        const data = await res.json();
+        // Show the just-selected file immediately (the prior preview URL, if any,
+        // is revoked by the cleanup effect when floorPlanPreview changes).
+        setFloorPlanPreview(URL.createObjectURL(file));
+        setFloorPlanFileName(file.name);
+        setFloorPlanAttachmentId(data.attachment?.id || null);
+        showSuccess('Floor plan saved');
+      } catch (err) {
+        logger.error('Floor plan upload failed:', err);
+        showError('Failed to save floor plan');
+      } finally {
+        setFloorPlanUploading(false);
+      }
     } finally {
-      setFloorPlanUploading(false);
+      // Always reset the picker so re-selecting the same file fires onChange.
       if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
     }
+  };
+
+  const handleFloorPlanSelect = (e) => {
+    uploadFloorPlanFile(e.target.files?.[0]);
+  };
+
+  // Lazily evaluated (a function, not an eager const) because `fieldsDisabled`
+  // is declared later in the component body — reading it eagerly here would hit
+  // the temporal dead zone. By call time (drag events) it is fully initialized.
+  const canUploadFloorPlan = () =>
+    !fieldsDisabled && !floorPlanUploading && !!floorPlanEventId;
+
+  const handleFloorPlanDragOver = (e) => {
+    e.preventDefault();
+    if (!canUploadFloorPlan()) return;
+    if (!floorPlanDragging) setFloorPlanDragging(true);
+  };
+
+  const handleFloorPlanDragLeave = (e) => {
+    e.preventDefault();
+    if (floorPlanDragging) setFloorPlanDragging(false);
+  };
+
+  const handleFloorPlanDrop = (e) => {
+    e.preventDefault();
+    setFloorPlanDragging(false);
+    if (!canUploadFloorPlan()) return;
+    uploadFloorPlanFile(e.dataTransfer?.files?.[0]);
   };
 
   const handleFloorPlanClear = async () => {
@@ -490,6 +536,29 @@ export default function RoomReservationFormBase({
     setFloorPlanAttachmentId(null);
     if (floorPlanInputRef.current) floorPlanInputRef.current.value = '';
   };
+
+  // Two-click in-button confirmation for Remove (app-wide destructive-action
+  // convention) — one click could otherwise delete a saved floor plan from the
+  // server with no undo.
+  const handleFloorPlanRemoveClick = async () => {
+    if (!confirmFloorPlanRemove) {
+      setConfirmFloorPlanRemove(true);
+      return;
+    }
+    setConfirmFloorPlanRemove(false);
+    setFloorPlanRemoving(true);
+    try {
+      await handleFloorPlanClear();
+    } finally {
+      setFloorPlanRemoving(false);
+    }
+  };
+
+  // Reset the confirm state whenever the previewed plan changes (new upload,
+  // load, or successful removal) so the button never gets stuck mid-confirm.
+  useEffect(() => {
+    setConfirmFloorPlanRemove(false);
+  }, [floorPlanPreview]);
 
   useEffect(() => {
     return () => {
@@ -1519,6 +1588,27 @@ export default function RoomReservationFormBase({
                   className={hasFieldChanged('eventDescription') ? 'input-changed' : ''}
                 />
               </div>
+
+              <div className="form-group full-width">
+                <label htmlFor="setupInformation">Setup Information</label>
+                <textarea
+                  id="setupInformation"
+                  name="setupInformation"
+                  value={selectedServices.serviceNotes || ''}
+                  onChange={(e) => {
+                    const newServices = { ...selectedServices, serviceNotes: e.target.value };
+                    setSelectedServices(newServices);
+                    selectedServicesRef.current = newServices;
+                    setHasChanges(true);
+                    if (onDataChange) {
+                      onDataChange({ ...formData, categories: selectedCategoriesRef.current, services: newServices });
+                    }
+                  }}
+                  rows="2"
+                  disabled={fieldsDisabled}
+                  placeholder="Setup, teardown, and staging details - e.g., room layout, special lighting, additional furniture, A/V, accessibility requirements..."
+                />
+              </div>
             </div>
 
 
@@ -1955,12 +2045,6 @@ export default function RoomReservationFormBase({
                 />
               </div>
 
-              {/* Event & Operations group header */}
-              <div className="time-group-header">
-                <span className="group-indicator optional" />
-                <span>Event & Operations</span>
-              </div>
-
               <div className={`form-group ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="startTime">Start Time</label>
                 {hasFieldChanged('startTime') && (
@@ -1997,6 +2081,12 @@ export default function RoomReservationFormBase({
                   clearable
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
+              </div>
+
+              {/* Event & Operations group header */}
+              <div className="time-group-header">
+                <span className="group-indicator optional" />
+                <span>Event & Operations</span>
               </div>
 
               <div className="operations-content expanded">
@@ -2432,79 +2522,85 @@ export default function RoomReservationFormBase({
           </div>
 
           {/* Right Column: Floor Plan Upload — persisted as an isFloorPlan attachment */}
-          <section className="form-section">
+          <section className="form-section floorplan-section">
             <h2>Floor Plan</h2>
-            <div className="form-group">
-              <label htmlFor="floorPlanUpload">Upload Floor Plan</label>
+
+            {floorPlanPreview && (
+              <figure className="floorplan-frame">
+                <figcaption className="floorplan-frame-bar">
+                  <span className="floorplan-file-chip" title={floorPlanFileName}>
+                    <svg className="floorplan-file-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+                    <span className="floorplan-file-name">{floorPlanFileName}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className={`floorplan-remove-btn${confirmFloorPlanRemove ? ' is-confirming' : ''}`}
+                    onClick={handleFloorPlanRemoveClick}
+                    disabled={fieldsDisabled || floorPlanUploading || floorPlanRemoving}
+                  >
+                    {floorPlanRemoving ? 'Removing…' : confirmFloorPlanRemove ? 'Confirm?' : 'Remove'}
+                  </button>
+                </figcaption>
+                <div className="floorplan-frame-canvas">
+                  <img
+                    className="floorplan-frame-img"
+                    src={floorPlanPreview}
+                    alt={`Floor plan: ${floorPlanFileName || 'uploaded image'}`}
+                  />
+                </div>
+              </figure>
+            )}
+
+            <label
+              className={[
+                'floorplan-dropzone',
+                floorPlanPreview ? 'is-compact' : '',
+                floorPlanDragging ? 'is-dragging' : '',
+                (fieldsDisabled || floorPlanUploading || !floorPlanEventId) ? 'is-disabled' : '',
+              ].filter(Boolean).join(' ')}
+              onDragOver={handleFloorPlanDragOver}
+              onDragLeave={handleFloorPlanDragLeave}
+              onDrop={handleFloorPlanDrop}
+            >
               <input
                 ref={floorPlanInputRef}
                 id="floorPlanUpload"
                 name="floorPlanUpload"
                 data-testid="floor-plan-upload"
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/*"
+                className="floorplan-input sr-only"
                 onChange={handleFloorPlanSelect}
                 disabled={fieldsDisabled || floorPlanUploading || !floorPlanEventId}
               />
-              <div style={{ fontSize: '12px', color: 'var(--color-text-secondary, #666)', marginTop: '6px' }}>
+              <span className="floorplan-dropzone-icon" aria-hidden="true">
+                {floorPlanUploading ? (
+                  <span className="floorplan-spinner" />
+                ) : floorPlanPreview ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16l-4-4-4 4" /><path d="M12 12v9" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></svg>
+                )}
+              </span>
+              <span className="floorplan-dropzone-title">
                 {floorPlanUploading
                   ? 'Saving floor plan…'
                   : !floorPlanEventId
-                    ? 'Save the reservation first to upload a floor plan.'
-                    : 'Upload a floor plan image to visualize room setup. Saved with the reservation.'}
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: '12px',
-                border: '1px dashed var(--color-border, #ccc)',
-                borderRadius: '6px',
-                padding: '12px',
-                minHeight: '220px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--color-surface-subtle, #fafafa)'
-              }}
-            >
-              {floorPlanPreview ? (
-                <div style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '13px', color: 'var(--color-text-secondary, #555)' }}>
-                      {floorPlanFileName}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleFloorPlanClear}
-                      disabled={fieldsDisabled || floorPlanUploading}
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid var(--color-border, #ccc)',
-                        borderRadius: '4px',
-                        padding: '4px 10px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <img
-                    src={floorPlanPreview}
-                    alt="Floor plan preview"
-                    style={{ maxWidth: '100%', maxHeight: '480px', display: 'block', margin: '0 auto', borderRadius: '4px' }}
-                  />
-                </div>
-              ) : (
-                <span style={{ color: 'var(--color-text-secondary, #888)', fontSize: '13px', textAlign: 'center' }}>
-                  No floor plan uploaded.<br />
-                  {floorPlanEventId
-                    ? 'Choose an image or PDF above to upload it here.'
-                    : 'Save the reservation first to enable floor plan upload.'}
-                </span>
-              )}
-            </div>
+                    ? 'Save the reservation first to upload a floor plan'
+                    : floorPlanPreview
+                      ? 'Replace floor plan'
+                      : 'Click to upload or drag & drop'}
+              </span>
+              <span className="floorplan-dropzone-hint">
+                {floorPlanUploading
+                  ? 'Hang tight while we save your image.'
+                  : !floorPlanEventId
+                    ? 'Upload unlocks after the reservation is saved.'
+                    : floorPlanPreview
+                      ? 'Choose a new image — PNG, JPG, GIF or WebP.'
+                      : 'PNG, JPG, GIF or WebP. Saved with the reservation.'}
+              </span>
+            </label>
           </section>
         </div>
       )}

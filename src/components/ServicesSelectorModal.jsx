@@ -402,24 +402,6 @@ export function ServicesContent({ services, onServicesChange, readOnly = false, 
           renderSection(key, section)
         )}
       </div>
-
-      {/* Additional needs */}
-      <div className={`services-notes-section ${services.serviceNotes ? 'has-content' : ''}`}>
-        <div className="services-notes-header">
-          <span className="services-section-icon">{'\u{1F4DD}'}</span>
-          <label className="services-notes-label" htmlFor="serviceNotes">Additional Needs</label>
-          {services.serviceNotes && <span className="services-section-check">✓</span>}
-        </div>
-        <textarea
-          id="serviceNotes"
-          className="services-notes-textarea"
-          value={services.serviceNotes || ''}
-          onChange={(e) => handleTextChange('serviceNotes', e.target.value)}
-          placeholder={readOnly ? '' : 'List any other needs not covered above \u2014 e.g., special lighting, additional furniture, accessibility requirements...'}
-          rows={3}
-          readOnly={readOnly}
-        />
-      </div>
     </div>
   );
 }

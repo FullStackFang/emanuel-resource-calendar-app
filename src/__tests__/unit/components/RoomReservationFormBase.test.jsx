@@ -253,6 +253,29 @@ describe('RoomReservationFormBase', () => {
       await waitFor(() => expect(mockShowSuccess).toHaveBeenCalled());
     });
 
+    it('rejects a non-image file (PDF) without uploading', async () => {
+      global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ attachments: [] }) }));
+      mockShowError.mockClear();
+      mockShowSuccess.mockClear();
+
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventId: 'evt-1', eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+        />
+      );
+
+      const input = screen.getByTestId('floor-plan-upload');
+      const pdf = new File(['%PDF-1.7'], 'layout.pdf', { type: 'application/pdf' });
+      fireEvent.change(input, { target: { files: [pdf] } });
+
+      await waitFor(() => expect(mockShowError).toHaveBeenCalled());
+      // A rejected file type must never reach the upload endpoint.
+      const postCall = global.fetch.mock.calls.find(([, o]) => o?.method === 'POST');
+      expect(postCall).toBeUndefined();
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+    });
+
     it('blocks upload and guides the user when the reservation is unsaved', () => {
       render(
         <RoomReservationFormBase
