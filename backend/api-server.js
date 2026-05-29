@@ -2595,14 +2595,23 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const effectiveEndStr = toLocalISOString(effectiveEnd);
 
     // Build query to find overlapping reservations
-    // Read locations from calendarData (source of truth)
-    // Normalize to ObjectId to ensure $in matches regardless of input type (string or ObjectId)
+    // Read locations from calendarData (source of truth).
+    // Match locations stored as EITHER ObjectId or string. The DB has MIXED storage
+    // (some events store calendarData.locations as ObjectId, others as plain strings),
+    // and in Mongo/Cosmos an ObjectId in $in does NOT match a string-stored value (or
+    // vice-versa) — so normalizing the QUERY value to ObjectId alone silently dropped
+    // every string-stored conflict. Include BOTH forms in the $in. roomIdStrings is the
+    // string-only list reused for the in-memory comparisons further down.
     const rawRoomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
-    const roomIds = (rawRoomIds || []).map(id => {
-      if (id instanceof ObjectId) return id;
-      if (typeof id === 'string' && ObjectId.isValid(id)) return new ObjectId(id);
-      return id;
-    });
+    const roomIdStrings = [];
+    const roomIds = []; // both string and ObjectId forms, for the location $in queries
+    for (const rawId of (rawRoomIds || [])) {
+      const s = rawId instanceof ObjectId ? rawId.toString() : String(rawId);
+      if (roomIdStrings.includes(s)) continue;
+      roomIdStrings.push(s);
+      roomIds.push(s);
+      if (ObjectId.isValid(s)) roomIds.push(new ObjectId(s));
+    }
 
     // Scope to a single mailbox calendar when caller provides one.
     // For full MongoDB-document callers, calendarOwner is a top-level field on the event.
@@ -2887,7 +2896,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       const effectiveLocations = (effective.locations || []).map(id => id.toString());
 
       // Check room overlap with candidate event
-      const candidateRoomIds = (roomIds || []).map(id => id.toString());
+      const candidateRoomIds = roomIdStrings;
       const hasRoomOverlap = effectiveLocations.some(loc => candidateRoomIds.includes(loc));
       if (!hasRoomOverlap) continue;
 
