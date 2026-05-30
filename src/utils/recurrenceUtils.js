@@ -213,8 +213,12 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
 
   const exclusionSet = new Set(exclusions);
 
-  // Calculate pattern dates — append T00:00:00 to parse as local midnight, not UTC
-  const rangeStart = new Date(Math.max(new Date(startDate + 'T00:00:00'), new Date(range.startDate + 'T00:00:00')));
+  // Calculate pattern dates — append T00:00:00 to parse as local midnight, not UTC.
+  // patternStart is the series anchor; it MUST be local-midnight so isDateInPattern's
+  // day-of-month/day comparison uses the intended calendar day (a bare YYYY-MM-DD is
+  // parsed as UTC midnight, which lands on the previous local day west of UTC).
+  const patternStart = new Date(range.startDate + 'T00:00:00');
+  const rangeStart = new Date(Math.max(new Date(startDate + 'T00:00:00'), patternStart));
   const rangeEnd = new Date(endDate + 'T23:59:59');
 
   // Apply end date if specified
@@ -274,7 +278,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
   const maxOccurrences = range.type === 'numbered' ? range.numberOfOccurrences : Infinity;
 
   while (current <= rangeEnd && count < maxOccurrences) {
-    if (isDateInPattern(current, pattern, new Date(range.startDate))) {
+    if (isDateInPattern(current, pattern, patternStart)) {
       // Use local date components to avoid UTC conversion/timezone shifts
       const year = current.getFullYear();
       const month = String(current.getMonth() + 1).padStart(2, '0');

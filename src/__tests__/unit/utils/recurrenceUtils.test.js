@@ -437,4 +437,75 @@ describe('expandRecurringSeries', () => {
     // Minus 3 exclusions = 28 counted in March. 35 - 28 = 7 remaining in April.
     expect(dates.length).toBe(7);
   });
+
+  // ─── Monthly day-of-month anchoring (timezone regression) ──────────────
+  // Regression for: monthly/yearly series dropping or shifting the base-pattern
+  // occurrence in negative-offset timezones. expandRecurringSeries passed a bare
+  // `new Date(range.startDate)` (parsed as UTC midnight) as the pattern anchor;
+  // in Eastern Time that resolves to the PREVIOUS calendar day, so the monthly
+  // `getDate()` comparison anchored on the wrong day-of-month. Additions bypass
+  // isDateInPattern, so they rendered fine — masking the bug until a series whose
+  // ONLY base occurrence is range.startDate (start === end) vanished entirely.
+  //
+  // NOTE: This bug only manifests in negative-offset timezones (e.g. Eastern Time,
+  // the app's only timezone and the dev/production environment). The assertions
+  // below are correct in EVERY timezone after the fix and never flaky; they
+  // actively fail before the fix when the suite runs in a negative-offset zone.
+  // (Vitest cannot reliably pin TZ at runtime — V8 caches it before beforeAll —
+  // so we assert TZ-independent invariants rather than forcing a zone.)
+  describe('monthly day-of-month anchoring (timezone regression)', () => {
+    // MR-1: the exact reported case — single base occurrence (range.startDate ===
+    // endDate) plus ad-hoc additions for later months. The 10/6 base occurrence
+    // must appear in the October window.
+    it('MR-1: includes the base occurrence when range.startDate === range.endDate', () => {
+      const master = {
+        eventId: 'mensclub-master',
+        eventType: 'seriesMaster',
+        calendarData: {
+          startTime: null,
+          endTime: null,
+          reservationStartTime: '18:00',
+          reservationEndTime: '20:00',
+          startDateTime: '2026-10-06T18:00:00',
+          endDateTime: '2026-10-06T20:00:00',
+        },
+        recurrence: {
+          pattern: { type: 'monthly', interval: 1, firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-10-06', endDate: '2026-10-06' },
+          additions: ['2026-11-17', '2026-12-15', '2027-01-26'],
+          exclusions: [],
+        },
+      };
+
+      const occurrences = expandRecurringSeries(master, '2026-10-01', '2026-10-31');
+      const dates = occurrences.map((o) => o.start.dateTime.split('T')[0]);
+      expect(dates).toContain('2026-10-06');
+    });
+
+    // MR-2: the broader latent bug — a normal multi-month monthly series must
+    // anchor on the correct day-of-month in later months, not one day early.
+    it('MR-2: later-month occurrences land on the correct day-of-month (not shifted)', () => {
+      const master = {
+        eventId: 'monthly-6th-master',
+        eventType: 'seriesMaster',
+        calendarData: {
+          startTime: '18:00',
+          endTime: '20:00',
+          startDateTime: '2026-10-06T18:00:00',
+          endDateTime: '2026-10-06T20:00:00',
+        },
+        recurrence: {
+          pattern: { type: 'monthly', interval: 1, firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-10-06', endDate: '2027-01-31' },
+          additions: [],
+          exclusions: [],
+        },
+      };
+
+      const occurrences = expandRecurringSeries(master, '2026-11-01', '2026-11-30');
+      const dates = occurrences.map((o) => o.start.dateTime.split('T')[0]);
+      expect(dates).toContain('2026-11-06');
+      expect(dates).not.toContain('2026-11-05');
+    });
+  });
 });
