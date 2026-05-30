@@ -50,3 +50,39 @@ export function shouldClearEventsOnZeroResult(loadResult, { silent = false, isRe
   if (isRetry) return false;
   return true;
 }
+
+/**
+ * Decides whether a 0-event result should be VERIFIED with a single retry
+ * before it is accepted as authoritative and allowed to clear the grid.
+ *
+ * The bug class this guards against: a fresh page load (reload of the home
+ * Calendar) starts with an empty event cache, so the in-session "keep existing
+ * events" guards (silent / isRetry, see shouldClearEventsOnZeroResult) have
+ * nothing to protect — there is no prior state to fall back on. A transient
+ * cold cross-partition query, replica lag, or a throttled 429 can return
+ * { count: 0, events: [] } even when events exist, and the navigation-intent
+ * path would accept that and blank the grid. This is the "no data on reload,
+ * which is incorrect" symptom.
+ *
+ * Contract:
+ * - Only fires for a real zero-result (count 0 AND no events).
+ * - Skips silent and isRetry calls — those paths already preserve state, and
+ *   the verify retry itself runs as an isRetry-free non-silent load (so its
+ *   own zero-result is authoritative).
+ * - `alreadyVerified` caps verification at ONE retry per calendar selection,
+ *   so a genuinely-empty calendar still resolves to the empty state and there
+ *   is no infinite retry loop. Callers reset their "verified" latch when the
+ *   selected calendar changes (a new partition can be cold again).
+ *
+ * When this returns true the caller should keep the loading overlay up,
+ * schedule one non-silent reload, and NOT clear events yet. When it returns
+ * false the existing shouldClearEventsOnZeroResult contract decides.
+ */
+export function shouldVerifyZeroResult(loadResult, { silent = false, isRetry = false, alreadyVerified = false } = {}) {
+  if (!loadResult) return false;
+  const isZero = loadResult.count === 0 && (loadResult.events?.length ?? 0) === 0;
+  if (!isZero) return false;
+  if (silent || isRetry) return false;
+  if (alreadyVerified) return false;
+  return true;
+}

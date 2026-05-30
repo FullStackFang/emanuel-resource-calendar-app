@@ -37,7 +37,7 @@
   import { buildInternalFields } from '../utils/eventPayloadBuilder';
   import { selectDefaultCalendar, SELECT_DEFAULT_CALENDAR_REASONS } from '../utils/calendarSelection';
   import { dedupeCalendarsByOwner } from '../utils/dedupeCalendarsByOwner';
-  import { shouldClearEventsOnZeroResult, createReloadCoordinator } from '../utils/calendarLoadDecision';
+  import { shouldClearEventsOnZeroResult, shouldVerifyZeroResult, createReloadCoordinator } from '../utils/calendarLoadDecision';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import eventDataService from '../services/eventDataService';
@@ -96,10 +96,16 @@ import ConflictDialog from './shared/ConflictDialog';
   // isUncategorizedEvent, standardizeDate, getEventPosition) live in
   // src/utils/calendarEventUtils.js — imported above.
 
+  // Delay before the single cold-zero verify retry (see shouldVerifyZeroResult).
+  // Long enough to let a cold Cosmos partition / lagging replica warm up, short
+  // enough to stay imperceptible behind the loading overlay that is held up
+  // across the retry.
+  const COLD_ZERO_VERIFY_DELAY_MS = 400;
+
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
    *****************************************************************************/
-  function Calendar({ 
+  function Calendar({
     graphToken, 
     apiToken,
     selectedCalendarId,
@@ -215,6 +221,14 @@ import ConflictDialog from './shared/ConflictDialog';
     // Set to true when a navigation fires while a load is in progress (skipped guard).
     // The finally block checks this and retries with the latest dateRange.
     const pendingReloadRef = useRef(false);
+    // Cold-reload false-empty guard. A fresh page load has no prior events to
+    // preserve, so a transient cold cross-partition query / replica lag / 429
+    // that returns 0 would blank the grid. verifyPendingRef keeps the loading
+    // overlay up across a single verify retry; coldZeroVerifiedRef caps that to
+    // one retry per calendar selection (re-armed below when selectedCalendarId
+    // changes). See shouldVerifyZeroResult in calendarLoadDecision.js.
+    const verifyPendingRef = useRef(false);
+    const coldZeroVerifiedRef = useRef(false);
     // Flipped true the moment the consolidated mount effect dispatches its first
     // non-silent loadEvents(false). Silent refreshes (SSE/bus/polling) no-op until
     // this is true, so an SSE 'event-changed' delivered during init cannot race
@@ -1847,6 +1861,22 @@ import ConflictDialog from './shared/ConflictDialog';
               );
             }
 
+            // Cold-reload false-empty guard. A fresh page load has no prior
+            // events to fall back on, so a transient cold cross-partition query
+            // / replica lag / throttled 429 that returns 0 would blank the home
+            // grid even when events exist. Verify the FIRST cold zero per
+            // calendar selection with one retry (keeping the overlay up via
+            // verifyPendingRef) before accepting it. Not applied when the
+            // calendar is genuinely unconfigured — 0 is authoritative there.
+            // The retry runs non-silent + isRetry-free, so its own zero-result
+            // falls through to the wipe contract below (alreadyVerified=true).
+            if (!unconfigured && shouldVerifyZeroResult(loadResult, { silent, isRetry, alreadyVerified: coldZeroVerifiedRef.current })) {
+              coldZeroVerifiedRef.current = true;
+              verifyPendingRef.current = true;
+              logger.info(`loadEventsUnified: unverified cold 0-result — scheduling one verify retry before showing empty state (source: ${loadResult.source})`);
+              return false;
+            }
+
             // Wipe-decision contract lives in calendarLoadDecision.js so the
             // protected paths (silent: mutations/SSE/polling, isRetry: pendingReload)
             // can be unit-tested without mounting Calendar. See
@@ -1875,14 +1905,24 @@ import ConflictDialog from './shared/ConflictDialog';
         return false;
       } finally {
         loadInProgressRef.current = false;
-        if (!silent) setLoading(false);
+        // Keep the loading overlay up across a verify retry so the cold-zero
+        // verification never exposes a one-frame empty grid. The verify retry
+        // (scheduled below) is non-silent and clears `loading` in its own finally.
+        const verifying = verifyPendingRef.current;
+        if (!silent && !verifying) setLoading(false);
         setLastFetchedAt(Date.now());
-        // A navigation fired while this load was in flight — retry now with the
-        // current dateRange so the calendar never shows a blank week.
-        // silent: true so a 0-result delta-sync no-op cannot wipe loaded events.
-        // isRetry: true tags the call as a catch-up so the 0-events branch can
-        // short-circuit defensively even if a future caller forgets `silent`.
-        if (pendingReloadRef.current) {
+        if (verifying) {
+          // Cold 0-result: re-load once as an authoritative non-silent load.
+          // Its zero-result (alreadyVerified=true) falls through to the wipe
+          // contract, so a genuinely-empty calendar still resolves to empty.
+          verifyPendingRef.current = false;
+          setTimeout(() => loadEventsRef.current?.(false, null, { silent: false }), COLD_ZERO_VERIFY_DELAY_MS);
+        } else if (pendingReloadRef.current) {
+          // A navigation fired while this load was in flight — retry now with the
+          // current dateRange so the calendar never shows a blank week.
+          // silent: true so a 0-result delta-sync no-op cannot wipe loaded events.
+          // isRetry: true tags the call as a catch-up so the 0-events branch can
+          // short-circuit defensively even if a future caller forgets `silent`.
           pendingReloadRef.current = false;
           loadEventsRef.current?.(false, null, { silent: true, isRetry: true });
         }
@@ -5002,6 +5042,14 @@ import ConflictDialog from './shared/ConflictDialog';
       `${dateRange.start.toISOString()}-${dateRange.end.toISOString()}`, 
       [dateRange.start, dateRange.end]
     );
+
+    // Re-arm the cold-zero verify latch whenever the selected calendar changes.
+    // Each calendar is a distinct Cosmos partition that can be cold on its first
+    // query, so the first 0-result after a switch (and after the initial
+    // null -> default-calendar selection on mount) earns one verify retry.
+    useEffect(() => {
+      coldZeroVerifiedRef.current = false;
+    }, [selectedCalendarId]);
 
     // Consolidated event loading effect to prevent duplicate API calls
     // This effect handles reloading when date range or calendar changes AFTER initialization

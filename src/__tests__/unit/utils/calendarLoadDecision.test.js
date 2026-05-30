@@ -22,6 +22,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   shouldClearEventsOnZeroResult,
+  shouldVerifyZeroResult,
   createReloadCoordinator,
 } from '../../../utils/calendarLoadDecision';
 
@@ -89,6 +90,78 @@ describe('shouldClearEventsOnZeroResult', () => {
         `${name} should not trigger wipe on transient zero result`
       ).toBe(false);
     }
+  });
+});
+
+describe('shouldVerifyZeroResult', () => {
+  // Locks the cold-reload false-empty contract.
+  //
+  // Background: a fresh page load (reload of the home Calendar) starts with an
+  // empty event cache, so the in-session "keep existing events" guards
+  // (silent / isRetry) have nothing to protect. A transient cold cross-partition
+  // query, replica lag, or a throttled 429 can return { count: 0, events: [] }
+  // even when events exist, and the navigation-intent path would accept it and
+  // blank the grid ("No events to display") — the reported "no data on reload,
+  // which is incorrect" symptom.
+  //
+  // Fix: the FIRST cold (non-silent, non-retry) zero-result per calendar
+  // selection is VERIFIED with a single retry before being accepted. The verify
+  // retry runs as a normal non-silent load whose own zero-result is then
+  // authoritative (alreadyVerified=true → this returns false → the wipe
+  // contract takes over). `alreadyVerified` caps it at one retry — no loop.
+  const zeroResult = { count: 0, events: [], source: 'unified' };
+
+  it('returns true for the first cold zero-result (the case we fix)', () => {
+    expect(shouldVerifyZeroResult(zeroResult)).toBe(true);
+    expect(shouldVerifyZeroResult(zeroResult, {})).toBe(true);
+    expect(shouldVerifyZeroResult(zeroResult, { silent: false, isRetry: false, alreadyVerified: false })).toBe(true);
+  });
+
+  it('returns false when silent=true (mutation/SSE/polling already preserve state)', () => {
+    expect(shouldVerifyZeroResult(zeroResult, { silent: true })).toBe(false);
+  });
+
+  it('returns false when isRetry=true (this IS a catch-up retry — do not re-verify)', () => {
+    expect(shouldVerifyZeroResult(zeroResult, { isRetry: true })).toBe(false);
+  });
+
+  it('returns false when alreadyVerified=true (verify at most once — no infinite retry loop)', () => {
+    expect(shouldVerifyZeroResult(zeroResult, { alreadyVerified: true })).toBe(false);
+    expect(shouldVerifyZeroResult(zeroResult, { silent: false, isRetry: false, alreadyVerified: true })).toBe(false);
+  });
+
+  it('returns false when result has events (nothing to verify)', () => {
+    expect(shouldVerifyZeroResult({ count: 1, events: [{ id: 'a' }] })).toBe(false);
+    expect(shouldVerifyZeroResult({ count: 0, events: [{ id: 'a' }] })).toBe(false);
+  });
+
+  it('returns false when count > 0 even if events array is empty (weird shape — wipe contract handles it)', () => {
+    expect(shouldVerifyZeroResult({ count: 3, events: [] })).toBe(false);
+  });
+
+  it('handles missing/null events array safely', () => {
+    expect(shouldVerifyZeroResult({ count: 0 })).toBe(true);
+    expect(shouldVerifyZeroResult({ count: 0, events: null })).toBe(true);
+    expect(shouldVerifyZeroResult({ count: 0, events: undefined })).toBe(true);
+  });
+
+  it('returns false for null/undefined loadResult (defensive)', () => {
+    expect(shouldVerifyZeroResult(null)).toBe(false);
+    expect(shouldVerifyZeroResult(undefined)).toBe(false);
+  });
+
+  it('handoff contract: a cold zero is verified once, then the verify retry defers to the wipe contract', () => {
+    // First cold load: not yet verified → verify (do NOT clear yet).
+    const first = { silent: false, isRetry: false, alreadyVerified: false };
+    expect(shouldVerifyZeroResult(zeroResult, first)).toBe(true);
+    expect(shouldClearEventsOnZeroResult(zeroResult, first)).toBe(true); // would have wiped — that's the bug
+
+    // Verify retry (alreadyVerified=true): no second verify; wipe contract is
+    // now authoritative and clears, so a genuinely-empty calendar still shows
+    // the empty state.
+    const verifyRetry = { silent: false, isRetry: false, alreadyVerified: true };
+    expect(shouldVerifyZeroResult(zeroResult, verifyRetry)).toBe(false);
+    expect(shouldClearEventsOnZeroResult(zeroResult, verifyRetry)).toBe(true);
   });
 });
 
