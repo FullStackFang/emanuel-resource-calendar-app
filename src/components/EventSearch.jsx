@@ -11,6 +11,7 @@ import { keys } from '../queries/keys';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
 import { selectedNamesToCategoryIds } from '../utils/categoryFilterUtils';
+import { deriveListLoadingState } from '../utils/listLoadingState';
 import CalendarSelector from './CalendarSelector';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './EventSearch.css';
@@ -379,6 +380,7 @@ function EventSearch({
   const {
     data: searchData,
     isLoading,
+    isPending,
     error,
     refetch,
     isFetching
@@ -451,6 +453,18 @@ function EventSearch({
       return failureCount < 3;
     },
   });
+
+  // Whether a user-requested search is in flight. Unlike the list views, this
+  // view's `enabled` is a deliberate user action (the Search button), so its
+  // idle state is a legitimate "enter criteria" prompt — but once a search IS
+  // requested, `isSearching` must stay true through the `pending && idle` tick
+  // (after `enabled` flips, before the fetch starts) so we never flash
+  // "No events found" before the request lands. deriveListLoadingState() gives
+  // us exactly that: enabled (= search requested) AND isPending.
+  const { isFirstLoad: isSearching } = deriveListLoadingState(
+    { isPending, isFetching },
+    { enabled: shouldRunSearch && !!apiToken }
+  );
 
   // Handle query success — replaces deprecated v5 onSuccess callback
   useEffect(() => {
@@ -1013,7 +1027,7 @@ function EventSearch({
         {/* Left column - Search results */}
         <div className="search-results-column">
           <div className="search-results">
-            {isLoading || isFetching ? (
+            {isSearching || isFetching ? (
               <LoadingSpinner variant="card" text="Searching..." />
             ) : searchResults.length > 0 ? (
               <>
@@ -1052,7 +1066,7 @@ function EventSearch({
               </>
             ) : (
               (searchTerm || dateRange.start || selectedCategories.length || selectedLocations.length) &&
-              !isLoading ? (
+              !isSearching ? (
                 <div className="no-results">No events found matching your search criteria</div>
               ) : (
                 <div className="no-results">Enter search criteria and click "Search" to find events</div>

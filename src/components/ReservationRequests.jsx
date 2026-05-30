@@ -39,6 +39,7 @@ function patchApprovalQueueLists(queryClient, eventId, updater) {
 }
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
+import { deriveListLoadingState } from '../utils/listLoadingState';
 import LoadingSpinner from './shared/LoadingSpinner';
 import EventReviewExperience from './shared/EventReviewExperience';
 import DiscardChangesDialog from './shared/DiscardChangesDialog';
@@ -267,23 +268,20 @@ export default function ReservationRequests({ graphToken }) {
   // Server-side pagination metadata for the 'all' tab. The 'needs_attention'
   // tab still paginates client-side from its bounded fetch.
   const serverPagination = reservationsQuery.data?.__pagination ?? null;
-  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
-  // when `enabled` flips true) and `pending && fetching`. Prevents the
-  // empty-state from rendering before the fetch starts. See CLAUDE.md
-  // "React Query loading primitives" for the convention.
-  //
-  // Gated on `listQueryEnabled` because `useQuery` keeps `isPending: true`
-  // forever when `enabled: false` — without the gate, the 'all' tab with no
-  // filters would render a perpetual spinner instead of the empty state.
-  const loading = listQueryEnabled && reservationsQuery.isPending;
+  // Loading primitives from the shared deriveListLoadingState(). `enabled:
+  // listQueryEnabled` is passed because this view INTENTIONALLY skips the fetch
+  // on the 'all' tab with no filters — without the gate, `useQuery` keeps
+  // `isPending: true` forever and would render a perpetual spinner instead of
+  // the search prompt. See CLAUDE.md "React Query loading primitives".
+  const { isFirstLoad: loading, isSilentRefreshing } = deriveListLoadingState(
+    reservationsQuery,
+    { countsQuery, enabled: listQueryEnabled }
+  );
   const error = reservationsQuery.error?.message || '';
   const lastFetchedAt = Math.max(
     reservationsQuery.dataUpdatedAt || 0,
     countsQuery.dataUpdatedAt || 0
   ) || null;
-  const isSilentRefreshing =
-    (reservationsQuery.isFetching && !reservationsQuery.isPending) ||
-    (countsQuery.isFetching && !countsQuery.isPending);
   const serverCounts = countsQuery.data ?? { needs_attention: 0, all: 0 };
   // countsLoaded preserves the legacy gate semantic: flips true after the first
   // load attempt (success OR failure). React Query exposes `isPending` for the

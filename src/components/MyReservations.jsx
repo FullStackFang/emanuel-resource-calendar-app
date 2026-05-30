@@ -16,6 +16,7 @@ import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { keys } from '../queries/keys';
 import { getStatusBadgeInfo } from '../utils/statusUtils';
 import { filterBySearchAndDate, sortReservations } from '../utils/reservationFilterUtils';
+import { deriveListLoadingState } from '../utils/listLoadingState';
 import { formatDraftAge } from '../utils/draftAgeUtils';
 import { formatRecurrenceSummaryCompact } from '../utils/recurrenceUtils';
 import { buildOccurrenceVariants } from '../utils/recurrenceOverrideSummary';
@@ -191,16 +192,13 @@ export default function MyReservations() {
   });
 
   const allReservations = myReservationsQuery.data ?? [];
-  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
-  // when `enabled` flips true) and `pending && fetching`. Prevents the
-  // empty-state from rendering before the fetch starts. See CLAUDE.md
-  // "React Query loading primitives" for the convention.
-  const loading = myReservationsQuery.isPending;
+  // Loading primitives come from the shared deriveListLoadingState() so the
+  // first-load gate (isPending, NOT isLoading) and the silent-refresh detector
+  // are defined identically across every list view. See CLAUDE.md "React Query
+  // loading primitives" and src/utils/listLoadingState.js.
+  const { isFirstLoad: loading, isSilentRefreshing } = deriveListLoadingState(myReservationsQuery);
   const error = myReservationsQuery.error?.message || '';
   const lastFetchedAt = myReservationsQuery.dataUpdatedAt || null;
-  // Background refetch (polling, bus, manual, mutation invalidate) — UI uses
-  // this to suppress the empty-state flash while data is being re-validated.
-  const isSilentRefreshing = myReservationsQuery.isFetching && !myReservationsQuery.isPending;
 
   // Token rotation guard: when `apiToken` changes between two truthy values
   // (e.g., 401-retry flow rotates A → B mid-session), force a refetch so the

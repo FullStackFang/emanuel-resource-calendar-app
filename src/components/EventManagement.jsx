@@ -20,6 +20,7 @@ import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { deleteEvent } from '../utils/eventPayloadBuilder';
+import { deriveListLoadingState } from '../utils/listLoadingState';
 import { formatTimeString } from '../utils/appTimeUtils';
 import './EventManagement.css';
 
@@ -175,13 +176,11 @@ export default function EventManagement() {
   const events = eventsQuery.data?.events ?? [];
   const totalPages = eventsQuery.data?.totalPages ?? 1;
   const counts = countsQuery.data ?? { total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 };
-  // First-load gate: `isPending` covers both `pending && idle` (one-tick window
-  // when `enabled` flips true) and `pending && fetching`. Prevents the
-  // empty-state from rendering before the fetch starts. See CLAUDE.md
-  // "React Query loading primitives" for the convention.
-  const loading = eventsQuery.isPending;
-  const isSilentRefreshing = (eventsQuery.isFetching && !eventsQuery.isPending)
-    || (countsQuery.isFetching && !countsQuery.isPending);
+  // Loading primitives from the shared deriveListLoadingState(): the first-load
+  // gate tracks the LIST query's isPending (a pending counts query does not
+  // extend the spinner); a silent refetch of either list or counts dims rather
+  // than blanks. See CLAUDE.md "React Query loading primitives".
+  const { isFirstLoad: loading, isSilentRefreshing } = deriveListLoadingState(eventsQuery, { countsQuery });
   const lastFetchedAt = Math.max(
     eventsQuery.dataUpdatedAt || 0,
     countsQuery.dataUpdatedAt || 0
