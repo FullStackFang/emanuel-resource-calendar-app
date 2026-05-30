@@ -64,6 +64,32 @@ describe('deriveListLoadingState', () => {
       // isPending: true forever and would show a perpetual spinner.
       expect(deriveListLoadingState(idlePending, { enabled: false }).isFirstLoad).toBe(false);
     });
+
+    // EventSearch usage pattern. `enabled` is a user action (the Search button),
+    // not auto-fire-on-token, so its idle state is the "enter criteria" prompt.
+    // The component computes `isSearching = isFirstLoad` with
+    // `enabled: shouldRunSearch && !!apiToken` and gates the results pane on
+    // `isSearching || isFetching`. These cases lock that fix (the old code gated
+    // on `isLoading`, which is false on the idle tick and flashed
+    // "No events found").
+    describe('EventSearch search-button pattern', () => {
+      it('no search requested → isSearching false (renders the "enter criteria" prompt, not a spinner)', () => {
+        // shouldRunSearch=false → enabled=false, even though the query reports
+        // isPending while disabled.
+        expect(deriveListLoadingState(idlePending, { enabled: false }).isFirstLoad).toBe(false);
+      });
+
+      it('search requested, pending && idle tick → isSearching true (shows "Searching...", no empty flash)', () => {
+        // The moment shouldRunSearch flips true the query is enabled but the
+        // fetch has not started (isFetching false). isLoading would be false
+        // here; isFirstLoad is true.
+        expect(deriveListLoadingState(idlePending, { enabled: true }).isFirstLoad).toBe(true);
+      });
+
+      it('search resolved → isSearching false (results or genuine "No events found" can render)', () => {
+        expect(deriveListLoadingState(settled, { enabled: true }).isFirstLoad).toBe(false);
+      });
+    });
   });
 
   describe('secondary (counts) query', () => {

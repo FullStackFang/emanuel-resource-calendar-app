@@ -576,6 +576,16 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Loading-Experience Standardization (Phases 1-2 done 2026-05-30; Phase 3 deferred)
+
+**Goal**: eliminate the "no data on reload, which is incorrect" flashes and standardize a smooth, consistent loading experience across all data views.
+
+**Done + committed:**
+- **Phase 1 — Calendar cold-reload false-empty** (commit `5cbba26`): `shouldVerifyZeroResult()` in `calendarLoadDecision.js` verifies the first cold (non-silent, non-retry) 0-result per calendar selection with one retry before showing "No events to display", holding the loading overlay up via `verifyPendingRef`. Fixes a transient cold Cosmos query / replica lag / 429 blanking the home grid.
+- **Phase 2 — shared loading primitives + EventSearch fix**: `deriveListLoadingState()` in `src/utils/listLoadingState.js` is the single tested definition of `isFirstLoad`/`isSilentRefreshing`; MyReservations, EventManagement, ReservationRequests migrated to it (behavior-preserving); EventSearch's `isLoading` anti-pattern fixed (gates on `isSearching || isFetching`). See the updated "React Query loading primitives" section above.
+
+**Deferred (Phase 3):** warm reloads via React Query `sessionStorage` persistence (stale-while-revalidate) — spec at `openspec/changes/warm-reload-query-persistence/`. Prerequisite: commit the in-progress `eventTransformers` `calendarData`-removal refactor first. The `<DataBoundary>` visual component was evaluated and **dropped** as over-engineering (list views already share `LoadingSpinner` + `EmptyStateRefreshButton`).
+
 ### Initial Load Performance Optimization (Planned)
 
 **Status**: Planned 2026-02-04. No implementation started yet.
