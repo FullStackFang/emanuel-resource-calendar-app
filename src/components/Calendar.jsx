@@ -1838,7 +1838,7 @@ import ConflictDialog from './shared/ConflictDialog';
           return true;
         } else if (loadResult.loadResults && loadResult.loadResults.errors && loadResult.loadResults.errors.length > 0) {
           // If there were errors, don't clear events - keep existing ones
-          logger.warn('loadEventsUnified: Regular load had errors, keeping existing events', {
+          logger.warn('[cal-load] regular load had errors, keeping existing events (no verify retry on this path)', {
             errorCount: loadResult.loadResults.errors.length,
             errors: loadResult.loadResults.errors
           });
@@ -1846,6 +1846,19 @@ import ConflictDialog from './shared/ConflictDialog';
         } else {
           // No events returned but no errors
           if (loadResult.count === 0 && loadResult.events?.length === 0) {
+            // [cal-load] Always-visible diagnostic. logger.info is compiled out of
+            // prod builds, so the cold-zero decision was previously invisible in
+            // production. Emit the exact 0-result shape at warn level so a reload
+            // that blanks the home grid is self-explaining. Remove once the
+            // false-empty root cause is confirmed and fixed.
+            logger.warn('[cal-load] 0-result reached decision point', {
+              source: loadResult.source,
+              silent,
+              isRetry,
+              coldZeroAlreadyVerified: coldZeroVerifiedRef.current,
+              warnings: (loadResult.warnings || []).map(w => w.code),
+              calendarId: selectedCalendarId,
+            });
             // Distinguish "calendar not in calendar-config.json" from "calendar is
             // configured but genuinely has zero reservations in this date range".
             // The backend surfaces the former as a CALENDAR_NOT_CONFIGURED warning
@@ -1873,7 +1886,7 @@ import ConflictDialog from './shared/ConflictDialog';
             if (!unconfigured && shouldVerifyZeroResult(loadResult, { silent, isRetry, alreadyVerified: coldZeroVerifiedRef.current })) {
               coldZeroVerifiedRef.current = true;
               verifyPendingRef.current = true;
-              logger.info(`loadEventsUnified: unverified cold 0-result — scheduling one verify retry before showing empty state (source: ${loadResult.source})`);
+              logger.warn(`[cal-load] unverified cold 0-result — scheduling verify retry, holding overlay (source: ${loadResult.source})`);
               return false;
             }
 
@@ -1892,16 +1905,16 @@ import ConflictDialog from './shared/ConflictDialog';
               0,
               Date.now() - (window._calendarLoadStart || Date.now())
             );
-            logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
+            logger.warn(`[cal-load] accepted 0-result as authoritative — cleared grid, showing empty card (source: ${loadResult.source})`);
             return true;
           } else {
-            logger.warn('loadEventsUnified: No events returned, keeping existing events');
+            logger.warn('[cal-load] no events returned (count != 0 mismatch), keeping existing events');
             return false;
           }
         }
         
       } catch (error) {
-        logger.error('loadEventsUnified failed:', error);
+        logger.error('[cal-load] loadEventsUnified threw (no verify retry on this path):', error);
         return false;
       } finally {
         loadInProgressRef.current = false;

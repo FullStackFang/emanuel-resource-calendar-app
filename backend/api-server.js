@@ -34,6 +34,7 @@ const { batchDelete } = require('./utils/batchDelete');
 const { buildEventDateRangeOverlapFilter } = require('./utils/eventDateRangeFilter');
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
+const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
@@ -6079,7 +6080,35 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
 
     logger.debug('Calendar events query:', JSON.stringify(query));
 
-    const events = (await withCosmosRetry(() => unifiedEventsCollection.find(query).project(EVENT_LIST_PROJECTION).toArray()))
+    // Cold cross-partition false-empty guard. A cold Cosmos partition (index
+    // metadata warming on a fresh reload) can return [] from find() even when
+    // events exist — and withCosmosRetry only retries throttle ERRORS, not a
+    // silently-empty result. Without this, a cold first load blanks the calendar
+    // grid ("No events to display"). Reconcile an empty find against an
+    // authoritative count and re-find before accepting the empty. Mirrors the
+    // sibling guard in exceptionDocumentService.enrichSeriesMastersWithOverrides.
+    const rawEvents = await findWithColdEmptyRetry(
+      () => withCosmosRetry(
+        () => unifiedEventsCollection.find(query).project(EVENT_LIST_PROJECTION).toArray(),
+        { opName: 'getUnifiedEvents.find' }
+      ),
+      () => withCosmosRetry(
+        () => unifiedEventsCollection.countDocuments(query),
+        { opName: 'getUnifiedEvents.count' }
+      ),
+      {
+        // Budget spans ~3s of cold-partition warm-up (0.3+0.6+0.9+1.2s) and the
+        // loading overlay stays up during it. Tune here if prod warn logs show
+        // the retries being exhausted (count>0 but find still 0 at attempt 4/4).
+        maxRetries: 4,
+        delayMs: 300,
+        onColdEmpty: ({ attempt, count, maxRetries }) =>
+          logger.warn(
+            `[getUnifiedEvents] cold cross-partition false-empty: count=${count} but find=0, retry ${attempt}/${maxRetries} (calendarOwner=${calendarOwner})`
+          ),
+      }
+    );
+    const events = rawEvents
       .filter(event => {
         // Exclude incomplete drafts that can't be rendered on calendar (no dates)
         if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
