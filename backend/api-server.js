@@ -31,6 +31,8 @@ const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { batchDelete } = require('./utils/batchDelete');
+const { buildEventDateRangeOverlapFilter } = require('./utils/eventDateRangeFilter');
+const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
@@ -623,166 +625,62 @@ function isCosmosDBStuckMetadataError(error) {
  * Create indexes for the unified events collection for optimal performance
  */
 async function createUnifiedEventIndexes() {
+  // Index specs for templeEvents__Events, created RESILIENTLY (each spec independently)
+  // so that one rejected index can't silently abort the rest, and genuine failures are
+  // surfaced (logged + counted) rather than swallowed.
+  //
+  // COSMOS LEGALITY NOTE: this account rejects COMPOUND indexes on nested paths
+  // ("Unique and compound indexes do not support nested paths"). The compound-on-nested
+  // specs below (calendarData.* / graphData.id / sourceCalendars.* / roomReservationData.*)
+  // may be rejected by Cosmos and will then appear in the FAILED summary instead of
+  // skipping every later index. The durable fix is the calendarData->top-level field
+  // migration plus top-level compound indexes (which Cosmos accepts). The single-field
+  // nested indexes at the end ARE legal in Cosmos.
+  const specs = [
+    // Unique: prevent duplicate events (by internal eventId)
+    { key: { userId: 1, calendarId: 1, eventId: 1 }, options: { name: 'userId_calendarId_eventId_unique', unique: true, background: true } },
+    // Unique: prevent duplicate Graph events (by Graph's event ID)
+    { key: { userId: 1, 'graphData.id': 1 }, options: { name: 'userId_graphId_unique', unique: true, background: true } },
+    // Index A: conflict check hotpath (status + locations + date range overlap)
+    { key: { status: 1, 'calendarData.locations': 1, 'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1 }, options: { name: 'conflict_status_locations_dates', background: true } },
+    // ETag-based change detection
+    { key: { userId: 1, eventId: 1, etag: 1 }, options: { name: 'userId_eventId_etag', background: true } },
+    // Finding deleted events
+    { key: { userId: 1, isDeleted: 1 }, options: { name: 'userId_isDeleted', background: true, sparse: true } },
+    // Multi-calendar source tracking
+    { key: { userId: 1, 'sourceCalendars.calendarId': 1 }, options: { name: 'userId_sourceCalendars', background: true } },
+    // Index B: calendar view - covers getUnifiedEvents() query (calendarOwner + isDeleted + date range)
+    { key: { calendarOwner: 1, isDeleted: 1, 'calendarData.startDateTime': 1, 'calendarData.endDateTime': 1 }, options: { name: 'calendar_view_owner_dates', background: true } },
+    // Index C: series master lookup - covers recurring conflict query
+    { key: { status: 1, eventType: 1, 'calendarData.locations': 1 }, options: { name: 'conflict_series_masters', background: true } },
+    // Index D: requester email lookup - covers my-events view
+    { key: { 'roomReservationData.requestedBy.email': 1, status: 1 }, options: { name: 'requester_email_status', background: true } },
+    // Index E: exception document lookup - covers getExceptionsForMaster()/findExceptionForDate()
+    { key: { seriesMasterEventId: 1, eventType: 1, isDeleted: 1, occurrenceDate: 1 }, options: { name: 'exception_master_date', background: true } },
+    // Index F: exception/addition documents in date range (top-level dates) - covers calendar load query
+    { key: { calendarOwner: 1, eventType: 1, isDeleted: 1, startDateTime: 1, endDateTime: 1 }, options: { name: 'exception_type_dates', background: true } },
+    // LEGAL single-field nested date indexes. Cover the public Search view and the
+    // /api/events/list overlap date filter when the compound calendarData.* indexes
+    // above are unavailable in Cosmos. calData_startDateTime codifies the search-fix
+    // index previously applied out-of-band via ARM (so it survives an index rebuild);
+    // calData_endDateTime is its overlap companion (buildEventDateRangeOverlapFilter
+    // bounds endDateTime). Single-field nested paths ARE accepted by Cosmos.
+    { key: { 'calendarData.startDateTime': 1 }, options: { name: 'calData_startDateTime', background: true } },
+    { key: { 'calendarData.endDateTime': 1 }, options: { name: 'calData_endDateTime', background: true } },
+  ];
+
   try {
     logger.log('Creating unified event indexes...');
-    
-    // Unique index to prevent duplicate events (by internal eventId)
-    await unifiedEventsCollection.createIndex(
-      {
-        userId: 1,
-        calendarId: 1,
-        eventId: 1
-      },
-      {
-        name: "userId_calendarId_eventId_unique",
-        unique: true,
-        background: true
-      }
-    );
-
-    // Unique index to prevent duplicate Graph events (by Graph's event ID)
-    await unifiedEventsCollection.createIndex(
-      {
-        userId: 1,
-        'graphData.id': 1
-      },
-      {
-        name: "userId_graphId_unique",
-        unique: true,
-        background: true
-      }
-    );
-
-    // Index A: Conflict check hotpath — covers checkRoomConflicts() query
-    // (status + locations + date range overlap)
-    await unifiedEventsCollection.createIndex(
-      {
-        status: 1,
-        'calendarData.locations': 1,
-        'calendarData.startDateTime': 1,
-        'calendarData.endDateTime': 1
-      },
-      {
-        name: "conflict_status_locations_dates",
-        background: true
-      }
-    );
-    
-    // Index for ETag-based change detection
-    await unifiedEventsCollection.createIndex(
-      { 
-        userId: 1, 
-        eventId: 1, 
-        etag: 1 
-      },
-      { 
-        name: "userId_eventId_etag",
-        background: true 
-      }
-    );
-    
-    // Index for finding deleted events
-    await unifiedEventsCollection.createIndex(
-      { 
-        userId: 1, 
-        isDeleted: 1 
-      },
-      { 
-        name: "userId_isDeleted",
-        background: true,
-        sparse: true
-      }
-    );
-    
-    // Index for multi-calendar source tracking
-    await unifiedEventsCollection.createIndex(
-      {
-        userId: 1,
-        "sourceCalendars.calendarId": 1
-      },
-      {
-        name: "userId_sourceCalendars",
-        background: true
-      }
-    );
-
-    // Index B: Calendar view — covers getUnifiedEvents() query
-    // (calendarOwner + isDeleted + date range)
-    await unifiedEventsCollection.createIndex(
-      {
-        calendarOwner: 1,
-        isDeleted: 1,
-        'calendarData.startDateTime': 1,
-        'calendarData.endDateTime': 1
-      },
-      {
-        name: "calendar_view_owner_dates",
-        background: true
-      }
-    );
-
-    // Index C: Series master lookup — covers recurring conflict query
-    await unifiedEventsCollection.createIndex(
-      {
-        status: 1,
-        eventType: 1,
-        'calendarData.locations': 1
-      },
-      {
-        name: "conflict_series_masters",
-        background: true
-      }
-    );
-
-    // Index D: Requester email lookup — covers my-events view
-    await unifiedEventsCollection.createIndex(
-      {
-        'roomReservationData.requestedBy.email': 1,
-        status: 1
-      },
-      {
-        name: "requester_email_status",
-        background: true
-      }
-    );
-
-    // Index E: Exception document lookup — covers getExceptionsForMaster() and findExceptionForDate()
-    await unifiedEventsCollection.createIndex(
-      {
-        seriesMasterEventId: 1,
-        eventType: 1,
-        isDeleted: 1,
-        occurrenceDate: 1
-      },
-      {
-        name: "exception_master_date",
-        background: true
-      }
-    );
-
-    // Index F: Exception/addition documents in date range — covers calendar load query
-    await unifiedEventsCollection.createIndex(
-      {
-        calendarOwner: 1,
-        eventType: 1,
-        isDeleted: 1,
-        startDateTime: 1,
-        endDateTime: 1
-      },
-      {
-        name: "exception_type_dates",
-        background: true
-      }
-    );
-
-    logger.log('Unified event indexes created successfully');
+    const result = await createIndexesResilient(unifiedEventsCollection, specs, { logger });
+    logger.log(`Unified event indexes: ${result.created.length} created, ${result.skipped.length} already-present, ${result.failed.length} failed`);
+    if (result.failed.length) {
+      // Surface (do NOT swallow): a failed index means an uncovered query path in prod.
+      logger.error(`Unified event indexes FAILED: ${result.failed.map(f => `${f.name} [${f.code != null ? f.code : '?'}: ${f.message}]`).join('; ')}`);
+    }
   } catch (error) {
-    // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
-    // Code 67 = CannotCreateIndex - This is expected if indexes already exist or collection has data
-    // The indexes are already present from previous deployments, so this error is safe to suppress
-    if (error.code === 67 || error.codeName === 'CannotCreateIndex') {
-      logger.log('Unified event indexes already exist (expected behavior on Azure Cosmos DB)');
-    } else if (isCosmosDBStuckMetadataError(error)) {
+    // createIndexesResilient isolates per-index errors; this only catches catastrophic
+    // failures (e.g. collection handle unavailable, Cosmos metadata stuck).
+    if (isCosmosDBStuckMetadataError(error)) {
       logger.warn('Skipping unified event indexes - Cosmos DB metadata temporarily stuck (indexes likely already exist)');
     } else {
       logger.error('Error creating unified event indexes:', error);
@@ -7493,19 +7391,16 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     // ── Date range filter (applies to every view, including approval-queue / my-events) ──
-    // calendarData.startDateTime is stored as local-time ISO strings (e.g.,
-    // '2026-03-15T14:00:00'), so we compare with local-time boundaries rather
-    // than constructing Date objects (which would shift on non-UTC machines).
-    // Only the search view requires both bounds (enforced above); the other
-    // views treat dates as optional narrowing filters.
-    if (startDate) {
-      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-      query['calendarData.startDateTime'].$gte = `${startDate}T00:00:00`;
-    }
-    if (endDate) {
-      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-      query['calendarData.startDateTime'].$lte = `${endDate}T23:59:59`;
-    }
+    // OVERLAP semantics: startDateTime <= windowEnd AND endDateTime >= windowStart, so a
+    // multi-day / ongoing event that STARTED before the window but is still running inside
+    // it is returned (the previous filter constrained both bounds on startDateTime and
+    // silently dropped those events — see eventDateRangeFilter.test.js / searchView SV-12).
+    // calendarData.* are local-time ISO strings, so the shared builder compares with
+    // local-time boundaries (no Date objects → no host-timezone shift). Only the search
+    // view requires both bounds (enforced above); other views treat dates as optional.
+    // None of the view branches above set calendarData.start/endDateTime, so Object.assign
+    // is a safe merge here.
+    Object.assign(query, buildEventDateRangeOverlapFilter(startDate, endDate));
 
     // ── Search filter (admin-browse, approval-queue, and search) ──
     if (search) {

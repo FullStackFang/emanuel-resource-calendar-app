@@ -192,6 +192,34 @@ describe('Search View Tests (SV-1 to SV-11)', () => {
     expect(titles).not.toContain('January Event');
   });
 
+  // SV-12: overlap semantics — an event that STARTED before the window but is
+  // still ongoing inside it must be returned. The old start-only date filter
+  // dropped these multi-day/ongoing events (the missed-overlap bug).
+  it('SV-12: search returns a multi-day event that started before the window but is ongoing within it', async () => {
+    // Spanning event: starts 4 days BEFORE the window, ends 2 days INTO it.
+    const spanning = createPublishedEvent({ eventTitle: 'Multi-Day Festival' });
+    spanning.calendarData.startDateTime = '2026-05-28T18:00:00';
+    spanning.calendarData.endDateTime   = '2026-06-02T12:00:00';
+
+    // Control: entirely before the window — must NOT appear.
+    const before = createPublishedEvent({ eventTitle: 'Old Event' });
+    before.calendarData.startDateTime = '2026-05-20T10:00:00';
+    before.calendarData.endDateTime   = '2026-05-20T11:00:00';
+
+    await insertEvents(db, [spanning, before]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&startDate=${FIXED_START}&endDate=${FIXED_END}`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+
+    expect(res.status).toBe(200);
+    const titles = res.body.events.map(e =>
+      e.calendarData?.eventTitle || e.eventTitle
+    );
+    expect(titles).toContain('Multi-Day Festival'); // overlaps the window → included
+    expect(titles).not.toContain('Old Event');       // entirely before the window → excluded
+  });
+
   // SV-8: admin-browse remains admin-gated (regression check)
   it('SV-8: admin-browse still requires admin role', async () => {
     const viewerRes = await request(app)

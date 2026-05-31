@@ -142,18 +142,22 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // PDF libraries - loaded only when exporting
-          'pdf': ['jspdf', 'jspdf-autotable'],
-          // Rich text editor - loaded only when editing events
-          'editor': ['react-quill-new'],
-          // Authentication - needed early but can be separate chunk
+          // Authentication - needed at boot (MSAL inits before first render),
+          // separate chunk for stable long-term caching.
           'auth': ['@azure/msal-browser', '@azure/msal-react'],
-          // Core vendor libraries
+          // Core vendor libraries - eager, used app-wide.
           'vendor': ['react', 'react-dom', 'react-router-dom'],
-          // Date picker - loaded with calendar views
-          'datepicker': ['react-datepicker'],
-          // React Query - data fetching library
+          // React Query - data fetching library, eager (App-level provider).
           'query': ['@tanstack/react-query']
+          // NOTE: jspdf/jspdf-autotable (PDF export), react-quill-new (event
+          // rich-text editor), and react-datepicker (date popovers) are
+          // intentionally NOT listed here. They are imported only by lazy()
+          // components, but forcing them into named manualChunks caused Rollup
+          // to emit <link rel="modulepreload"> for them in index.html — eagerly
+          // downloading ~734KB on first paint despite the lazy boundaries.
+          // Omitting them lets Vite's automatic dynamic-import splitting keep
+          // them in on-demand async chunks. Verify after build: dist/index.html
+          // must NOT contain modulepreload links for pdf/editor/datepicker.
         }
       }
     }
