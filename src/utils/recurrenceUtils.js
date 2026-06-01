@@ -268,13 +268,20 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
   // Track generated dates to avoid duplicates with additions
   const generatedDates = new Set();
 
-  // Generate all pattern dates in range
+  // Generate all pattern dates in range.
+  // Parse the pattern anchor as LOCAL midnight (T00:00:00). A bare
+  // new Date(range.startDate) parses as UTC midnight, which in timezones west
+  // of UTC rolls back to the previous day — shifting the monthly/yearly
+  // day-of-month anchor (getDate) and dropping the start-date occurrence
+  // entirely for single-day ranges. Must match the local-midnight parse used
+  // for `current` and rangeStart above (and the backend's patternStart).
+  const patternStart = new Date(range.startDate + 'T00:00:00');
   const current = new Date(rangeStart);
   let count = 0;
   const maxOccurrences = range.type === 'numbered' ? range.numberOfOccurrences : Infinity;
 
   while (current <= rangeEnd && count < maxOccurrences) {
-    if (isDateInPattern(current, pattern, new Date(range.startDate))) {
+    if (isDateInPattern(current, pattern, patternStart)) {
       // Use local date components to avoid UTC conversion/timezone shifts
       const year = current.getFullYear();
       const month = String(current.getMonth() + 1).padStart(2, '0');

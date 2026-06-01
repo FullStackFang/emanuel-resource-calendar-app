@@ -438,3 +438,64 @@ describe('expandRecurringSeries', () => {
     expect(dates.length).toBe(7);
   });
 });
+
+// ─── expandRecurringSeries — single-day monthly range, ad-hoc additions ──────
+//
+// Regression for the TZ-sensitive day-of-month anchor bug. A "1-day recurring
+// event with ad-hoc dates" stores a monthly range where startDate === endDate
+// (the base occurrence) plus additions[] for the extra dates. The base
+// occurrence ON the range start date must render on the calendar.
+//
+// It was silently dropped in timezones WEST of UTC because the pattern loop
+// passed a BARE `new Date(range.startDate)` (UTC midnight) as the anchor to
+// isDateInPattern, while the loop cursor was parsed as LOCAL midnight. In ET,
+// new Date('2026-10-06') → Oct 5 20:00 → getDate() === 5, so the monthly
+// day-of-month check (cursor 6 === anchor 5) failed and the Oct 6 occurrence
+// vanished. The additions code path does NOT call isDateInPattern, so the
+// ad-hoc dates still showed — the classic "only the first occurrence is
+// missing" symptom.
+//
+// TZ-SENSITIVE: this only reproduces when the host TZ has a negative UTC
+// offset. Vitest cannot pin TZ at runtime (V8 caches it), so run this suite
+// with `TZ=America/New_York` to guarantee the regression is caught. The dev
+// machine and CI here both run in ET.
+describe('expandRecurringSeries — single-day monthly range with ad-hoc additions', () => {
+  const adhocMaster = {
+    eventId: 'draft_adhoc_master',
+    eventType: 'seriesMaster',
+    calendarData: {
+      startTime: '18:00',
+      endTime: '20:00',
+      startDateTime: '2026-10-06T18:00:00',
+      endDateTime: '2026-10-06T20:00:00',
+    },
+    recurrence: {
+      pattern: { type: 'monthly', interval: 1, firstDayOfWeek: 'sunday' },
+      range: { type: 'endDate', startDate: '2026-10-06', endDate: '2026-10-06' },
+      additions: ['2026-11-17', '2026-12-15'],
+      exclusions: [],
+    },
+  };
+
+  it('emits the base occurrence on the range start date (the first/only pattern date)', () => {
+    const occ = expandRecurringSeries(adhocMaster, '2026-10-01', '2026-10-31');
+    const dates = occ.map(o => o.start.dateTime.split('T')[0]);
+    expect(dates).toContain('2026-10-06');
+  });
+
+  it('emits the base occurrence with the master time-of-day', () => {
+    const occ = expandRecurringSeries(adhocMaster, '2026-10-01', '2026-10-31');
+    const base = occ.find(o => o.start.dateTime.startsWith('2026-10-06'));
+    expect(base).toBeDefined();
+    expect(base.start.dateTime).toContain('T18:00:');
+    expect(base.end.dateTime).toContain('T20:00:');
+  });
+
+  it('renders ad-hoc additions in their own window without leaking the base date', () => {
+    // November window: only the 11/17 addition belongs here; the 10/6 base does not.
+    const novOcc = expandRecurringSeries(adhocMaster, '2026-11-01', '2026-11-30');
+    const novDates = novOcc.map(o => o.start.dateTime.split('T')[0]);
+    expect(novDates).toContain('2026-11-17');
+    expect(novDates).not.toContain('2026-10-06');
+  });
+});
