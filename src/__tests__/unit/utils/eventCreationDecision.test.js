@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveCreationPlan } from '../../../utils/eventCreationDecision';
+import { resolveCreationPlan, collapseRecurringEndDate } from '../../../utils/eventCreationDecision';
 
 const WEEKLY_MON_FRI = {
   pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] },
@@ -85,5 +85,27 @@ describe('resolveCreationPlan', () => {
       expect(plan.hasRecurrence).toBe(false);
       expect(plan.isBatch).toBe(true);
     });
+  });
+});
+
+describe('collapseRecurringEndDate', () => {
+  it('returns the start date when recurrence is active and a stale multi-day range lingers', () => {
+    expect(collapseRecurringEndDate({ hasRecurrence: true, startDate: '2026-06-01', endDate: '2026-09-01' }))
+      .toBe('2026-06-01');
+  });
+
+  it('returns null (no change) when recurrence is off', () => {
+    expect(collapseRecurringEndDate({ hasRecurrence: false, startDate: '2026-06-01', endDate: '2026-09-01' }))
+      .toBeNull();
+  });
+
+  it('returns null when the end date already equals the start date', () => {
+    expect(collapseRecurringEndDate({ hasRecurrence: true, startDate: '2026-06-01', endDate: '2026-06-01' }))
+      .toBeNull();
+  });
+
+  it('returns null when there is no start date to collapse to', () => {
+    expect(collapseRecurringEndDate({ hasRecurrence: true, startDate: '', endDate: '2026-09-01' }))
+      .toBeNull();
   });
 });

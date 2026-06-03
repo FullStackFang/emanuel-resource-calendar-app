@@ -38,3 +38,19 @@ export function resolveCreationPlan(data = {}) {
     endDate: hasRecurrence ? data.startDate : data.endDate,
   };
 }
+
+/**
+ * Form-layer guard: when a recurrence becomes active, a recurring event spans a
+ * single day (the series anchor) — the recurrence range carries the span. A
+ * multi-day end date entered BEFORE recurrence was toggled on lingers in the
+ * (now-locked) date field and used to feed the per-day batch path. Collapse it.
+ *
+ * @param {{ hasRecurrence: boolean, startDate: string, endDate: string }} args
+ * @returns {string|null} The corrected endDate (= startDate), or null if no change is needed.
+ */
+export function collapseRecurringEndDate({ hasRecurrence, startDate, endDate } = {}) {
+  if (!hasRecurrence) return null;
+  if (!startDate) return null;
+  if (endDate === startDate) return null;
+  return startDate;
+}

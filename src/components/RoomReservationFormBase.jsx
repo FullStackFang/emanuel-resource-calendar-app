@@ -20,6 +20,7 @@ import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
 import { getSeriesMasterDisplayDates, getEventRecurrence } from '../utils/eventTransformers';
 import { getRecurrenceChangeBanner } from '../utils/editRequestUtils';
+import { collapseRecurringEndDate } from '../utils/eventCreationDecision';
 import {
   clampEventTimesToReservation,
   expandReservationToContainOperationalTimes,
@@ -1369,6 +1370,27 @@ export default function RoomReservationFormBase({
 
   // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
   const isRecurringDateLocked = !!recurrencePattern;
+
+  // The instant a recurrence becomes active, collapse a lingering multi-day end
+  // date down to the start date. A recurring event spans a single day (the series
+  // anchor); the recurrence range carries the span. Without this, a range the
+  // user entered BEFORE toggling recurrence on stays in the now-locked field and
+  // used to drive per-day batch creation ("38 events a day"). Belt-and-suspenders
+  // with resolveCreationPlan's submit-time collapse.
+  useEffect(() => {
+    const collapsed = collapseRecurringEndDate({
+      hasRecurrence: isRecurringDateLocked,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+    });
+    if (collapsed !== null) {
+      setFormData(prev => {
+        const updated = { ...prev, endDate: collapsed };
+        setTimeout(() => notifyDataChange(updated), 0);
+        return updated;
+      });
+    }
+  }, [isRecurringDateLocked, formData.startDate, formData.endDate, notifyDataChange]);
 
   // Occurrence view ('This Event' scope): dates are immutable per requirement D.
   // Users who want to move a recurring event to a different day should click the
