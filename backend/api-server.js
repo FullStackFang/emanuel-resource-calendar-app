@@ -19,7 +19,7 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remapToCalendarData } = require('./utils/eventFieldBuilder');
 const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, ROLE_HIERARCHY } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
@@ -448,6 +448,7 @@ let departmentsCollection; // Departments for user assignment and reservation fo
 let roleTypesCollection; // Organizational role types (rabbi, cantor, etc.)
 let eventAuditHistoryCollection; // Audit trail for event changes
 let reservationAuditHistoryCollection; // Audit trail for room reservation changes
+let userAuditHistoryCollection; // Audit trail for user-account changes (create/update/delete)
 let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
@@ -472,6 +473,7 @@ function setDatabase(injectedDb) {
   roleTypesCollection = injectedDb.collection('templeEvents__RoleTypes');
   eventAuditHistoryCollection = injectedDb.collection('templeEvents__EventAuditHistory');
   reservationAuditHistoryCollection = injectedDb.collection('templeEvents__ReservationAuditHistory');
+  userAuditHistoryCollection = injectedDb.collection('templeEvents__UserAuditHistory');
   eventAttachmentsCollection = injectedDb.collection('templeEvents__EventAttachments');
   reservationAttachmentsCollection = injectedDb.collection('templeEvents__ReservationAttachments');
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
@@ -1140,6 +1142,38 @@ async function createReservationAuditHistoryIndexes() {
     logger.log('Reservation audit history indexes created successfully');
   } catch (error) {
     logger.error('Error creating reservation audit history indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the user audit history collection.
+ * Records create/update/delete of user accounts (who acted on whom).
+ */
+async function createUserAuditHistoryIndexes() {
+  try {
+    logger.log('Creating user audit history indexes...');
+
+    // Index for finding audit history by target user
+    await userAuditHistoryCollection.createIndex(
+      { targetUserId: 1, timestamp: -1 },
+      { name: "user_management_audit_history", background: true }
+    );
+
+    // Index for finding actions performed by a given caller
+    await userAuditHistoryCollection.createIndex(
+      { callerEmail: 1, timestamp: -1 },
+      { name: "user_management_caller_history", background: true }
+    );
+
+    // Index for finding recent changes
+    await userAuditHistoryCollection.createIndex(
+      { timestamp: -1 },
+      { name: "recent_user_management_changes", background: true }
+    );
+
+    logger.log('User audit history indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating user audit history indexes:', error);
   }
 }
 
@@ -3238,6 +3272,7 @@ async function connectToDatabase() {
     roleTypesCollection = withRetryCollection(db.collection('templeEvents__RoleTypes'));
     eventAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__EventAuditHistory'));
     reservationAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__ReservationAuditHistory'));
+    userAuditHistoryCollection = withRetryCollection(db.collection('templeEvents__UserAuditHistory'));
 
     // Initialize GridFS bucket for file storage (NOT wrapped — uses streams, not standard collection methods)
     filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
@@ -3268,6 +3303,7 @@ async function connectToDatabase() {
       createCalendarDeltaIndexes(),
       createUserIndexes(),
       createEventAuditHistoryIndexes(),
+      createUserAuditHistoryIndexes(),
       createEventAttachmentsIndexes(),
       // Room reservation system indexes
       createLocationIndexes(),
@@ -14320,18 +14356,54 @@ app.patch('/api/users/current/notification-preferences', verifyToken, async (req
   }
 });
 
-// Get all users - ADMIN ONLY
+// Fields returned by the user-management read endpoints. Deliberately excludes
+// raw legacy permission internals (isAdmin, permissions.*), odataId, and the JWT
+// OID (userId) so the list cannot leak identity/escalation internals to approvers.
+// `effectiveRole` is computed server-side so legacy-field users are classified
+// authoritatively — the frontend uses it to lock un-manageable (approver/admin)
+// rows for non-admin callers.
+const USER_READ_FIELDS = [
+  '_id', 'email', 'displayName', 'role', 'department', 'departmentEditableFields',
+  'roleType', 'title', 'preferences', 'notificationPreferences',
+  'createdAt', 'updatedAt', 'lastLogin'
+];
+function toUserReadModel(user) {
+  if (!user) return user;
+  const safe = {};
+  for (const f of USER_READ_FIELDS) {
+    if (user[f] !== undefined) safe[f] = user[f];
+  }
+  safe.effectiveRole = getEffectiveRole(user);
+  return safe;
+}
+
+// Identify whether a target user document IS the calling user (by OID or email).
+// Used to enforce the self-protection guard (no self-delete / self-demote).
+function isSelfTarget(target, reqUser) {
+  if (!target || !reqUser) return false;
+  if (target.userId && reqUser.userId && String(target.userId) === String(reqUser.userId)) {
+    return true;
+  }
+  if (target.email && reqUser.email &&
+      target.email.toLowerCase() === reqUser.email.toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+// List users - requires canManageUsers (approver or admin). Approvers see all
+// users (privileged rows are locked client-side); the cap on mutations is
+// enforced per-write below.
 app.get('/api/users', verifyToken, async (req, res) => {
   try {
-    // Verify caller is admin — this endpoint returns all user PII
     const callerEmail = req.user.email;
-    const caller = await usersCollection.findOne({ email: callerEmail });
-    if (!isAdmin(caller, callerEmail)) {
-      return res.status(403).json({ error: 'Admin access required' });
+    const caller = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(caller, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required' });
     }
 
     const users = await usersCollection.find({}).toArray();
-    res.status(200).json(users);
+    res.status(200).json(users.map(toUserReadModel));
   } catch (error) {
     logger.error('Error getting users:', error);
     res.status(500).json({ error: 'Failed to retrieve users' });
@@ -14357,56 +14429,81 @@ app.get('/api/users/clergy', verifyToken, async (req, res) => {
   }
 });
 
-// Get a specific user - ADMIN ONLY
+// Get a specific user - requires canManageUsers (approver or admin)
 app.get('/api/users/:id', verifyToken, async (req, res) => {
   try {
     const callerEmail = req.user.email;
-    const caller = await usersCollection.findOne({ email: callerEmail });
-    if (!isAdmin(caller, callerEmail)) {
-      return res.status(403).json({ error: 'Admin access required' });
+    const caller = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(caller, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required' });
     }
 
     const id = req.params.id;
     const user = await usersCollection.findOne({ _id: new ObjectId(id) });
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
-    res.status(200).json(user);
+
+    res.status(200).json(toUserReadModel(user));
   } catch (error) {
     logger.error('Error getting user:', error);
     res.status(500).json({ error: 'Failed to retrieve user' });
   }
 });
 
-// Get user by email - NOW PROTECTED
+// Get user by email - requires canManageUsers (approver or admin). Returns the
+// hardened read model (no JWT OID / isAdmin / permissions.*) so the endpoint
+// cannot leak identity/escalation internals — parity with GET /api/users and
+// GET /api/users/:id, which this endpoint previously diverged from.
 app.get('/api/users/email/:email', verifyToken, async (req, res) => {
   try {
+    const callerEmail = req.user.email;
+    const caller = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(caller, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required' });
+    }
+
     const email = req.params.email;
     const user = await usersCollection.findOne(emailQuery(email));
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
-    res.status(200).json(user);
+
+    res.status(200).json(toUserReadModel(user));
   } catch (error) {
     logger.error('Error getting user by email:', error);
     res.status(500).json({ error: 'Failed to retrieve user' });
   }
 });
 
-// Create a new user - ADMIN ONLY
+// Create a new user - requires canManageUsers; approvers capped to viewer/requester
 app.post('/api/users', verifyToken, async (req, res) => {
   try {
-    // Check admin permission
-    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
-    if (!isAdmin(requestingUser, req.user.email)) {
-      return res.status(403).json({ error: 'Admin access required to create users' });
+    const callerEmail = req.user.email;
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(requestingUser, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required to create users' });
     }
 
-    const userData = req.body;
+    // Cap uses the caller's REAL effective role (getEffectiveRole), never the
+    // simulated role — an admin simulating an approver must not be restricted here.
+    const callerRole = getEffectiveRole(requestingUser);
+
+    // Allowlist the write so legacy escalation fields (isAdmin, permissions.*,
+    // userId spoofing) can never be persisted, regardless of caller role.
+    const userData = sanitizeUserWrite(req.body);
+    if (!userData.email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+    const requestedRole = userData.role || 'viewer';
+    userData.role = requestedRole;
+
+    const verdict = assertUserManagementAllowed({ callerRole, requestedRole });
+    if (!verdict.allowed) {
+      return res.status(403).json({ error: verdict.reason, code: verdict.code });
+    }
 
     // Check if user with this email already exists (case-insensitive)
     const existingUser = await usersCollection.findOne(emailQuery(userData.email));
@@ -14414,72 +14511,148 @@ app.post('/api/users', verifyToken, async (req, res) => {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
 
-    // Add timestamps
     userData.createdAt = new Date();
     userData.updatedAt = new Date();
+    userData.createdBy = callerEmail;
 
     const result = await usersCollection.insertOne(userData);
-
-    // Return the created user with the generated ID
     const createdUser = await usersCollection.findOne({ _id: result.insertedId });
-    res.status(201).json(createdUser);
+
+    auditService.recordUserManagement({
+      targetUserId: result.insertedId,
+      targetEmail: userData.email,
+      callerEmail,
+      callerRole,
+      changeType: 'create',
+      newRole: requestedRole,
+    });
+
+    res.status(201).json(toUserReadModel(createdUser));
   } catch (error) {
     logger.error('Error creating user:', error);
     res.status(500).json({ error: 'Failed to create user' });
   }
 });
 
-// Update a user - ADMIN ONLY
+// Update a user - requires canManageUsers; approvers capped to viewer/requester
 app.put('/api/users/:id', verifyToken, async (req, res) => {
   try {
-    // Check admin permission
-    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
-    if (!isAdmin(requestingUser, req.user.email)) {
-      return res.status(403).json({ error: 'Admin access required to update users' });
+    const callerEmail = req.user.email;
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(requestingUser, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required to update users' });
     }
+    // Cap uses the caller's REAL effective role, never the simulated role.
+    const callerRole = getEffectiveRole(requestingUser);
 
     const id = req.params.id;
-    const updates = req.body;
+    const target = await usersCollection.findOne({ _id: new ObjectId(id) });
+    if (!target) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    // Classify the target by EFFECTIVE role so legacy admins (no role field,
+    // isAdmin:true) are correctly protected from approver action.
+    const targetCurrentRole = getEffectiveRole(target);
 
-    // Update the timestamp
+    const updates = sanitizeUserWrite(req.body);
+    const requestedRole = updates.role; // undefined for non-role edits
+
+    const verdict = assertUserManagementAllowed({ callerRole, targetCurrentRole, requestedRole });
+    if (!verdict.allowed) {
+      return res.status(403).json({ error: verdict.reason, code: verdict.code });
+    }
+
+    // Self-protection: a caller may not lower their own role (defense-in-depth;
+    // the cap already blocks approver-on-approver, this also protects admins).
+    if (isSelfTarget(target, req.user) && requestedRole &&
+        (ROLE_HIERARCHY[requestedRole] ?? 0) < (ROLE_HIERARCHY[targetCurrentRole] ?? 0)) {
+      return res.status(403).json({ error: 'You cannot lower your own role', code: 'USER_MANAGEMENT_FORBIDDEN' });
+    }
+
+    // Email uniqueness: if the email is being changed, ensure no OTHER user
+    // already owns it (parity with POST). Prevents duplicate-email records that
+    // corrupt identity resolution (findUserByIdentity / cache lookups).
+    if (updates.email &&
+        updates.email.toLowerCase() !== (target.email || '').toLowerCase()) {
+      const dup = await usersCollection.findOne(emailQuery(updates.email));
+      if (dup && String(dup._id) !== String(target._id)) {
+        return res.status(409).json({ error: 'User with this email already exists' });
+      }
+    }
+
     updates.updatedAt = new Date();
 
     const result = await usersCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updates }
     );
-
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: new ObjectId(id) });
+    // Targeted invalidation. NOTE: the per-user cache has a ~5-min TTL, so a role
+    // change may take up to that long to take effect for already-cached requests.
     invalidateUserCache(updatedUser?.userId);
-    res.status(200).json(updatedUser);
+
+    auditService.recordUserManagement({
+      targetUserId: id,
+      targetEmail: target.email,
+      callerEmail,
+      callerRole,
+      changeType: 'update',
+      oldRole: targetCurrentRole,
+      newRole: requestedRole || targetCurrentRole,
+    });
+
+    res.status(200).json(toUserReadModel(updatedUser));
   } catch (error) {
     logger.error('Error updating user:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
-// Delete a user - ADMIN ONLY
+// Delete a user - requires canManageUsers; approvers capped to viewer/requester
 app.delete('/api/users/:id', verifyToken, async (req, res) => {
   try {
-    // Check admin permission
-    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
-    if (!isAdmin(requestingUser, req.user.email)) {
-      return res.status(403).json({ error: 'Admin access required to delete users' });
+    const callerEmail = req.user.email;
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, callerEmail);
+    if (!canManageUsers(requestingUser, callerEmail)) {
+      return res.status(403).json({ error: 'User management access required to delete users' });
     }
+    // Cap uses the caller's REAL effective role, never the simulated role.
+    const callerRole = getEffectiveRole(requestingUser);
 
     const id = req.params.id;
-    const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
-
-    if (result.deletedCount === 0) {
+    const target = await usersCollection.findOne({ _id: new ObjectId(id) });
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
+    const targetCurrentRole = getEffectiveRole(target);
 
-    invalidateUserCache(); // Clear all — don't have deleted user's userId
+    // Self-protection: a caller may never delete their own account.
+    if (isSelfTarget(target, req.user)) {
+      return res.status(403).json({ error: 'You cannot delete your own account', code: 'USER_MANAGEMENT_FORBIDDEN' });
+    }
+
+    const verdict = assertUserManagementAllowed({ callerRole, targetCurrentRole });
+    if (!verdict.allowed) {
+      return res.status(403).json({ error: verdict.reason, code: verdict.code });
+    }
+
+    await usersCollection.deleteOne({ _id: new ObjectId(id) });
+    // We loaded the target first, so we can invalidate precisely by its OID.
+    invalidateUserCache(target.userId);
+
+    auditService.recordUserManagement({
+      targetUserId: id,
+      targetEmail: target.email,
+      callerEmail,
+      callerRole,
+      changeType: 'delete',
+      oldRole: targetCurrentRole,
+    });
+
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
     logger.error('Error deleting user:', error);

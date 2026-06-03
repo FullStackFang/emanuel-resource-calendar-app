@@ -107,7 +107,50 @@ function buildReservationAuditEntry({
   return entry;
 }
 
+/**
+ * Build a user-management audit entry (create / update / delete of a user).
+ * Captures who acted, on whom, and the role transition where applicable.
+ * Returns a plain object ready for insertOne().
+ */
+function buildUserManagementAuditEntry({
+  targetUserId,
+  targetEmail,
+  callerEmail,
+  callerRole,
+  changeType,
+  oldRole = null,
+  newRole = null,
+  source = 'API',
+  changes = null,
+  metadata = {},
+}) {
+  const entry = {
+    targetUserId: targetUserId != null ? String(targetUserId) : null,
+    targetEmail: targetEmail || null,
+    callerEmail: callerEmail || null,
+    callerRole: callerRole || null,
+    changeType,
+    oldRole,
+    newRole,
+    source,
+    timestamp: new Date(),
+    metadata: {
+      userAgent: 'API',
+      ipAddress: 'Unknown',
+      reason: null,
+      ...metadata,
+    },
+  };
+
+  if (changes) {
+    entry.changes = changes;
+  }
+
+  return entry;
+}
+
 module.exports = {
   buildEventAuditEntry,
   buildReservationAuditEntry,
+  buildUserManagementAuditEntry,
 };

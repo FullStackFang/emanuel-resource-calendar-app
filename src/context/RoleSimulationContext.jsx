@@ -29,6 +29,7 @@ export const ROLE_TEMPLATES = {
       canApproveReservations: false,
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
+      canManageUsers: false,
       isAdmin: false
     }
   },
@@ -44,6 +45,7 @@ export const ROLE_TEMPLATES = {
       canApproveReservations: false,
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
+      canManageUsers: false,
       isAdmin: false
     }
   },
@@ -59,6 +61,8 @@ export const ROLE_TEMPLATES = {
       canApproveReservations: true,
       canViewAllReservations: true,
       canGenerateReservationTokens: true,
+      // Approvers may manage users, capped to viewer/requester (see userManagementPolicy.js)
+      canManageUsers: true,
       isAdmin: false
     }
   },
@@ -74,6 +78,7 @@ export const ROLE_TEMPLATES = {
       canApproveReservations: true,
       canViewAllReservations: true,
       canGenerateReservationTokens: true,
+      canManageUsers: true,
       isAdmin: true
     }
   }
@@ -236,6 +241,10 @@ export function RoleSimulationProvider({ children }) {
         canApproveReservations: actualPermissions.canApproveReservations ?? false,
         canViewAllReservations: actualPermissions.canViewAllReservations ?? false,
         canGenerateReservationTokens: actualPermissions.canGenerateReservationTokens ?? false,
+        // MUST mirror the simulated branch (ROLE_TEMPLATES) and the backend
+        // ROLE_PERMISSIONS. Omitting this dropped User Management from the nav
+        // for every real (non-simulated) admin/approver session.
+        canManageUsers: actualPermissions.canManageUsers ?? false,
         isAdmin: actualPermissions.isAdmin ?? false
       };
     }

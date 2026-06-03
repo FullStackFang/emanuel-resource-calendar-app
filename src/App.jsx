@@ -91,6 +91,15 @@ const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
 const RschedImport = lazy(() => import('./components/RschedImport'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
+// Guards /admin/users — reachable by anyone with canManageUsers (approver + admin).
+// The backend is authoritative; this is a UX redirect so a viewer/requester who
+// types the URL lands back on the calendar instead of an empty, 403-ing page.
+function RequireUserManagement({ children }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.canManageUsers) return <Navigate to="/" replace />;
+  return children;
+}
+
 // Admin-only wrapper — uses effectivePermissions so role simulation also hides the chat
 function AIChatSection({ showAIChat, onClose, onOpen, apiToken }) {
   const { effectivePermissions } = useRoleSimulation();
@@ -330,7 +339,7 @@ function App() {
                   } />
                   <Route path="/settings" element={<Navigate to="/my-settings" replace />} />
                   <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
-                  <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
+                  <Route path="/admin/users" element={<RequireUserManagement><UserAdmin apiToken={apiToken} /></RequireUserManagement>} />
                   <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
                   <Route path="/admin/departments" element={<DepartmentManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />

@@ -14,7 +14,7 @@
  * ADMIN_DOMAIN is still exported for use by the migration script.
  */
 
-const { hasRole, getPermissions, getEffectiveRole, resolveEffectiveRole, getDepartmentEditableFields, canEditField, DEPARTMENT_EDITABLE_FIELDS, ROLE_HIERARCHY, VALID_ROLES, DEFAULT_ADMIN_DOMAIN } = require('./permissionUtils');
+const { hasRole, getPermissions, getEffectiveRole, resolveEffectiveRole, getDepartmentEditableFields, canEditField, sanitizeUserWrite, assertUserManagementAllowed, DEPARTMENT_EDITABLE_FIELDS, ROLE_HIERARCHY, VALID_ROLES, DEFAULT_ADMIN_DOMAIN } = require('./permissionUtils');
 
 // Export ADMIN_DOMAIN for backward compatibility
 const ADMIN_DOMAIN = process.env.ADMIN_DOMAIN || DEFAULT_ADMIN_DOMAIN;
@@ -70,6 +70,21 @@ function canSubmitReservation(user, userEmail) {
 }
 
 /**
+ * Check if a user may manage other users (approver level or higher).
+ *
+ * This is the ENTRY gate for the user-management endpoints. The role CAP that
+ * constrains approvers to viewer/requester targets is enforced separately by
+ * assertUserManagementAllowed().
+ *
+ * @param {Object} user - User object from database (can be null)
+ * @param {string} userEmail - User's email address
+ * @returns {boolean} True if user may access user management
+ */
+function canManageUsers(user, userEmail) {
+  return hasRole(user, userEmail, 'approver');
+}
+
+/**
  * Determine whether a user may access (view or manage) an event's attachments.
  *
  * Access is granted to:
@@ -117,11 +132,14 @@ module.exports = {
   canGenerateReservationTokens,
   canApproveReservations,
   canSubmitReservation,
+  canManageUsers,
   canAccessEventAttachments,
   hasRole,
   getPermissions,
   getEffectiveRole,
   resolveEffectiveRole,
+  sanitizeUserWrite,
+  assertUserManagementAllowed,
   getDepartmentEditableFields,
   canEditField,
   DEPARTMENT_EDITABLE_FIELDS,

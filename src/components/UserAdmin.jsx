@@ -5,6 +5,8 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import useDepartments from '../hooks/useDepartments';
 import useRoleTypes from '../hooks/useRoleTypes';
+import { usePermissions } from '../hooks/usePermissions';
+import { getAssignableRoles, canManageTarget } from '../utils/userManagementPolicy';
 import { logger } from '../utils/logger';
 import './UserAdmin.css';
 
@@ -20,12 +22,16 @@ const ROLES = {
 
 // DEPARTMENTS is now loaded dynamically from the database via useDepartments hook
 
-// Derive role from legacy fields for backward compatibility
+// Classify a user's effective role. Prefer the server-computed effectiveRole
+// (sent by GET /api/users), falling back to the same legacy chain the backend
+// getEffectiveRole() uses. NOTE: the dead preferences.* legacy checks were
+// dropped to match the backend (preferences.isAdmin / preferences.createEvents
+// are documented dead code and were never honored server-side).
 const deriveRole = (user) => {
+  if (user.effectiveRole) return user.effectiveRole;
   if (user.role) return user.role;
-  if (user.isAdmin === true || user.preferences?.isAdmin === true) return 'admin';
+  if (user.isAdmin === true) return 'admin';
   if (user.permissions?.canViewAllReservations === true) return 'approver';
-  if (user.preferences?.createEvents === true || user.preferences?.editEvents === true) return 'requester';
   return 'viewer';
 };
 
@@ -43,6 +49,16 @@ export default function UserAdmin({ apiToken }) {
   const { accounts } = useMsal();
   const { departments: departmentsList } = useDepartments();
   const { roleTypes: roleTypesList } = useRoleTypes();
+
+  // Caller's effective role drives the role cap: approvers may only assign/manage
+  // up to requester. The backend is authoritative; this only shapes the UI so the
+  // user never sees an action the server would reject.
+  const { role: callerRole } = usePermissions();
+  const assignableRoles = useMemo(() => getAssignableRoles(callerRole), [callerRole]);
+  const roleOptionEntries = useMemo(
+    () => Object.entries(ROLES).filter(([key]) => assignableRoles.includes(key)),
+    [assignableRoles]
+  );
 
   // Build a lookup map keyed by department key for easy access
   const DEPARTMENTS = useMemo(() => {
@@ -208,7 +224,14 @@ export default function UserAdmin({ apiToken }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Error updating user: ${response.statusText}`);
+        let errorMessage = 'Error updating user';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || `${errorMessage}: ${response.statusText}`;
+        } catch {
+          errorMessage = `${errorMessage}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const updatedUser = await response.json();
@@ -225,7 +248,7 @@ export default function UserAdmin({ apiToken }) {
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       logger.error('Error updating user:', err);
-      setError('Failed to update user. Please try again.');
+      setError(`Failed to update user: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -445,11 +468,16 @@ export default function UserAdmin({ apiToken }) {
           {users.map((user) => {
             const isCurrentUser = user.email === currentUserEmail;
             const isEditing = editingRows[user._id];
+            // Lock rows the caller may not manage (e.g. approver viewing an
+            // approver/admin row). Backend enforces this too; this just hides
+            // controls that would 403.
+            const targetRole = deriveRole(user);
+            const canManageThis = canManageTarget(callerRole, targetRole);
 
             return (
               <div
                 key={user._id}
-                className={`user-card ${isCurrentUser ? 'current-user' : ''} ${isEditing ? 'editing' : ''}`}
+                className={`user-card ${isCurrentUser ? 'current-user' : ''} ${isEditing ? 'editing' : ''} ${!canManageThis ? 'locked' : ''}`}
               >
                 <div className="user-card-header">
                   <div className="user-avatar">
@@ -533,7 +561,7 @@ export default function UserAdmin({ apiToken }) {
                         onChange={(e) => handleInputChange(user._id, 'role', e.target.value)}
                         className="role-select"
                       >
-                        {Object.entries(ROLES).map(([key, { name, description }]) => (
+                        {roleOptionEntries.map(([key, { name, description }]) => (
                           <option key={key} value={key} title={description}>
                             {name}
                           </option>
@@ -642,7 +670,15 @@ export default function UserAdmin({ apiToken }) {
                 </div>
 
                 <div className="user-card-actions">
-                  {isEditing ? (
+                  {!canManageThis ? (
+                    <span className="user-locked-note" title="Only an administrator can manage this user">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      Admin only
+                    </span>
+                  ) : isEditing ? (
                     <>
                       <button className="save-btn" onClick={() => saveChanges(user._id)}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -800,7 +836,7 @@ export default function UserAdmin({ apiToken }) {
                     onChange={(e) => handleNewUserInputChange('role', e.target.value)}
                     className="role-select-modal"
                   >
-                    {Object.entries(ROLES).map(([key, { name }]) => (
+                    {roleOptionEntries.map(([key, { name }]) => (
                       <option key={key} value={key}>{name}</option>
                     ))}
                   </select>

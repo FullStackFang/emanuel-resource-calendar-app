@@ -12,6 +12,8 @@ const {
   isValidRole,
   getDepartmentEditableFields,
   canEditField,
+  sanitizeUserWrite,
+  assertUserManagementAllowed,
 } = require('../../../utils/permissionUtils');
 
 describe('permissionUtils', () => {
@@ -264,6 +266,129 @@ describe('permissionUtils', () => {
     it('should deny viewers from editing any field', () => {
       expect(canEditField(null, 'user@external.com', 'doorOpenTime')).toBe(false);
       expect(canEditField({}, 'user@external.com', 'setupTime')).toBe(false);
+    });
+  });
+
+  describe('canManageUsers flag (drift guard vs frontend ROLE_TEMPLATES)', () => {
+    it('grants canManageUsers to approver and admin only', () => {
+      expect(getPermissions({ role: 'viewer' }).canManageUsers).toBe(false);
+      expect(getPermissions({ role: 'requester' }).canManageUsers).toBe(false);
+      expect(getPermissions({ role: 'approver' }).canManageUsers).toBe(true);
+      expect(getPermissions({ role: 'admin' }).canManageUsers).toBe(true);
+    });
+
+    it('exposes canManageUsers on the raw ROLE_PERMISSIONS map', () => {
+      expect(ROLE_PERMISSIONS.approver.canManageUsers).toBe(true);
+      expect(ROLE_PERMISSIONS.admin.canManageUsers).toBe(true);
+      expect(ROLE_PERMISSIONS.requester.canManageUsers).toBe(false);
+      expect(ROLE_PERMISSIONS.viewer.canManageUsers).toBe(false);
+    });
+  });
+
+  describe('sanitizeUserWrite', () => {
+    it('keeps allowlisted fields', () => {
+      const clean = sanitizeUserWrite({
+        displayName: 'Jane',
+        email: 'jane@x.org',
+        role: 'requester',
+        department: 'security',
+        roleType: 'rabbi',
+        title: 'Rabbi',
+        notificationPreferences: { email: true },
+      });
+      expect(clean).toEqual({
+        displayName: 'Jane',
+        email: 'jane@x.org',
+        role: 'requester',
+        department: 'security',
+        roleType: 'rabbi',
+        title: 'Rabbi',
+        notificationPreferences: { email: true },
+      });
+    });
+
+    it('strips legacy escalation fields (isAdmin, permissions)', () => {
+      const clean = sanitizeUserWrite({
+        role: 'requester',
+        isAdmin: true,
+        permissions: { canViewAllReservations: true, canGenerateReservationTokens: true },
+      });
+      expect(clean).toEqual({ role: 'requester' });
+      expect(clean.isAdmin).toBeUndefined();
+      expect(clean.permissions).toBeUndefined();
+    });
+
+    it('strips unknown fields', () => {
+      const clean = sanitizeUserWrite({ role: 'viewer', _id: 'x', userId: 'oid', createdBy: 'hacker' });
+      expect(clean).toEqual({ role: 'viewer' });
+    });
+
+    it('reduces preferences to known keys and drops nested escalation', () => {
+      const clean = sanitizeUserWrite({
+        preferences: {
+          startOfWeek: 'Monday',
+          defaultView: 'week',
+          isAdmin: true,
+          createEvents: true,
+        },
+      });
+      expect(clean.preferences).toEqual({ startOfWeek: 'Monday', defaultView: 'week' });
+      expect(clean.preferences.isAdmin).toBeUndefined();
+      expect(clean.preferences.createEvents).toBeUndefined();
+    });
+
+    it('returns an empty object for null / non-object input', () => {
+      expect(sanitizeUserWrite(null)).toEqual({});
+      expect(sanitizeUserWrite(undefined)).toEqual({});
+      expect(sanitizeUserWrite('nope')).toEqual({});
+    });
+  });
+
+  describe('assertUserManagementAllowed', () => {
+    it('denies callers without a cap entry (viewer/requester)', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'viewer', requestedRole: 'viewer' }).allowed).toBe(false);
+      const res = assertUserManagementAllowed({ callerRole: 'requester', requestedRole: 'viewer' });
+      expect(res.allowed).toBe(false);
+      expect(res.code).toBe('USER_MANAGEMENT_FORBIDDEN');
+    });
+
+    it('lets an approver create/assign within the cap (viewer/requester)', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'approver', requestedRole: 'viewer' }).allowed).toBe(true);
+      expect(assertUserManagementAllowed({ callerRole: 'approver', requestedRole: 'requester' }).allowed).toBe(true);
+    });
+
+    it('blocks an approver from assigning above the cap (approver/admin)', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'approver', requestedRole: 'approver' }).allowed).toBe(false);
+      expect(assertUserManagementAllowed({ callerRole: 'approver', requestedRole: 'admin' }).allowed).toBe(false);
+    });
+
+    it('blocks an approver from acting on a privileged target', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'approver' }).allowed).toBe(false);
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'admin' }).allowed).toBe(false);
+    });
+
+    it('lets an approver act on a viewer/requester target', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'viewer' }).allowed).toBe(true);
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'requester' }).allowed).toBe(true);
+    });
+
+    it('enforces the cap on BOTH target-current and requested role', () => {
+      // viewer target, but requesting an over-cap role -> denied
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'viewer', requestedRole: 'approver' }).allowed).toBe(false);
+      // within cap on both -> allowed
+      expect(assertUserManagementAllowed({ callerRole: 'approver', targetCurrentRole: 'requester', requestedRole: 'viewer' }).allowed).toBe(true);
+    });
+
+    it('rejects an invalid requested role', () => {
+      const res = assertUserManagementAllowed({ callerRole: 'approver', requestedRole: 'superuser' });
+      expect(res.allowed).toBe(false);
+      expect(res.code).toBe('USER_MANAGEMENT_FORBIDDEN');
+    });
+
+    it('lets an admin assign and act on any role', () => {
+      expect(assertUserManagementAllowed({ callerRole: 'admin', requestedRole: 'admin' }).allowed).toBe(true);
+      expect(assertUserManagementAllowed({ callerRole: 'admin', targetCurrentRole: 'admin' }).allowed).toBe(true);
+      expect(assertUserManagementAllowed({ callerRole: 'admin', targetCurrentRole: 'admin', requestedRole: 'viewer' }).allowed).toBe(true);
     });
   });
 

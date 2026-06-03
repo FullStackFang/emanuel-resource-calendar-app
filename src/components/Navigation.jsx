@@ -13,6 +13,7 @@ export default function Navigation() {
   const {
     canSubmitReservation,
     canApproveReservations,
+    canManageUsers,
     isAdmin
   } = usePermissions();
   const { apiToken } = useAuth();
@@ -150,7 +151,20 @@ export default function Navigation() {
           </li>
         )}
 
-        {/* Admin dropdown - only visible for Admin role */}
+        {/* User Management - top-level for Approvers (who can manage users,
+            capped to viewer/requester, but are not admins). Surfaced directly
+            rather than buried under "Admin" since it's the only admin-area tool
+            they can use. Admins reach it inside the Admin dropdown below. */}
+        {canManageUsers && !isAdmin && (
+          <li>
+            <NavLink to="/admin/users" className={({ isActive }) => isActive ? 'active' : ''}>
+              User Management
+            </NavLink>
+          </li>
+        )}
+
+        {/* Admin dropdown - Admins only. Holds all admin tools, including the
+            (constrained) User Management entry. */}
         {isAdmin && (
           <li className="has-dropdown" ref={dropdownRef}>
             <div
@@ -162,15 +176,17 @@ export default function Navigation() {
             </div>
             {adminExpanded && (
               <ul className="dropdown-menu">
-                <li>
-                  <NavLink
-                    to="/admin/users"
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    User Management
-                  </NavLink>
-                </li>
+                {canManageUsers && (
+                  <li>
+                    <NavLink
+                      to="/admin/users"
+                      className={({ isActive }) => isActive ? 'active' : ''}
+                      onClick={handleDropdownLinkClick}
+                    >
+                      User Management
+                    </NavLink>
+                  </li>
+                )}
                 <li>
                   <NavLink
                     to="/admin/locations"

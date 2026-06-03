@@ -50,6 +50,7 @@ const ROLE_PERMISSIONS = {
     canApproveReservations: false,
     canViewAllReservations: false,
     canGenerateReservationTokens: false,
+    canManageUsers: false,
     isAdmin: false
   },
   requester: {
@@ -61,6 +62,7 @@ const ROLE_PERMISSIONS = {
     canApproveReservations: false,
     canViewAllReservations: false,
     canGenerateReservationTokens: false,
+    canManageUsers: false,
     isAdmin: false
   },
   approver: {
@@ -72,6 +74,8 @@ const ROLE_PERMISSIONS = {
     canApproveReservations: true,
     canViewAllReservations: true,
     canGenerateReservationTokens: true,
+    // Approvers may manage users, but capped to viewer/requester (see ROLE_MAX_ASSIGNABLE)
+    canManageUsers: true,
     isAdmin: false
   },
   admin: {
@@ -83,9 +87,42 @@ const ROLE_PERMISSIONS = {
     canApproveReservations: true,
     canViewAllReservations: true,
     canGenerateReservationTokens: true,
+    canManageUsers: true,
     isAdmin: true
   }
 };
+
+// Maximum role a caller may assign to, or act upon, in user management.
+// Callers whose role is absent from this map cannot manage users at all.
+// Approvers are capped at 'requester'; admins are uncapped ('admin').
+const ROLE_MAX_ASSIGNABLE = {
+  approver: 'requester',
+  admin: 'admin'
+};
+
+// The ONLY user fields any caller (including admins) may write via the user
+// management endpoints. Anything outside this set is dropped before persistence
+// to prevent privilege escalation via legacy fields (e.g. isAdmin,
+// permissions.canViewAllReservations) that getEffectiveRole() still honors.
+const USER_WRITABLE_FIELDS = [
+  'displayName',
+  'email',
+  'role',
+  'department',
+  'roleType',
+  'title',
+  'preferences',
+  'notificationPreferences'
+];
+
+// Known preference keys. preferences is sanitized down to these so an escalation
+// field (e.g. preferences.isAdmin) cannot ride along inside the nested object.
+const USER_WRITABLE_PREFERENCE_KEYS = [
+  'startOfWeek',
+  'defaultView',
+  'defaultGroupBy',
+  'preferredZoomLevel'
+];
 
 // Valid roles for X-Simulated-Role header validation
 const VALID_ROLES = Object.keys(ROLE_HIERARCHY);
@@ -223,9 +260,111 @@ function isValidRole(role) {
   return ROLE_HIERARCHY[role] !== undefined;
 }
 
+/**
+ * Strip a user-write payload down to the allowlisted fields.
+ *
+ * Applied to ALL callers (admins included) on create/update so that legacy
+ * privilege fields (isAdmin, permissions.*) and any unknown keys can never be
+ * persisted. `preferences` is further reduced to known preference keys so an
+ * escalation flag cannot be nested inside it.
+ *
+ * @param {Object} body - Raw request body
+ * @returns {Object} A new object containing only allowlisted fields
+ */
+function sanitizeUserWrite(body) {
+  const clean = {};
+  if (!body || typeof body !== 'object') return clean;
+
+  for (const field of USER_WRITABLE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+
+    if (field === 'preferences') {
+      const prefs = body.preferences;
+      if (prefs && typeof prefs === 'object' && !Array.isArray(prefs)) {
+        const cleanPrefs = {};
+        for (const key of USER_WRITABLE_PREFERENCE_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(prefs, key)) {
+            cleanPrefs[key] = prefs[key];
+          }
+        }
+        clean.preferences = cleanPrefs;
+      }
+      continue;
+    }
+
+    clean[field] = body[field];
+  }
+
+  return clean;
+}
+
+/**
+ * Enforce the user-management role cap.
+ *
+ * The caller must have an entry in ROLE_MAX_ASSIGNABLE (i.e. canManageUsers).
+ * Both the target's CURRENT role (when acting on an existing user) and the
+ * REQUESTED role (when assigning a role) must be at or below the caller's cap.
+ *
+ * IMPORTANT: callerRole MUST be the caller's REAL effective role
+ * (getEffectiveRole), never the simulated role — an admin simulating an
+ * approver must not have their real writes restricted.
+ *
+ * @param {Object} params
+ * @param {string} params.callerRole - Caller's real effective role
+ * @param {string} [params.targetCurrentRole] - Target user's current effective role (omit for create)
+ * @param {string} [params.requestedRole] - Role being assigned (omit for delete / non-role edits)
+ * @returns {{ allowed: boolean, code?: string, reason?: string }}
+ */
+function assertUserManagementAllowed({ callerRole, targetCurrentRole, requestedRole }) {
+  const capRole = ROLE_MAX_ASSIGNABLE[callerRole];
+  if (capRole === undefined) {
+    return {
+      allowed: false,
+      code: 'USER_MANAGEMENT_FORBIDDEN',
+      reason: 'Your role cannot manage users'
+    };
+  }
+
+  const capLevel = ROLE_HIERARCHY[capRole];
+
+  if (targetCurrentRole !== undefined && targetCurrentRole !== null) {
+    const targetLevel = ROLE_HIERARCHY[targetCurrentRole] ?? 0;
+    if (targetLevel > capLevel) {
+      return {
+        allowed: false,
+        code: 'USER_MANAGEMENT_FORBIDDEN',
+        reason: `You cannot manage a user whose role is '${targetCurrentRole}'`
+      };
+    }
+  }
+
+  if (requestedRole !== undefined && requestedRole !== null) {
+    const requestedLevel = ROLE_HIERARCHY[requestedRole];
+    if (requestedLevel === undefined) {
+      return {
+        allowed: false,
+        code: 'USER_MANAGEMENT_FORBIDDEN',
+        reason: `Invalid role '${requestedRole}'`
+      };
+    }
+    if (requestedLevel > capLevel) {
+      return {
+        allowed: false,
+        code: 'USER_MANAGEMENT_FORBIDDEN',
+        reason: `You cannot assign the role '${requestedRole}'`
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
 module.exports = {
   ROLE_HIERARCHY,
   ROLE_PERMISSIONS,
+  ROLE_MAX_ASSIGNABLE,
+  USER_WRITABLE_FIELDS,
+  USER_WRITABLE_PREFERENCE_KEYS,
   VALID_ROLES,
   DEPARTMENT_EDITABLE_FIELDS,
   getEffectiveRole,
@@ -233,6 +372,8 @@ module.exports = {
   hasRole,
   getPermissions,
   isValidRole,
+  sanitizeUserWrite,
+  assertUserManagementAllowed,
   getDepartmentEditableFields,
   canEditField,
   DEFAULT_ADMIN_DOMAIN
