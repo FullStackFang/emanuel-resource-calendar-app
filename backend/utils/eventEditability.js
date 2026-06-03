@@ -35,30 +35,10 @@ function isEventOwner(event, email) {
   return !!e && resolveOwnerEmail(event) === e;
 }
 
-function isEventOwnerless(event) {
-  return !(event && event.roomReservationData
-    && event.roomReservationData.requestedBy
-    && event.roomReservationData.requestedBy.email);
-}
-
-function isRschedImported(event) {
-  return !!event && event.source === 'rsSched';
-}
-
 function isSameDepartment(event, userDepartment) {
   const ed = resolveEventDepartment(event);
   const ud = normalizeDepartment(userDepartment);
   return !!(ud && ed && ud === ed);
-}
-
-function isCommunityEditable(event, user) {
-  const u = user || {};
-  return (
-    isEventOwner(event, u.email) ||
-    isSameDepartment(event, u.department) ||
-    isEventOwnerless(event) ||
-    isRschedImported(event)
-  );
 }
 
 function isAdminEditor(user) {
@@ -86,14 +66,14 @@ function hasPendingEditRequest(event) {
  * that the FE caller (`deriveGates`) layers on top of this rule; this module is
  * the data-layer rule only.
  *
- * Department source: `resolveEventDepartment` reads ONLY the creation-time
- * `roomReservationData.requestedBy.department` by design — that is the single
- * canonical source. `calendarData.department` (migration-unset) and the flat
- * `roomReservationData.department` (display-only) are intentionally ignored.
- *
- * Owner email fallbacks (`resolveOwnerEmail`): `calendarData.requesterEmail`
- * covers legacy rsched imports; top-level `requesterEmail` covers broadcast
- * payloads.
+ * Ownership/department policy: request-edit (and the request-cancellation gate
+ * that the FE derives from it) is intentionally NOT restricted to the owner or
+ * a same-department colleague. Any user with `canSubmitReservation` who is not
+ * an admin-editor may request an edit on any published, non-series-child event
+ * with no pending edit request. The former owner/same-dept/ownerless/rsched
+ * gate (`isCommunityEditable`) was removed because it produced too many false
+ * negatives. The pending/rejected direct-edit path (`canDirectEditEvent`)
+ * remains owner-or-same-department gated.
  */
 function canRequestEditEvent(event, user) {
   const u = user || {};
@@ -102,7 +82,6 @@ function canRequestEditEvent(event, user) {
     !isAdminEditor(u) &&
     !!event && event.status === 'published' &&
     !isSeriesChild(event) &&
-    isCommunityEditable(event, u) &&
     !hasPendingEditRequest(event)
   );
 }
@@ -123,10 +102,7 @@ module.exports = {
   resolveEventDepartment,
   resolveOwnerEmail,
   isEventOwner,
-  isEventOwnerless,
-  isRschedImported,
   isSameDepartment,
-  isCommunityEditable,
   isAdminEditor,
   isSeriesChild,
   hasPendingEditRequest,

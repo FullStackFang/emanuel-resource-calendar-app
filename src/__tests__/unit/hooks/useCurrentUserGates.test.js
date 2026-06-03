@@ -332,13 +332,17 @@ describe('deriveGates — invariants', () => {
       expect(deriveGates(event, deptRequester, accounts).canRequestEdit).toBe(true);
     });
 
-    it('requester without dept-match cannot request edit on someone else\'s published event', () => {
+    it('requester (non-owner, non-dept) CAN request edit AND cancellation on any published event', () => {
+      // Owner/department gating was removed: any reservation-capable requester
+      // may propose edits or cancellations on any published event.
       const event = {
         status: 'published',
         eventType: 'singleInstance',
-        roomReservationData: { requestedBy: { email: 'someone@example.com' } },
+        roomReservationData: { requestedBy: { email: 'someone@example.com', department: 'Finance' } },
       };
-      expect(deriveGates(event, PERMISSION_FIXTURES.requester, accounts).canRequestEdit).toBe(false);
+      const gates = deriveGates(event, PERMISSION_FIXTURES.requester, accounts);
+      expect(gates.canRequestEdit).toBe(true);
+      expect(gates.canRequestCancellation).toBe(true);
     });
 
     it('requester CAN request edit on an rsched-imported published event they do not own', () => {
@@ -737,10 +741,10 @@ describe('deriveGates — invariants', () => {
       expect(g.canSavePendingEdit).toBe(true);
     });
 
-    it('different-dept user cannot request-edit', () => {
+    it('different-dept user CAN now request-edit (dept gate removed)', () => {
       const stranger = { ...PERMISSION_FIXTURES.requester, department: 'Finance' };
       const g = deriveGates(deptEvent('published'), stranger, [{ username: 'me@x.org' }]);
-      expect(g.canRequestEdit).toBe(false);
+      expect(g.canRequestEdit).toBe(true);
     });
   });
 

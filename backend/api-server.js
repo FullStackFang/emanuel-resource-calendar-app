@@ -39,7 +39,7 @@ const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
-const { isCommunityEditable, isEventOwner, isSameDepartment } = require('./utils/eventEditability');
+const { isEventOwner, isSameDepartment } = require('./utils/eventEditability');
 
 // Per-occurrence child documents (exception/addition) must never surface as
 // independent targets in the Approval Queue, My Reservations, or the
@@ -22129,20 +22129,10 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
       });
     }
 
-    // Permission gate: owner | same-department | ownerless | rsched.
-    // Department is read from the event's stored requestedBy.department only —
-    // no live creator-profile lookup (parity with the frontend). See
-    // backend/utils/eventEditability.js.
-    // Ownership now uses the requestedBy.email chain only (not createdBy/createdByEmail);
-    // requester-less/Graph-synced events remain editable via the ownerless arm of
-    // isCommunityEditable, so nothing is locked out.
-    const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
-    const editabilityUser = { email: userEmail, department: requestingUser?.department || '' };
-    if (!isCommunityEditable(originalEvent, editabilityUser)) {
-      return res.status(403).json({
-        error: 'Only the event owner or users in the same department can request edits',
-      });
-    }
+    // No ownership/department gate: any authenticated user may submit an edit
+    // request on a published event. The former owner | same-department |
+    // ownerless | rsched restriction (isCommunityEditable) was removed; the
+    // proposal is still reviewed by an approver before it is applied.
 
     // One-active-per-scope guard. A scope = (eventId, editScope, occurrenceDate).
     // Only one pending request per scope is allowed system-wide. Series-level
@@ -23339,19 +23329,13 @@ app.post('/api/events/:id/request-cancellation', verifyToken, async (req, res) =
       });
     }
 
-    // Permission gate: owner | same-department | ownerless | rsched (stored dept only).
-    // Ownership uses the requestedBy.email chain only (not createdBy/createdByEmail);
-    // requester-less/Graph-synced events remain editable via the ownerless arm of
-    // isCommunityEditable, so nothing is locked out.
-    // This record is reused below to build the cancellation-request payload
-    // (displayName/department/phone) — do not look the same user up twice.
+    // No ownership/department gate: any authenticated user may submit a
+    // cancellation request on a published event. The former owner |
+    // same-department | ownerless | rsched restriction was removed; the request
+    // is still reviewed by an approver before the event is cancelled.
+    // requestingUser is reused below to build the cancellation-request payload
+    // (displayName/department/phone).
     const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
-    const editabilityUser = { email: userEmail, department: requestingUser?.department || '' };
-    if (!isCommunityEditable(event, editabilityUser)) {
-      return res.status(403).json({
-        error: 'Only the event owner, users in the same department, or any user for ownerless events can request cancellation',
-      });
-    }
 
     // Mutual exclusion: no pending edit or cancellation request.
     // Edit requests live in the templeEvents__EditRequests collection — query

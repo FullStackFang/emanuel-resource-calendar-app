@@ -9,10 +9,10 @@
     "user": { "email": "colleague@x.org", "department": "music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
     "expect": { "canRequestEditEvent": true, "canDirectEditEvent": false } },
 
-  { "name": "diff-dept / published / requester -> blocked",
+  { "name": "diff-dept / published / requester -> requestEdit (no longer dept-gated)",
     "event": { "status": "published", "eventType": "singleInstance", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "Music" } } },
     "user": { "email": "stranger@x.org", "department": "Finance", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
-    "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
+    "expect": { "canRequestEditEvent": true, "canDirectEditEvent": false } },
 
   { "name": "ownerless / published / requester -> requestEdit",
     "event": { "status": "published", "eventType": "singleInstance", "roomReservationData": { "requestedBy": { "email": "", "department": "" } } },
@@ -74,8 +74,8 @@
     "user": { "email": "owner@x.org", "department": "Music", "canSubmitReservation": false, "canEditEvents": false, "canApproveReservations": false },
     "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
 
-  { "name": "calendarData.department is ignored - blank stored dept is not same-dept",
-    "event": { "status": "published", "eventType": "singleInstance", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "" } }, "calendarData": { "department": "Music" } },
+  { "name": "calendarData.department ignored for direct-edit - blank stored dept is not same-dept (pending)",
+    "event": { "status": "pending", "eventType": "singleInstance", "roomReservationData": { "requestedBy": { "email": "owner@x.org", "department": "" } }, "calendarData": { "department": "Music" } },
     "user": { "email": "colleague@x.org", "department": "Music", "canSubmitReservation": true, "canEditEvents": false, "canApproveReservations": false },
     "expect": { "canRequestEditEvent": false, "canDirectEditEvent": false } },
 

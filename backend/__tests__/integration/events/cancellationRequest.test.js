@@ -154,7 +154,7 @@ describe('Cancellation Request Tests (CR-1 to CR-14)', () => {
       expect(res.body.error).toMatch(/already.*pending.*cancellation/i);
     });
 
-    it('CR-6: Submit on owned event by non-owner/non-dept -- 403', async () => {
+    it('CR-6: Submit on another user\'s event by non-owner/non-dept -- succeeds (gate removed)', async () => {
       const ownedByOther = createPublishedEvent({
         userId: 'other-user-id',
         requesterEmail: 'other@emanuelnyc.org',
@@ -166,9 +166,10 @@ describe('Cancellation Request Tests (CR-1 to CR-14)', () => {
         .post(`/api/events/${saved._id}/request-cancellation`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({ reason: 'Want to cancel' })
-        .expect(403);
+        .expect(201);
 
-      expect(res.body.error).toMatch(/permission|owner|department/i);
+      expect(res.body.success).toBe(true);
+      expect(res.body.cancellationRequestId).toBeDefined();
     });
 
     it('CR-7: Submit on ownerless event by any requester -- succeeds', async () => {

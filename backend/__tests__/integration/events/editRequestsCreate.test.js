@@ -273,7 +273,7 @@ describe('POST /api/edit-requests — collection-model create', () => {
   });
 
   describe('permission gate', () => {
-    it('rejects submission from a non-owner not in the same department', async () => {
+    it('allows submission from a non-owner not in the same department (gate removed)', async () => {
       const otherUser = createOtherRequester({
         email: 'outsider@external.com',
         odataId: 'outsider-odata-id',
@@ -288,13 +288,11 @@ describe('POST /api/edit-requests — collection-model create', () => {
       });
       const [saved] = await insertEvents(db, [published]);
 
-      const res = await request(app)
+      await request(app)
         .post('/api/edit-requests')
         .set('Authorization', `Bearer ${otherToken}`)
-        .send({ eventId: saved.eventId, eventTitle: 'Hacked' })
-        .expect(403);
-
-      expect(res.body.error).toMatch(/owner.*department/i);
+        .send({ eventId: saved.eventId, eventTitle: 'Cross-department edit' })
+        .expect(201);
     });
 
     it('allows ownerless events to receive edit requests from any authenticated user', async () => {

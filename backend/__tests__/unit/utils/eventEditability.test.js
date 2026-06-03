@@ -12,13 +12,12 @@ describe('eventEditability shared contract (backend)', () => {
     });
   }
 
-  it('exports the expected 13-function surface', () => {
+  it('exports the expected 10-function surface', () => {
     const mod = require('../../../utils/eventEditability');
     expect(Object.keys(mod).sort()).toEqual([
       'canDirectEditEvent', 'canRequestEditEvent', 'hasPendingEditRequest',
-      'isAdminEditor', 'isCommunityEditable', 'isEventOwner', 'isEventOwnerless',
-      'isRschedImported', 'isSameDepartment', 'isSeriesChild', 'normalizeDepartment',
-      'resolveEventDepartment', 'resolveOwnerEmail',
+      'isAdminEditor', 'isEventOwner', 'isSameDepartment', 'isSeriesChild',
+      'normalizeDepartment', 'resolveEventDepartment', 'resolveOwnerEmail',
     ]);
   });
 });
