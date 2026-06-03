@@ -5984,10 +5984,8 @@ const EVENT_LIST_PROJECTION = {
   // Fields previously only on the /api/events/list inline projection — kept so
   // admin-browse / search / approval-queue consumers don't regress.
   sourceCalendars: 1, lastSyncedAt: 1, draftCreatedAt: 1, lastDraftSaved: 1,
-  // 'source' gates community-editability of rsched imports on the frontend
-  // (isRschedImported = source === 'rsSched'). Without it the "Request Edit"
-  // button never renders for requesters on rsched events. Do NOT remove — the
-  // downstream output mappers (source: event.source || null) depend on it.
+  // 'source' is emitted to the frontend and the downstream output mappers
+  // (source: event.source || null) depend on it. Do NOT remove.
   source: 1,
   // Only the graphData subfields actually used downstream
   'graphData.id': 1, 'graphData.iCalUId': 1,
@@ -22254,7 +22252,8 @@ function buildEditRequestEmailPayload(event, editRequest, options = {}) {
  *
  * Create a new edit request for a published event. Writes to the
  * templeEvents__EditRequests collection. Does NOT touch the event document.
- * Permission gate: isOwner OR isSameDepartment OR isOwnerlessEvent.
+ * Permission gate: none — any authenticated user may submit an edit request
+ * (the former owner/same-department/ownerless restriction was removed).
  * Same-user duplicate guard: blocks when (userId, eventId, occurrenceDate)
  * already has a pending request.
  */
@@ -23305,7 +23304,10 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
     // post-response logging below (Object.entries iteration is cheap).
     const changesArray = [];
     for (const [field, newValue] of Object.entries(finalChanges)) {
-      changesArray.push({ field, oldValue: cd[field] ?? '', newValue });
+      // Most calendar fields are mirrored into calendarData, but some (e.g.
+      // recurrence, eventType) live ONLY at the top level — fall back to the
+      // event root so the audit records the real prior value, not ''.
+      changesArray.push({ field, oldValue: cd[field] ?? event[field] ?? '', newValue });
     }
 
     // Send the response BEFORE side effects: audit insert, approval email,
@@ -23346,8 +23348,49 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       logger.warn('Edit request approval audit insert failed (non-fatal):', { ...auditContext, error: auditErr.message });
     });
 
+    // Build a human-readable changes list for the approval email. Maps field
+    // keys to friendly labels and resolves location ObjectIds to display names
+    // via the shared change-formatting helpers — the same pipeline the publish
+    // and published-update notification paths use. The raw `changesArray` above
+    // is retained as the machine-faithful audit record. Falls back to the raw
+    // array if formatting fails so the email still goes out.
+    let emailChanges = changesArray;
+    try {
+      const detected = detectEventChanges(event, finalChanges);
+      const locationMap = {};
+      const locationIds = new Set();
+      for (const c of detected.filter((ch) => ch.field === 'locations')) {
+        (Array.isArray(c.oldValue) ? c.oldValue : []).forEach((lid) => lid && locationIds.add(String(lid)));
+        (Array.isArray(c.newValue) ? c.newValue : []).forEach((lid) => lid && locationIds.add(String(lid)));
+      }
+      if (locationIds.size > 0) {
+        const locationDocs = await locationsCollection.find({
+          _id: { $in: [...locationIds].map((lid) => new ObjectId(lid)) },
+        }).toArray();
+        for (const loc of locationDocs) {
+          locationMap[String(loc._id)] = loc.name || loc.displayName || String(loc._id);
+        }
+      }
+      emailChanges = formatChangesForEmail(detected, { locationMap });
+      // Recurrence is not a NOTIFIABLE_FIELD, so detectEventChanges drops it.
+      // Preserve it for the email summary (the template summarizes the raw
+      // pattern) to match the prior behavior for recurrence-bearing edits.
+      if (finalChanges.recurrence !== undefined) {
+        emailChanges.push({
+          field: 'recurrence',
+          displayName: 'Recurrence',
+          // Recurrence is stored at the top level of the event, not in
+          // calendarData — read it from the event root for the true old value.
+          oldValue: event.recurrence ?? null,
+          newValue: finalChanges.recurrence,
+        });
+      }
+    } catch (fmtErr) {
+      logger.warn('Failed to format edit-request approval email changes (using raw):', { ...auditContext, error: fmtErr.message });
+    }
+
     const editRequestForEmail = buildEditRequestEmailPayload(event, editRequest, { finalChanges });
-    emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', changesArray)
+    emailService.sendEditRequestApprovedNotification(editRequestForEmail, notes || '', emailChanges)
       .catch((emailError) => {
         logger.warn('Edit request approval email failed (non-fatal):', { ...auditContext, error: emailError.message });
       });

@@ -13,6 +13,11 @@
  */
 
 const request = require('supertest');
+const { ObjectId } = require('mongodb');
+
+// Same module instance api-server.js requires — spying on it intercepts the
+// post-response approval email so we can assert on the changes payload.
+const emailService = require('../../../services/emailService');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
@@ -338,6 +343,83 @@ describe('PUT /api/edit-requests/:id/approve', () => {
         })
         .expect(404);
       expect(res.body.error).toMatch(/not found/i);
+    });
+  });
+
+  describe('approval email — location name resolution', () => {
+    const HEX24 = /[a-f0-9]{24}/i;
+    let sanctuary;
+    let greenwald;
+    let emailSpy;
+
+    beforeEach(async () => {
+      await db.collection(COLLECTIONS.LOCATIONS).deleteMany({});
+      sanctuary = { _id: new ObjectId(), name: 'Sanctuary', displayName: 'Sanctuary', isReservable: true, active: true };
+      greenwald = { _id: new ObjectId(), name: 'Greenwald Hall', displayName: 'Greenwald Hall', isReservable: true, active: true };
+      await db.collection(COLLECTIONS.LOCATIONS).insertMany([sanctuary, greenwald]);
+
+      emailSpy = jest
+        .spyOn(emailService, 'sendEditRequestApprovedNotification')
+        .mockResolvedValue({ success: true });
+    });
+
+    afterEach(() => {
+      emailSpy.mockRestore();
+    });
+
+    it('renders Room(s) display names — not ObjectIds — in the approval email changes', async () => {
+      // Original event has only the Sanctuary; the edit adds Greenwald Hall.
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        locations: [sanctuary._id],
+        locationDisplayNames: ['Sanctuary'],
+      });
+      const [savedEvent] = await insertEvents(db, [published]);
+
+      const editRequest = await insertEditRequest(db, createPendingEditRequest({
+        eventId: savedEvent.eventId,
+        eventObjectId: savedEvent._id,
+        userId: requesterUser.odataId,
+        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email },
+        // Mirrors the real bug report: the request carries both requestedRooms
+        // and locations as raw ObjectId strings.
+        proposedChanges: {
+          requestedRooms: [sanctuary._id.toString(), greenwald._id.toString()],
+          locations: [sanctuary._id.toString(), greenwald._id.toString()],
+        },
+      }));
+
+      await request(app)
+        .put(`/api/edit-requests/${editRequest._id}/approve`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({
+          editRequestVersion: editRequest._version,
+          eventVersion: savedEvent._version,
+        })
+        .expect(200);
+
+      // Approval email is a post-response, fire-and-forget side effect.
+      await new Promise((r) => setTimeout(r, 600));
+
+      expect(emailSpy).toHaveBeenCalledTimes(1);
+      const reviewChanges = emailSpy.mock.calls[0][2];
+      expect(Array.isArray(reviewChanges)).toBe(true);
+
+      // The room change is present, labeled with the friendly field name.
+      const roomRow = reviewChanges.find((c) => c.displayName === 'Room(s)');
+      expect(roomRow).toBeDefined();
+      expect(String(roomRow.newValue)).toContain('Greenwald Hall');
+      expect(String(roomRow.newValue)).toContain('Sanctuary');
+
+      // No raw ObjectId hex strings should leak into any rendered value, and
+      // the redundant internal `requestedRooms` key must not surface as a label.
+      for (const c of reviewChanges) {
+        expect(c.displayName).not.toBe('requestedRooms');
+        expect(c.displayName).not.toBe('locations');
+        expect(String(c.oldValue ?? '')).not.toMatch(HEX24);
+        expect(String(c.newValue ?? '')).not.toMatch(HEX24);
+      }
     });
   });
 
