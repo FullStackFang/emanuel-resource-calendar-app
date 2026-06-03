@@ -15,6 +15,7 @@ import {
   buildDraftPayload,
   buildRequesterPayload,
 } from '../utils/eventPayloadBuilder';
+import { resolveCreationPlan } from '../utils/eventCreationDecision';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 
@@ -264,10 +265,11 @@ export function useEventCreation({
       return;
     }
 
-    // Multi-day detection
-    const hasAdHocDates = data.adHocDates?.length > 0;
-    const isMultiDayRange = data.startDate !== data.endDate;
-    const isMultiDay = hasAdHocDates || isMultiDayRange;
+    // Decide create mode. A recurrence pattern IS the repeat mechanism, so a
+    // recurring event is NEVER fanned out into a per-day batch — doing so created
+    // one full series master per day (the "38 events a day" duplication bug).
+    const plan = resolveCreationPlan(data);
+    const isMultiDay = plan.isBatch;
 
     // ── Multi-day confirmation gate ──
     if (isMultiDay) {
@@ -282,7 +284,7 @@ export function useEventCreation({
           d.setDate(startDate.getDate() + i);
           allDates.add(d.toISOString().split('T')[0]);
         }
-        if (hasAdHocDates) data.adHocDates.forEach(ds => allDates.add(ds));
+        if (data.adHocDates?.length > 0) data.adHocDates.forEach(ds => allDates.add(ds));
 
         setPendingMultiDayConfirmation({ eventCount: allDates.size });
         setIsConfirming(true);
@@ -316,8 +318,12 @@ export function useEventCreation({
     setIsConfirming(false);
     setIsSaving(true);
     try {
-      const graphFields = buildGraphFields(data);
-      const internalFields = buildInternalFields(data);
+      // For a recurring event, collapse the event's own end date to its start
+      // date — the recurrence range (not the event span) governs how far the
+      // series extends. Prevents a 3-month-long master event.
+      const singleData = plan.hasRecurrence ? { ...data, endDate: plan.endDate } : data;
+      const graphFields = buildGraphFields(singleData);
+      const internalFields = buildInternalFields(singleData);
 
       const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
         method: 'POST',

@@ -7882,6 +7882,20 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       logger.debug('Processing new event creation');
     }
 
+    // Defense-in-depth: a recurring event must be ONE series master, never fanned
+    // out into a per-day batch where each day carries the recurrence. That combo
+    // created ~42 duplicate masters from a single submit ("38 events a day"). The
+    // client (eventCreationDecision.js) no longer sends it; reject it here too so
+    // a stale client, retry, or direct API call can't re-trigger the bug.
+    const _recurrence = internalFields?.recurrence;
+    const _hasCompleteRecurrence = !!(_recurrence?.pattern && _recurrence?.range);
+    if (isNewEvent && _hasCompleteRecurrence && internalFields?.eventSeriesId) {
+      return res.status(400).json({
+        error: 'A recurring event cannot be created as part of a multi-day batch. The recurrence range defines how far the series extends.',
+        code: 'RECURRING_BATCH_CONFLICT',
+      });
+    }
+
     // Capture complete "before" state for audit comparison
     const beforeState = isNewEvent ? {
       // New events start with empty/null values
