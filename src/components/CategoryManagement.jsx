@@ -1,5 +1,7 @@
 // src/components/CategoryManagement.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { keys } from '../queries/keys';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { usePolling } from '../hooks/usePolling';
@@ -56,6 +58,22 @@ export default function CategoryManagement({ apiToken }) {
   const [saveButtonState, setSaveButtonState] = useState('idle');
   const [deleteButtonState, setDeleteButtonState] = useState('idle');
   const [resequencing, setResequencing] = useState(false);
+
+  const queryClient = useQueryClient();
+
+  // After a category create/edit/delete, refresh the TanStack caches that mirror
+  // category data so list views and the search filter show the change without a
+  // manual reload. A rename/delete also rewrites the denormalized category strings
+  // on event documents (see PUT /api/categories/:id propagation), so pass
+  // { eventsChanged: true } to also refetch every event-backed view. The Calendar
+  // reloads its events from MongoDB on its own remount, so it is not gated here.
+  const invalidateCategoryCaches = useCallback(({ eventsChanged = false } = {}) => {
+    queryClient.invalidateQueries({ queryKey: keys.baseCategories.all() });
+    queryClient.invalidateQueries({ queryKey: keys.distinctEventCategories.all() });
+    if (eventsChanged) {
+      queryClient.invalidateQueries({ queryKey: keys.events.all() });
+    }
+  }, [queryClient]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -209,6 +227,9 @@ export default function CategoryManagement({ apiToken }) {
       // Reload categories
       await loadCategories();
 
+      // Deletion can strand the category name on events; refetch event-backed views.
+      invalidateCategoryCaches({ eventsChanged: true });
+
       // Close confirmation dialog
       setShowDeleteConfirm(false);
       setCategoryToDelete(null);
@@ -272,6 +293,10 @@ export default function CategoryManagement({ apiToken }) {
 
       // Reload categories
       await loadCategories();
+
+      // A rename rewrites category strings on events; refetch event-backed views.
+      // (Create touches no events, so only invalidate events when editing.)
+      invalidateCategoryCaches({ eventsChanged: !!editingCategory });
 
       // Close modal and reset
       setShowModal(false);

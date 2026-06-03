@@ -5,11 +5,25 @@ function normalizeCategoryName(name) {
   return (name || '').trim().toLowerCase();
 }
 
-/** Build a Map(normalizedName -> categoryDoc) from any Map whose values carry a .name string. */
+/**
+ * Build a Map(normalizedName -> categoryDoc) from any Map whose values carry a
+ * .name string (and optionally a .aliases string array).
+ *
+ * Aliases let a renamed category keep resolving from its OLD name — e.g. an
+ * external source (rsched) still exporting "Bar/Bas Mitzvah" resolves to the
+ * renamed "B'nei Mitzvah" instead of spawning a duplicate. Names are indexed
+ * first so a real category name always wins over another category's alias.
+ */
 function buildNormalizedCategoryMap(cacheMap) {
   const m = new Map();
   for (const doc of cacheMap.values()) {
     m.set(normalizeCategoryName(doc.name), doc);
+  }
+  for (const doc of cacheMap.values()) {
+    for (const alias of doc.aliases || []) {
+      const na = normalizeCategoryName(alias);
+      if (na && !m.has(na)) m.set(na, doc);
+    }
   }
   return m;
 }

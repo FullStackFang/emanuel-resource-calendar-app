@@ -1,5 +1,5 @@
 const { ObjectId } = require('mongodb');
-const { buildReport, resolveIdsForEvent } = require('../../../migrate-backfill-category-ids');
+const { buildReport, resolveIdsForEvent, tallyDistinct } = require('../../../migrate-backfill-category-ids');
 
 describe('category backfill — buildReport', () => {
   test('proposes MATCH for existing (case-insensitive) and NEW otherwise, with counts', () => {
@@ -15,6 +15,22 @@ describe('category backfill — buildReport', () => {
   test('skips Uncategorized and empty', () => {
     const report = buildReport([{ name: 'Uncategorized', count: 5 }, { name: '  ', count: 1 }], []);
     expect(report.every(r => r.action === 'skip')).toBe(true);
+  });
+});
+
+describe('category backfill — tallyDistinct', () => {
+  test('tallies distinct in-use names with counts from scanned docs, ignoring empty/missing', () => {
+    const docs = [
+      { calendarData: { categories: ['Concert', 'Bar/Bas Mitzvah'] } },
+      { calendarData: { categories: ['Concert'] } },
+      { calendarData: { categories: [] } },
+      { calendarData: {} },
+      {},
+    ];
+    expect(tallyDistinct(docs)).toEqual([
+      { name: 'Concert', count: 2 },
+      { name: 'Bar/Bas Mitzvah', count: 1 },
+    ]); // sorted by count desc
   });
 });
 

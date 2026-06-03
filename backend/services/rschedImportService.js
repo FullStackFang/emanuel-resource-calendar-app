@@ -25,6 +25,7 @@ const ApiError = require('../utils/ApiError');
 const { retryWithBackoff } = require('../utils/retryWithBackoff');
 const { createExceptionDocument } = require('../utils/exceptionDocumentService');
 const { conditionalUpdate: _conditionalUpdate } = require('../utils/concurrencyUtils');
+const { buildNormalizedCategoryMap, resolveCategoryIds, normalizeCategoryName } = require('../utils/categoryResolver');
 
 const RSCHED_SOURCE = 'rsSched';
 const NOTE_RSKEY_SENTINELS = new Set(['Note1', 'Note2', 'Note3']);
@@ -32,6 +33,7 @@ const STAGING_COLLECTION = 'templeEvents__RschedImportStaging';
 const EVENTS_COLLECTION = 'templeEvents__Events';
 const LOCATIONS_COLLECTION = 'templeEvents__Locations';
 const AUDIT_COLLECTION = 'templeEvents__EventAuditHistory';
+const CATEGORIES_COLLECTION = 'templeEvents__Categories';
 
 const STAGING_STATUS = Object.freeze({
   STAGED: 'staged',
@@ -803,6 +805,50 @@ async function persistDriftResults(stagingCollection, driftResults, options = {}
 // =============================================================================
 
 /**
+ * Resolve candidate.calendarData.categories names -> categoryIds and stamp them
+ * onto the candidate (mirrors calendarData.locations), so imported events are
+ * id-linked rather than name-only. Alias-aware: a renamed category resolves from
+ * the external name (e.g. "Bar/Bas Mitzvah") to the renamed record instead of
+ * spawning a duplicate. A genuinely-new name auto-creates a flagged record.
+ *
+ * The normalized category map is built once per import and cached on ctx;
+ * resolveCategoryIds mutates it so auto-created records are reused across rows.
+ */
+async function stampCategoryIds(db, candidate, ctx) {
+  if (!candidate || !candidate.calendarData) return candidate;
+  const categoriesCollection = db.collection(CATEGORIES_COLLECTION);
+  if (!ctx._categoryNormMap) {
+    const cache = new Map();
+    const docs = await categoriesCollection.find({}).toArray();
+    for (const d of docs) cache.set(String(d._id), d);
+    ctx._categoryNormMap = buildNormalizedCategoryMap(cache);
+  }
+  const { ids } = await resolveCategoryIds(
+    candidate.calendarData.categories || [],
+    { normMap: ctx._categoryNormMap, categoriesCollection }
+  );
+  candidate.calendarData.categoryIds = ids;
+
+  // Canonicalize the category NAME strings to each category's current name so a
+  // renamed category surfaces on re-import. The alias-aware normMap maps the old
+  // external name (e.g. "Bar/Bas Mitzvah") to the renamed record; we rewrite the
+  // stored name to that record's current name, keeping categoryIds and names in
+  // sync. Unmatched names (and 'Uncategorized') pass through unchanged, and order
+  // is preserved.
+  const canonicalize = (name) => {
+    const doc = ctx._categoryNormMap.get(normalizeCategoryName(name));
+    return doc ? doc.name : name;
+  };
+  if (Array.isArray(candidate.calendarData.categories)) {
+    candidate.calendarData.categories = candidate.calendarData.categories.map(canonicalize);
+  }
+  if (Array.isArray(candidate.categories)) {
+    candidate.categories = candidate.categories.map(canonicalize);
+  }
+  return candidate;
+}
+
+/**
  * Apply a single staging row: insert / update / no-op / record human-edit
  * conflict / fail.
  *
@@ -828,6 +874,7 @@ async function applyStagingRow(db, stagingRow, ctx) {
   }
 
   const candidate = buildEventDocFromStaging(stagingRow, ctx);
+  await stampCategoryIds(db, candidate, ctx);
   const filter = { eventId: candidate.eventId, calendarOwner: candidate.calendarOwner };
 
   const existing = await eventsCollection.findOne(filter);
@@ -894,6 +941,7 @@ async function applyStagingRow(db, stagingRow, ctx) {
       'calendarData.locations': candidate.calendarData.locations,
       'calendarData.locationDisplayNames': candidate.calendarData.locationDisplayNames,
       'calendarData.categories': candidate.calendarData.categories,
+      'calendarData.categoryIds': candidate.calendarData.categoryIds,
       'calendarData.isAllDay': candidate.calendarData.isAllDay,
       'rschedData.rawCsv': candidate.rschedData.rawCsv,
       'rschedData.importSessionId': ctx.sessionId,
@@ -996,6 +1044,7 @@ async function applyAsMaster(db, stagingRow, candidate, ctx) {
   const calendarOwner = (ctx.calendarOwner || stagingRow.calendarOwner || '').toLowerCase();
 
   const candidateDoc = buildSeriesMasterDoc(stagingRow, candidate, ctx);
+  await stampCategoryIds(db, candidateDoc, ctx);
   const existing = await eventsCollection.findOne({ eventId, calendarOwner });
 
   if (!existing) {
@@ -1758,6 +1807,7 @@ module.exports = {
   buildStagingDoc,
   batchInsertStagingDocs,
   buildEventDocFromStaging,
+  stampCategoryIds,
   buildGraphPayload,
   detectMaterialDifferences,
   hasHumanEdits,

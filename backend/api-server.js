@@ -19292,19 +19292,41 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
     }
 
     // Rename propagation: refresh the denormalized calendarData.categories display
-    // strings on every event that references this category by its stable id.
-    // Cosmos-safe: $pull the old name, then $addToSet the new name (arrayFilters /
-    // positional $[elem] is unsupported by Cosmos DB's Mongo API). Non-atomic across
-    // documents but idempotent; rename is admin-only and low-frequency.
+    // strings on every event that references this category — matched by its stable
+    // id OR by its (unique) old display name. The name fallback is essential: events
+    // tagged before the categoryIds backfill have calendarData.categories but no
+    // calendarData.categoryIds, and without it they keep the stale old name on the
+    // calendar (the calendar matches categories by name string, not by id).
+    //
+    // Order matters: $addToSet the NEW name FIRST (while the old name still
+    // identifies name-only events), THEN $pull the old name. Cosmos-safe: only
+    // $addToSet/$pull — arrayFilters / positional $[elem] is unsupported by Cosmos
+    // DB's Mongo API. Non-atomic across documents but idempotent; category names are
+    // unique and rename is admin-only and low-frequency.
     if (before && name && before.name !== updateData.name) {
       const catObjectId = new ObjectId(id);
+      const oldName = before.name;
+      const newName = updateData.name;
+      // Record the OLD name as an alias so an external source that still exports it
+      // (e.g. the rsched CSV) resolves to this renamed category on re-import instead
+      // of spawning a duplicate. buildNormalizedCategoryMap indexes aliases.
+      await withCosmosRetry(() => categoriesCollection.updateOne(
+        { _id: catObjectId },
+        { $addToSet: { aliases: oldName } }
+      ));
+      const referencesCategory = {
+        $or: [
+          { 'calendarData.categoryIds': catObjectId },
+          { 'calendarData.categories': oldName },
+        ],
+      };
       await withCosmosRetry(() => unifiedEventsCollection.updateMany(
-        { 'calendarData.categoryIds': catObjectId, 'calendarData.categories': before.name },
-        { $pull: { 'calendarData.categories': before.name } }
+        referencesCategory,
+        { $addToSet: { 'calendarData.categories': newName } }
       ));
       await withCosmosRetry(() => unifiedEventsCollection.updateMany(
-        { 'calendarData.categoryIds': catObjectId },
-        { $addToSet: { 'calendarData.categories': updateData.name } }
+        { 'calendarData.categories': oldName },
+        { $pull: { 'calendarData.categories': oldName } }
       ));
     }
 

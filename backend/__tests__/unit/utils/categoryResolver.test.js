@@ -17,6 +17,26 @@ describe('categoryResolver', () => {
     expect(m.get('skirball').name).toBe('Skirball');
   });
 
+  test('buildNormalizedCategoryMap also indexes aliases (renamed-category divergence)', () => {
+    const id = new ObjectId();
+    const cache = new Map([['x', { _id: id, name: "B'nei Mitzvah", aliases: ['bar/bas mitzvah'], displayOrder: 3 }]]);
+    const m = buildNormalizedCategoryMap(cache);
+    expect(String(m.get("b'nei mitzvah")._id)).toBe(String(id)); // current name
+    expect(String(m.get('bar/bas mitzvah')._id)).toBe(String(id)); // old name via alias
+  });
+
+  test('buildNormalizedCategoryMap: a real name always wins over another category\'s alias', () => {
+    const nameId = new ObjectId();
+    const aliasId = new ObjectId();
+    // 'concert' exists both as B's alias and as A's real name — the real name must win.
+    const cache = new Map([
+      ['a', { _id: nameId, name: 'Concert', displayOrder: 1 }],
+      ['b', { _id: aliasId, name: 'Live Music', aliases: ['concert'], displayOrder: 2 }],
+    ]);
+    const m = buildNormalizedCategoryMap(cache);
+    expect(String(m.get('concert')._id)).toBe(String(nameId));
+  });
+
   test('resolveCategoryIds maps existing (case-insensitive), skips Uncategorized/empty', async () => {
     const id = new ObjectId();
     const normMap = new Map([['skirball', { _id: id, name: 'Skirball', displayOrder: 3 }]]);
