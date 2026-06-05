@@ -553,7 +553,10 @@ export default function ReviewModal({
                     </div>
                   )}
 
-                  {/* Submit Draft — draft → pending/published */}
+                  {/* Submit Draft — draft → pending (requester) / published (approver+).
+                      Approvers/admins auto-publish drafts directly (backend
+                      canAutoPublish gate), so the action reads as 'Publish' for
+                      them and 'Submit Request' for requesters. */}
                   {isDraft && onSubmitDraft && (
                     <div className="confirm-button-group">
                       <button
@@ -564,10 +567,12 @@ export default function ReviewModal({
                         data-tooltip={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : getDisabledReason({ requireValid: true })}
                       >
                         {isSaving
-                          ? 'Submitting...'
+                          ? (isRequesterOnly ? 'Submitting...' : 'Publishing...')
                           : localConfirming === 'submitDraft'
-                            ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?')
-                            : 'Submit Request'}
+                            ? (isRequesterOnly
+                                ? (isHold ? 'Submit as [Hold]?' : 'Confirm Submit?')
+                                : (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?'))
+                            : (isRequesterOnly ? 'Submit Request' : 'Publish')}
                       </button>
                       {localConfirming === 'submitDraft' && (
                         <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={() => setLocalConfirming(null)}>✕</button>

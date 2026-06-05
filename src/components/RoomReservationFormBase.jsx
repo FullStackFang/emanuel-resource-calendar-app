@@ -260,7 +260,7 @@ export default function RoomReservationFormBase({
   const selectedServicesRef = useRef({});
 
   // Get permissions - must be before useEffects that depend on isAdmin
-  const { canEditField, isAdmin, canEditEvents } = usePermissions();
+  const { canEditField, isAdmin, canEditEvents, canApproveReservations } = usePermissions();
 
   // Available categories via TanStack Query (cached, shared across components)
   const { data: availableCategories = [], isLoading: categoriesLoading } = useBaseCategoriesQuery(apiToken);
@@ -493,11 +493,28 @@ export default function RoomReservationFormBase({
     uploadFloorPlanFile(e.target.files?.[0]);
   };
 
+  // The floor-plan upload is a STANDALONE attachment operation (a direct POST
+  // to /events/:id/attachments) — it is NOT part of the OCC form save. So it
+  // must stay available to anyone with edit/approve authority even when the
+  // broad, form-wide `fieldsDisabled` gate is up (e.g. the brief permissions-
+  // loading window where an admin is momentarily treated as a viewer, or a
+  // published event the admin/approver has not put into "edit mode"). Binding
+  // it to `fieldsDisabled` was locking admins/approvers out with no explanation.
+  //
+  // Hard locks still win: no event id (nothing to attach to), an edit-request
+  // preview, or a deleted reservation. For everyone else, authority is
+  // "admin/approver/editor, OR the form is already editable" — so requesters
+  // editing their own draft/pending (where !fieldsDisabled) keep their access.
+  //
   // Lazily evaluated (a function, not an eager const) because `fieldsDisabled`
   // is declared later in the component body — reading it eagerly here would hit
-  // the temporal dead zone. By call time (drag events) it is fully initialized.
+  // the temporal dead zone. By call time (render/drag events) it is initialized.
   const canUploadFloorPlan = () =>
-    !fieldsDisabled && !floorPlanUploading && !!floorPlanEventId;
+    !floorPlanUploading &&
+    !!floorPlanEventId &&
+    !isViewingEditRequest &&
+    reservationStatus !== 'deleted' &&
+    (isAdmin || canEditEvents || canApproveReservations || !fieldsDisabled);
 
   const handleFloorPlanDragOver = (e) => {
     e.preventDefault();
@@ -1367,6 +1384,19 @@ export default function RoomReservationFormBase({
   // Admins and users with canEditEvents permission can edit published/rejected events
   const isApproverViewingEditRequest = isViewingEditRequest && (isAdmin || canEditEvents);
   const fieldsDisabled = (isViewingEditRequest && !isAdmin && !canEditEvents) || (readOnly && !isEditRequestMode && !isApproverViewingEditRequest) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft' && reservationStatus !== 'rejected');
+
+  // Floor-plan dropzone gate (see canUploadFloorPlan above for the rationale —
+  // it is intentionally NOT bound to the form-wide `fieldsDisabled`). Computed
+  // here as render values so the dropzone exposes both its disabled state AND an
+  // explicit reason, so a locked dropzone is never silent.
+  const floorPlanEditable = canUploadFloorPlan();
+  const floorPlanReason = floorPlanUploading
+    ? 'uploading'
+    : !floorPlanEventId
+      ? 'unsaved'
+      : !floorPlanEditable
+        ? 'locked'
+        : null;
 
   // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
   const isRecurringDateLocked = !!recurrencePattern;
@@ -2558,7 +2588,7 @@ export default function RoomReservationFormBase({
                     type="button"
                     className={`floorplan-remove-btn${confirmFloorPlanRemove ? ' is-confirming' : ''}`}
                     onClick={handleFloorPlanRemoveClick}
-                    disabled={fieldsDisabled || floorPlanUploading || floorPlanRemoving}
+                    disabled={!floorPlanEditable || floorPlanRemoving}
                   >
                     {floorPlanRemoving ? 'Removing…' : confirmFloorPlanRemove ? 'Confirm?' : 'Remove'}
                   </button>
@@ -2578,7 +2608,7 @@ export default function RoomReservationFormBase({
                 'floorplan-dropzone',
                 floorPlanPreview ? 'is-compact' : '',
                 floorPlanDragging ? 'is-dragging' : '',
-                (fieldsDisabled || floorPlanUploading || !floorPlanEventId) ? 'is-disabled' : '',
+                !floorPlanEditable ? 'is-disabled' : '',
               ].filter(Boolean).join(' ')}
               onDragOver={handleFloorPlanDragOver}
               onDragLeave={handleFloorPlanDragLeave}
@@ -2593,7 +2623,7 @@ export default function RoomReservationFormBase({
                 accept="image/*"
                 className="floorplan-input sr-only"
                 onChange={handleFloorPlanSelect}
-                disabled={fieldsDisabled || floorPlanUploading || !floorPlanEventId}
+                disabled={!floorPlanEditable}
               />
               <span className="floorplan-dropzone-icon" aria-hidden="true">
                 {floorPlanUploading ? (
@@ -2605,21 +2635,25 @@ export default function RoomReservationFormBase({
                 )}
               </span>
               <span className="floorplan-dropzone-title">
-                {floorPlanUploading
+                {floorPlanReason === 'uploading'
                   ? 'Saving floor plan…'
-                  : !floorPlanEventId
+                  : floorPlanReason === 'unsaved'
                     ? 'Save the reservation first to upload a floor plan'
-                    : floorPlanPreview
-                      ? 'Replace floor plan'
-                      : 'Click to upload or drag & drop'}
+                    : floorPlanReason === 'locked'
+                      ? 'Floor plan editing is locked'
+                      : floorPlanPreview
+                        ? 'Replace floor plan'
+                        : 'Click to upload or drag & drop'}
               </span>
               <span className="floorplan-dropzone-hint">
-                {floorPlanUploading
+                {floorPlanReason === 'uploading'
                   ? 'Hang tight while we save your image.'
-                  : !floorPlanEventId
+                  : floorPlanReason === 'unsaved'
                     ? 'Upload unlocks after the reservation is saved.'
-                    : floorPlanPreview
-                      ? 'Choose a new image — PNG, JPG, GIF or WebP.'
+                    : floorPlanReason === 'locked'
+                      ? 'This reservation is read-only or you do not have permission to change the floor plan.'
+                      : floorPlanPreview
+                        ? 'Choose a new image — PNG, JPG, GIF or WebP.'
                       : 'PNG, JPG, GIF or WebP. Saved with the reservation.'}
               </span>
             </label>

@@ -65,8 +65,14 @@ vi.mock('../../../context/LocationContext', () => ({
 vi.mock('../../../hooks/useCategoriesQuery', () => ({
   useBaseCategoriesQuery: () => ({ data: [], isLoading: false }),
 }));
+// Mutable so individual tests can flip the effective role. Reset to admin in
+// the floor-plan describe's beforeEach. The `mock` prefix lets vitest hoist it
+// alongside the (hoisted) vi.mock factory without a ReferenceError.
+const mockAdminPermissions = { role: 'admin', canEditEvents: true, canApproveReservations: true, isAdmin: true, canEditField: () => true };
+const mockViewerPermissions = { role: 'viewer', canEditEvents: false, canApproveReservations: false, isAdmin: false, canEditField: () => false };
+let mockPermissions = mockAdminPermissions;
 vi.mock('../../../hooks/usePermissions', () => ({
-  usePermissions: () => ({ role: 'admin', canEditEvents: true, isAdmin: true, canEditField: () => true }),
+  usePermissions: () => mockPermissions,
 }));
 vi.mock('../../../utils/textUtils', () => ({
   extractTextFromHtml: (html) => html || '',
@@ -206,6 +212,8 @@ describe('RoomReservationFormBase', () => {
     };
 
     beforeEach(() => {
+      // Default every floor-plan test to a fully-loaded admin.
+      mockPermissions = mockAdminPermissions;
       // jsdom lacks object-URL support — stub it for the <img> preview path.
       global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
       global.URL.revokeObjectURL = vi.fn();
@@ -317,6 +325,47 @@ describe('RoomReservationFormBase', () => {
       );
 
       await waitFor(() => expect(screen.getByText('existing-plan.pdf')).toBeTruthy());
+    });
+
+    it('keeps the dropzone enabled for an admin even when the form is read-only on a published reservation', () => {
+      // Repro: admins/approvers must never be locked out of the floor plan.
+      // The floor-plan upload is a standalone attachment op (not the OCC form
+      // save), so the form-wide read-only/published lock must not disable it.
+      mockPermissions = mockAdminPermissions;
+
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventId: 'evt-1', eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+          readOnly
+          reservationStatus="published"
+        />
+      );
+
+      const input = screen.getByTestId('floor-plan-upload');
+      expect(input.disabled).toBe(false);
+      expect(screen.getByText(/Click to upload or drag & drop/i)).toBeTruthy();
+    });
+
+    it('locks the dropzone with an explanatory message for a user without edit authority', () => {
+      // A viewer on a published reservation should NOT see the misleading
+      // "Click to upload" prompt — the disabled state must explain itself.
+      mockPermissions = mockViewerPermissions;
+
+      render(
+        <RoomReservationFormBase
+          {...additionalTabProps}
+          initialData={{ eventId: 'evt-1', eventTitle: 'Gala', startDate: '2026-05-01', endDate: '2026-05-01' }}
+          readOnly
+          reservationStatus="published"
+        />
+      );
+
+      const input = screen.getByTestId('floor-plan-upload');
+      expect(input.disabled).toBe(true);
+      expect(screen.getByText(/Floor plan editing is locked/i)).toBeTruthy();
+      // The misleading upbeat prompt must not appear while locked.
+      expect(screen.queryByText(/Click to upload or drag & drop/i)).toBeNull();
     });
   });
 });

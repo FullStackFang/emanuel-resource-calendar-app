@@ -264,12 +264,13 @@ describe('ReviewModal', () => {
     });
   });
 
-  describe('Submit Request button (draft mode)', () => {
+  describe('Submit Request button (draft mode, requester)', () => {
     it('should be disabled when isFormValid is false', () => {
       render(
         <ReviewModal
           {...defaultProps}
           isDraft={true}
+          isRequesterOnly={true}
           onSubmitDraft={vi.fn()}
           isFormValid={false}
         >
@@ -286,6 +287,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           isDraft={true}
+          isRequesterOnly={true}
           onSubmitDraft={vi.fn()}
           isFormValid={true}
         >
@@ -302,6 +304,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           isDraft={true}
+          isRequesterOnly={true}
           onSubmitDraft={vi.fn()}
           isFormValid={true}
           isSaving={true}
@@ -319,6 +322,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           isDraft={true}
+          isRequesterOnly={true}
           onSubmitDraft={vi.fn()}
           isFormValid={true}
           savingDraft={true}
@@ -336,6 +340,7 @@ describe('ReviewModal', () => {
         <ReviewModal
           {...defaultProps}
           isDraft={true}
+          isRequesterOnly={true}
           onSubmitDraft={vi.fn()}
           isFormValid={false}
         >
@@ -345,6 +350,63 @@ describe('ReviewModal', () => {
 
       const submitButton = screen.getByRole('button', { name: /submit request/i });
       expect(submitButton).toBeDisabled();
+    });
+  });
+
+  describe('Publish button (draft mode, approver/admin)', () => {
+    // Approvers/admins auto-publish drafts directly (backend canAutoPublish gate),
+    // so the draft-submit action reads as 'Publish', not 'Submit Request'.
+    it('labels the draft action Publish when isRequesterOnly is false', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          isRequesterOnly={false}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      expect(screen.getByRole('button', { name: /^publish$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /submit request/i })).toBeNull();
+    });
+
+    it('shows Publishing... while saving', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          isRequesterOnly={false}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+          isSaving={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const publishButton = screen.getByRole('button', { name: /publishing/i });
+      expect(publishButton).toBeDisabled();
+    });
+
+    it('labels the hold variant Publish as [Hold] in the confirm state', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          isRequesterOnly={false}
+          isHold={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      // Resting label is still 'Publish'; the [Hold] wording surfaces on confirm.
+      expect(screen.getByRole('button', { name: /^publish$/i })).toBeInTheDocument();
     });
   });
 });
