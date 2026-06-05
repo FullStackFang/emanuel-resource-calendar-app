@@ -279,3 +279,121 @@
   color: var(--text-primary);
   font-weight: var(--weight-medium);
 }
+
+/* ── Floor Plan (read-only thumbnail) ─────────────── */
+
+.mobile-detail-floorplan {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-neutral-100);
+  cursor: zoom-in;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-detail-floorplan:active {
+  opacity: 0.85;
+}
+
+.mobile-detail-floorplan-img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: var(--color-neutral-100);
+}
+
+.mobile-detail-floorplan-hint {
+  position: absolute;
+  bottom: var(--space-2);
+  right: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  pointer-events: none;
+}
+
+/* ── Floor Plan (fullscreen lightbox) ─────────────── */
+
+.mobile-detail-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 600; /* above sheet (501) + backdrop (500) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.92);
+  animation: mobile-detail-lightbox-in 0.2s ease;
+}
+
+@keyframes mobile-detail-lightbox-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mobile-detail-lightbox-close {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top));
+  right: var(--space-3);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+}
+
+.mobile-detail-lightbox-close:active {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.mobile-detail-lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-detail-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Zoomed: let the image exceed the viewport and pan via the scrolling stage.
+   Anchoring to the top-left keeps the overflow reachable (centered flex items
+   larger than their container can't be scrolled back to the start). */
+.mobile-detail-lightbox-stage.zoomed {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.mobile-detail-lightbox-stage.zoomed .mobile-detail-lightbox-img {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  cursor: zoom-out;
+}

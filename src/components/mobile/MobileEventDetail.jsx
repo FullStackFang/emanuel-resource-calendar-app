@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatHoursMinutes, formatTimeFromDateTimeString } from '../../utils/appTimeUtils';
 import useScrollLock from '../../hooks/useScrollLock';
+import useFloorPlan from '../../hooks/useFloorPlan';
+import { useAuth } from '../../context/AuthContext';
 import { STATUS_MAP, DAY_NAMES, MONTH_NAMES } from './mobileConstants';
 import './MobileEventDetail.css';
 
@@ -23,6 +25,29 @@ function formatTime(timeStr, fallbackDateTime) {
 function MobileEventDetail({ event, onClose }) {
   const isOpen = !!event;
   useScrollLock(isOpen);
+
+  const { apiToken } = useAuth();
+  const { floorPlanUrl, fileName } = useFloorPlan(event?.eventId, { apiToken, enabled: isOpen });
+
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+
+  // Reset the viewer whenever the sheet closes or switches to another event,
+  // so a recycled component never reopens onto a stale floor plan.
+  useEffect(() => {
+    setLightboxOpen(false);
+    setZoomed(false);
+  }, [event?.eventId, isOpen]);
+
+  // Escape dismisses the fullscreen viewer (keyboard / larger viewports).
+  useEffect(() => {
+    if (!lightboxOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLightboxOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightboxOpen]);
 
   if (!event) return null;
 
@@ -179,9 +204,72 @@ function MobileEventDetail({ event, onClose }) {
                 {event.eventNotes && <p className="mobile-detail-text"><strong>Event:</strong> {event.eventNotes}</p>}
               </div>
             )}
+
+            {/* Floor plan (read-only) — last field; only when a plan image exists */}
+            {floorPlanUrl && (
+              <div className="mobile-detail-field">
+                <span className="mobile-detail-label">Floor Plan</span>
+                <button
+                  type="button"
+                  className="mobile-detail-floorplan"
+                  aria-label="View floor plan full screen"
+                  onClick={() => setLightboxOpen(true)}
+                >
+                  <img
+                    className="mobile-detail-floorplan-img"
+                    src={floorPlanUrl}
+                    alt={fileName ? `Floor plan: ${fileName}` : 'Floor plan'}
+                  />
+                  <span className="mobile-detail-floorplan-hint">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M15 3h6v6" />
+                      <path d="M9 21H3v-6" />
+                      <path d="M21 3l-7 7" />
+                      <path d="M3 21l7-7" />
+                    </svg>
+                    Tap to enlarge
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Fullscreen floor-plan viewer. Tap the dark area or the close button to
+          dismiss; tap the image to toggle zoom (the stage scrolls when zoomed). */}
+      {lightboxOpen && floorPlanUrl && (
+        <div
+          className="mobile-detail-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Floor plan"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="mobile-detail-lightbox-close"
+            aria-label="Close floor plan"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <div
+            className={`mobile-detail-lightbox-stage${zoomed ? ' zoomed' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              className="mobile-detail-lightbox-img"
+              src={floorPlanUrl}
+              alt={fileName ? `Floor plan: ${fileName}` : 'Floor plan'}
+              onClick={() => setZoomed((z) => !z)}
+            />
+          </div>
+        </div>
+      )}
     </>
   );
 }
