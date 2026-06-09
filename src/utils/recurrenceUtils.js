@@ -24,15 +24,37 @@ export function transformRecurrenceForGraphAPI(recurrence, timeZone = 'Eastern S
   };
   const graphType = graphTypeMap[pattern.type] || pattern.type;
 
+  // Build the Graph API recurrence pattern. Copy explicit absolute-pattern
+  // fields (dayOfMonth/month/index), and for absoluteMonthly/absoluteYearly
+  // derive dayOfMonth (and month) from range.startDate when omitted. Graph
+  // REQUIRES dayOfMonth (1-31) for these patterns or it rejects the request with
+  // "DayOfMonth should be between 1 and 31." Mirrors backend buildGraphRecurrence.
+  const graphPattern = {
+    type: graphType,
+    interval: pattern.interval || 1,
+  };
+  if (pattern.daysOfWeek && pattern.daysOfWeek.length > 0) graphPattern.daysOfWeek = pattern.daysOfWeek;
+  if (pattern.dayOfMonth) graphPattern.dayOfMonth = pattern.dayOfMonth;
+  if (pattern.month) graphPattern.month = pattern.month;
+  if (pattern.index) graphPattern.index = pattern.index;
+  // Graph API only uses firstDayOfWeek for weekly patterns
+  if (pattern.firstDayOfWeek && pattern.type === 'weekly') graphPattern.firstDayOfWeek = pattern.firstDayOfWeek;
+
+  if (graphPattern.type === 'absoluteMonthly' || graphPattern.type === 'absoluteYearly') {
+    const sd = range.startDate;
+    if (graphPattern.dayOfMonth == null && typeof sd === 'string') {
+      const day = parseInt(sd.slice(8, 10), 10);
+      if (day >= 1 && day <= 31) graphPattern.dayOfMonth = day;
+    }
+    if (graphPattern.type === 'absoluteYearly' && graphPattern.month == null && typeof sd === 'string') {
+      const month = parseInt(sd.slice(5, 7), 10);
+      if (month >= 1 && month <= 12) graphPattern.month = month;
+    }
+  }
+
   // Build Graph API recurrence object
   const graphRecurrence = {
-    pattern: {
-      type: graphType,
-      interval: pattern.interval || 1,
-      ...(pattern.daysOfWeek && pattern.daysOfWeek.length > 0 && { daysOfWeek: pattern.daysOfWeek }),
-      // Graph API only uses firstDayOfWeek for weekly patterns
-      ...(pattern.firstDayOfWeek && pattern.type === 'weekly' && { firstDayOfWeek: pattern.firstDayOfWeek })
-    },
+    pattern: graphPattern,
     range: {
       type: range.type,
       startDate: range.startDate,

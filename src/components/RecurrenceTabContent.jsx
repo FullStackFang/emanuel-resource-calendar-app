@@ -195,6 +195,21 @@ export default function RecurrenceTabContent({
       firstDayOfWeek: 'sunday',
     };
 
+    // Monthly/yearly patterns carry an explicit dayOfMonth (and month for
+    // yearly) derived from the start date, so the stored pattern is
+    // self-describing and round-trips to the Graph API, which REQUIRES
+    // dayOfMonth for absoluteMonthly/absoluteYearly. recurrenceCompare
+    // normalizes implicit vs explicit forms, so this does not flag spurious
+    // recurrence changes on older records that omit these fields.
+    if (frequency === 'monthly' || frequency === 'yearly') {
+      const dom = parseInt(adjustedStartDate.slice(8, 10), 10);
+      if (dom >= 1 && dom <= 31) pattern.dayOfMonth = dom;
+      if (frequency === 'yearly') {
+        const mon = parseInt(adjustedStartDate.slice(5, 7), 10);
+        if (mon >= 1 && mon <= 12) pattern.month = mon;
+      }
+    }
+
     const range = {
       type: endType,
       startDate: adjustedStartDate,

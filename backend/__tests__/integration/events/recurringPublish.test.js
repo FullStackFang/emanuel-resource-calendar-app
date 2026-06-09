@@ -1885,4 +1885,44 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(unchanged.status).toBe('pending');
     });
   });
+
+  describe('RP-24: Monthly pattern missing dayOfMonth publishes (regression)', () => {
+    // Reproduces the stuck "Men's Club Board of Directors Meeting" record:
+    // a monthly pattern with NO dayOfMonth, a single-day range, and ad-hoc
+    // additions. buildGraphRecurrence must derive dayOfMonth from
+    // range.startDate, otherwise Graph rejects with "DayOfMonth should be
+    // between 1 and 31." and publish rolls back to pending (HTTP 500).
+    it('derives dayOfMonth from range.startDate and publishes successfully', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: "Men's Club Board of Directors Meeting",
+        recurrence: {
+          pattern: { type: 'monthly', interval: 1, firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-10-06', endDate: '2026-10-06' },
+          additions: ['2026-11-17', '2026-12-15', '2027-01-26', '2027-03-09', '2027-04-13', '2027-05-04'],
+          exclusions: [],
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version, createCalendarEvent: true })
+        .expect(200);
+
+      // Series master create carries a valid, derived dayOfMonth (6 = Oct 6).
+      // (Standalone creation of the addition dates is handled by the separate
+      // exception-document sync path and is intentionally not asserted here.)
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      const masterCall = createCalls[0];
+      expect(masterCall.eventData.recurrence.pattern.type).toBe('absoluteMonthly');
+      expect(masterCall.eventData.recurrence.pattern.dayOfMonth).toBe(6);
+
+      // Event is actually published, not rolled back to pending with a 500
+      const published = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(published.status).toBe('published');
+    });
+  });
 });

@@ -24,6 +24,32 @@ const setEqual = (a = [], b = []) => {
   return sa.every((v, i) => v === sb[i]);
 };
 
+// monthly/yearly patterns may store dayOfMonth/month explicitly OR omit them
+// (older records), in which case they are derived from range.startDate. Fill in
+// the implicit values before comparing so explicit and implicit forms of the
+// same schedule compare equal. A genuine day/month change always travels with a
+// startDate change, which rangeEquals catches independently.
+function normalizePattern(pattern = {}, range = {}) {
+  const type = pattern.type;
+  const isMonthly = type === 'monthly' || type === 'absoluteMonthly';
+  const isYearly = type === 'yearly' || type === 'absoluteYearly';
+  if (!isMonthly && !isYearly) return pattern;
+
+  const startDate = typeof range.startDate === 'string' ? range.startDate : null;
+  if (!startDate) return pattern;
+
+  const out = { ...pattern };
+  if (out.dayOfMonth == null) {
+    const day = parseInt(startDate.slice(8, 10), 10);
+    if (day >= 1 && day <= 31) out.dayOfMonth = day;
+  }
+  if (isYearly && out.month == null) {
+    const month = parseInt(startDate.slice(5, 7), 10);
+    if (month >= 1 && month <= 12) out.month = month;
+  }
+  return out;
+}
+
 function patternEquals(a = {}, b = {}) {
   if ((a.type || null) !== (b.type || null)) return false;
   if ((a.interval || 1) !== (b.interval || 1)) return false;
@@ -47,7 +73,10 @@ function rangeEquals(a = {}, b = {}) {
 export function recurrenceEquals(a, b) {
   if (a == null && b == null) return true;
   if (a == null || b == null) return false;
-  if (!patternEquals(a.pattern || {}, b.pattern || {})) return false;
+  if (!patternEquals(
+    normalizePattern(a.pattern || {}, a.range || {}),
+    normalizePattern(b.pattern || {}, b.range || {})
+  )) return false;
   if (!rangeEquals(a.range || {}, b.range || {})) return false;
   if (!setEqual(a.exclusions || [], b.exclusions || [])) return false;
   if (!setEqual(a.additions || [], b.additions || [])) return false;

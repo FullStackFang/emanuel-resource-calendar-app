@@ -41,6 +41,37 @@ describe('recurrenceEquals (backend)', () => {
   });
 });
 
+// dayOfMonth/month for monthly/yearly patterns is derived from range.startDate
+// when omitted (the app is migrating from implicit to explicit storage). The
+// comparator must treat an explicit value as equal to the implicit one so that
+// editing an older (no-dayOfMonth) series does not falsely flag a "recurrence
+// changed" in the edit-request workflow.
+describe('recurrenceEquals - dayOfMonth/month normalization', () => {
+  test('monthly: implicit dayOfMonth (from startDate) equals explicit dayOfMonth', () => {
+    const implicit = { pattern: { type: 'monthly', interval: 1 }, range: { type: 'endDate', startDate: '2026-09-30', endDate: '2026-09-30' } };
+    const explicit = { pattern: { type: 'monthly', interval: 1, dayOfMonth: 30 }, range: { type: 'endDate', startDate: '2026-09-30', endDate: '2026-09-30' } };
+    expect(recurrenceEquals(implicit, explicit)).toBe(true);
+  });
+
+  test('monthly: a genuinely different dayOfMonth is still not equal', () => {
+    const implicit = { pattern: { type: 'monthly', interval: 1 }, range: { type: 'noEnd', startDate: '2026-09-30' } };
+    const explicitDiff = { pattern: { type: 'monthly', interval: 1, dayOfMonth: 15 }, range: { type: 'noEnd', startDate: '2026-09-30' } };
+    expect(recurrenceEquals(implicit, explicitDiff)).toBe(false);
+  });
+
+  test('yearly: implicit month+dayOfMonth (from startDate) equals explicit', () => {
+    const implicit = { pattern: { type: 'yearly', interval: 1 }, range: { type: 'noEnd', startDate: '2026-03-15' } };
+    const explicit = { pattern: { type: 'yearly', interval: 1, month: 3, dayOfMonth: 15 }, range: { type: 'noEnd', startDate: '2026-03-15' } };
+    expect(recurrenceEquals(implicit, explicit)).toBe(true);
+  });
+
+  test('weekly: dayOfMonth is never derived (daysOfWeek still governs)', () => {
+    const a = { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] }, range: { type: 'noEnd', startDate: '2026-09-29' } };
+    const b = { pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] }, range: { type: 'noEnd', startDate: '2026-09-29' } };
+    expect(recurrenceEquals(a, b)).toBe(true);
+  });
+});
+
 describe('exclusionsRemoved', () => {
   test('returns dates that were in old but not in new', () => {
     const oldR = { exclusions: ['2026-04-22', '2026-04-25'] };

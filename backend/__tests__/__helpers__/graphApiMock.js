@@ -41,6 +41,29 @@ function generateMockGraphId() {
 }
 
 /**
+ * Validate a Graph recurrence object the way Microsoft Graph does, so tests
+ * catch malformed patterns (e.g. absoluteMonthly missing dayOfMonth) instead
+ * of getting a false success. Throws with Graph's real error messages.
+ * @param {Object|undefined} recurrence - Graph recurrence { pattern, range }
+ */
+function assertValidGraphRecurrence(recurrence) {
+  const pattern = recurrence?.pattern;
+  if (!pattern) return;
+  if (pattern.type === 'absoluteMonthly' || pattern.type === 'absoluteYearly') {
+    const day = pattern.dayOfMonth;
+    if (typeof day !== 'number' || day < 1 || day > 31) {
+      throw new Error("Your request can't be completed. DayOfMonth should be between 1 and 31.");
+    }
+  }
+  if (pattern.type === 'absoluteYearly') {
+    const month = pattern.month;
+    if (typeof month !== 'number' || month < 1 || month > 12) {
+      throw new Error("Your request can't be completed. Month should be between 1 and 12.");
+    }
+  }
+}
+
+/**
  * Mock createCalendarEvent
  * @param {string} calendarOwner - Calendar owner email
  * @param {string|null} calendarId - Calendar ID (optional)
@@ -57,6 +80,12 @@ async function createCalendarEvent(calendarOwner, calendarId, eventData) {
   if (mockResponses.createCalendarEvent) {
     return mockResponses.createCalendarEvent;
   }
+
+  // Mirror Microsoft Graph's recurrence validation so malformed patterns are
+  // caught in tests instead of silently "succeeding". absoluteMonthly/
+  // absoluteYearly REQUIRE dayOfMonth (1-31); absoluteYearly also requires
+  // month (1-12). Real Graph rejects otherwise with these exact messages.
+  assertValidGraphRecurrence(eventData?.recurrence);
 
   const graphId = generateMockGraphId();
   return {

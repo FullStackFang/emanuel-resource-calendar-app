@@ -57,6 +57,24 @@ function buildGraphRecurrence(recurrence, timeZone) {
   if (recurrence.pattern.index) {
     pattern.index = recurrence.pattern.index;
   }
+
+  // Graph's absoluteMonthly/absoluteYearly patterns REQUIRE dayOfMonth (1-31),
+  // and absoluteYearly also requires month (1-12). The app's internal recurrence
+  // format may omit these (its own date expander derives them from
+  // range.startDate), so derive them here from the range start date when absent.
+  // Without this, Graph rejects the create with "DayOfMonth should be between 1
+  // and 31." Explicit pattern values (copied above) always win over derivation.
+  if (pattern.type === 'absoluteMonthly' || pattern.type === 'absoluteYearly') {
+    const startDate = recurrence.range.startDate; // 'YYYY-MM-DD'
+    if (pattern.dayOfMonth == null && typeof startDate === 'string') {
+      const day = parseInt(startDate.slice(8, 10), 10);
+      if (day >= 1 && day <= 31) pattern.dayOfMonth = day;
+    }
+    if (pattern.type === 'absoluteYearly' && pattern.month == null && typeof startDate === 'string') {
+      const month = parseInt(startDate.slice(5, 7), 10);
+      if (month >= 1 && month <= 12) pattern.month = month;
+    }
+  }
   // Graph API only uses firstDayOfWeek for weekly patterns
   if (recurrence.pattern.firstDayOfWeek && rawType === 'weekly') {
     pattern.firstDayOfWeek = recurrence.pattern.firstDayOfWeek;

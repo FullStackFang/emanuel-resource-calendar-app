@@ -104,6 +104,18 @@ describe('RecurrenceTabContent', () => {
       expect(call.pattern.type).toBe('weekly');
     });
 
+    it('emits an explicit dayOfMonth for monthly patterns (Graph round-trip safety)', () => {
+      const { container } = render(<RecurrenceTabContent {...defaultProps} />);
+      // Switch the frequency to monthly, then create the pattern
+      fireEvent.change(container.querySelector('.recurrence-editor-frequency'), { target: { value: 'monthly' } });
+      fireEvent.click(screen.getByRole('button', { name: /create recurrence/i }));
+      const calls = defaultProps.onRecurrencePatternChange.mock.calls;
+      const built = calls[calls.length - 1][0];
+      expect(built.pattern.type).toBe('monthly');
+      // startDate is 2026-03-16, so dayOfMonth must be 16 (required by Graph absoluteMonthly)
+      expect(built.pattern.dayOfMonth).toBe(16);
+    });
+
     it('shows empty hint in right column when no pattern exists', () => {
       render(<RecurrenceTabContent {...defaultProps} />);
       expect(screen.getByText(/configure a recurrence pattern/i)).toBeInTheDocument();
