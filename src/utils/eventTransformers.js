@@ -338,6 +338,9 @@ export function transformEventToFlatStructure(event) {
     submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
     actionDate: event.roomReservationData?.reviewedAt || null,
     lastModifiedDateTime: event.lastModifiedDateTime || event.roomReservationData?.submittedAt || event.createdAt || null,
+    createdAt: event.createdAt || null,
+    reviewedByName: event.roomReservationData?.reviewedBy?.name || null,
+    reviewedAt: event.roomReservationData?.reviewedBy?.reviewedAt || null,
     changeKey: event.roomReservationData?.changeKey || event.changeKey,
 
     // Timing data with auto-calculated defaults

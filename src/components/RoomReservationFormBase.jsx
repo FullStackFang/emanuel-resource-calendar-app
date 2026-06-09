@@ -77,6 +77,15 @@ const isValidUrl = (str) => {
   } catch { return false; }
 };
 
+const formatMetaDate = (val) => {
+  if (!val) return '';
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+};
+
 /**
  * RoomReservationFormBase - Shared logic and UI for room reservation forms
  * Used by both RoomReservationForm (creation) and RoomReservationReview (editing)
@@ -2452,48 +2461,52 @@ export default function RoomReservationFormBase({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <section className="form-section">
               <h2>Submitter Information</h2>
-              <div className="form-grid">
-                <div className="form-group">
-                  <label htmlFor="requesterName">Requester Name</label>
-                  <input
-                    type="text"
-                    id="requesterName"
-                    name="requesterName"
-                    value={formData.requesterName}
-                    readOnly
-                    className="readonly-field"
-                  />
+              <div className="submitter-info-grid">
+
+                <div className="info-cell">
+                  <span className="info-cell-label">Requester</span>
+                  <span className="info-cell-value">{formData.requesterName || '—'}</span>
+                  {formData.requesterEmail && (
+                    <span className="info-cell-sub">{formData.requesterEmail}</span>
+                  )}
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="requesterEmail">Requester Email</label>
-                  <input
-                    type="email"
-                    id="requesterEmail"
-                    name="requesterEmail"
-                    value={formData.requesterEmail}
-                    readOnly
-                    className="readonly-field"
-                  />
-                </div>
-              </div>
-
-              {formData.isOnBehalfOf && formData.contactName && (
-                <div className="form-grid" style={{ marginTop: '15px' }}>
-                  <div className="form-group">
-                    <label>Contact Person</label>
-                    <input
-                      type="text"
-                      value={`${formData.contactName} (${formData.contactEmail})`}
-                      readOnly
-                      className="readonly-field"
-                    />
-                    <div className="delegation-info" style={{ marginTop: '8px' }}>
-                      📋 This request was submitted on behalf of this person
-                    </div>
+                {formData.isOnBehalfOf && formData.contactName && (
+                  <div className="info-cell">
+                    <span className="info-cell-label">On behalf of</span>
+                    <span className="info-cell-value">{formData.contactName}</span>
+                    {formData.contactEmail && (
+                      <span className="info-cell-sub">{formData.contactEmail}</span>
+                    )}
+                    <span className="info-cell-badge">📋 Submitted on their behalf</span>
                   </div>
-                </div>
-              )}
+                )}
+
+                {(formData.submittedAt || formData.createdAt) && (
+                  <div className="info-cell">
+                    <span className="info-cell-label">Submitted</span>
+                    <span className="info-cell-value">{formatMetaDate(formData.submittedAt || formData.createdAt)}</span>
+                  </div>
+                )}
+
+                {formData.reviewedByName && (
+                  <div className="info-cell">
+                    <span className="info-cell-label">Approved by</span>
+                    <span className="info-cell-value">{formData.reviewedByName}</span>
+                    {formData.reviewedAt && (
+                      <span className="info-cell-sub">{formatMetaDate(formData.reviewedAt)}</span>
+                    )}
+                  </div>
+                )}
+
+                {formData.lastModifiedDateTime && (
+                  <div className="info-cell">
+                    <span className="info-cell-label">Last updated</span>
+                    <span className="info-cell-value">{formatMetaDate(formData.lastModifiedDateTime)}</span>
+                  </div>
+                )}
+
+              </div>
             </section>
 
             <section className="form-section">
