@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Calendar Marker Rendering — Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* App tokens (lifted from design-tokens.css) */
+    --primary-500: #3b6eb8;
+    --primary-600: #2d5a9e;
+    --primary-700: #1e4785;
+    --primary-800: #1a3a6b;
+    --accent-300: #fde047;
+    --accent-400: #facc15;
+    --accent-500: #eab308;
+    --accent-600: #ca8a04;
+    --accent-700: #a16207;
+    --accent-800: #854d0e;
+    --accent-900: #713f12;
+    --error-100: #fee2e2;
+    --error-300: #fca5a5;
+    --error-400: #f87171;
+    --error-500: #dc2626;
+    --error-600: #b91c1c;
+    --error-700: #991b1b;
+    --neutral-0: #ffffff;
+    --neutral-100: #f5f5f4;
+    --neutral-200: #e7e5e4;
+    --neutral-500: #78716c;
+    --neutral-600: #57534e;
+    --neutral-700: #44403c;
+    --neutral-900: #1c1917;
+
+    /* The two real surfaces a marker lands on */
+    --header-bg: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
+    --cell-bg: var(--neutral-0);
+
+    --font-display: "Fraunces", Georgia, serif;
+    --font-ui: "Archivo", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-ui);
+    color: var(--neutral-900);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #eef4ff 0%, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #fefce8 0%, transparent 55%),
+      #fbfaf8;
+    line-height: 1.5;
+    padding: 48px clamp(20px, 5vw, 80px) 96px;
+  }
+
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  header.intro { margin-bottom: 56px; max-width: 760px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--primary-600); margin-bottom: 14px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 900; font-size: clamp(34px, 5vw, 56px);
+    line-height: 1.02; letter-spacing: -0.02em; margin-bottom: 18px;
+    color: var(--primary-800);
+  }
+  h1 em { font-style: italic; color: var(--accent-700); }
+  .lede { font-size: 17px; color: var(--neutral-700); }
+  .lede code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px;
+    background: var(--neutral-100); border: 1px solid var(--neutral-200);
+    padding: 1px 6px; border-radius: 5px; color: var(--error-600);
+  }
+
+  /* ---- Section scaffolding ---- */
+  .section { margin-bottom: 72px; }
+  .section-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+  .section-num {
+    font-family: var(--font-display); font-weight: 900; font-size: 26px;
+    color: var(--accent-500); font-style: italic;
+  }
+  .section h2 {
+    font-family: var(--font-display); font-size: 28px; font-weight: 600;
+    letter-spacing: -0.01em; color: var(--primary-800);
+  }
+  .section .note { margin: 4px 0 26px 40px; color: var(--neutral-600); max-width: 720px; font-size: 15px; }
+  .verdict {
+    display: inline-flex; align-items: center; gap: 7px; margin-left: 10px;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 999px; vertical-align: middle;
+  }
+  .verdict.best { background: #052e1a; color: #6ee7b7; }
+  .verdict.good { background: #0c3a5e; color: #7dd3fc; }
+  .verdict.weak { background: #4a1d1d; color: #fca5a5; }
+  .verdict.broken { background: #4a1d1d; color: #fda4af; }
+
+  /* ---- Side-by-side surface comparison ---- */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
+
+  .surface {
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(20,30,60,.06), 0 14px 40px -22px rgba(20,30,60,.4);
+    border: 1px solid var(--neutral-200);
+  }
+  .surface-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--neutral-500); padding: 10px 14px 0;
+  }
+
+  /* Month day cell (white) */
+  .cell {
+    background: var(--cell-bg); padding: 10px; min-height: 132px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .cell .daynum { font-weight: 700; font-size: 15px; color: var(--neutral-700); align-self: flex-end; }
+  .cell .evt {
+    font-size: 11px; padding: 3px 7px; border-radius: 5px; font-weight: 600;
+    background: #eef4ff; color: var(--primary-700); border-left: 3px solid var(--primary-500);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* Week/Day header (dark sapphire) */
+  .dayhdr {
+    background: var(--header-bg); padding: 12px 10px 14px; min-height: 132px;
+    display: flex; flex-direction: column; align-items: center; gap: 9px; color: #fff;
+  }
+  .dayhdr .dow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #bcd2f5; }
+  .dayhdr .dnum { font-family: var(--font-display); font-size: 30px; font-weight: 600; line-height: 1; }
+
+  .markers { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+  .markers.center { align-items: center; }
+
+  /* =========================================================
+     OPTION 0 — CURRENT (broken)
+     ========================================================= */
+  .m-wash-holiday { background: rgba(234,179,8,.16); color: var(--accent-700); }
+  .m-wash-closed  { background: rgba(220,38,38,.13); color: var(--error-700); }
+  .m-wash-holiday, .m-wash-closed {
+    font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+    padding: 1px 4px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-radius: 3px; text-align: center;
+  }
+
+  /* =========================================================
+     OPTION A — Opaque chip (bright fill, contrast text)
+     ========================================================= */
+  .chip {
+    font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 8px; line-height: 1.25; border-radius: 999px; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18);
+  }
+  .chip-holiday { background: var(--accent-300); color: var(--accent-900); }
+  .chip-closed  { background: var(--error-500);  color: #fff; }
+
+  /* =========================================================
+     OPTION B — Spine + opaque tag (flag with colored bar)
+     ========================================================= */
+  .flag {
+    display: flex; align-items: stretch; border-radius: 5px; overflow: hidden;
+    background: rgba(255,255,255,.92); box-shadow: 0 1px 2px rgba(0,0,0,.15);
+  }
+  .flag .bar { width: 4px; flex-shrink: 0; }
+  .flag .txt {
+    font-size: 10px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase;
+    padding: 3px 7px; line-height: 1.3; color: var(--neutral-900);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .flag-holiday .bar { background: var(--accent-500); }
+  .flag-closed  .bar { background: var(--error-500); }
+  .flag-holiday .txt::before,
+  .flag-closed  .txt::before { margin-right: 5px; }
+  .flag-holiday .txt { color: var(--accent-800); }
+  .flag-closed  .txt { color: var(--error-600); }
+
+  /* =========================================================
+     OPTION C — Dot + currentColor label (theme-adaptive)
+     ========================================================= */
+  .dotline {
+    display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .03em; text-transform: uppercase; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    /* color inherited from surface: dark on cell, white on header */
+  }
+  .cell .dotline { color: var(--neutral-700); }
+  .dayhdr .dotline { color: #fff; }
+  .dotline { gap: 6px; }
+  .dotline .dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; box-shadow: 0 0 0 1.5px rgba(255,255,255,.35); }
+  /* Shipped values: canonical -500 semantic tokens. */
+  .dot-holiday { background: var(--accent-500); }
+  .dot-closed  { background: var(--error-500); }
+
+  /* =========================================================
+     OPTION D — Top rule + caption (full-width flag bar)
+     ========================================================= */
+  .rule { width: 100%; }
+  .rule .bar { height: 4px; width: 100%; border-radius: 2px; }
+  .rule .cap {
+    margin-top: 3px; font-size: 10px; font-weight: 800; letter-spacing: .04em;
+    text-transform: uppercase; text-align: center; line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cell .rule .cap { color: var(--neutral-700); }
+  .dayhdr .rule .cap { color: #eaf1fc; }
+  .rule-holiday .bar { background: var(--accent-500); }
+  .rule-closed  .bar { background: var(--error-500); }
+
+  /* =========================================================
+     OPTION E — Soft adaptive: translucent over white film
+     (wash that carries its own light backing so it survives dark bg)
+     ========================================================= */
+  .soft {
+    font-size: 10px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase;
+    padding: 3px 8px; line-height: 1.25; border-radius: 6px; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border: 1px solid;
+    backdrop-filter: saturate(1.2);
+  }
+  .soft-holiday { background: #fef6d6; color: var(--accent-800); border-color: var(--accent-400); }
+  .soft-closed  { background: #fde2e2; color: var(--error-600); border-color: var(--error-300); }
+
+  /* legend dots in section notes */
+  .scenario-tag {
+    display: inline-block; font-size: 11px; font-weight: 700; color: var(--neutral-500);
+    text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px 14px;
+  }
+
+  footer { margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--neutral-200); color: var(--neutral-500); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="intro">
+    <div class="eyebrow">Temple Emanuel · Calendar Markers</div>
+    <h1>Making holidays &amp; closures <em>visible</em> on every surface</h1>
+    <p class="lede">
+      The current ribbon uses a 13–16% color wash with <code>-700</code> dark text. That works on a
+      white month cell — but the Week/Day header is a dark sapphire gradient, where both the wash and the
+      dark text vanish. Each option below is rendered on <strong>both</strong> surfaces, with the
+      multi-marker cases at the end.
+    </p>
+  </header>
+
+  <!-- ============ CURRENT / BROKEN ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">0</span>
+      <h2>Current behavior <span class="verdict broken">Broken on dark</span></h2>
+    </div>
+    <p class="note">Reference. The closure chip is effectively invisible on the sapphire header — this is the bug.</p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="m-wash-holiday">Sukkot</div>
+            <div class="m-wash-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="m-wash-holiday">Sukkot</div>
+            <div class="m-wash-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION A ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">A</span>
+      <h2>Opaque chips <span class="verdict best">Recommended</span></h2>
+    </div>
+    <p class="note">
+      Drop the transparency entirely. A solid bright-gold pill (dark text) for holidays, a solid red pill
+      (white text) for closures. Opaque fills are background-independent, so they read identically on white
+      and sapphire. Both pass WCAG AA. Most robust, slightly louder.
+    </p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="chip chip-holiday">Sukkot</div>
+            <div class="chip chip-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="chip chip-holiday">Sukkot</div>
+            <div class="chip chip-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION B ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">B</span>
+      <h2>Color spine + white tag <span class="verdict good">Strong</span></h2>
+    </div>
+    <p class="note">
+      A small label tag sits on its own near-white backing, with a colored spine bar carrying the meaning.
+      The white backing means the colored text always has contrast, even on the dark header. Reads like a
+      tidy file tab; quieter than full chips.
+    </p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="flag flag-holiday"><span class="bar"></span><span class="txt">Sukkot</span></div>
+            <div class="flag flag-closed"><span class="bar"></span><span class="txt">Office Closed</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="flag flag-holiday"><span class="bar"></span><span class="txt">Sukkot</span></div>
+            <div class="flag flag-closed"><span class="bar"></span><span class="txt">Office Closed</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION C ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">C</span>
+      <h2>Dot + adaptive label <span class="verdict good">Cleanest</span></h2>
+    </div>
+    <p class="note">
+      The label uses <code>currentColor</code> — dark on the white cell, white on the sapphire header — so
+      contrast is automatic. A colored dot carries the holiday/closure distinction. The lightest-touch,
+      most "calendar-native" look; the trade-off is the type/color signal is subtler.
+    </p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="dotline"><span class="dot dot-holiday"></span>Sukkot</div>
+            <div class="dotline"><span class="dot dot-closed"></span>Office Closed</div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="dotline"><span class="dot dot-holiday"></span>Sukkot</div>
+            <div class="dotline"><span class="dot dot-closed"></span>Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION D ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">D</span>
+      <h2>Top rule + caption <span class="verdict good">Editorial</span></h2>
+    </div>
+    <p class="note">
+      A full-width solid color bar flags the day, with the name captioned beneath in adaptive text.
+      The bar is opaque so the color survives any background; the caption inherits contrast. Feels like a
+      banner across the top of the day.
+    </p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="rule rule-holiday"><div class="bar"></div><div class="cap">Sukkot</div></div>
+            <div class="rule rule-closed"><div class="bar"></div><div class="cap">Office Closed</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="rule rule-holiday"><div class="bar"></div><div class="cap">Sukkot</div></div>
+            <div class="rule rule-closed"><div class="bar"></div><div class="cap">Office Closed</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION E ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">E</span>
+      <h2>Solid-tint with border <span class="verdict weak">Minimal change</span></h2>
+    </div>
+    <p class="note">
+      Keeps the soft pastel look of today but swaps the transparent wash for a <em>solid</em> light tint
+      plus a 1px colored border. Closest to the current aesthetic while staying legible on dark — but the
+      pale fill still looks a little out of place floating on the sapphire header.
+    </p>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">14</span>
+          <div class="markers">
+            <div class="soft soft-holiday">Sukkot</div>
+            <div class="soft soft-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Wed</span><span class="dnum">14</span>
+          <div class="markers center">
+            <div class="soft soft-holiday">Sukkot</div>
+            <div class="soft soft-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MULTI-MARKER SCENARIOS ============ -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-num">★</span>
+      <h2>Multiple markers on one day</h2>
+    </div>
+    <p class="note">
+      How each leading option stacks when a day has two holidays, or a holiday <em>and</em> a closure.
+      Shown on the harder (dark) surface. Order is deterministic: closures last so the actionable
+      "we're closed" signal reads at the bottom edge nearest the events.
+    </p>
+
+    <div class="scenario-tag">Scenario 1 — Two holidays + a closure (Option A · chips)</div>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">2</span>
+          <div class="markers">
+            <div class="chip chip-holiday">Rosh Hashanah</div>
+            <div class="chip chip-holiday">Tashlich</div>
+            <div class="chip chip-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Mon</span><span class="dnum">2</span>
+          <div class="markers center">
+            <div class="chip chip-holiday">Rosh Hashanah</div>
+            <div class="chip chip-holiday">Tashlich</div>
+            <div class="chip chip-closed">Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scenario-tag" style="margin-top:26px;">Scenario 2 — Holiday + closure (Option C · dot + label)</div>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">2</span>
+          <div class="markers">
+            <div class="dotline"><span class="dot dot-holiday"></span>Rosh Hashanah</div>
+            <div class="dotline"><span class="dot dot-closed"></span>Office Closed</div>
+          </div>
+          <div class="evt">10:00 Morning Service</div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Mon</span><span class="dnum">2</span>
+          <div class="markers center">
+            <div class="dotline"><span class="dot dot-holiday"></span>Rosh Hashanah</div>
+            <div class="dotline"><span class="dot dot-closed"></span>Office Closed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scenario-tag" style="margin-top:26px;">Scenario 3 — Holiday + closure (Option B · spine tags)</div>
+    <div class="compare">
+      <div class="surface">
+        <div class="surface-label">Month cell · white</div>
+        <div class="cell">
+          <span class="daynum">2</span>
+          <div class="markers">
+            <div class="flag flag-holiday"><span class="bar"></span><span class="txt">Rosh Hashanah</span></div>
+            <div class="flag flag-closed"><span class="bar"></span><span class="txt">Office Closed</span></div>
+          </div>
+          <div class="evt">10:00 Morning Service</div>
+        </div>
+      </div>
+      <div class="surface">
+        <div class="surface-label">Week / Day header · sapphire</div>
+        <div class="dayhdr">
+          <span class="dow">Mon</span><span class="dnum">2</span>
+          <div class="markers center">
+            <div class="flag flag-holiday"><span class="bar"></span><span class="txt">Rosh Hashanah</span></div>
+            <div class="flag flag-closed"><span class="bar"></span><span class="txt">Office Closed</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Rendered with the app's real design tokens (sapphire <code style="color:inherit">#3b6eb8→#2d5a9e</code>,
+    gold <code style="color:inherit">#eab308</code>, error <code style="color:inherit">#dc2626</code>).
+    Mockup only — no app code changed.
+  </footer>
+
+</div>
+</body>
+</html>

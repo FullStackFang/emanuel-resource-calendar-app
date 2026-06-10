@@ -216,6 +216,15 @@ export default function Navigation() {
                 </li>
                 <li>
                   <NavLink
+                    to="/admin/calendar-markers"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Holidays &amp; Closures
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
                     to="/admin/departments"
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}

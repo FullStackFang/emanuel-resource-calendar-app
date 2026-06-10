@@ -171,6 +171,9 @@
   opacity: 1;
 }
 
+/* Calendar marker ribbon styles live in shared/CalendarMarkerRibbon.css so the
+   Week/Day views (which don't load MonthView.css) get them too. */
+
 /* ==========================================================================
    CURRENT DAY HIGHLIGHTING
    ========================================================================== */

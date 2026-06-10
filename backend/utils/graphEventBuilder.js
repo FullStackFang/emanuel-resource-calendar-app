@@ -98,8 +98,57 @@ function buildGraphEventDataFromRecord(event) {
   return graphEventData;
 }
 
+/**
+ * Add one day to a YYYY-MM-DD date string using UTC arithmetic.
+ *
+ * Used to compute Graph's EXCLUSIVE all-day end (midnight of the day after the
+ * marker's last day). UTC math — not local `new Date(y,m,d)` — is mandatory so
+ * a DST transition cannot shift the result off the midnight date line and
+ * re-trip Graph's "end must be midnight" validation.
+ *
+ * @param {string} dateStr - inclusive YYYY-MM-DD date
+ * @returns {string} the next day as YYYY-MM-DD
+ */
+function addOneUtcDay(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Build an all-day Microsoft Graph event payload from a calendar marker.
+ *
+ * Markers are flat (type, name, note, startDate, endDate) and all-day, so this
+ * is a SEPARATE builder from buildGraphEventDataFromRecord() (which reads
+ * calendarData and emits a timed start/end). Emits:
+ *   - isAllDay: true
+ *   - start.dateTime = startDate (bare YYYY-MM-DD)
+ *   - end.dateTime   = endDate + 1 day (exclusive, UTC date math)
+ *   - NO timeZone on start/end — Graph rejects all-day events that carry one
+ *   - showAs: 'oof' for officeClosed, 'free' for holiday
+ *   - subject from name, body from note
+ *
+ * @param {Object} marker - { type, name, note, startDate, endDate }
+ * @returns {Object} Graph event payload
+ */
+function buildGraphMarkerEventData(marker) {
+  const { type, name, note, startDate, endDate } = marker;
+  return {
+    subject: name || 'Untitled',
+    isAllDay: true,
+    start: { dateTime: startDate },
+    end: { dateTime: addOneUtcDay(endDate) },
+    body: { contentType: 'Text', content: note || '' },
+    showAs: type === 'officeClosed' ? 'oof' : 'free',
+    importance: 'normal',
+    categories: [],
+  };
+}
+
 module.exports = {
   buildGraphSubject,
   buildOffsiteGraphLocation,
   buildGraphEventDataFromRecord,
+  buildGraphMarkerEventData,
+  addOneUtcDay,
 };

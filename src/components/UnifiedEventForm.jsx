@@ -11,6 +11,7 @@ import UnifiedFormLayout from './UnifiedFormLayout';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import ReservationAuditHistory from './ReservationAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
+import ReservationMarkerAdvisory from './shared/ReservationMarkerAdvisory';
 import './RoomReservationForm.css';
 
 /**
@@ -74,6 +75,9 @@ export default function UnifiedEventForm({
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
   const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
   const [initialData, setInitialData] = useState({});
+  // Selected booking date, tracked reactively (own state, not via the
+  // hasChanges bailout) so the marker advisory updates as the user changes it.
+  const [advisoryDate, setAdvisoryDate] = useState('');
 
   // Refs to access base component's state
   const formDataRef = useRef(null);
@@ -629,10 +633,19 @@ export default function UnifiedEventForm({
         </div>
       )}
 
+      {/* Soft, non-blocking advisory when the selected date carries a
+          warnOnReservation marker. Never blocks submission. */}
+      <ReservationMarkerAdvisory apiToken={apiToken} date={advisoryDate} />
+
       <RoomReservationFormBase
         initialData={initialData}
         onDataChange={(updatedData) => {
           setHasChanges(true);
+          // Track the selected date for the marker advisory (reactive on every
+          // change — does not rely on the hasChanges setState, which bails out).
+          if (updatedData && updatedData.startDate !== undefined) {
+            setAdvisoryDate(updatedData.startDate);
+          }
           // Forward form data to parent for draft tracking
           if (onDataChange) {
             onDataChange(updatedData);

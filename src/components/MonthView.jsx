@@ -4,6 +4,8 @@ import { useTimezone } from '../context/TimezoneContext';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { getEventPosition } from '../utils/calendarEventUtils';
 import { useStuckHeader } from '../hooks/useStuckHeader';
+import { getMarkersForDate } from '../utils/calendarMarkers';
+import { MarkerRibbonStack } from './shared/CalendarMarkerRibbon';
 import './MonthView.css';
 
 const MAX_VISIBLE_EVENTS = 3;
@@ -50,7 +52,9 @@ const MonthView = memo(({
   canAddEvent,
   // Lifted state from Calendar.jsx
   selectedDay,
-  onDaySelect
+  onDaySelect,
+  // Map of YYYY-MM-DD → active markers covering that day (holiday / closures)
+  markersByDate
 }) => {
   const [overflowPopup, setOverflowPopup] = useState(null);
 
@@ -129,6 +133,7 @@ const MonthView = memo(({
                   day.date.getMonth() === selectedDay.getMonth() &&
                   day.date.getDate() === selectedDay.getDate();
                 const isTodayDate = isToday(day.date);
+                const dayMarkers = getMarkersForDate(markersByDate, day.date);
                 const dayFilteredEvents = getDayFilteredEvents(day);
                 const sorted = sortEventsByStartTime(dayFilteredEvents);
                 const visible = sorted.slice(0, MAX_VISIBLE_EVENTS);
@@ -140,6 +145,9 @@ const MonthView = memo(({
                     className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''} ${isTodayDate ? 'current-day' : ''}`}
                     onClick={() => handleDayClick(day)}
                   >
+                    {/* Marker ribbon(s) — first child so they sit above the date
+                        and push the date/events down (no absolute positioning) */}
+                    <MarkerRibbonStack markers={dayMarkers} />
                     <div className="day-cell-header">
                       <div className={`day-number ${isTodayDate ? 'today-number' : ''}`}>{day.date.getDate()}</div>
                     </div>

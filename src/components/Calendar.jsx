@@ -70,6 +70,8 @@ import ConflictDialog from './shared/ConflictDialog';
   import { usePermissions } from '../hooks/usePermissions';
   import { useQueryClient } from '@tanstack/react-query';
   import { useBaseCategoriesQuery, useOutlookCategoriesQuery, OUTLOOK_CATEGORIES_QUERY_KEY } from '../hooks/useCategoriesQuery';
+  import { useCalendarMarkersQuery } from '../hooks/useCalendarMarkersQuery';
+  import { buildMarkersByDate } from '../utils/calendarMarkers';
   import {
     TimezoneSelector,
     formatEventTime,
@@ -208,6 +210,11 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Combined categories loading state
     const categoriesLoading = baseCategoriesLoading || outlookCategoriesLoading;
+
+    // Calendar markers (holiday / office-closed ribbons). One shared fetch feeds
+    // all three views; derive a YYYY-MM-DD → markers map for O(1) per-cell lookup.
+    const { data: calendarMarkers = [] } = useCalendarMarkersQuery(apiToken);
+    const markersByDate = useMemo(() => buildMarkersByDate(calendarMarkers), [calendarMarkers]);
 
     // Track last summary time to prevent duplicate summaries
     const lastSummaryTimeRef = useRef(0);
@@ -5402,6 +5409,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           canAddEvent={canAddEvent}
                           selectedDay={selectedMonthDay}
                           onDaySelect={setSelectedMonthDay}
+                          markersByDate={markersByDate}
                         />
                       </div>
                     </div>
@@ -5460,6 +5468,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           onToggleFavorite={handleToggleGridFavorite}
                           onReorderFavorites={handleReorderGridFavorites}
                           hideEmptyGroups={hideEmptyGroups}
+                          markersByDate={markersByDate}
                         />
                       ) : (
                         <DayView
@@ -5496,6 +5505,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           onToggleFavorite={handleToggleGridFavorite}
                           onReorderFavorites={handleReorderGridFavorites}
                           hideEmptyGroups={hideEmptyGroups}
+                          markersByDate={markersByDate}
                         />
                       )}
                     </div>

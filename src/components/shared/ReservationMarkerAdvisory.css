@@ -1,0 +1,56 @@
+/* Soft, non-blocking reservation advisory for warnOnReservation marker days. */
+
+.reservation-marker-advisory {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px;
+}
+
+.reservation-marker-advisory-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: var(--text-sm, 0.875rem);
+  border: 1px solid;
+}
+
+/* Holiday and closure share a calm, informational tone — this is not an error. */
+.rma--holiday {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.4);
+  color: var(--color-accent-700);
+}
+
+.rma--officeClosed {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: var(--color-error-700);
+}
+
+.rma-icon {
+  font-size: 1.1em;
+  flex-shrink: 0;
+}
+
+.rma-text {
+  flex: 1;
+}
+
+.rma-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0 4px;
+}
+
+.rma-dismiss:hover {
+  opacity: 1;
+}

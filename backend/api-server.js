@@ -35,7 +35,7 @@ const { buildEventDateRangeOverlapFilter } = require('./utils/eventDateRangeFilt
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
-const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
+const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
 const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
@@ -454,6 +454,7 @@ let eventAttachmentsCollection; // Event-file relationship tracking
 let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 let editRequestsCollection; // First-class change requests against published events
+let calendarMarkersCollection; // Holiday / office-closed day markers (separate from events)
 let rschedImportStagingCollection; // Staging rows for admin-driven rsched CSV imports
 let rschedRecurrenceCandidatesCollection; // Detected recurring-series candidates per session
 
@@ -478,6 +479,7 @@ function setDatabase(injectedDb) {
   reservationAttachmentsCollection = injectedDb.collection('templeEvents__ReservationAttachments');
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
   editRequestsCollection = injectedDb.collection('templeEvents__EditRequests');
+  calendarMarkersCollection = injectedDb.collection('templeEvents__CalendarMarkers');
   rschedImportStagingCollection = injectedDb.collection(rschedImportService.STAGING_COLLECTION);
   rschedRecurrenceCandidatesCollection = injectedDb.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION);
   filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
@@ -511,6 +513,33 @@ async function getCachedCategories() {
 function invalidateCategoryCache() {
   _categoryCache = null;
   _categoryCacheExpiry = 0;
+}
+
+// --- In-memory calendar-marker cache (small, admin-managed collection) ---
+// Mirrors the category cache: markers are few and rarely change, but the read
+// API is hit on every calendar window load. Cache the full active set and let
+// the endpoint apply the date-range overlap filter in memory. Invalidated on
+// any marker CRUD write.
+let _markersCache = null;
+let _markersCacheExpiry = 0;
+const MARKERS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedCalendarMarkers() {
+  const now = Date.now();
+  if (_markersCache && now < _markersCacheExpiry) {
+    return _markersCache;
+  }
+  const docs = await withCosmosRetry(() =>
+    calendarMarkersCollection.find({ active: true }).sort({ startDate: 1 }).toArray()
+  );
+  _markersCache = docs;
+  _markersCacheExpiry = now + MARKERS_CACHE_TTL;
+  return _markersCache;
+}
+
+function invalidateCalendarMarkersCache() {
+  _markersCache = null;
+  _markersCacheExpiry = 0;
 }
 
 const { buildNormalizedCategoryMap, resolveCategoryIds: _resolveCategoryIds } = require('./utils/categoryResolver');
@@ -989,6 +1018,27 @@ async function createCategoriesIndexes() {
     logger.log('Categories indexes created successfully');
   } catch (error) {
     logger.error('Error creating categories indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the calendar markers collection.
+ * The marker read API filters active markers by date-range overlap
+ * (startDate <= windowEnd && endDate >= windowStart && active), so a compound
+ * index on { startDate, endDate, active } covers the hot query.
+ */
+async function createCalendarMarkersIndexes() {
+  try {
+    logger.log('Creating calendar markers indexes...');
+
+    await calendarMarkersCollection.createIndex(
+      { startDate: 1, endDate: 1, active: 1 },
+      { name: 'marker_range_active', background: true }
+    );
+
+    logger.log('Calendar markers indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating calendar markers indexes:', error);
   }
 }
 
@@ -3280,6 +3330,7 @@ async function connectToDatabase() {
     reservationAttachmentsCollection = withRetryCollection(db.collection('templeEvents__ReservationAttachments'));
     systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
     editRequestsCollection = withRetryCollection(db.collection('templeEvents__EditRequests'));
+    calendarMarkersCollection = withRetryCollection(db.collection('templeEvents__CalendarMarkers'));
     rschedImportStagingCollection = withRetryCollection(db.collection(rschedImportService.STAGING_COLLECTION));
     rschedRecurrenceCandidatesCollection = withRetryCollection(db.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION));
 
@@ -3315,6 +3366,7 @@ async function connectToDatabase() {
       createEventServiceTypesIndexes(),
       createFeatureCategoriesIndexes(),
       createCategoriesIndexes(),
+      createCalendarMarkersIndexes(),
       createDepartmentsIndexes(),
       createRoleTypesIndexes(),
       createEditRequestsIndexes()
@@ -19388,6 +19440,346 @@ app.post('/api/admin/categories/resequence', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error resequencing categories:', error);
     res.status(500).json({ error: 'Failed to resequence categories' });
+  }
+});
+
+// ============================================================================
+// CALENDAR MARKER ENDPOINTS (Holidays & Office Closures)
+// ============================================================================
+//
+// Markers are day-level annotations (holiday / office-closed) stored in a
+// dedicated templeEvents__CalendarMarkers collection — deliberately separate
+// from events so they never leak into event queries, the approval queue,
+// counts, search, conflict detection, or export. Admin-only CRUD; reads are
+// served from getCachedCalendarMarkers() with a date-range overlap filter.
+//
+// Markers intentionally OPT OUT of optimistic concurrency control (no _version
+// / conditionalUpdate): they are admin-only config with no requester/approver
+// race surface — the same profile as templeEvents__Categories. This is the
+// documented exception to CLAUDE.md's "every write endpoint uses OCC" rule.
+// See openspec/changes/add-calendar-markers/design.md, Decision 9.
+
+const MARKER_TYPES = ['holiday', 'officeClosed'];
+
+/**
+ * Validate a date-only YYYY-MM-DD string, rejecting impossible calendar dates
+ * (e.g. 2026-02-31) by round-tripping through UTC.
+ */
+function isValidMarkerDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === s;
+}
+
+/**
+ * Validate marker input. Returns { valid, error }.
+ * type ∈ {holiday, officeClosed}; non-empty name; valid YYYY-MM-DD dates;
+ * endDate on or after startDate (lexical compare is correct for zero-padded ISO).
+ */
+function validateCalendarMarkerInput({ type, name, startDate, endDate }) {
+  if (!MARKER_TYPES.includes(type)) {
+    return { valid: false, error: "type must be 'holiday' or 'officeClosed'" };
+  }
+  if (typeof name !== 'string' || !name.trim()) {
+    return { valid: false, error: 'name is required' };
+  }
+  if (!isValidMarkerDate(startDate)) {
+    return { valid: false, error: 'startDate must be a valid YYYY-MM-DD date' };
+  }
+  if (!isValidMarkerDate(endDate)) {
+    return { valid: false, error: 'endDate must be a valid YYYY-MM-DD date' };
+  }
+  if (endDate < startDate) {
+    return { valid: false, error: 'endDate must be on or after startDate' };
+  }
+  return { valid: true };
+}
+
+/**
+ * Admin gate shared by the marker write endpoints. Resolves the request user
+ * and returns it when admin; otherwise sends 403 and returns null.
+ */
+async function requireMarkerAdmin(req, res) {
+  const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+  if (!isAdmin(user, req.user.email)) {
+    res.status(403).json({ error: 'Admin access required' });
+    return null;
+  }
+  return user;
+}
+
+/**
+ * Reconcile a marker's Outlook (Graph) state after a create or update, per the
+ * design.md "Marker → Graph state matrix". Markers always target the main
+ * TempleEvents calendar (the configured default calendar owner).
+ *
+ *   pushToOutlook  graphData.id?   action
+ *   true           no              create event, store graphData (full-object $set)
+ *   true           yes             patch event
+ *   false          yes             delete event, clear graphData
+ *   false          no              none
+ *
+ * Failure-isolated: the marker write has already persisted; a Graph error is
+ * logged and surfaced via `graphSyncError` on the returned object, never thrown.
+ *
+ * @param {Object} marker - the persisted marker document (with _id)
+ * @returns {Promise<Object>} the marker, possibly with refreshed graphData
+ */
+async function syncMarkerToGraph(marker, { reason } = {}) {
+  try {
+    const wantsPush = !!marker.pushToOutlook;
+    const hasGraphId = !!(marker.graphData && marker.graphData.id);
+
+    if (wantsPush && !hasGraphId) {
+      // Create (covers create-with-push and the stage → activate update path).
+      const calendarOwner = await getDefaultCalendarOwner();
+      const calendarId = null;
+      const created = await graphApiService.createCalendarEvent(
+        calendarOwner,
+        calendarId,
+        buildGraphMarkerEventData(marker)
+      );
+      const graphData = {
+        id: created.id,
+        iCalUId: created.iCalUId || null,
+        calendarOwner,
+        calendarId,
+      };
+      // Full-object $set (the graphData:null parent from create makes this land).
+      await withCosmosRetry(() =>
+        calendarMarkersCollection.updateOne({ _id: marker._id }, { $set: { graphData } })
+      );
+      invalidateCalendarMarkersCache();
+      return { ...marker, graphData };
+    }
+
+    if (wantsPush && hasGraphId) {
+      // Patch the linked Graph event to match the marker.
+      const calendarOwner = marker.graphData.calendarOwner || (await getDefaultCalendarOwner());
+      const calendarId = marker.graphData.calendarId || null;
+      await graphApiService.updateCalendarEvent(
+        calendarOwner,
+        calendarId,
+        marker.graphData.id,
+        buildGraphMarkerEventData(marker)
+      );
+      return marker;
+    }
+
+    if (!wantsPush && hasGraphId) {
+      // Un-pushed: delete the Graph event and clear linkage.
+      const calendarOwner = marker.graphData.calendarOwner || (await getDefaultCalendarOwner());
+      const calendarId = marker.graphData.calendarId || null;
+      await graphApiService.deleteCalendarEvent(calendarOwner, calendarId, marker.graphData.id);
+      await withCosmosRetry(() =>
+        calendarMarkersCollection.updateOne({ _id: marker._id }, { $set: { graphData: null } })
+      );
+      invalidateCalendarMarkersCache();
+      return { ...marker, graphData: null };
+    }
+
+    // !wantsPush && !hasGraphId → nothing to sync (staged marker).
+    return marker;
+  } catch (error) {
+    logger.error('Calendar marker Graph sync failed (marker write preserved):', {
+      reason,
+      markerId: marker && marker._id,
+      error: error.message,
+    });
+    return { ...marker, graphSyncError: error.message };
+  }
+}
+
+/**
+ * Delete a marker's linked Graph event on soft-delete. Failure-isolated: a
+ * failed delete leaves graphData.id in place as a needs-cleanup signal (the
+ * marker is already soft-deleted) and is reconciled on the next edit.
+ *
+ * @param {Object} marker - the pre-delete marker document
+ */
+async function deleteMarkerGraphEvent(marker) {
+  try {
+    if (!marker || !marker.graphData || !marker.graphData.id) return;
+    const calendarOwner = marker.graphData.calendarOwner || (await getDefaultCalendarOwner());
+    const calendarId = marker.graphData.calendarId || null;
+    await graphApiService.deleteCalendarEvent(calendarOwner, calendarId, marker.graphData.id);
+    await withCosmosRetry(() =>
+      calendarMarkersCollection.updateOne({ _id: marker._id }, { $set: { graphData: null } })
+    );
+    invalidateCalendarMarkersCache();
+  } catch (error) {
+    logger.error('Calendar marker Graph delete failed (marker soft-delete preserved):', {
+      markerId: marker && marker._id,
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * GET /api/calendar-markers
+ * Returns active markers, optionally filtered to a [start,end] window using the
+ * lexical overlap predicate (startDate <= end && endDate >= start).
+ */
+app.get('/api/calendar-markers', verifyToken, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    let markers = await getCachedCalendarMarkers();
+
+    if (start || end) {
+      const windowStart = start || '0000-01-01';
+      const windowEnd = end || '9999-12-31';
+      markers = markers.filter((m) => m.startDate <= windowEnd && m.endDate >= windowStart);
+    }
+
+    res.json(markers);
+  } catch (error) {
+    logger.error('Error fetching calendar markers:', error);
+    res.status(500).json({ error: 'Failed to fetch calendar markers' });
+  }
+});
+
+/**
+ * POST /api/calendar-markers — admin-only create.
+ */
+app.post('/api/calendar-markers', verifyToken, async (req, res) => {
+  try {
+    const user = await requireMarkerAdmin(req, res);
+    if (!user) return;
+
+    const validation = validateCalendarMarkerInput(req.body);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const { type, name, note, startDate, endDate, warnOnReservation, color, pushToOutlook } = req.body;
+    const now = new Date();
+    const userEmail = (req.user.email || '').toLowerCase();
+
+    const markerDoc = {
+      type,
+      name: name.trim(),
+      note: (note || '').trim(),
+      startDate,
+      endDate,
+      warnOnReservation: !!warnOnReservation,
+      color: color || null,
+      pushToOutlook: !!pushToOutlook,
+      active: true,
+      // Explicit null parent so the first Graph push can land a full-object
+      // $set on `graphData` (Cosmos cannot $set through a missing parent).
+      graphData: null,
+      createdAt: now,
+      createdBy: userEmail,
+      updatedAt: now,
+      updatedBy: userEmail,
+    };
+
+    const result = await withCosmosRetry(() => calendarMarkersCollection.insertOne(markerDoc));
+    invalidateCalendarMarkersCache();
+
+    let stored = { ...markerDoc, _id: result.insertedId };
+
+    // Push to Outlook on create when requested (failure-isolated below).
+    stored = await syncMarkerToGraph(stored, { reason: 'create' });
+
+    res.status(201).json(stored);
+  } catch (error) {
+    logger.error('Error creating calendar marker:', error);
+    res.status(500).json({ error: 'Failed to create calendar marker' });
+  }
+});
+
+/**
+ * PUT /api/calendar-markers/:id — admin-only update.
+ */
+app.put('/api/calendar-markers/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await requireMarkerAdmin(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid marker ID' });
+    }
+
+    const existing = await withCosmosRetry(() => calendarMarkersCollection.findOne({ _id: new ObjectId(id) }));
+    if (!existing || existing.active === false) {
+      return res.status(404).json({ error: 'Marker not found' });
+    }
+
+    // Merge provided fields over the stored doc, then validate the result so a
+    // partial update can't produce an invalid marker.
+    const merged = { ...existing, ...req.body };
+    const validation = validateCalendarMarkerInput(merged);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const { type, name, note, startDate, endDate, warnOnReservation, color, pushToOutlook } = merged;
+    const userEmail = (req.user.email || '').toLowerCase();
+
+    const updateData = {
+      type,
+      name: name.trim(),
+      note: (note || '').trim(),
+      startDate,
+      endDate,
+      warnOnReservation: !!warnOnReservation,
+      color: color || null,
+      pushToOutlook: !!pushToOutlook,
+      updatedAt: new Date(),
+      updatedBy: userEmail,
+    };
+
+    await withCosmosRetry(() =>
+      calendarMarkersCollection.updateOne({ _id: new ObjectId(id) }, { $set: updateData })
+    );
+    invalidateCalendarMarkersCache();
+
+    let updated = await withCosmosRetry(() => calendarMarkersCollection.findOne({ _id: new ObjectId(id) }));
+    updated = await syncMarkerToGraph(updated, { reason: 'update' });
+
+    res.json(updated);
+  } catch (error) {
+    logger.error('Error updating calendar marker:', error);
+    res.status(500).json({ error: 'Failed to update calendar marker' });
+  }
+});
+
+/**
+ * DELETE /api/calendar-markers/:id — admin-only soft-delete (active:false).
+ */
+app.delete('/api/calendar-markers/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await requireMarkerAdmin(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid marker ID' });
+    }
+
+    const existing = await withCosmosRetry(() => calendarMarkersCollection.findOne({ _id: new ObjectId(id) }));
+    if (!existing) {
+      return res.status(404).json({ error: 'Marker not found' });
+    }
+
+    await withCosmosRetry(() =>
+      calendarMarkersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { active: false, updatedAt: new Date(), updatedBy: (req.user.email || '').toLowerCase() } }
+      )
+    );
+    invalidateCalendarMarkersCache();
+
+    // Propagate the delete to Outlook when a Graph event was materialized.
+    await deleteMarkerGraphEvent(existing);
+
+    res.json({ message: 'Marker deleted successfully', marker: { ...existing, active: false } });
+  } catch (error) {
+    logger.error('Error deleting calendar marker:', error);
+    res.status(500).json({ error: 'Failed to delete calendar marker' });
   }
 });
 

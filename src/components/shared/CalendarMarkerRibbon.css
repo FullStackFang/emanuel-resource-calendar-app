@@ -1,0 +1,63 @@
+/* Calendar marker ribbons (Holidays & Office Closures)
+   Shared by Month (day cell), Week, and Day (day-column header) views.
+
+   Option C — "dot + adaptive label". The semantic color lives in a small dot
+   (gold = holiday, red = closed); the label text takes a per-variant contrast
+   color so it stays legible on BOTH the white month cell and the dark sapphire
+   Week/Day header. This is background-independent by construction: the dot is an
+   opaque swatch, and the label never depends on a translucent wash.
+
+   The dot color is supplied inline by getMarkerRibbonColors() (incl. per-marker
+   overrides); the type-modifier classes below are the no-JS color fallback. */
+
+.marker-ribbon-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.marker-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-2xs, 0.625rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  /* Month-cell (base) context: dark label on a light cell. */
+  color: var(--color-neutral-700);
+}
+
+.marker-ribbon__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  /* A faint light ring lifts the dot off the dark header; invisible on white. */
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+}
+
+.marker-ribbon__label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* No-JS fallback dot colors (inline style normally wins). */
+.marker-ribbon--holiday .marker-ribbon__dot { background-color: var(--color-accent-500); }
+.marker-ribbon--closed  .marker-ribbon__dot { background-color: var(--color-error-500); }
+
+/* Header variant for the Week/Day day-column header: centered under the date
+   label, and light text because the header background is the sapphire gradient. */
+.marker-ribbon-stack--header {
+  margin-top: 3px;
+  width: 100%;
+}
+
+.marker-ribbon-stack--header .marker-ribbon {
+  justify-content: center;
+  color: #ffffff;
+}

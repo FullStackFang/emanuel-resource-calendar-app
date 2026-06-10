@@ -1,0 +1,605 @@
+/* ============================================================================
+   HOLIDAYS & CLOSURES (Calendar Markers) — Emanuel Modern Design System
+   ============================================================================
+   Self-contained: every selector is scoped under .markers-management so this
+   screen depends on NO other component's CSS (CategoryManagement is lazy-loaded
+   and its modal/form styles are not guaranteed to be present here). Mirrors the
+   app's shared modal/form language using design tokens.
+   ============================================================================ */
+
+.markers-management {
+  padding: var(--space-8) var(--space-6);
+  max-width: 1100px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, var(--color-neutral-50) 0%, transparent 400px),
+    var(--bg-primary);
+}
+
+/* ── Editorial header (matches Category Management) ───────────────────────── */
+.markers-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.markers-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 120px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-accent-500), var(--color-error-500));
+  border-radius: var(--radius-full);
+}
+
+.markers-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.markers-header-content h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.markers-header-subtitle {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+  max-width: 64ch;
+  line-height: var(--leading-relaxed);
+}
+
+.markers-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  transition: var(--transition-all);
+  box-shadow: var(--shadow-primary);
+}
+
+.markers-add-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgb(59 110 184 / 0.35);
+}
+
+.markers-add-btn:active {
+  transform: translateY(0);
+}
+
+.markers-add-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── List ─────────────────────────────────────────────────────────────────── */
+.markers-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.marker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 4px;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
+  transition: var(--transition-all);
+}
+
+.marker-row:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.marker-row--holiday { border-left-color: var(--color-accent-500); }
+.marker-row--officeClosed { border-left-color: var(--color-error-500); }
+
+.marker-type-pill {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.marker-type-pill--holiday {
+  background: rgba(234, 179, 8, 0.16);
+  color: var(--color-accent-700);
+}
+
+.marker-type-pill--officeClosed {
+  background: rgba(220, 38, 38, 0.13);
+  color: var(--color-error-700);
+}
+
+.marker-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.marker-row-name {
+  font-family: var(--font-display);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.marker-row-dates {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.marker-row-note {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.marker-row-flags {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.marker-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 2px var(--space-2);
+  white-space: nowrap;
+}
+
+.marker-row-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.marker-edit-btn,
+.marker-delete-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  transition: var(--transition-all);
+}
+
+.marker-edit-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.marker-delete-btn {
+  color: var(--color-error-600);
+  border-color: var(--color-error-300);
+}
+
+.marker-delete-btn:hover:not(:disabled) {
+  background: var(--color-error-50);
+}
+
+/* In-button confirm: red, pulsing */
+.marker-delete-btn.confirm {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  border-color: var(--color-error-500);
+  animation: markerConfirmPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes markerConfirmPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(220 38 38 / 0.4); }
+  50% { box-shadow: 0 0 0 6px rgb(220 38 38 / 0); }
+}
+
+.marker-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────────── */
+.markers-empty {
+  text-align: center;
+  padding: var(--space-12, 48px) var(--space-4);
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-2xl);
+}
+
+.markers-empty h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+}
+
+.markers-empty p {
+  margin: 0 0 var(--space-5);
+}
+
+/* ==========================================================================
+   MODAL (scoped — self-contained, matches the app's shared modal language)
+   ========================================================================== */
+
+.markers-management .modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: var(--z-modal);
+  padding: var(--space-4);
+  animation: markerOverlayFadeIn var(--duration-fast) var(--ease-out);
+}
+
+@keyframes markerOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.markers-management .modal-content {
+  background: var(--bg-primary);
+  padding: 0;
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-2xl);
+  width: 100%;
+  min-width: 0;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: markerModalSlideIn var(--duration-normal) var(--ease-out);
+}
+
+@keyframes markerModalSlideIn {
+  from { opacity: 0; transform: translateY(-20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.markers-management .modal-header {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.markers-management .modal-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.markers-management .modal-body {
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+
+.markers-management .modal-footer {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.markers-management .modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+/* ── Form (compact: spacing tuned so the whole form fits one screen) ──────── */
+.markers-management .form-group {
+  margin-bottom: var(--space-3);
+}
+
+.markers-management .form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.markers-management .form-group > label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.markers-management .required {
+  color: var(--color-error-500);
+  margin-left: var(--space-1);
+}
+
+.markers-management input[type="text"],
+.markers-management input[type="date"],
+.markers-management textarea,
+.markers-management select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  box-sizing: border-box;
+  transition: var(--transition-all);
+}
+
+.markers-management input[type="text"]:hover,
+.markers-management input[type="date"]:hover,
+.markers-management textarea:hover,
+.markers-management select:hover {
+  border-color: var(--border-strong);
+}
+
+.markers-management input[type="text"]:focus,
+.markers-management input[type="date"]:focus,
+.markers-management textarea:focus,
+.markers-management select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.markers-management textarea {
+  resize: vertical;
+  min-height: 44px;
+  line-height: var(--leading-normal, 1.5);
+}
+
+/* Date-picker icon button (DatePickerInput). Styled here so the screen is
+   self-contained — the shared .picker-icon-btn rule lives in TimePickerInput.css,
+   which is lazy-loaded and not present on this standalone admin route. */
+.markers-management .date-picker-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* Wrapper-qualified so this beats the input[type="date"] padding shorthand. */
+.markers-management .date-picker-wrapper .date-picker-native-input {
+  padding-right: 38px; /* room for the calendar button */
+}
+
+.markers-management .picker-icon-btn {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-primary-500);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: var(--transition-all);
+}
+
+.markers-management .picker-icon-btn:hover {
+  opacity: 1;
+  background: var(--color-primary-600);
+}
+
+/* Two-column date row.
+   Grid with minmax(0, 1fr) — NOT flex:1 — guarantees the two columns are
+   exactly equal. Native date inputs carry a large intrinsic min-width (the
+   spinner + calendar icon), so a plain `flex: 1` (or `1fr`) floors at that
+   min-content width and the columns render unequal, throwing the fields out of
+   alignment. minmax(0, …) lets the tracks shrink to a true 50/50 split. */
+.markers-management .form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.markers-management .form-row .form-group {
+  min-width: 0;
+}
+
+.markers-management input[type="date"] {
+  min-width: 0;
+}
+
+/* Checkbox rows — read as a settings toggle, not a bare input */
+.markers-management .form-checkbox > label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  font-weight: var(--font-normal);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.markers-management .form-checkbox > label:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.markers-management .form-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary-500);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* Color override */
+.markers-color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.markers-management input[type="color"] {
+  width: 56px;
+  height: 44px;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  padding: var(--space-1);
+  background: var(--bg-primary);
+  transition: var(--transition-all);
+}
+
+.markers-management input[type="color"]:hover {
+  border-color: var(--border-strong);
+  transform: scale(1.05);
+}
+
+.markers-color-clear {
+  background: none;
+  border: none;
+  color: var(--color-primary-600);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.markers-color-clear:hover {
+  text-decoration: underline;
+}
+
+/* Inline form error */
+.markers-error {
+  background: var(--color-error-50);
+  color: var(--color-error-700);
+  border: 1px solid var(--color-error-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+/* ── Modal action buttons (match the app) ─────────────────────────────────── */
+.markers-management .save-btn,
+.markers-management .cancel-btn {
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.markers-management .save-btn {
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  color: var(--text-inverse);
+  border: none;
+  box-shadow: var(--shadow-primary);
+}
+
+.markers-management .save-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgb(59 110 184 / 0.35);
+}
+
+.markers-management .save-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.markers-management .cancel-btn {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.markers-management .cancel-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .markers-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .marker-row {
+    flex-wrap: wrap;
+  }
+
+  .marker-row-flags,
+  .marker-row-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .markers-management .form-row {
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+}

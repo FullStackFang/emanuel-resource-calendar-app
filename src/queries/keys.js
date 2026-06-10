@@ -65,6 +65,12 @@ export const keys = {
     all: () => ['locations'],
     detail: (id) => ['locations', 'detail', id],
   },
+  // Calendar markers (holiday / office-closed day annotations). A single shared
+  // fetch feeds the Month/Week/Day ribbon and the booking-form advisory. Every
+  // marker mutation invalidates `all()` so the calendar ribbon refreshes.
+  calendarMarkers: {
+    all: () => ['calendarMarkers'],
+  },
 
   // ─── Events ────────────────────────────────────────────────────────────
   events: {

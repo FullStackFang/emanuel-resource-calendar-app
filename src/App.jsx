@@ -79,6 +79,7 @@ const MyReservations = lazy(() => import('./components/MyReservations'));
 // Admin-only components - loaded when accessed by admin users
 const UserAdmin = lazy(() => import('./components/UserAdmin'));
 const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
+const CalendarMarkersManagement = lazy(() => import('./components/CalendarMarkersManagement'));
 const DepartmentManagement = lazy(() => import('./components/DepartmentManagement'));
 const CalendarConfigAdmin = lazy(() => import('./components/CalendarConfigAdmin'));
 const LocationReview = lazy(() => import('./components/LocationReview'));
@@ -341,6 +342,7 @@ function App() {
                   <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
                   <Route path="/admin/users" element={<RequireUserManagement><UserAdmin apiToken={apiToken} /></RequireUserManagement>} />
                   <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
+                  <Route path="/admin/calendar-markers" element={<CalendarMarkersManagement apiToken={apiToken} />} />
                   <Route path="/admin/departments" element={<DepartmentManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 

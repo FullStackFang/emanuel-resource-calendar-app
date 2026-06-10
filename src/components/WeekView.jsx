@@ -9,6 +9,8 @@ import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, Tim
 import { createPortal } from 'react-dom';
 import { useStuckHeader } from '../hooks/useStuckHeader';
 import { useFloatingHeaderRect } from '../hooks/useFloatingHeaderRect';
+import { getMarkersForDate } from '../utils/calendarMarkers';
+import { MarkerRibbonStack } from './shared/CalendarMarkerRibbon';
 import './shared/CalendarIcons.css';
 
 const WeekView = memo(({
@@ -43,7 +45,9 @@ const WeekView = memo(({
   favorites,
   onToggleFavorite,
   onReorderFavorites,
-  hideEmptyGroups
+  hideEmptyGroups,
+  // Map of YYYY-MM-DD → active markers covering that day (holiday / closures)
+  markersByDate
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
@@ -180,6 +184,7 @@ const WeekView = memo(({
       {getDaysInRange().map((day, index) => (
         <div key={index} className="grid-cell header-cell">
           {formatDateHeader(day)}
+          <MarkerRibbonStack markers={getMarkersForDate(markersByDate, day)} variant="header" />
         </div>
       ))}
     </>
