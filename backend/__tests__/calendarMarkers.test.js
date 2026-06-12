@@ -16,7 +16,7 @@ const request = require('supertest');
 
 const { setupTestApp } = require('./__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('./__helpers__/testSetup');
-const { createAdmin, createApprover, createRequester, insertUsers } = require('./__helpers__/userFactory');
+const { createAdmin, createApprover, createRequester, createViewer, insertUsers } = require('./__helpers__/userFactory');
 const { createMockToken, initTestKeys } = require('./__helpers__/authHelpers');
 const graphApiMock = require('./__helpers__/graphApiMock');
 
@@ -177,6 +177,58 @@ describe('Calendar Markers', () => {
       expect(res.status).toBe(403);
       const stored = await db.collection(MARKERS_COLLECTION).findOne({});
       expect(stored.active).toBe(true);
+    });
+  });
+
+  describe('Events-department access (non-admin, role-independent)', () => {
+    let eventsViewerToken;
+    let eventsRequesterToken;
+    let plainViewerToken;
+    let securityToken;
+
+    beforeEach(async () => {
+      const eventsViewer = createViewer({ email: 'events-viewer@test.com', userId: 'events-viewer', department: 'events' });
+      const eventsRequester = createRequester({ email: 'events-requester@test.com', userId: 'events-requester', department: 'events' });
+      const plainViewer = createViewer({ email: 'plain-viewer@test.com', userId: 'plain-viewer' });
+      const securityUser = createRequester({ email: 'security@test.com', userId: 'security-user', department: 'security' });
+      await insertUsers(db, [eventsViewer, eventsRequester, plainViewer, securityUser]);
+      eventsViewerToken = await createMockToken(eventsViewer);
+      eventsRequesterToken = await createMockToken(eventsRequester);
+      plainViewerToken = await createMockToken(plainViewer);
+      securityToken = await createMockToken(securityUser);
+    });
+
+    it('events-dept viewer can CREATE a marker (201)', async () => {
+      const res = await post(eventsViewerToken, validMarker());
+      expect(res.status).toBe(201);
+      expect(await db.collection(MARKERS_COLLECTION).countDocuments({})).toBe(1);
+    });
+
+    it('events-dept requester can UPDATE a marker (200)', async () => {
+      const created = await post(adminToken, validMarker());
+      const res = await put(eventsRequesterToken, created.body._id, { ...validMarker(), name: 'Updated' });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Updated');
+    });
+
+    it('events-dept viewer can DELETE a marker (200, soft-delete)', async () => {
+      const created = await post(adminToken, validMarker());
+      const res = await del(eventsViewerToken, created.body._id);
+      expect(res.status).toBe(200);
+      const stored = await db.collection(MARKERS_COLLECTION).findOne({});
+      expect(stored.active).toBe(false);
+    });
+
+    it('a viewer NOT in the events department is still blocked (403)', async () => {
+      const res = await post(plainViewerToken, validMarker());
+      expect(res.status).toBe(403);
+      expect(await db.collection(MARKERS_COLLECTION).countDocuments({})).toBe(0);
+    });
+
+    it('a non-events department (security) is blocked (403)', async () => {
+      const res = await post(securityToken, validMarker());
+      expect(res.status).toBe(403);
+      expect(await db.collection(MARKERS_COLLECTION).countDocuments({})).toBe(0);
     });
   });
 

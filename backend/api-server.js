@@ -19,7 +19,7 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remapToCalendarData } = require('./utils/eventFieldBuilder');
 const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canManageCalendarMarkers, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
@@ -19497,13 +19497,14 @@ function validateCalendarMarkerInput({ type, name, startDate, endDate }) {
 }
 
 /**
- * Admin gate shared by the marker write endpoints. Resolves the request user
- * and returns it when admin; otherwise sends 403 and returns null.
+ * Management gate shared by the marker write endpoints. Resolves the request
+ * user and returns it when they may manage calendar markers (admin OR Events
+ * department); otherwise sends 403 and returns null.
  */
-async function requireMarkerAdmin(req, res) {
+async function requireMarkerManager(req, res) {
   const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
-  if (!isAdmin(user, req.user.email)) {
-    res.status(403).json({ error: 'Admin access required' });
+  if (!canManageCalendarMarkers(user, req.user.email)) {
+    res.status(403).json({ error: 'Calendar marker management access required' });
     return null;
   }
   return user;
@@ -19644,7 +19645,7 @@ app.get('/api/calendar-markers', verifyToken, async (req, res) => {
  */
 app.post('/api/calendar-markers', verifyToken, async (req, res) => {
   try {
-    const user = await requireMarkerAdmin(req, res);
+    const user = await requireMarkerManager(req, res);
     if (!user) return;
 
     const validation = validateCalendarMarkerInput(req.body);
@@ -19695,7 +19696,7 @@ app.post('/api/calendar-markers', verifyToken, async (req, res) => {
  */
 app.put('/api/calendar-markers/:id', verifyToken, async (req, res) => {
   try {
-    const user = await requireMarkerAdmin(req, res);
+    const user = await requireMarkerManager(req, res);
     if (!user) return;
 
     const { id } = req.params;
@@ -19752,7 +19753,7 @@ app.put('/api/calendar-markers/:id', verifyToken, async (req, res) => {
  */
 app.delete('/api/calendar-markers/:id', verifyToken, async (req, res) => {
   try {
-    const user = await requireMarkerAdmin(req, res);
+    const user = await requireMarkerManager(req, res);
     if (!user) return;
 
     const { id } = req.params;
