@@ -20,6 +20,10 @@ const ROLES = {
   admin: { name: 'Admin', description: 'Full system access' }
 };
 
+// Display order for the users grid: admin first, then approver, requester, viewer.
+// Lower rank sorts earlier. Unknown roles fall to the bottom.
+const ROLE_RANK = { admin: 0, approver: 1, requester: 2, viewer: 3 };
+
 // DEPARTMENTS is now loaded dynamically from the database via useDepartments hook
 
 // Classify a user's effective role. Prefer the server-computed effectiveRole
@@ -111,6 +115,20 @@ export default function UserAdmin({ apiToken }) {
       return new Date(u.lastLogin) > thirtyDaysAgo;
     }).length;
     return { total, admins, activeRecently };
+  }, [users]);
+
+  // Sort for display: by role (admin > approver > requester > viewer), then
+  // alphabetically by display name (email fallback). Pure view concern — the
+  // `users` array stays the source of truth for edits/adds.
+  const sortedUsers = useMemo(() => {
+    return [...users].sort((a, b) => {
+      const rankA = ROLE_RANK[deriveRole(a)] ?? Number.MAX_SAFE_INTEGER;
+      const rankB = ROLE_RANK[deriveRole(b)] ?? Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      const nameA = a.displayName || a.email || '';
+      const nameB = b.displayName || b.email || '';
+      return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+    });
   }, [users]);
 
   // Fetch all users when component mounts
@@ -465,7 +483,7 @@ export default function UserAdmin({ apiToken }) {
       {/* Users Grid */}
       {users.length > 0 ? (
         <div className="users-grid">
-          {users.map((user) => {
+          {sortedUsers.map((user) => {
             const isCurrentUser = user.email === currentUserEmail;
             const isEditing = editingRows[user._id];
             // Lock rows the caller may not manage (e.g. approver viewing an

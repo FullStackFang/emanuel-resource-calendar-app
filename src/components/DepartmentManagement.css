@@ -519,6 +519,32 @@
   letter-spacing: var(--tracking-tight);
 }
 
+/* Inner modal sections. These MUST be scoped to .department-management.
+   The shell (.modal-content) uses padding: 0 + overflow: hidden, so the
+   header/body/footer supply their own padding. The matching global rules
+   (.modal-header/.modal-body/.modal-footer) live UNSCOPED in App.css,
+   CategoryManagement.css and UserAdmin.css; whether they are present in
+   <head> depends on which admin page was visited first, so relying on them
+   makes this modal render inconsistently (flush-to-edge when they are
+   absent). Scoping here (specificity 0,2,0) wins deterministically. */
+.department-management .modal-header {
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.department-management .modal-body {
+  padding: var(--space-6);
+  overflow-y: auto;
+  max-height: calc(90vh - 180px);
+}
+
+.department-management .modal-footer {
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
 /* ==========================================================================
    FORM STYLES
    ========================================================================== */
@@ -588,6 +614,18 @@
 /* ==========================================================================
    MODAL ACTIONS
    ========================================================================== */
+
+/* Lay out the footer buttons. Scoped for the same reason as the wrappers
+   above: the base .modal-actions flex rule is unscoped in Category/User CSS,
+   so without this the Cancel/Save buttons stack flush-left when those
+   sheets are not loaded. The delete-confirm (justify-content: center) and
+   mobile (column-reverse) overrides below have higher specificity / later
+   source order and still win where they apply. */
+.department-management .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
 
 .department-management .save-btn,
 .department-management .cancel-btn {
