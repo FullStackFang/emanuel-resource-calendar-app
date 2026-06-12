@@ -66,22 +66,36 @@ const ADMIN = {
   canViewAllReservations: true,
   canGenerateReservationTokens: true,
   canManageUsers: true,
+  canManageCalendarMarkers: true,
   isAdmin: true,
   department: null,
   departmentEditableFields: [],
 };
-const APPROVER = { ...ADMIN, role: 'approver', isAdmin: false };
+const APPROVER = { ...ADMIN, role: 'approver', isAdmin: false, canManageCalendarMarkers: false };
 const REQUESTER = {
   ...ADMIN,
   role: 'requester',
   canApproveReservations: false,
   canManageUsers: false,
+  canManageCalendarMarkers: false,
   isAdmin: false,
+};
+const EVENTS_VIEWER = {
+  ...REQUESTER,
+  role: 'viewer',
+  canSubmitReservation: false,
+  department: 'events',
+  canManageCalendarMarkers: true,
 };
 
 function Probe() {
-  const { canManageUsers } = usePermissions();
-  return <span data-testid="canManageUsers">{String(canManageUsers)}</span>;
+  const { canManageUsers, canManageCalendarMarkers } = usePermissions();
+  return (
+    <>
+      <span data-testid="canManageUsers">{String(canManageUsers)}</span>
+      <span data-testid="canManageCalendarMarkers">{String(canManageCalendarMarkers)}</span>
+    </>
+  );
 }
 
 function renderProvider() {
@@ -126,6 +140,22 @@ describe('RoleSimulationContext effective permissions passthrough', () => {
     renderProvider();
     await waitFor(() =>
       expect(screen.getByTestId('canManageUsers').textContent).toBe('false')
+    );
+  });
+
+  it('EP-4: forwards canManageCalendarMarkers=true for a real Events-dept viewer', async () => {
+    h.fetchPermissions.mockResolvedValue(EVENTS_VIEWER);
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('true')
+    );
+  });
+
+  it('EP-5: forwards canManageCalendarMarkers=false for a real requester', async () => {
+    h.fetchPermissions.mockResolvedValue(REQUESTER);
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('false')
     );
   });
 });

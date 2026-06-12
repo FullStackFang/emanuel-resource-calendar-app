@@ -50,6 +50,7 @@ export function usePermissions() {
     canDeleteEvents: effectivePermissions.canDeleteEvents,
     canApproveReservations: effectivePermissions.canApproveReservations,
     canManageUsers: effectivePermissions.canManageUsers,
+    canManageCalendarMarkers: effectivePermissions.canManageCalendarMarkers,
     isAdmin: effectivePermissions.isAdmin,
     // Effective role string (simulation wins over actual) — drives role-gated UI
     // like the UserAdmin role cap. Consumers read this as `role`.

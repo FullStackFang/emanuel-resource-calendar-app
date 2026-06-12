@@ -78,6 +78,7 @@ export async function fetchPermissions(apiToken, forceRefresh = false) {
       canApproveReservations: false,
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
+      canManageCalendarMarkers: false,
       isAdmin: false
     };
   }

@@ -30,6 +30,7 @@ export const ROLE_TEMPLATES = {
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
       canManageUsers: false,
+      canManageCalendarMarkers: false,
       isAdmin: false
     }
   },
@@ -46,6 +47,7 @@ export const ROLE_TEMPLATES = {
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
       canManageUsers: false,
+      canManageCalendarMarkers: false,
       isAdmin: false
     }
   },
@@ -63,6 +65,7 @@ export const ROLE_TEMPLATES = {
       canGenerateReservationTokens: true,
       // Approvers may manage users, capped to viewer/requester (see userManagementPolicy.js)
       canManageUsers: true,
+      canManageCalendarMarkers: false,
       isAdmin: false
     }
   },
@@ -79,6 +82,7 @@ export const ROLE_TEMPLATES = {
       canViewAllReservations: true,
       canGenerateReservationTokens: true,
       canManageUsers: true,
+      canManageCalendarMarkers: true,
       isAdmin: true
     }
   }
@@ -245,6 +249,7 @@ export function RoleSimulationProvider({ children }) {
         // ROLE_PERMISSIONS. Omitting this dropped User Management from the nav
         // for every real (non-simulated) admin/approver session.
         canManageUsers: actualPermissions.canManageUsers ?? false,
+        canManageCalendarMarkers: actualPermissions.canManageCalendarMarkers ?? false,
         isAdmin: actualPermissions.isAdmin ?? false
       };
     }
