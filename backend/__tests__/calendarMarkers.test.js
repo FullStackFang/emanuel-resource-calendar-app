@@ -5,7 +5,7 @@
  * `templeEvents__CalendarMarkers` collection, fully isolated from the event
  * domain (see openspec/changes/add-calendar-markers/design.md). These tests
  * lock the backend contract:
- *   - admin-only create/update/delete (403 for non-admins, nothing stored)
+ *   - admin- or events-department create/update/delete (403 otherwise, nothing stored)
  *   - validation (type, non-empty name, YYYY-MM-DD dates, endDate >= startDate)
  *   - soft-delete (active:false, excluded from active reads)
  *   - the range read (lexical overlap predicate)
