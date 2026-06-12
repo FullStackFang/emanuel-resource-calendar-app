@@ -19450,12 +19450,13 @@ app.post('/api/admin/categories/resequence', verifyToken, async (req, res) => {
 // Markers are day-level annotations (holiday / office-closed) stored in a
 // dedicated templeEvents__CalendarMarkers collection — deliberately separate
 // from events so they never leak into event queries, the approval queue,
-// counts, search, conflict detection, or export. Admin-only CRUD; reads are
+// counts, search, conflict detection, or export. Writes are admin- or Events-department-gated (requireMarkerManager); reads are
 // served from getCachedCalendarMarkers() with a date-range overlap filter.
 //
 // Markers intentionally OPT OUT of optimistic concurrency control (no _version
-// / conditionalUpdate): they are admin-only config with no requester/approver
-// race surface — the same profile as templeEvents__Categories. This is the
+// / conditionalUpdate): they are low-frequency config written only by admins or
+// Events-department staff — a small writer class like templeEvents__Categories,
+// so last-write-wins is an acceptable race profile. This is the
 // documented exception to CLAUDE.md's "every write endpoint uses OCC" rule.
 // See openspec/changes/add-calendar-markers/design.md, Decision 9.
 
@@ -19641,7 +19642,7 @@ app.get('/api/calendar-markers', verifyToken, async (req, res) => {
 });
 
 /**
- * POST /api/calendar-markers — admin-only create.
+ * POST /api/calendar-markers — admin or Events-department create.
  */
 app.post('/api/calendar-markers', verifyToken, async (req, res) => {
   try {
@@ -19692,7 +19693,7 @@ app.post('/api/calendar-markers', verifyToken, async (req, res) => {
 });
 
 /**
- * PUT /api/calendar-markers/:id — admin-only update.
+ * PUT /api/calendar-markers/:id — admin or Events-department update.
  */
 app.put('/api/calendar-markers/:id', verifyToken, async (req, res) => {
   try {
@@ -19749,7 +19750,7 @@ app.put('/api/calendar-markers/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * DELETE /api/calendar-markers/:id — admin-only soft-delete (active:false).
+ * DELETE /api/calendar-markers/:id — admin or Events-department soft-delete (active:false).
  */
 app.delete('/api/calendar-markers/:id', verifyToken, async (req, res) => {
   try {
