@@ -14,6 +14,7 @@ const {
   canEditField,
   sanitizeUserWrite,
   assertUserManagementAllowed,
+  canManageCalendarMarkers,
 } = require('../../../utils/permissionUtils');
 
 describe('permissionUtils', () => {
@@ -311,6 +312,15 @@ describe('permissionUtils', () => {
     it('matches the department case-insensitively and trims whitespace', () => {
       expect(getPermissions({ role: 'viewer', department: 'Events' }, 'v@x.org').canManageCalendarMarkers).toBe(true);
       expect(getPermissions({ role: 'viewer', department: '  events  ' }, 'v@x.org').canManageCalendarMarkers).toBe(true);
+    });
+
+    it('the exported predicate returns true for an events-dept non-admin and false for null user', () => {
+      expect(canManageCalendarMarkers({ role: 'viewer', department: 'events' }, 'v@x.org')).toBe(true);
+      expect(canManageCalendarMarkers(null, 'x@x.org')).toBe(false);
+    });
+
+    it('the exported predicate returns true for an admin', () => {
+      expect(canManageCalendarMarkers({ role: 'admin' }, 'a@x.org')).toBe(true);
     });
   });
 

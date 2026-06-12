@@ -39,6 +39,11 @@ const DEPARTMENT_EDITABLE_FIELDS = {
                 'reservationStartMinutes', 'reservationEndMinutes']
 };
 
+// Department that receives the calendar-markers (Holidays & Closures) feature
+// grant -- the app's first department-grants-a-feature gate. See
+// docs/superpowers/specs/2026-06-11-events-dept-calendar-markers-access-design.md.
+const CALENDAR_MARKER_DEPARTMENT = 'events';
+
 // Complete permission set for each role
 const ROLE_PERMISSIONS = {
   viewer: {
@@ -213,11 +218,6 @@ function canEditField(user, userEmail, fieldName) {
   return allowedFields.includes(fieldName);
 }
 
-// The Events department is granted full management of calendar markers
-// (Holidays & Closures) — the app's FIRST department-grants-a-feature gate.
-// See docs/superpowers/specs/2026-06-11-events-dept-calendar-markers-access-design.md.
-const CALENDAR_MARKER_DEPARTMENT = 'events';
-
 /**
  * Whether a user may create/update/delete calendar markers (Holidays &
  * Closures). Granted to admins OR anyone whose department is Events —
@@ -230,6 +230,8 @@ const CALENDAR_MARKER_DEPARTMENT = 'events';
  */
 function canManageCalendarMarkers(user, userEmail) {
   if (hasRole(user, userEmail, 'admin')) return true;
+  // Defensive normalize: stored dept keys are already lowercase (see DepartmentManagement
+  // generateKey), but trim/lowercase so a hand-edited 'Events' still matches.
   return (user?.department || '').toLowerCase().trim() === CALENDAR_MARKER_DEPARTMENT;
 }
 
