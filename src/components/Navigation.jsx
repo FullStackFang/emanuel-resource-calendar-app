@@ -14,6 +14,7 @@ export default function Navigation() {
     canSubmitReservation,
     canApproveReservations,
     canManageUsers,
+    canManageCalendarMarkers,
     isAdmin
   } = usePermissions();
   const { apiToken } = useAuth();
@@ -115,8 +116,10 @@ export default function Navigation() {
     setAdminExpanded(false);
   };
 
-  // Viewers only see Calendar — hide nav bar entirely since it adds no value
-  if (!canSubmitReservation && !canApproveReservations && !isAdmin) {
+  // Viewers only see Calendar — hide nav bar entirely since it adds no value.
+  // Events-dept members (canManageCalendarMarkers) keep the nav so their
+  // top-level Holidays & Closures link can render.
+  if (!canSubmitReservation && !canApproveReservations && !isAdmin && !canManageCalendarMarkers) {
     return null;
   }
 
@@ -159,6 +162,17 @@ export default function Navigation() {
           <li>
             <NavLink to="/admin/users" className={({ isActive }) => isActive ? 'active' : ''}>
               User Management
+            </NavLink>
+          </li>
+        )}
+
+        {/* Holidays & Closures - top-level for Events-department members (who can
+            manage calendar markers but are not admins). Mirrors the User
+            Management pattern above; admins reach it in the Admin dropdown. */}
+        {canManageCalendarMarkers && !isAdmin && (
+          <li>
+            <NavLink to="/admin/calendar-markers" className={({ isActive }) => isActive ? 'active' : ''}>
+              Holidays &amp; Closures
             </NavLink>
           </li>
         )}
