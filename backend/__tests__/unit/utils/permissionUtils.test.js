@@ -285,6 +285,35 @@ describe('permissionUtils', () => {
     });
   });
 
+  describe('canManageCalendarMarkers flag (Events-department feature grant)', () => {
+    it('role-projection on ROLE_PERMISSIONS: admin only', () => {
+      expect(ROLE_PERMISSIONS.viewer.canManageCalendarMarkers).toBe(false);
+      expect(ROLE_PERMISSIONS.requester.canManageCalendarMarkers).toBe(false);
+      expect(ROLE_PERMISSIONS.approver.canManageCalendarMarkers).toBe(false);
+      expect(ROLE_PERMISSIONS.admin.canManageCalendarMarkers).toBe(true);
+    });
+
+    it('getPermissions grants to any admin', () => {
+      expect(getPermissions({ role: 'admin' }, 'a@x.org').canManageCalendarMarkers).toBe(true);
+    });
+
+    it('getPermissions grants to a non-admin in the events department (role-independent)', () => {
+      expect(getPermissions({ role: 'viewer', department: 'events' }, 'v@x.org').canManageCalendarMarkers).toBe(true);
+      expect(getPermissions({ role: 'requester', department: 'events' }, 'r@x.org').canManageCalendarMarkers).toBe(true);
+    });
+
+    it('getPermissions denies a non-admin outside the events department', () => {
+      expect(getPermissions({ role: 'viewer' }, 'v@x.org').canManageCalendarMarkers).toBe(false);
+      expect(getPermissions({ role: 'requester', department: 'security' }, 's@x.org').canManageCalendarMarkers).toBe(false);
+      expect(getPermissions({ role: 'approver' }, 'a@x.org').canManageCalendarMarkers).toBe(false);
+    });
+
+    it('matches the department case-insensitively and trims whitespace', () => {
+      expect(getPermissions({ role: 'viewer', department: 'Events' }, 'v@x.org').canManageCalendarMarkers).toBe(true);
+      expect(getPermissions({ role: 'viewer', department: '  events  ' }, 'v@x.org').canManageCalendarMarkers).toBe(true);
+    });
+  });
+
   describe('sanitizeUserWrite', () => {
     it('keeps allowlisted fields', () => {
       const clean = sanitizeUserWrite({

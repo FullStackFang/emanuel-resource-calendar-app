@@ -51,6 +51,7 @@ const ROLE_PERMISSIONS = {
     canViewAllReservations: false,
     canGenerateReservationTokens: false,
     canManageUsers: false,
+    canManageCalendarMarkers: false,
     isAdmin: false
   },
   requester: {
@@ -63,6 +64,7 @@ const ROLE_PERMISSIONS = {
     canViewAllReservations: false,
     canGenerateReservationTokens: false,
     canManageUsers: false,
+    canManageCalendarMarkers: false,
     isAdmin: false
   },
   approver: {
@@ -76,6 +78,7 @@ const ROLE_PERMISSIONS = {
     canGenerateReservationTokens: true,
     // Approvers may manage users, but capped to viewer/requester (see ROLE_MAX_ASSIGNABLE)
     canManageUsers: true,
+    canManageCalendarMarkers: false,
     isAdmin: false
   },
   admin: {
@@ -88,6 +91,7 @@ const ROLE_PERMISSIONS = {
     canViewAllReservations: true,
     canGenerateReservationTokens: true,
     canManageUsers: true,
+    canManageCalendarMarkers: true,
     isAdmin: true
   }
 };
@@ -209,6 +213,26 @@ function canEditField(user, userEmail, fieldName) {
   return allowedFields.includes(fieldName);
 }
 
+// The Events department is granted full management of calendar markers
+// (Holidays & Closures) — the app's FIRST department-grants-a-feature gate.
+// See docs/superpowers/specs/2026-06-11-events-dept-calendar-markers-access-design.md.
+const CALENDAR_MARKER_DEPARTMENT = 'events';
+
+/**
+ * Whether a user may create/update/delete calendar markers (Holidays &
+ * Closures). Granted to admins OR anyone whose department is Events —
+ * deliberately role-independent. Uses local hasRole (NOT authUtils.isAdmin)
+ * to avoid a circular import.
+ *
+ * @param {Object} user - User object from database (can be null)
+ * @param {string} userEmail - User's email address
+ * @returns {boolean}
+ */
+function canManageCalendarMarkers(user, userEmail) {
+  if (hasRole(user, userEmail, 'admin')) return true;
+  return (user?.department || '').toLowerCase().trim() === CALENDAR_MARKER_DEPARTMENT;
+}
+
 /**
  * Get all permissions for a user based on their effective role
  *
@@ -226,7 +250,8 @@ function getPermissions(user, userEmail) {
     department,
     departmentEditableFields,
     canEditDepartmentFields: departmentEditableFields.length > 0,
-    ...ROLE_PERMISSIONS[role]
+    ...ROLE_PERMISSIONS[role],
+    canManageCalendarMarkers: canManageCalendarMarkers(user, userEmail)
   };
 }
 
@@ -371,6 +396,7 @@ module.exports = {
   resolveEffectiveRole,
   hasRole,
   getPermissions,
+  canManageCalendarMarkers,
   isValidRole,
   sanitizeUserWrite,
   assertUserManagementAllowed,
