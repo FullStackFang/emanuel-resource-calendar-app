@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-11
 - **Status:** Design approved; ready for implementation plan
-- **Author:** brainstorming session
+- **Author:** brainstorming session (architecture-reviewed 2026-06-11)
 
 ## Problem
 
@@ -88,6 +88,11 @@ department grants a whole *feature*, deliberately independent of the user's role
   `{canManageUsers && !isAdmin && (<li><NavLink to="/admin/users">User
   Management</NavLink></li>)}`. The Admin dropdown is gated `{isAdmin && (…)}`
   (~`168`) and contains the existing "Holidays & Closures" `NavLink`.
+- `src/components/Navigation.jsx:119-121` — **whole-nav early return**:
+  `if (!canSubmitReservation && !canApproveReservations && !isAdmin) return null;`.
+  An Events-dept *viewer* trips this (all three false) and renders **no nav at
+  all** — the new flag MUST be added here too, or the target persona never sees
+  the link. (Caught in architecture review.)
 - `src/hooks/usePermissions.jsx` exposes `canManageUsers`, `isAdmin`,
   `department`, etc. from `effectivePermissions`.
 - `src/context/RoleSimulationContext.jsx`: `ROLE_TEMPLATES` (viewer / requester /
@@ -150,7 +155,9 @@ In `src/context/RoleSimulationContext.jsx`:
 - Add `canManageCalendarMarkers` to each `ROLE_TEMPLATES.*.permissions`:
   `admin: true`, `viewer/requester/approver: false` (the role portion only —
   decision h).
-- Add `canManageCalendarMarkers: false` to `DEFAULT_PERMISSIONS`.
+- (No separate `DEFAULT_PERMISSIONS` edit needed: it is an **alias** of
+  `ROLE_TEMPLATES.viewer.permissions` at `:88`, so the viewer-template edit above
+  already covers it.)
 - In `getEffectivePermissions()`'s non-simulated branch, add the explicit
   passthrough `canManageCalendarMarkers: actualPermissions.canManageCalendarMarkers ?? false`.
 
@@ -161,6 +168,10 @@ In `src/hooks/usePermissions.jsx`:
 ### 4. Navigation (top-level link)
 In `src/components/Navigation.jsx`:
 - Pull `canManageCalendarMarkers` from `usePermissions()`.
+- **Update the whole-nav early return (`:119`)** to
+  `if (!canSubmitReservation && !canApproveReservations && !isAdmin && !canManageCalendarMarkers) return null;`
+  — otherwise an Events-dept viewer (first three flags all false) renders no nav
+  at all. **Required for locked decision b.**
 - Directly after the top-level User Management `<li>`, add:
   ```jsx
   {canManageCalendarMarkers && !isAdmin && (
@@ -188,8 +199,20 @@ In `src/App.jsx`:
   `<Route path="/admin/calendar-markers" element={<RequireCalendarMarkers><CalendarMarkersManagement apiToken={apiToken} /></RequireCalendarMarkers>} />`
 
 ### 6. Screen
-`CalendarMarkersManagement.jsx` needs **no** permission change — the route guard
-plus backend enforcement cover it, matching how User Management trusts its guard.
+`CalendarMarkersManagement.jsx` needs **no** runtime permission change — the route
+guard plus backend enforcement cover it, matching how User Management trusts its
+guard. (Update only the stale `// Admin-only …` header comment at `:4` → "admin
+or Events-dept".)
+
+### 7. Shape-consistency cleanup
+- `src/services/permissionService.js` — add `canManageCalendarMarkers: false` to
+  the hardcoded fetch-failure fallback object (`:69-83`) so the fallback shape
+  stays in sync with the real permissions shape. Already safe-by-default
+  (`undefined` is falsy); this is consistency, not a security fix.
+- `backend/utils/permissionUtils.js` — add a one-line comment on
+  `CALENDAR_MARKER_DEPARTMENT` noting it is the app's first *department-grants-a-
+  feature* gate (see this spec), so any future similar grant follows the pattern
+  deliberately rather than by accident.
 
 ## Behavior changes & edge cases (honest accounting)
 
@@ -225,29 +248,48 @@ plus backend enforcement cover it, matching how User Management trusts its guard
    admin, and return **403** for a viewer and for an other-dept user; `GET`
    succeeds for all. Write first; rename middleware to green.
 3. **Frontend nav** — new `Navigation.calendarMarkers.test.jsx` mirroring the
-   User-Management test: Events-dept non-admin → top-level link, no dropdown;
-   admin → link in dropdown, no top-level copy; plain viewer → neither.
-4. **Frontend threading** — update any RoleSimulation/usePermissions tests or
-   permission-shape snapshots to include the new flag.
+   User-Management test: (a) Events-dept **viewer** (`canSubmitReservation:false`,
+   `canApproveReservations:false`, `isAdmin:false`, `canManageCalendarMarkers:true`)
+   → top-level link **renders** — this case FAILS without the `:119` early-return
+   fix, so it's the regression lock for Gap 1; (b) admin → link in the dropdown,
+   no top-level copy; (c) plain viewer (no dept) → neither link.
+4. **Frontend threading** — add `canManageCalendarMarkers` to the
+   `usePermissions.contract.test.jsx` `PERMS()` helper (`:32-41`) and any
+   permission-shape assertions; mirror the existing `permissionUtils.test.js`
+   "canManageUsers flag (drift guard vs frontend ROLE_TEMPLATES)" block (`:272-286`)
+   as a drift guard for the new flag.
 5. Run only the touched suites (per CLAUDE.md "do not run the full suite").
 
 ## File-change inventory
 
-- Edit `backend/utils/permissionUtils.js` — constant + `canManageCalendarMarkers`
-  predicate (exported) + add flag to `getPermissions`.
+- Edit `backend/utils/permissionUtils.js` — constant (+ first-dept-feature-grant
+  comment) + `canManageCalendarMarkers` predicate (exported) + add flag to
+  `getPermissions`.
 - Edit `backend/api-server.js` — `requireMarkerAdmin` → `requireMarkerManager`
   (gate via predicate); repoint POST/PUT/DELETE; import predicate.
-- Edit `src/context/RoleSimulationContext.jsx` — flag in `ROLE_TEMPLATES`,
-  `DEFAULT_PERMISSIONS`, `getEffectivePermissions` passthrough.
+- Edit `src/context/RoleSimulationContext.jsx` — flag in all four `ROLE_TEMPLATES`
+  (DEFAULT_PERMISSIONS rides along via the viewer alias) + `getEffectivePermissions`
+  passthrough.
 - Edit `src/hooks/usePermissions.jsx` — expose the flag.
-- Edit `src/components/Navigation.jsx` — top-level link.
+- Edit `src/components/Navigation.jsx` — top-level link **and** the `:119`
+  whole-nav early-return condition.
 - Edit `src/App.jsx` — `RequireCalendarMarkers` guard + wrap the route.
-- Test: `backend/__tests__/.../permissionUtils.test.js` (extend), backend
-  calendar-markers permission test (extend/add), `Navigation.calendarMarkers.test.jsx`
-  (new), frontend permission-shape tests (touch as needed).
+- Edit `src/services/permissionService.js` — add `canManageCalendarMarkers: false`
+  to the fetch-failure fallback (`:69-83`) for shape parity.
+- Edit `src/components/CalendarMarkersManagement.jsx` — refresh the stale
+  "Admin-only" header comment (`:4`); no runtime change.
+- Test: `permissionUtils.test.js` (extend + `canManageCalendarMarkers` drift-guard
+  block mirroring `canManageUsers`), backend calendar-markers permission test
+  (extend/add), `Navigation.calendarMarkers.test.jsx` (new, incl. the Events-dept
+  **viewer** regression case), `usePermissions.contract.test.jsx` `PERMS()` helper
+  (`:32-41`).
 
 ## Risks
 
+- **Whole-nav early return (`Navigation.jsx:119`):** an Events-dept viewer trips
+  it and would see no nav at all; the design adds `!canManageCalendarMarkers` to
+  the condition and the step-3 test locks the viewer-sees-link case. (Caught in
+  architecture review — the one must-fix gap.)
 - **Circular import:** computing the predicate inside `permissionUtils` must use
   local `hasRole`, not `authUtils.isAdmin` — designed around (uses `hasRole` +
   inline normalize).
