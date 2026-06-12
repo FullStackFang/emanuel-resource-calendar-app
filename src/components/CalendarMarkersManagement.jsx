@@ -91,16 +91,22 @@ export default function CalendarMarkersManagement({ apiToken }) {
 
   const updateField = (updates) => setFormData((prev) => ({ ...prev, ...updates }));
 
-  // Common-sense date behavior: moving the start date forward past the end date
-  // (or onto an empty end) drags the end date along, so a single-day marker is
-  // one click and the range can never start out invalid.
+  // Common-sense date behavior. Single-day markers (start === end) are the 99%
+  // case, so the end date follows the start in BOTH directions, keeping it a
+  // one-click single day. A deliberate multi-day range (start !== end) keeps its
+  // end, only bumping it forward if the new start would otherwise pass it (so the
+  // range can never become invalid).
   const handleStartDateChange = (e) => {
     const startDate = e.target.value;
-    setFormData((prev) => ({
-      ...prev,
-      startDate,
-      endDate: !prev.endDate || prev.endDate < startDate ? startDate : prev.endDate,
-    }));
+    setFormData((prev) => {
+      const wasSingleDay = prev.startDate === prev.endDate;
+      return {
+        ...prev,
+        startDate,
+        endDate:
+          !prev.endDate || wasSingleDay || prev.endDate < startDate ? startDate : prev.endDate,
+      };
+    });
   };
 
   const handleSubmit = async (e) => {

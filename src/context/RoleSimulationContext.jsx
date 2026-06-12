@@ -2,7 +2,7 @@
 import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
-import { fetchPermissions, clearPermissionCache } from '../services/permissionService';
+import { fetchPermissions, clearPermissionCache, departmentGrantsCalendarMarkers } from '../services/permissionService';
 import { apiRequest } from '../config/authConfig';
 import { logger } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
@@ -232,7 +232,17 @@ export function RoleSimulationProvider({ children }) {
   // Get effective permissions based on simulation state
   const getEffectivePermissions = useCallback(() => {
     if (simulatedRole && ROLE_TEMPLATES[simulatedRole]) {
-      return ROLE_TEMPLATES[simulatedRole].permissions;
+      const base = ROLE_TEMPLATES[simulatedRole].permissions;
+      return {
+        ...base,
+        // canManageCalendarMarkers is granted by DEPARTMENT, not role, so it must
+        // NOT be stripped by role simulation: a real Events-dept approver can manage
+        // markers, so an admin simulating "approver" must preview the same top-level
+        // link. Pass through the REAL department grant — exactly how
+        // departmentEditableFields already key off actualDepartment, not the template.
+        canManageCalendarMarkers:
+          base.canManageCalendarMarkers || departmentGrantsCalendarMarkers(actualDepartment),
+      };
     }
     // Use actual permissions from backend if available
     if (actualPermissions) {
@@ -254,7 +264,7 @@ export function RoleSimulationProvider({ children }) {
       };
     }
     return DEFAULT_PERMISSIONS;
-  }, [simulatedRole, actualPermissions]);
+  }, [simulatedRole, actualPermissions, actualDepartment]);
 
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({

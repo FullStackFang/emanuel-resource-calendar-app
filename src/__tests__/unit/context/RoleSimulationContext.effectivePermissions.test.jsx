@@ -38,10 +38,17 @@ vi.mock('@azure/msal-react', () => ({
   useMsal: () => h.msal,
 }));
 
-vi.mock('../../../services/permissionService', () => ({
-  fetchPermissions: h.fetchPermissions,
-  clearPermissionCache: vi.fn(),
-}));
+// Spread the REAL module so departmentGrantsCalendarMarkers (used by the provider
+// to pass department grants through simulation) is the genuine implementation, not
+// a hand-rolled copy that could drift. Only the network call is mocked.
+vi.mock('../../../services/permissionService', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    fetchPermissions: h.fetchPermissions,
+    clearPermissionCache: vi.fn(),
+  };
+});
 
 vi.mock('../../../config/authConfig', () => ({
   apiRequest: { scopes: ['api://test/access_as_user'] },
@@ -87,13 +94,16 @@ const EVENTS_VIEWER = {
   department: 'events',
   canManageCalendarMarkers: true,
 };
+// A real admin who is ALSO in the Events department (Stephen's actual record).
+const EVENTS_ADMIN = { ...ADMIN, department: 'events' };
 
 function Probe() {
-  const { canManageUsers, canManageCalendarMarkers } = usePermissions();
+  const { canManageUsers, canManageCalendarMarkers, isAdmin } = usePermissions();
   return (
     <>
       <span data-testid="canManageUsers">{String(canManageUsers)}</span>
       <span data-testid="canManageCalendarMarkers">{String(canManageCalendarMarkers)}</span>
+      <span data-testid="isAdmin">{String(isAdmin)}</span>
     </>
   );
 }
@@ -106,9 +116,23 @@ function renderProvider() {
   );
 }
 
+// The provider passes through three render states: viewer-default
+// (isAdmin=false, canManageUsers=false), resolved-real-admin (isAdmin=true,
+// canManageUsers=true), and simulated-approver (isAdmin=false, canManageUsers=true).
+// Only the last has isAdmin=false AND canManageUsers=true together, so this gate
+// uniquely pins the fully-resolved simulated-approver state (avoids asserting on
+// the transient default-viewer tick, where isAdmin is also false).
+async function waitForSimulatedApprover() {
+  await waitFor(() => {
+    expect(screen.getByTestId('isAdmin').textContent).toBe('false');
+    expect(screen.getByTestId('canManageUsers').textContent).toBe('true');
+  });
+}
+
 describe('RoleSimulationContext effective permissions passthrough', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear(); // a persisted simulation must not leak across tests
     h.msal.inProgress = InteractionStatus.None;
     h.msal.accounts = [h.account];
     h.getActiveAccount.mockReturnValue(h.account);
@@ -117,6 +141,7 @@ describe('RoleSimulationContext effective permissions passthrough', () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
   });
 
   it('EP-1: forwards canManageUsers=true for a real admin (not simulating)', async () => {
@@ -157,5 +182,28 @@ describe('RoleSimulationContext effective permissions passthrough', () => {
     await waitFor(() =>
       expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('false')
     );
+  });
+
+  // The department grant is role-independent, so it must survive role simulation:
+  // an Events-dept admin simulating "approver" should preview exactly what a real
+  // Events-dept approver sees (the top-level Holidays & Closures link). Mirrors how
+  // canManageUsers survives simulation via the approver template (EP-2).
+  it('EP-6: Events-dept admin simulating approver KEEPS canManageCalendarMarkers', async () => {
+    localStorage.setItem('role_simulation_session', JSON.stringify({ roleKey: 'approver' }));
+    h.fetchPermissions.mockResolvedValue(EVENTS_ADMIN);
+    renderProvider();
+    await waitForSimulatedApprover();
+    // Department grant passes through -> link can render at top level (!isAdmin).
+    expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('true');
+  });
+
+  // Guard the boundary: the passthrough is DEPARTMENT-based, not "any admin's real
+  // grant". A non-Events admin simulating approver must NOT gain marker management.
+  it('EP-7: non-Events admin simulating approver does NOT gain canManageCalendarMarkers', async () => {
+    localStorage.setItem('role_simulation_session', JSON.stringify({ roleKey: 'approver' }));
+    h.fetchPermissions.mockResolvedValue(ADMIN); // department: null
+    renderProvider();
+    await waitForSimulatedApprover();
+    expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('false');
   });
 });

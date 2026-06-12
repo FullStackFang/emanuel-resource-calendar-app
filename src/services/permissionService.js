@@ -129,3 +129,24 @@ export function hasRole(permissions, requiredRole) {
   const requiredLevel = ROLE_HIERARCHY[requiredRole] ?? 0;
   return userLevel >= requiredLevel;
 }
+
+/**
+ * Department that receives the calendar-markers (Holidays & Closures) grant.
+ * Mirrors backend permissionUtils.CALENDAR_MARKER_DEPARTMENT. Lives here, in the
+ * module whose stated job is to mirror backend permission logic on the frontend.
+ */
+export const CALENDAR_MARKER_DEPARTMENT = 'events';
+
+/**
+ * Whether a department grants calendar-marker management. This grant is
+ * DEPARTMENT-based and role-independent, so it is the part that must survive role
+ * simulation: a real Events-dept approver can manage markers, so an admin
+ * simulating "approver" should preview the same. Mirrors the department branch of
+ * backend permissionUtils.canManageCalendarMarkers().
+ *
+ * @param {string|null|undefined} department
+ * @returns {boolean}
+ */
+export function departmentGrantsCalendarMarkers(department) {
+  return (department || '').toLowerCase().trim() === CALENDAR_MARKER_DEPARTMENT;
+}

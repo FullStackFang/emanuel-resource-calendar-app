@@ -121,6 +121,44 @@ describe('CalendarMarkersManagement', () => {
     expect(end.value).toBe('2026-09-20');
   });
 
+  it('drags the end date back to match when a single-day marker start moves earlier', async () => {
+    renderScreen();
+    await screen.findByText('Rosh Hashanah');
+
+    fireEvent.click(screen.getByRole('button', { name: /add marker/i }));
+    await screen.findByPlaceholderText('e.g. Rosh Hashanah');
+
+    const start = screen.getByLabelText('Start date');
+    const end = screen.getByLabelText('End date');
+
+    // Establish a known single-day state (start === end), independent of today's date.
+    fireEvent.change(start, { target: { value: '2026-09-20' } });
+    fireEvent.change(end, { target: { value: '2026-09-20' } });
+
+    // Moving the start earlier keeps the marker single-day (the 99% case).
+    fireEvent.change(start, { target: { value: '2026-09-10' } });
+    expect(end.value).toBe('2026-09-10');
+  });
+
+  it('preserves a deliberate multi-day end when the start moves earlier within the range', async () => {
+    renderScreen();
+    await screen.findByText('Rosh Hashanah');
+
+    fireEvent.click(screen.getByRole('button', { name: /add marker/i }));
+    await screen.findByPlaceholderText('e.g. Rosh Hashanah');
+
+    const start = screen.getByLabelText('Start date');
+    const end = screen.getByLabelText('End date');
+
+    // A deliberate multi-day range (start !== end) is the rare 1% case.
+    fireEvent.change(start, { target: { value: '2026-09-15' } });
+    fireEvent.change(end, { target: { value: '2026-09-20' } });
+
+    // Moving the start earlier (still before the end) must NOT collapse the range.
+    fireEvent.change(start, { target: { value: '2026-09-12' } });
+    expect(end.value).toBe('2026-09-20');
+  });
+
   it('constrains the end-date picker to dates on or after the start date (min attr)', async () => {
     renderScreen();
     await screen.findByText('Rosh Hashanah');
