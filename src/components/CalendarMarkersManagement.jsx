@@ -1,6 +1,7 @@
 // src/components/CalendarMarkersManagement.jsx
 //
-// Admin-only "Holidays & Closures" screen. Create/edit/delete calendar markers
+// "Holidays & Closures" screen (admins + Events-department members).
+// Create/edit/delete calendar markers
 // (holiday / office-closed day annotations). Mutations invalidate
 // keys.calendarMarkers so the calendar ribbon refreshes in the same tab (same
 // single-tab invalidation contract as Categories — cross-tab freshness waits

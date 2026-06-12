@@ -101,6 +101,14 @@ function RequireUserManagement({ children }) {
   return children;
 }
 
+// Guards /admin/calendar-markers — reachable by admins and Events-department
+// members (canManageCalendarMarkers). UX redirect; the backend is authoritative.
+function RequireCalendarMarkers({ children }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.canManageCalendarMarkers) return <Navigate to="/" replace />;
+  return children;
+}
+
 // Admin-only wrapper — uses effectivePermissions so role simulation also hides the chat
 function AIChatSection({ showAIChat, onClose, onOpen, apiToken }) {
   const { effectivePermissions } = useRoleSimulation();
@@ -342,7 +350,7 @@ function App() {
                   <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
                   <Route path="/admin/users" element={<RequireUserManagement><UserAdmin apiToken={apiToken} /></RequireUserManagement>} />
                   <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
-                  <Route path="/admin/calendar-markers" element={<CalendarMarkersManagement apiToken={apiToken} />} />
+                  <Route path="/admin/calendar-markers" element={<RequireCalendarMarkers><CalendarMarkersManagement apiToken={apiToken} /></RequireCalendarMarkers>} />
                   <Route path="/admin/departments" element={<DepartmentManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 
