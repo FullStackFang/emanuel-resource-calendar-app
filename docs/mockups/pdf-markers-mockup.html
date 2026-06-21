@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PDF Export — Holidays &amp; Closures mockup</title>
+<style>
+  /* Palette pulled directly from calendarPdfGenerator.js `colors` */
+  :root {
+    --primary:  #2D3440;  /* navy headers, date label */
+    --secondary:#6B7280;  /* location text */
+    --body:     #333333;
+    --accent:   #B48E49;  /* gold — holiday + date pill */
+    --light:    #F9FAFB;
+    --border:   #E5E7EB;
+    --muted:    #9CA3AF;
+    --success:  #22574B;
+    --warning:  #785A3C;
+    --closed:   #963434;  /* PROPOSED red for office-closed (palette-tuned, muted) */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: #e9eaed;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--body);
+  }
+  h1.page-title { font-size: 18px; color: var(--primary); margin: 0 0 4px; }
+  p.sub { color: var(--secondary); margin: 0 0 24px; font-size: 13px; }
+
+  /* A sheet of "paper" approximating one PDF page */
+  .page {
+    width: 760px; max-width: 100%;
+    margin: 0 auto 28px;
+    background: #fff;
+    border: 1px solid #d9dbe0;
+    box-shadow: 0 6px 24px rgba(0,0,0,.10);
+    padding: 28px 34px 40px;
+    border-radius: 2px;
+  }
+
+  /* --- Report header (mimics drawHeader) --- */
+  .rule-top { height: 2px; background: var(--accent); margin-bottom: 10px; }
+  .org { text-align:center; font-weight:700; letter-spacing:.5px; color:var(--primary); font-size:17px; }
+  .report { text-align:center; color:var(--secondary); font-size:12px; margin-top:3px; margin-bottom:18px; }
+
+  /* --- Date separator pill (mimics drawGroupSeparator) --- */
+  .day { margin-top: 16px; }
+  .day:first-of-type { margin-top: 0; }
+  .date-pill-row { display:flex; align-items:center; gap:6px; margin-bottom: 7px; }
+  .date-pill {
+    background: var(--accent); color:#fff; font-weight:700; font-size:10.5px;
+    padding: 2px 8px; border-radius: 3px; white-space: nowrap;
+  }
+  .date-line { flex:1; height:1px; background: var(--border); }
+
+  /* ===== RECOMMENDED — Style A: tinted bar + left rule ===== */
+  .mk {
+    display:flex; align-items:center; gap:8px;
+    padding: 5px 10px; margin: 0 0 5px;
+    border-left: 3px solid var(--accent);
+    background: rgba(180,142,73,.10);
+    font-size: 11px;
+  }
+  .mk--closed { border-left-color: var(--closed); background: rgba(150,52,52,.09); }
+  .mk__dot { width:7px; height:7px; border-radius:50%; background:var(--accent); flex:none; }
+  .mk--closed .mk__dot { background: var(--closed); }
+  .mk__name { font-weight:700; color: var(--primary); }
+  .mk__tag {
+    margin-left:auto; font-size:8px; font-weight:700; letter-spacing:.6px;
+    text-transform:uppercase; color: var(--accent);
+  }
+  .mk--closed .mk__tag { color: var(--closed); }
+  .mk__span { color: var(--muted); font-weight:400; font-size:9.5px; }
+
+  /* --- Event row (mimics the table row) --- */
+  .evt {
+    display:grid; grid-template-columns: 78px 150px 70px 1fr;
+    gap: 8px; padding: 6px 4px; font-size: 10.5px;
+    border-bottom: 1px solid #f0f1f3;
+  }
+  .evt.zebra { background: #fcfcfd; }
+  .evt__time { color: var(--primary); }
+  .evt__loc  { color: var(--secondary); }
+  .evt__cat  { color: var(--secondary); }
+  .evt__title{ font-weight:700; color: var(--primary); }
+  .evt__none { color: var(--muted); font-style: italic; font-size: 10px; padding: 2px 4px 8px; }
+
+  /* --- option comparison cards --- */
+  .opts { width:760px; max-width:100%; margin: 0 auto; }
+  .opts h2 { color: var(--primary); font-size: 14px; margin: 22px 0 10px; }
+  .opt-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .opt {
+    background:#fff; border:1px solid #d9dbe0; border-radius:6px; padding:14px;
+  }
+  .opt h3 { margin:0 0 4px; font-size:12px; color:var(--primary); }
+  .opt .why { font-size:11px; color:var(--secondary); margin:0 0 12px; min-height: 48px; }
+  .badge-rec { display:inline-block; background:var(--success); color:#fff; font-size:9px;
+    font-weight:700; letter-spacing:.4px; padding:1px 6px; border-radius:10px; margin-left:6px; vertical-align:middle; }
+
+  /* Style B — compact pill */
+  .mkB { display:inline-flex; align-items:center; gap:6px; padding:2px 9px; margin:0 0 6px;
+    border-radius:11px; background:rgba(180,142,73,.14); font-size:10.5px; font-weight:600; color:var(--primary); }
+  .mkB .mk__dot { background:var(--accent); }
+  .mkB--closed { background:rgba(150,52,52,.12); }
+  .mkB--closed .mk__dot { background:var(--closed); }
+
+  /* Style C — solid bar */
+  .mkC { display:flex; align-items:center; gap:8px; padding:4px 10px; margin:0 0 6px;
+    background:var(--accent); color:#fff; font-size:10.5px; font-weight:700; border-radius:3px; }
+  .mkC .mk__dot { background:#fff; }
+  .mkC__tag { margin-left:auto; font-size:8px; letter-spacing:.6px; text-transform:uppercase; opacity:.9; }
+  .mkC--closed { background:var(--closed); }
+
+  /* summary block (category/location sort mode) */
+  .summary { border:1px solid var(--border); background:var(--light); border-radius:3px; padding:10px 12px; margin: 0 0 6px; }
+  .summary h4 { margin:0 0 7px; font-size:10px; letter-spacing:.5px; text-transform:uppercase; color:var(--primary); }
+  .summary .row { display:flex; align-items:center; gap:8px; font-size:11px; padding:2px 0; }
+  .summary .row .mk__span { margin-left:auto; }
+
+  .legend { font-size:11px; color:var(--secondary); width:760px; max-width:100%; margin: 8px auto 0; }
+  .legend code { background:#f1f2f4; padding:1px 5px; border-radius:3px; }
+</style>
+</head>
+<body>
+  <h1 class="page-title">PDF Export — Holidays &amp; Closures</h1>
+  <p class="sub">Mockup of how day-level markers would render inside the existing "Calendar Events Report" PDF (date-sorted view). Colors are the real generator palette.</p>
+
+  <!-- ============ MAIN PAGE PREVIEW (recommended style A) ============ -->
+  <div class="page">
+    <div class="rule-top"></div>
+    <div class="org">CONGREGATION EMANU-EL</div>
+    <div class="report">Calendar Events Report</div>
+
+    <!-- Day with a holiday + events -->
+    <div class="day">
+      <div class="date-pill-row"><span class="date-pill">Sat, Jun 21, 2026</span><span class="date-line"></span></div>
+      <div class="mk">
+        <span class="mk__dot"></span>
+        <span class="mk__name">Shavuot</span>
+        <span class="mk__tag">Holiday</span>
+      </div>
+      <div class="evt">
+        <span class="evt__time">10:00a&nbsp;-&nbsp;12:00p</span>
+        <span class="evt__loc">Greenwald Hall</span>
+        <span class="evt__cat">Worship</span>
+        <span class="evt__title">Festival Morning Service</span>
+      </div>
+      <div class="evt zebra">
+        <span class="evt__time">6:00p&nbsp;-&nbsp;8:00p</span>
+        <span class="evt__loc">Stettenheim Library</span>
+        <span class="evt__cat">Education</span>
+        <span class="evt__title">Tikkun Leil Study</span>
+      </div>
+    </div>
+
+    <!-- Multi-day closure, day 1 (has an event) -->
+    <div class="day">
+      <div class="date-pill-row"><span class="date-pill">Wed, Jun 24, 2026</span><span class="date-line"></span></div>
+      <div class="mk mk--closed">
+        <span class="mk__dot"></span>
+        <span class="mk__name">Summer Maintenance Shutdown</span>
+        <span class="mk__span">Jun 24 – Jun 26</span>
+        <span class="mk__tag">Office Closed</span>
+      </div>
+      <div class="evt">
+        <span class="evt__time">9:00a&nbsp;-&nbsp;10:00a</span>
+        <span class="evt__loc">Off-site (Zoom)</span>
+        <span class="evt__cat">Meeting</span>
+        <span class="evt__title">Clergy Check-in (remote)</span>
+      </div>
+    </div>
+
+    <!-- Multi-day closure, day 2 — EMPTY day (no events) still prints -->
+    <div class="day">
+      <div class="date-pill-row"><span class="date-pill">Thu, Jun 25, 2026</span><span class="date-line"></span></div>
+      <div class="mk mk--closed">
+        <span class="mk__dot"></span>
+        <span class="mk__name">Summer Maintenance Shutdown</span>
+        <span class="mk__span">Jun 24 – Jun 26</span>
+        <span class="mk__tag">Office Closed</span>
+      </div>
+      <div class="evt__none">No events scheduled.</div>
+    </div>
+
+    <!-- Day with BOTH a holiday and a closure -->
+    <div class="day">
+      <div class="date-pill-row"><span class="date-pill">Fri, Jun 26, 2026</span><span class="date-line"></span></div>
+      <div class="mk mk--closed">
+        <span class="mk__dot"></span>
+        <span class="mk__name">Summer Maintenance Shutdown</span>
+        <span class="mk__span">Jun 24 – Jun 26</span>
+        <span class="mk__tag">Office Closed</span>
+      </div>
+      <div class="mk">
+        <span class="mk__dot"></span>
+        <span class="mk__name">Erev Shabbat</span>
+        <span class="mk__tag">Holiday</span>
+      </div>
+      <div class="evt">
+        <span class="evt__time">6:30p&nbsp;-&nbsp;7:30p</span>
+        <span class="evt__loc">Sanctuary</span>
+        <span class="evt__cat">Worship</span>
+        <span class="evt__title">Kabbalat Shabbat</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STYLE OPTIONS ============ -->
+  <div class="opts">
+    <h2>Banner style — pick one</h2>
+    <div class="opt-grid">
+      <div class="opt">
+        <h3>A — Tinted bar + left rule <span class="badge-rec">REC</span></h3>
+        <p class="why">Full-width, quiet tint, colored left rule, type tag on the right. Reads as a header for the day without shouting. Matches the report's understated palette.</p>
+        <div class="mk"><span class="mk__dot"></span><span class="mk__name">Shavuot</span><span class="mk__tag">Holiday</span></div>
+        <div class="mk mk--closed"><span class="mk__dot"></span><span class="mk__name">Office Closed</span><span class="mk__tag">Office Closed</span></div>
+      </div>
+      <div class="opt">
+        <h3>B — Compact pill</h3>
+        <p class="why">Smallest footprint. Dot + label in a rounded chip. Subtle, but easy to miss on a dense page and harder to show a date span.</p>
+        <div><span class="mkB"><span class="mk__dot"></span>Shavuot</span></div>
+        <div><span class="mkB mkB--closed"><span class="mk__dot"></span>Office Closed</span></div>
+      </div>
+      <div class="opt">
+        <h3>C — Solid color bar</h3>
+        <p class="why">Most prominent — white text on a filled bar. Impossible to miss, but heavy if many days are marked and competes with the gold date pill.</p>
+        <div class="mkC"><span class="mk__dot"></span>Shavuot<span class="mkC__tag">Holiday</span></div>
+        <div class="mkC mkC--closed"><span class="mk__dot"></span>Office Closed<span class="mkC__tag">Closed</span></div>
+      </div>
+    </div>
+
+    <h2>Category / Location sort — summary block (no per-day anchor exists in those modes)</h2>
+    <div class="summary">
+      <h4>Holidays &amp; Closures in this range</h4>
+      <div class="row"><span class="mk__dot"></span><span class="mk__name" style="font-weight:600;color:var(--primary)">Shavuot</span><span class="mk__span">Jun 21</span></div>
+      <div class="row"><span class="mk__dot" style="background:var(--closed)"></span><span class="mk__name" style="font-weight:600;color:var(--primary)">Summer Maintenance Shutdown</span><span class="mk__span">Jun 24 – Jun 26</span></div>
+    </div>
+  </div>
+
+  <p class="legend">Gold = <code>holiday</code> (accent #B48E49) &nbsp;·&nbsp; Red = <code>officeClosed</code> (proposed #963434). A per-marker <code>color</code> override would replace the dot/rule color, same as on-screen.</p>
+</body>
+</html>

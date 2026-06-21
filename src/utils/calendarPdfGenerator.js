@@ -2,6 +2,7 @@
 // Extracted PDF generation for calendar exports
 // Used by EventSearchExport.jsx and AIChat.jsx
 import { jsPDF } from 'jspdf';
+import { buildMarkersByDate, getMarkersForDate } from './calendarMarkers';
 
 // jsPDF's built-in fonts (helvetica/times/courier) only support WinAnsi
 // (Windows-1252) encoding. Codepoints >0xFF render as mojibake — e.g.
@@ -59,7 +60,8 @@ export function generateCalendarPdf({
   showMaintenanceTimes = false,
   showSecurityTimes = false,
   timezone = 'America/New_York',
-  searchCriteria = {}
+  searchCriteria = {},
+  markers = []
 }) {
   const doc = new jsPDF();
 
@@ -76,6 +78,7 @@ export function generateCalendarPdf({
     muted: [156, 163, 175],
     success: [34, 87, 75],
     warning: [120, 90, 60],
+    closed: [150, 52, 52],
   };
 
   const fontSize = {
@@ -134,6 +137,41 @@ export function generateCalendarPdf({
       minute: '2-digit',
       hour12: true
     }).replace(' ', '');
+  };
+
+  // Day key (YYYY-MM-DD) for an ISO datetime, computed in the EXPORT timezone so a
+  // marker lands on the same calendar day its events are grouped under.
+  const dayKeyInTz = (dateString) => {
+    if (!dateString) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(dateString));
+  };
+
+  // "Wed, May 20, 2026" from a YYYY-MM-DD key, derived in UTC so event days and
+  // marker-only days label identically (no tz drift across the date boundary).
+  const labelFromDayKey = (key) => {
+    const d = new Date(`${key}T00:00:00Z`);
+    const weekday = d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' });
+    const full = d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+    return `${weekday}, ${full}`;
+  };
+
+  // "May 20" from a YYYY-MM-DD key (date-only → format in UTC).
+  const formatMarkerDate = (key) => {
+    if (!key) return '';
+    return new Date(`${key}T00:00:00Z`).toLocaleDateString('en-US', {
+      timeZone: 'UTC', month: 'short', day: 'numeric',
+    });
+  };
+
+  // Holiday = gold accent; office-closed = muted red. (Per-marker color override
+  // is intentionally deferred — see spec.)
+  const markerColors = (marker) => {
+    if (marker && marker.type === 'officeClosed') {
+      return { accent: colors.closed, tint: [247, 237, 237], tag: 'OFFICE CLOSED' };
+    }
+    return { accent: colors.accent, tint: [248, 243, 233], tag: 'HOLIDAY' };
   };
 
   const currentDate = new Date();
@@ -280,6 +318,93 @@ export function generateCalendarPdf({
   };
 
   // ========================================
+  // MARKER BANNER (Holidays & Office Closures)
+  // ========================================
+  const MARKER_BANNER_H = 7;
+
+  // One holiday/closure banner (Style A: tinted bar + colored left rule), drawn
+  // under the day's date pill. Page-break aware. Returns the new y.
+  const drawMarkerBanner = (marker, startY) => {
+    let y = startY;
+    if (y + MARKER_BANNER_H > pageHeight - 20) {
+      doc.addPage();
+      y = drawHeader(false);
+      y = drawTableHeader(y);
+    }
+    const { accent, tint, tag } = markerColors(marker);
+    const top = y - 2.5;
+    doc.setFillColor(...tint);
+    doc.rect(spacing.margin, top, contentWidth, 6, 'F');
+    doc.setFillColor(...accent);
+    doc.rect(spacing.margin, top, 1.2, 6, 'F');
+
+    const name = sanitizeForPdfText(
+      marker.name || (marker.type === 'officeClosed' ? 'Office Closed' : 'Holiday')
+    );
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(fontSize.small);
+    doc.setTextColor(...colors.primary);
+    doc.text(name, spacing.margin + 4, y + 1.5);
+    const nameWidth = doc.getTextWidth(name);
+
+    if (marker.startDate && marker.endDate && marker.startDate !== marker.endDate) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(fontSize.tiny);
+      doc.setTextColor(...colors.muted);
+      doc.text(`${formatMarkerDate(marker.startDate)} – ${formatMarkerDate(marker.endDate)}`, spacing.margin + 6 + nameWidth, y + 1.5);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(fontSize.tiny);
+    doc.setTextColor(...accent);
+    doc.text(tag, pageWidth - spacing.margin - 2, y + 1.5, { align: 'right' });
+
+    return y + MARKER_BANNER_H + 1;
+  };
+
+  // Summary block of all in-range markers, used by category/location sorts (which
+  // have no per-day section to host banners). Returns the new y.
+  const drawMarkersSummary = (summaryMarkers, startY) => {
+    let y = startY;
+    if (!summaryMarkers || summaryMarkers.length === 0) return y;
+
+    const lineH = 4.5;
+    const boxHeight = summaryMarkers.length * lineH + 11;
+    if (y + boxHeight > pageHeight - 20) {
+      doc.addPage();
+      y = drawHeader(false);
+    }
+    doc.setFillColor(...colors.light);
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(spacing.margin, y, contentWidth, boxHeight, 2, 2, 'FD');
+
+    let rowY = y + 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(fontSize.small);
+    doc.setTextColor(...colors.primary);
+    doc.text('HOLIDAYS & CLOSURES IN THIS RANGE', spacing.margin + 4, rowY);
+    rowY += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(fontSize.tiny);
+    for (const m of summaryMarkers) {
+      const { accent } = markerColors(m);
+      doc.setFillColor(...accent);
+      doc.rect(spacing.margin + 4, rowY - 1.5, 1.6, 1.6, 'F');
+      doc.setTextColor(...colors.primary);
+      doc.text(sanitizeForPdfText(m.name || ''), spacing.margin + 8, rowY);
+      const span = m.startDate === m.endDate
+        ? formatMarkerDate(m.startDate)
+        : `${formatMarkerDate(m.startDate)} – ${formatMarkerDate(m.endDate)}`;
+      doc.setTextColor(...colors.muted);
+      doc.text(span, pageWidth - spacing.margin - 4, rowY, { align: 'right' });
+      rowY += lineH;
+    }
+    return y + boxHeight + 6;
+  };
+
+  // ========================================
   // FOOTER DESIGN
   // ========================================
   const drawFooter = (pageNum, totalPages) => {
@@ -303,6 +428,27 @@ export function generateCalendarPdf({
 
   let y = drawHeader(true);
   y = drawSearchCriteria(y);
+
+  // Holiday / office-closed markers (date-bounded). buildMarkersByDate expands a
+  // multi-day marker onto every day it covers — the same expansion the on-screen
+  // ribbons use — so a span repeats across its days here too.
+  const markersByDate = buildMarkersByDate(markers);
+  const rangeStart = searchCriteria?.dateRange?.start || null;
+  const rangeEnd = searchCriteria?.dateRange?.end || null;
+  const markerInRange = (m) => {
+    if (!m || !m.startDate || !m.endDate) return false;
+    if (rangeStart && m.endDate < rangeStart) return false;
+    if (rangeEnd && m.startDate > rangeEnd) return false;
+    return true;
+  };
+  const rangeMarkers = (Array.isArray(markers) ? markers : []).filter(markerInRange);
+
+  // Date sort hosts markers per-day; category/location sort has no per-day anchor,
+  // so those modes get a single summary block instead.
+  if (sortBy !== 'date' && rangeMarkers.length > 0) {
+    y = drawMarkersSummary(rangeMarkers, y);
+  }
+
   y = drawTableHeader(y);
 
   // Sort events
@@ -323,10 +469,6 @@ export function generateCalendarPdf({
     return 0;
   });
 
-  let currentGroup = '';
-  let previousDateStr = '';
-  let currentGroupLabel = '';
-
   const formatTimeString = (timeStr) => {
     if (!timeStr) return null;
     try {
@@ -343,57 +485,26 @@ export function generateCalendarPdf({
     }
   };
 
-  // Draw events
-  for (let i = 0; i < sortedEvents.length; i++) {
-    const event = sortedEvents[i];
-    const startDate = new Date(event.start.dateTime);
-    const dateStr = formatDateCompact(event.start.dateTime);
-    const fullDateStr = formatDate(event.start.dateTime);
-    const dayOfWeek = startDate.toLocaleDateString('en-US', {
-      timeZone: timezone,
-      weekday: 'short'
-    });
-
-    const eventColIdx = 4;
-    const eventColWidth = colWidths[eventColIdx];
-    const evtContentWidth = eventColWidth - 4;
-
+  // Measure the rendered height of one event row (mirrors drawEventRowContent's
+  // wrapping) so the page-break decision can be made before drawing.
+  const measureRowHeight = (event) => {
+    const evtContentWidth = colWidths[4] - 4;
     let rowHeight = 8;
-    const eventTitle = sanitizeForPdfText(event.subject || 'Untitled Event');
-    const wrappedTitle = doc.splitTextToSize(eventTitle, evtContentWidth);
-
+    const wrappedTitle = doc.splitTextToSize(sanitizeForPdfText(event.subject || 'Untitled Event'), evtContentWidth);
     const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '').trim();
     const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [];
-
     const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth)
-      : [];
+      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth) : [];
     const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth)
-      : [];
-
-    // Expected attendance (booking-form headcount). Coerce because attendeeCount
-    // may arrive as a numeric string; only render a positive, finite count.
+      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth) : [];
     const attendeeNum = Number(event.attendeeCount);
-    const showAttendees = Number.isFinite(attendeeNum) && attendeeNum > 0;
-    const attendeeLabel = showAttendees
-      ? `${attendeeNum} ${attendeeNum === 1 ? 'attendee' : 'attendees'}`
-      : '';
-    const attendeeHeight = showAttendees ? 4 : 0;
+    const attendeeHeight = (Number.isFinite(attendeeNum) && attendeeNum > 0) ? 4 : 0;
 
-    // Normalize multi-location strings: semicolons → newlines, arrays → newlines
-    let locationRaw = event.location?.displayName || '\u2014';
-    if (Array.isArray(locationRaw)) {
-      locationRaw = locationRaw.join('\n');
-    } else if (typeof locationRaw === 'string' && locationRaw.includes(';')) {
-      locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
-    }
-    const wrappedLocation = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4);
-    const locationHeight = wrappedLocation.length * 3.5;
-
-    const categoryText = sanitizeForPdfText(event.categories?.[0] || '\u2014');
-    const wrappedCategory = doc.splitTextToSize(categoryText, colWidths[3] - 4);
-    const categoryHeight = wrappedCategory.length * 3.5;
+    let locationRaw = event.location?.displayName || '—';
+    if (Array.isArray(locationRaw)) locationRaw = locationRaw.join('\n');
+    else if (typeof locationRaw === 'string' && locationRaw.includes(';')) locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
+    const locationHeight = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4).length * 3.5;
+    const categoryHeight = doc.splitTextToSize(sanitizeForPdfText(event.categories?.[0] || '—'), colWidths[3] - 4).length * 3.5;
 
     const titleHeight = wrappedTitle.length * 3.5;
     const bodyHeight = wrappedBody.length > 0 ? (wrappedBody.length * 3) + 2 : 0;
@@ -405,7 +516,6 @@ export function generateCalendarPdf({
       locationHeight + 4,
       categoryHeight + 4
     );
-
     if (showMaintenanceTimes || showSecurityTimes) {
       let extraLines = 0;
       if (showMaintenanceTimes && (event.reservationStartTime || event.reservationEndTime || event.setupTime || event.teardownTime)) extraLines++;
@@ -413,55 +523,32 @@ export function generateCalendarPdf({
       if (showSecurityTimes && (event.doorOpenTime || event.doorCloseTime)) extraLines++;
       rowHeight = Math.max(rowHeight, 8 + extraLines * 3.5);
     }
+    return rowHeight;
+  };
 
-    let needsGroupHeader = false;
-    if (sortBy === 'date' && dateStr !== previousDateStr) {
-      needsGroupHeader = true;
-    } else if (sortBy === 'category') {
-      const category = event.categories?.[0] || 'Uncategorized';
-      if (category !== currentGroup) needsGroupHeader = true;
-    } else if (sortBy === 'location') {
-      const location = event.location?.displayName || 'Unspecified';
-      if (location !== currentGroup) needsGroupHeader = true;
-    }
+  // Draw one event row: zebra band + DATE/TIME/LOCATION/CATEGORY columns + the
+  // event-cell stack (title, attendees, body, notes). Returns the new y. Shared by
+  // the date day-walk and the category/location path. `i` drives zebra striping —
+  // callers pass a single running event index so striping stays continuous.
+  const drawEventRowContent = (event, i, y, rowHeight) => {
+    const eventColIdx = 4;
+    const evtContentWidth = colWidths[eventColIdx] - 4;
+    const wrappedTitle = doc.splitTextToSize(sanitizeForPdfText(event.subject || 'Untitled Event'), evtContentWidth);
+    const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '').trim();
+    const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [];
+    const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
+      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth) : [];
+    const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
+      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth) : [];
+    const attendeeNum = Number(event.attendeeCount);
+    const showAttendees = Number.isFinite(attendeeNum) && attendeeNum > 0;
+    const attendeeLabel = showAttendees ? `${attendeeNum} ${attendeeNum === 1 ? 'attendee' : 'attendees'}` : '';
 
-    const totalNeeded = rowHeight + (needsGroupHeader ? 8 : 0);
-
-    if (y + totalNeeded > pageHeight - 20) {
-      doc.addPage();
-      y = drawHeader(false);
-      y = drawTableHeader(y);
-      if (currentGroupLabel && !needsGroupHeader) {
-        y = drawGroupSeparator(y, `${currentGroupLabel} (cont'd)`);
-      }
-    }
-
-    if (sortBy === 'date' && dateStr !== previousDateStr) {
-      if (previousDateStr !== '') {
-        y += 3;
-      }
-      currentGroupLabel = `${dayOfWeek}, ${fullDateStr}`;
-      y = drawGroupSeparator(y, currentGroupLabel);
-    }
-    previousDateStr = dateStr;
-
-    if (sortBy === 'category') {
-      const category = event.categories?.[0] || 'Uncategorized';
-      if (category !== currentGroup) {
-        currentGroup = category;
-        if (previousDateStr !== '' || i > 0) y += 3;
-        currentGroupLabel = sanitizeForPdfText(category.toUpperCase());
-        y = drawGroupSeparator(y, currentGroupLabel);
-      }
-    } else if (sortBy === 'location') {
-      const location = event.location?.displayName || 'Unspecified';
-      if (location !== currentGroup) {
-        currentGroup = location;
-        if (previousDateStr !== '' || i > 0) y += 3;
-        currentGroupLabel = sanitizeForPdfText(location);
-        y = drawGroupSeparator(y, currentGroupLabel);
-      }
-    }
+    let locationRaw = event.location?.displayName || '—';
+    if (Array.isArray(locationRaw)) locationRaw = locationRaw.join('\n');
+    else if (typeof locationRaw === 'string' && locationRaw.includes(';')) locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
+    const wrappedLocation = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4);
+    const wrappedCategory = doc.splitTextToSize(sanitizeForPdfText(event.categories?.[0] || '—'), colWidths[3] - 4);
 
     if (i % 2 === 0) {
       doc.setFillColor(252, 252, 253);
@@ -471,14 +558,12 @@ export function generateCalendarPdf({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(fontSize.small);
     doc.setTextColor(...colors.primary);
-
     if (sortBy !== 'date') {
-      doc.text(dateStr, colPositions[0] + 2, y);
+      doc.text(formatDateCompact(event.start.dateTime), colPositions[0] + 2, y);
     }
 
     doc.setTextColor(...colors.primary);
-    const timeStr = `${formatTime(event.start.dateTime)} - ${formatTime(event.end.dateTime)}`;
-    doc.text(timeStr, colPositions[1] + 2, y);
+    doc.text(`${formatTime(event.start.dateTime)} - ${formatTime(event.end.dateTime)}`, colPositions[1] + 2, y);
 
     let timeY = y + 3.5;
     if (showMaintenanceTimes) {
@@ -521,12 +606,10 @@ export function generateCalendarPdf({
     doc.setFontSize(fontSize.small);
     doc.setTextColor(...colors.secondary);
     doc.text(wrappedLocation, colPositions[2] + 2, y);
-
     doc.text(wrappedCategory, colPositions[3] + 2, y);
 
     const eventColX = colPositions[eventColIdx];
     let contentY = y;
-
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(fontSize.small);
     doc.setTextColor(...colors.primary);
@@ -540,7 +623,6 @@ export function generateCalendarPdf({
       doc.text(attendeeLabel, eventColX + 2, contentY);
       contentY += 4;
     }
-
     if (wrappedBody.length > 0) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(fontSize.tiny);
@@ -548,7 +630,6 @@ export function generateCalendarPdf({
       doc.text(wrappedBody, eventColX + 2, contentY);
       contentY += (wrappedBody.length * 3) + 2;
     }
-
     if (showMaintenanceTimes && event.setupNotes) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(fontSize.tiny);
@@ -556,7 +637,6 @@ export function generateCalendarPdf({
       doc.text(wrappedSetupNotes, eventColX + 2, contentY);
       contentY += (wrappedSetupNotes.length * 3) + 2;
     }
-
     if (showSecurityTimes && event.doorNotes) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(fontSize.tiny);
@@ -564,7 +644,118 @@ export function generateCalendarPdf({
       doc.text(wrappedDoorNotes, eventColX + 2, contentY);
     }
 
-    y += rowHeight;
+    return y + rowHeight;
+  };
+
+  if (sortBy === 'date') {
+    // Day-walk: render every day that has events OR is covered by a marker (within
+    // range), so a holiday/closure prints at the top of its day even when nothing
+    // is booked. Reuses the on-screen markersByDate expansion for multi-day spans.
+    const eventsByDay = new Map();
+    for (const event of sortedEvents) {
+      const key = dayKeyInTz(event.start.dateTime);
+      if (!eventsByDay.has(key)) eventsByDay.set(key, []);
+      eventsByDay.get(key).push(event);
+    }
+
+    let lo = rangeStart;
+    let hi = rangeEnd;
+    if (!lo || !hi) {
+      const eventKeys = [...eventsByDay.keys()].sort();
+      lo = lo || eventKeys[0];
+      hi = hi || eventKeys[eventKeys.length - 1];
+    }
+    const markerDayKeys = [...markersByDate.keys()].filter(k => (!lo || k >= lo) && (!hi || k <= hi));
+    const allDayKeys = [...new Set([...eventsByDay.keys(), ...markerDayKeys])].sort();
+
+    let evtIndex = 0; // continuous across days so zebra striping matches today's
+    for (let d = 0; d < allDayKeys.length; d++) {
+      const dayKey = allDayKeys[d];
+      const dayEvents = eventsByDay.get(dayKey) || [];
+      const dayMarkers = getMarkersForDate(markersByDate, dayKey);
+      const dayLabel = labelFromDayKey(dayKey);
+
+      const firstItemH = dayMarkers.length > 0 ? (MARKER_BANNER_H + 1)
+        : (dayEvents.length > 0 ? measureRowHeight(dayEvents[0]) : 6);
+      if (d > 0) y += 3;
+      if (y + 8 + firstItemH > pageHeight - 20) {
+        doc.addPage();
+        y = drawHeader(false);
+        y = drawTableHeader(y);
+      }
+
+      y = drawGroupSeparator(y, dayLabel);
+
+      for (const m of dayMarkers) {
+        y = drawMarkerBanner(m, y);
+      }
+
+      if (dayEvents.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(fontSize.tiny);
+        doc.setTextColor(...colors.muted);
+        doc.text('No events scheduled.', spacing.margin + 4, y + 1);
+        y += 6;
+      } else {
+        for (const event of dayEvents) {
+          const rowHeight = measureRowHeight(event);
+          if (y + rowHeight > pageHeight - 20) {
+            doc.addPage();
+            y = drawHeader(false);
+            y = drawTableHeader(y);
+            y = drawGroupSeparator(y, `${dayLabel} (cont'd)`);
+          }
+          y = drawEventRowContent(event, evtIndex, y, rowHeight);
+          evtIndex++;
+        }
+      }
+    }
+  } else {
+    // Category / location sort: flat list with group separators. Markers are
+    // day-level, so they appear in the summary block above, not inline here.
+    let currentGroup = '';
+    let currentGroupLabel = '';
+    for (let i = 0; i < sortedEvents.length; i++) {
+      const event = sortedEvents[i];
+      const rowHeight = measureRowHeight(event);
+
+      let needsGroupHeader = false;
+      if (sortBy === 'category') {
+        if ((event.categories?.[0] || 'Uncategorized') !== currentGroup) needsGroupHeader = true;
+      } else if (sortBy === 'location') {
+        if ((event.location?.displayName || 'Unspecified') !== currentGroup) needsGroupHeader = true;
+      }
+
+      const totalNeeded = rowHeight + (needsGroupHeader ? 8 : 0);
+      if (y + totalNeeded > pageHeight - 20) {
+        doc.addPage();
+        y = drawHeader(false);
+        y = drawTableHeader(y);
+        if (currentGroupLabel && !needsGroupHeader) {
+          y = drawGroupSeparator(y, `${currentGroupLabel} (cont'd)`);
+        }
+      }
+
+      if (sortBy === 'category') {
+        const category = event.categories?.[0] || 'Uncategorized';
+        if (category !== currentGroup) {
+          currentGroup = category;
+          if (i > 0) y += 3;
+          currentGroupLabel = sanitizeForPdfText(category.toUpperCase());
+          y = drawGroupSeparator(y, currentGroupLabel);
+        }
+      } else if (sortBy === 'location') {
+        const location = event.location?.displayName || 'Unspecified';
+        if (location !== currentGroup) {
+          currentGroup = location;
+          if (i > 0) y += 3;
+          currentGroupLabel = sanitizeForPdfText(location);
+          y = drawGroupSeparator(y, currentGroupLabel);
+        }
+      }
+
+      y = drawEventRowContent(event, i, y, rowHeight);
+    }
   }
 
   // Total results

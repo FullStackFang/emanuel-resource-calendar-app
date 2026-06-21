@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { generateCalendarPdf } from '../utils/calendarPdfGenerator';
 import { getEventRecurrence } from '../utils/eventTransformers';
 import { selectedNamesToCategoryIds } from '../utils/categoryFilterUtils';
+import { useCalendarMarkersQuery } from '../hooks/useCalendarMarkersQuery';
 
 const EventSearchExport = ({
   searchResults,
@@ -23,6 +24,9 @@ const EventSearchExport = ({
   baseCategories = []
 }) => {
   const { showError } = useNotification();
+  // Active holiday/closure markers — shared cached query (warm from Calendar).
+  // A fetch failure resolves to [], so the PDF still generates without banners.
+  const { data: markers = [] } = useCalendarMarkersQuery(apiToken);
   const [sortBy, setSortBy] = useState('date');
   const [exportState, setExportState] = useState({ phase: 'idle', message: '' });
   const isExporting = exportState.phase !== 'idle';
@@ -391,7 +395,8 @@ const EventSearchExport = ({
         showMaintenanceTimes,
         showSecurityTimes,
         timezone,
-        searchCriteria: { searchTerm, categories, locations }
+        searchCriteria: { searchTerm, categories, locations, dateRange },
+        markers
       });
 
       // Auto-download the PDF
