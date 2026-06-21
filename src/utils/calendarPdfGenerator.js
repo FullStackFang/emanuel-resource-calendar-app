@@ -485,26 +485,39 @@ export function generateCalendarPdf({
     }
   };
 
-  // Measure the rendered height of one event row (mirrors drawEventRowContent's
-  // wrapping) so the page-break decision can be made before drawing.
-  const measureRowHeight = (event) => {
+  // Wrap every text cell of an event row exactly once. Both the measure pass
+  // (measureRowHeight) and the draw pass (drawEventRowContent) consume this single
+  // result, so their geometry can never drift and each cell is wrapped only once.
+  const wrapEventRow = (event) => {
     const evtContentWidth = colWidths[4] - 4;
-    let rowHeight = 8;
-    const wrappedTitle = doc.splitTextToSize(sanitizeForPdfText(event.subject || 'Untitled Event'), evtContentWidth);
     const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '').trim();
-    const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [];
-    const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth) : [];
-    const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth) : [];
-    const attendeeNum = Number(event.attendeeCount);
-    const attendeeHeight = (Number.isFinite(attendeeNum) && attendeeNum > 0) ? 4 : 0;
-
     let locationRaw = event.location?.displayName || '—';
     if (Array.isArray(locationRaw)) locationRaw = locationRaw.join('\n');
     else if (typeof locationRaw === 'string' && locationRaw.includes(';')) locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
-    const locationHeight = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4).length * 3.5;
-    const categoryHeight = doc.splitTextToSize(sanitizeForPdfText(event.categories?.[0] || '—'), colWidths[3] - 4).length * 3.5;
+    const attendeeNum = Number(event.attendeeCount);
+    const showAttendees = Number.isFinite(attendeeNum) && attendeeNum > 0;
+    return {
+      wrappedTitle: doc.splitTextToSize(sanitizeForPdfText(event.subject || 'Untitled Event'), evtContentWidth),
+      wrappedBody: bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [],
+      wrappedSetupNotes: (showMaintenanceTimes && event.setupNotes)
+        ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth) : [],
+      wrappedDoorNotes: (showSecurityTimes && event.doorNotes)
+        ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth) : [],
+      wrappedLocation: doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4),
+      wrappedCategory: doc.splitTextToSize(sanitizeForPdfText(event.categories?.[0] || '—'), colWidths[3] - 4),
+      showAttendees,
+      attendeeLabel: showAttendees ? `${attendeeNum} ${attendeeNum === 1 ? 'attendee' : 'attendees'}` : '',
+    };
+  };
+
+  // Measure the rendered height of one event row from its pre-wrapped cells so the
+  // page-break decision can be made before drawing.
+  const measureRowHeight = (event, wrapped) => {
+    const { wrappedTitle, wrappedBody, wrappedSetupNotes, wrappedDoorNotes, wrappedLocation, wrappedCategory, showAttendees } = wrapped;
+    let rowHeight = 8;
+    const attendeeHeight = showAttendees ? 4 : 0;
+    const locationHeight = wrappedLocation.length * 3.5;
+    const categoryHeight = wrappedCategory.length * 3.5;
 
     const titleHeight = wrappedTitle.length * 3.5;
     const bodyHeight = wrappedBody.length > 0 ? (wrappedBody.length * 3) + 2 : 0;
@@ -527,28 +540,13 @@ export function generateCalendarPdf({
   };
 
   // Draw one event row: zebra band + DATE/TIME/LOCATION/CATEGORY columns + the
-  // event-cell stack (title, attendees, body, notes). Returns the new y. Shared by
-  // the date day-walk and the category/location path. `i` drives zebra striping —
-  // callers pass a single running event index so striping stays continuous.
-  const drawEventRowContent = (event, i, y, rowHeight) => {
+  // event-cell stack (title, attendees, body, notes), using the cells pre-wrapped
+  // by wrapEventRow. Returns the new y. Shared by the date day-walk and the
+  // category/location path. `i` drives zebra striping — callers pass a single
+  // running event index so striping stays continuous.
+  const drawEventRowContent = (event, wrapped, i, y, rowHeight) => {
+    const { wrappedTitle, wrappedBody, wrappedSetupNotes, wrappedDoorNotes, wrappedLocation, wrappedCategory, showAttendees, attendeeLabel } = wrapped;
     const eventColIdx = 4;
-    const evtContentWidth = colWidths[eventColIdx] - 4;
-    const wrappedTitle = doc.splitTextToSize(sanitizeForPdfText(event.subject || 'Untitled Event'), evtContentWidth);
-    const bodyText = sanitizeForPdfText(event.bodyPreview || event.body?.content || '').trim();
-    const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, evtContentWidth) : [];
-    const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Setup: ${event.setupNotes}`), evtContentWidth) : [];
-    const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
-      ? doc.splitTextToSize(sanitizeForPdfText(`Door/Access: ${event.doorNotes}`), evtContentWidth) : [];
-    const attendeeNum = Number(event.attendeeCount);
-    const showAttendees = Number.isFinite(attendeeNum) && attendeeNum > 0;
-    const attendeeLabel = showAttendees ? `${attendeeNum} ${attendeeNum === 1 ? 'attendee' : 'attendees'}` : '';
-
-    let locationRaw = event.location?.displayName || '—';
-    if (Array.isArray(locationRaw)) locationRaw = locationRaw.join('\n');
-    else if (typeof locationRaw === 'string' && locationRaw.includes(';')) locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
-    const wrappedLocation = doc.splitTextToSize(sanitizeForPdfText(locationRaw), colWidths[2] - 4);
-    const wrappedCategory = doc.splitTextToSize(sanitizeForPdfText(event.categories?.[0] || '—'), colWidths[3] - 4);
 
     if (i % 2 === 0) {
       doc.setFillColor(252, 252, 253);
@@ -676,7 +674,7 @@ export function generateCalendarPdf({
       const dayLabel = labelFromDayKey(dayKey);
 
       const firstItemH = dayMarkers.length > 0 ? (MARKER_BANNER_H + 1)
-        : (dayEvents.length > 0 ? measureRowHeight(dayEvents[0]) : 6);
+        : (dayEvents.length > 0 ? measureRowHeight(dayEvents[0], wrapEventRow(dayEvents[0])) : 6);
       if (d > 0) y += 3;
       if (y + 8 + firstItemH > pageHeight - 20) {
         doc.addPage();
@@ -698,14 +696,15 @@ export function generateCalendarPdf({
         y += 6;
       } else {
         for (const event of dayEvents) {
-          const rowHeight = measureRowHeight(event);
+          const wrapped = wrapEventRow(event);
+          const rowHeight = measureRowHeight(event, wrapped);
           if (y + rowHeight > pageHeight - 20) {
             doc.addPage();
             y = drawHeader(false);
             y = drawTableHeader(y);
             y = drawGroupSeparator(y, `${dayLabel} (cont'd)`);
           }
-          y = drawEventRowContent(event, evtIndex, y, rowHeight);
+          y = drawEventRowContent(event, wrapped, evtIndex, y, rowHeight);
           evtIndex++;
         }
       }
@@ -717,7 +716,8 @@ export function generateCalendarPdf({
     let currentGroupLabel = '';
     for (let i = 0; i < sortedEvents.length; i++) {
       const event = sortedEvents[i];
-      const rowHeight = measureRowHeight(event);
+      const wrapped = wrapEventRow(event);
+      const rowHeight = measureRowHeight(event, wrapped);
 
       let needsGroupHeader = false;
       if (sortBy === 'category') {
@@ -754,7 +754,7 @@ export function generateCalendarPdf({
         }
       }
 
-      y = drawEventRowContent(event, i, y, rowHeight);
+      y = drawEventRowContent(event, wrapped, i, y, rowHeight);
     }
   }
 
