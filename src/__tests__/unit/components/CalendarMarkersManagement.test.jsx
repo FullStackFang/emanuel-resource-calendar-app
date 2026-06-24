@@ -42,13 +42,22 @@ describe('CalendarMarkersManagement', () => {
   let client;
   let calls;
 
+  // Number of leading GET /calendar-markers calls that should fail with 500
+  // (simulates transient Cosmos throttling). Reset per test.
+  let getFailCount;
+
   beforeEach(() => {
     calls = { POST: [], PUT: [], DELETE: [] };
+    getFailCount = 0;
     let list = [seedMarker];
 
     global.fetch = vi.fn(async (url, opts = {}) => {
       const method = (opts.method || 'GET').toUpperCase();
       if (url.endsWith('/calendar-markers') && method === 'GET') {
+        if (getFailCount > 0) {
+          getFailCount -= 1;
+          return { ok: false, status: 500, json: async () => ({ error: 'throttled' }) };
+        }
         return { ok: true, json: async () => list };
       }
       if (url.endsWith('/calendar-markers') && method === 'POST') {
@@ -196,5 +205,26 @@ describe('CalendarMarkersManagement', () => {
     await waitFor(() => expect(calls.DELETE).toHaveLength(1));
     expect(showSuccess).toHaveBeenCalledWith('Marker deleted');
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: keys.calendarMarkers.all() });
+  });
+
+  // Regression: a transient backend failure (Cosmos throttle/timeout -> HTTP 500)
+  // must surface as a retry-able error, NOT a false "No markers yet" empty state
+  // that looks identical to genuinely having no markers.
+  it('shows a retry-able error state (not a false empty) when the markers fetch fails', async () => {
+    getFailCount = Infinity; // every GET fails
+    renderScreen();
+
+    expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no markers yet/i)).not.toBeInTheDocument();
+  });
+
+  it('recovers the list when the user retries after a transient failure', async () => {
+    getFailCount = 1; // first GET fails, the retry succeeds
+    renderScreen();
+
+    const retry = await screen.findByRole('button', { name: /retry/i });
+    fireEvent.click(retry);
+
+    expect(await screen.findByText('Rosh Hashanah')).toBeInTheDocument();
   });
 });

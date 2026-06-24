@@ -12,7 +12,7 @@ export default function EmptyStateRefreshButton({
       className={`empty-state-refresh-btn${isRefreshing ? ' refreshing' : ''}`}
       onClick={onClick}
       disabled={isRefreshing}
-      aria-label={isRefreshing ? 'Refreshing data' : 'Refresh data'}
+      aria-label={isRefreshing ? 'Refreshing data' : label}
       title="Reload data from the server"
     >
       <svg

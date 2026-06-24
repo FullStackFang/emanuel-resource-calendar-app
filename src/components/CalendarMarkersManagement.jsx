@@ -14,6 +14,7 @@ import { keys } from '../queries/keys';
 import { useCalendarMarkersQuery } from '../hooks/useCalendarMarkersQuery';
 import { useNotification } from '../context/NotificationContext';
 import LoadingSpinner from './shared/LoadingSpinner';
+import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
 import DatePickerInput from './DatePickerInput';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
@@ -42,7 +43,18 @@ const formatRange = (startDate, endDate) =>
 export default function CalendarMarkersManagement({ apiToken }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useNotification();
-  const { data: markers = [], isLoading } = useCalendarMarkersQuery(apiToken);
+  const { data: markers = [], isLoading, isError, refetch } = useCalendarMarkersQuery(apiToken);
+
+  // Manual recovery for a failed load (in addition to the query's auto-retry).
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -213,7 +225,16 @@ export default function CalendarMarkersManagement({ apiToken }) {
         </button>
       </div>
 
-      {sortedMarkers.length > 0 ? (
+      {isError ? (
+        <div className="markers-empty">
+          <h3>Couldn&apos;t load holidays &amp; closures</h3>
+          <p>
+            The server had trouble loading them — usually a temporary database hiccup. Your markers
+            are safe; please retry.
+          </p>
+          <EmptyStateRefreshButton onClick={handleManualRefresh} isRefreshing={isManualRefreshing} label="Retry" />
+        </div>
+      ) : sortedMarkers.length > 0 ? (
         <div className="markers-list">
           {sortedMarkers.map((marker) => {
             const isConfirming = confirmDeleteId === marker._id;
@@ -251,6 +272,7 @@ export default function CalendarMarkersManagement({ apiToken }) {
           <h3>No markers yet</h3>
           <p>Add a holiday or office closure to annotate the calendar.</p>
           <button onClick={openCreate} className="markers-add-btn">Add your first marker</button>
+          <EmptyStateRefreshButton onClick={handleManualRefresh} isRefreshing={isManualRefreshing} />
         </div>
       )}
 

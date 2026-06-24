@@ -490,56 +490,51 @@ function setDatabase(injectedDb) {
   lifecycleEvents.setDbConnection(injectedDb);
 }
 
+const { createStaleWhileErrorCache } = require('./utils/staleWhileError');
+
 // --- In-memory category cache (small, rarely-changing collection) ---
 // Avoids 3-6 DB round-trips per conflict check. Invalidated on category CRUD.
-let _categoryCache = null;
-let _categoryCacheExpiry = 0;
+// Serves the last good value if a refresh throttles/times out (Cosmos 16500) so
+// a transient blip never propagates as an error — see utils/staleWhileError.js.
 const CATEGORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const _categoryCache = createStaleWhileErrorCache({
+  ttlMs: CATEGORY_CACHE_TTL,
+  load: async () => {
+    const docs = await withCosmosRetry(() => categoriesCollection.find({}).toArray());
+    const map = new Map();
+    for (const doc of docs) map.set(doc.name, doc);
+    return map;
+  },
+});
 
 async function getCachedCategories() {
-  const now = Date.now();
-  if (_categoryCache && now < _categoryCacheExpiry) {
-    return _categoryCache;
-  }
-  const docs = await withCosmosRetry(() => categoriesCollection.find({}).toArray());
-  _categoryCache = new Map();
-  for (const doc of docs) {
-    _categoryCache.set(doc.name, doc);
-  }
-  _categoryCacheExpiry = now + CATEGORY_CACHE_TTL;
-  return _categoryCache;
+  return _categoryCache.get();
 }
 
 function invalidateCategoryCache() {
-  _categoryCache = null;
-  _categoryCacheExpiry = 0;
+  _categoryCache.invalidate();
 }
 
 // --- In-memory calendar-marker cache (small, admin-managed collection) ---
 // Mirrors the category cache: markers are few and rarely change, but the read
 // API is hit on every calendar window load. Cache the full active set and let
 // the endpoint apply the date-range overlap filter in memory. Invalidated on
-// any marker CRUD write.
-let _markersCache = null;
-let _markersCacheExpiry = 0;
+// any marker CRUD write; serves stale on a failed refresh (see staleWhileError).
 const MARKERS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const _markersCache = createStaleWhileErrorCache({
+  ttlMs: MARKERS_CACHE_TTL,
+  load: () =>
+    withCosmosRetry(() =>
+      calendarMarkersCollection.find({ active: true }).sort({ startDate: 1 }).toArray()
+    ),
+});
 
 async function getCachedCalendarMarkers() {
-  const now = Date.now();
-  if (_markersCache && now < _markersCacheExpiry) {
-    return _markersCache;
-  }
-  const docs = await withCosmosRetry(() =>
-    calendarMarkersCollection.find({ active: true }).sort({ startDate: 1 }).toArray()
-  );
-  _markersCache = docs;
-  _markersCacheExpiry = now + MARKERS_CACHE_TTL;
-  return _markersCache;
+  return _markersCache.get();
 }
 
 function invalidateCalendarMarkersCache() {
-  _markersCache = null;
-  _markersCacheExpiry = 0;
+  _markersCache.invalidate();
 }
 
 const { buildNormalizedCategoryMap, resolveCategoryIds: _resolveCategoryIds } = require('./utils/categoryResolver');
