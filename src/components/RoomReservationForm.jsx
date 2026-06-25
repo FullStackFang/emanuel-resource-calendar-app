@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import DraftSaveDialog from './shared/DraftSaveDialog';
+import ReservationMarkerAdvisory from './shared/ReservationMarkerAdvisory';
 import './RoomReservationForm.css';
 
 /**
@@ -33,6 +34,9 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   const [success, setSuccess] = useState(false);
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [initialData, setInitialData] = useState({});
+  // Selected booking date, tracked reactively so the marker advisory updates as
+  // the user changes the date (and seeded from a pre-filled draft date).
+  const [advisoryDate, setAdvisoryDate] = useState('');
 
   // Draft-specific state
   const [draftId, setDraftId] = useState(initialDraftId);
@@ -97,7 +101,17 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   const handleFormDataChange = useCallback((updatedData) => {
     setHasChanges(true);
     setDraftSaved(false);
+    // Track the selected date for the marker advisory (reactive on every change).
+    if (updatedData && updatedData.startDate !== undefined) {
+      setAdvisoryDate(updatedData.startDate);
+    }
   }, []);
+
+  // Seed the advisory date from a pre-filled draft (its onDataChange may not
+  // fire until the user edits a field).
+  useEffect(() => {
+    if (initialData?.startDate) setAdvisoryDate(initialData.startDate);
+  }, [initialData]);
 
   // Warn user before leaving page with unsaved changes
   useEffect(() => {
@@ -524,6 +538,10 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           )}
         </div>
       </div>
+
+      {/* Soft, non-blocking advisory when the selected date carries a
+          warnOnReservation marker. Never blocks submission. */}
+      <ReservationMarkerAdvisory apiToken={apiToken} date={advisoryDate} />
 
       {/* Scrollable form content */}
       <form id="space-booking-form" onSubmit={handleSubmit} style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
