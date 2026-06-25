@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
+import MarkerWarningDialog from './shared/MarkerWarningDialog';
 import { useEventCreation } from '../hooks/useEventCreation';
 
 export default function NewReservationModal({ apiToken, selectedCalendarId, availableCalendars }) {
@@ -24,6 +25,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   }, [creation.open]);
 
   return (
+    <>
     <ReviewModal
       isOpen={creation.isOpen}
       title="Event"
@@ -62,5 +64,17 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         />
       )}
     </ReviewModal>
+
+    {/* Blocking holiday/closure warning raised at submit time. Rendered as a
+        sibling so its fixed overlay isn't clipped by the modal's layout. */}
+    <MarkerWarningDialog
+      isOpen={!!creation.pendingMarkerWarning}
+      markers={creation.pendingMarkerWarning?.markers || []}
+      date={creation.pendingMarkerWarning?.date}
+      onConfirm={creation.confirmMarkerWarning}
+      onCancel={creation.cancelMarkerWarning}
+      submitting={creation.isSaving}
+    />
+    </>
   );
 }

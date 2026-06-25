@@ -48,6 +48,7 @@
   import { useEventReviewExperience } from '../hooks/useEventReviewExperience';
   import { useEventCreation } from '../hooks/useEventCreation';
   import ReviewModal from './shared/ReviewModal';
+  import MarkerWarningDialog from './shared/MarkerWarningDialog';
   import EventReviewExperience from './shared/EventReviewExperience';
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
@@ -5752,6 +5753,18 @@ import ConflictDialog from './shared/ConflictDialog';
             />
           )}
         </ReviewModal>
+
+        {/* Blocking holiday/closure warning raised at submit time (requester
+            create flow via useEventCreation). Sibling of the modal so its fixed
+            overlay isn't clipped. */}
+        <MarkerWarningDialog
+          isOpen={!!eventCreation.pendingMarkerWarning}
+          markers={eventCreation.pendingMarkerWarning?.markers || []}
+          date={eventCreation.pendingMarkerWarning?.date}
+          onConfirm={eventCreation.confirmMarkerWarning}
+          onCancel={eventCreation.cancelMarkerWarning}
+          submitting={eventCreation.isSaving}
+        />
       </div>
     );
   }

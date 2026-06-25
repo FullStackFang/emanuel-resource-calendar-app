@@ -13,6 +13,7 @@ import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import { ServicesContent } from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
+import ReservationMarkerAdvisory from './shared/ReservationMarkerAdvisory';
 import { RecurringIcon } from './shared/CalendarIcons';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
@@ -1897,6 +1898,13 @@ export default function RoomReservationFormBase({
                 />
               </div>
             </div>
+
+            {/* Soft, non-blocking advisory when the selected date carries a
+                warnOnReservation marker (holiday / office closure). Lives here in
+                the shared base form so EVERY entry point (new-booking route, New
+                Reservation modal, review/edit) shows it — reading the live
+                selected date directly, with no per-wrapper threading. */}
+            <ReservationMarkerAdvisory apiToken={apiToken} date={formData.startDate} />
 
             {/* Date + Attendees Row (3-column compact) */}
             <div className="date-attendees-row">

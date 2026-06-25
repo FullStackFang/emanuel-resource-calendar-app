@@ -1,0 +1,180 @@
+/* ============================================================================
+   MARKER WARNING DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Blocking submit-time confirmation for holiday / office-closure booking dates.
+   Classes are scoped under .marker-warning-* to avoid leaking into other modals.
+   ============================================================================ */
+
+.marker-warning-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: fadeIn var(--duration-fast) var(--ease-out);
+}
+
+.marker-warning-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  max-width: 440px;
+  width: 100%;
+  overflow: hidden;
+  animation: marker-warning-slide-in var(--duration-normal) var(--ease-out);
+}
+
+@keyframes marker-warning-slide-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.marker-warning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--color-warning-50, var(--bg-secondary));
+}
+
+.marker-warning-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.marker-warning-close {
+  background: none;
+  border: none;
+  font-size: var(--text-2xl);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+.marker-warning-close:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.marker-warning-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.marker-warning-content {
+  padding: var(--space-5) var(--space-5) var(--space-4);
+}
+
+.marker-warning-message {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.marker-warning-list {
+  list-style: none;
+  margin: 0 0 var(--space-4) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.marker-warning-item {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent-500);
+  background: var(--bg-secondary);
+}
+
+.marker-warning-item.mw--officeClosed {
+  border-left-color: var(--color-error-500);
+}
+
+.marker-warning-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.marker-warning-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+
+.marker-warning-btn {
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.marker-warning-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.marker-warning-btn-cancel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.marker-warning-btn-cancel:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.marker-warning-btn-confirm {
+  background: var(--color-warning-500);
+  border: none;
+  color: var(--text-inverse, #fff);
+}
+
+.marker-warning-btn-confirm:hover:not(:disabled) {
+  background: var(--color-warning-600, var(--color-warning-500));
+}
+
+@media (max-width: 480px) {
+  .marker-warning-dialog {
+    max-width: 100%;
+    margin: var(--space-3);
+  }
+
+  .marker-warning-footer {
+    flex-direction: column;
+  }
+
+  .marker-warning-btn {
+    width: 100%;
+  }
+}

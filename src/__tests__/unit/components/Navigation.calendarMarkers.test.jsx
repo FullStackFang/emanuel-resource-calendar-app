@@ -56,14 +56,28 @@ beforeEach(() => {
 
 describe('Navigation — Holidays & Closures IA', () => {
   it('events-dept viewer: shows a top-level Holidays & Closures link and no Admin dropdown', () => {
-    mockPermissions = { ...baseViewer, canManageCalendarMarkers: true };
+    mockPermissions = { ...baseViewer, canManageCalendarMarkers: true, department: 'events' };
     renderNav();
 
-    const link = screen.getByRole('link', { name: 'Holidays & Closures' });
+    // Accessible name now includes the department tag suffix, so match loosely.
+    const link = screen.getByRole('link', { name: /Holidays & Closures/ });
     expect(link).toBeInTheDocument();
     expect(link.getAttribute('href')).toBe('/admin/calendar-markers');
 
+    // The department tag explains WHY this non-admin sees an admin-area link.
+    expect(screen.getByText('Events')).toBeInTheDocument();
+
     expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+  });
+
+  it('events-dept viewer: department tag is scoped to the top-level link only', () => {
+    mockPermissions = { ...baseViewer, canManageCalendarMarkers: true, department: 'events' };
+    renderNav();
+
+    const tag = screen.getByText('Events');
+    // The tag lives inside the Holidays & Closures link, not as a stray node.
+    const link = screen.getByRole('link', { name: /Holidays & Closures/ });
+    expect(link).toContainElement(tag);
   });
 
   it('admin: shows the link inside the Admin dropdown, no duplicate top-level link', () => {

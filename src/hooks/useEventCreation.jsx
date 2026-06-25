@@ -3,10 +3,12 @@
 // Single source of truth for all event creation orchestration.
 // Handles admin publish, requester submit, and draft save flows.
 // Consumed by Calendar.jsx (day-cell/timeline clicks) and NewReservationModal.
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { usePermissions } from './usePermissions';
 import { useAuthenticatedFetch } from './useAuthenticatedFetch';
+import { useCalendarMarkersQuery } from './useCalendarMarkersQuery';
+import { buildMarkersByDate, getMarkersForDate } from '../utils/calendarMarkers';
 import { useNotification } from '../context/NotificationContext';
 import { dispatchRefresh } from './useDataRefreshBus';
 import {
@@ -71,6 +73,19 @@ export function useEventCreation({
   // --- Multi-day state ---
   const [pendingMultiDayConfirmation, setPendingMultiDayConfirmation] = useState(null);
 
+  // --- Holiday / office-closure submit-warning state ---
+  // When the selected date carries a warnOnReservation marker, submission is
+  // interrupted by a blocking confirmation. The ack ref records that the user
+  // chose "Submit Anyway" so the re-entry skips the gate (reset after submit).
+  const [pendingMarkerWarning, setPendingMarkerWarning] = useState(null);
+  const markerWarningAckRef = useRef(false);
+  const { data: calendarMarkers = [] } = useCalendarMarkersQuery(apiToken);
+  const markersByDate = useMemo(() => buildMarkersByDate(calendarMarkers), [calendarMarkers]);
+  const getWarnMarkersForDate = useCallback(
+    (date) => getMarkersForDate(markersByDate, date).filter((m) => m.warnOnReservation),
+    [markersByDate]
+  );
+
   // --- Draft state ---
   const [draftId, setDraftId] = useState(null);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -102,6 +117,8 @@ export function useEventCreation({
     setIsSaving(false);
     setIsConfirming(false);
     setPendingMultiDayConfirmation(null);
+    setPendingMarkerWarning(null);
+    markerWarningAckRef.current = false;
     setDraftId(null);
     setSavingDraft(false);
     setIsDraftConfirming(false);
@@ -201,7 +218,10 @@ export function useEventCreation({
     if (isConfirming) setIsConfirming(false);
     if (isDraftConfirming) setIsDraftConfirming(false);
     if (pendingMultiDayConfirmation) setPendingMultiDayConfirmation(null);
-  }, [isConfirming, isDraftConfirming, pendingMultiDayConfirmation]);
+    // Changing the date (or anything) invalidates a raised holiday warning/ack.
+    if (pendingMarkerWarning) setPendingMarkerWarning(null);
+    markerWarningAckRef.current = false;
+  }, [isConfirming, isDraftConfirming, pendingMultiDayConfirmation, pendingMarkerWarning]);
 
   /**
    * Called by RoomReservationReview's onFormDataReady to register the getter.
@@ -419,6 +439,19 @@ export function useEventCreation({
       return;
     }
 
+    // Holiday / office-closure gate — after the two-click confirm, before the
+    // POST. If the date is flagged and the user hasn't acknowledged yet, raise
+    // the blocking warning and bail; confirmMarkerWarning re-enters with the ack
+    // set. isConfirming stays true so re-entry skips straight to the submit.
+    if (!markerWarningAckRef.current) {
+      const warnings = getWarnMarkersForDate(data.startDate);
+      if (warnings.length > 0) {
+        setPendingMarkerWarning({ markers: warnings, date: data.startDate });
+        return;
+      }
+    }
+    markerWarningAckRef.current = false;
+
     setIsConfirming(false);
     setIsSaving(true);
     try {
@@ -448,7 +481,7 @@ export function useEventCreation({
     } finally {
       setIsSaving(false);
     }
-  }, [getFormData, isConfirming, authFetch, selectedCalendarId, getCalendarOwner, showError]);
+  }, [getFormData, isConfirming, authFetch, selectedCalendarId, getCalendarOwner, showError, getWarnMarkersForDate]);
 
   // ── Route handleSave to the correct path based on mode ──
   const handleSave = useCallback(() => {
@@ -463,6 +496,21 @@ export function useEventCreation({
   const cancelSaveConfirmation = useCallback(() => {
     setIsConfirming(false);
     setPendingMultiDayConfirmation(null);
+  }, []);
+
+  // "Submit Anyway" — acknowledge the holiday/closure warning and re-enter the
+  // submit (isConfirming is still true, so it proceeds straight to the POST).
+  const confirmMarkerWarning = useCallback(() => {
+    markerWarningAckRef.current = true;
+    setPendingMarkerWarning(null);
+    _handleRequesterSubmit();
+  }, [_handleRequesterSubmit]);
+
+  // "Cancel" — dismiss the warning and return to the form (un-confirmed).
+  const cancelMarkerWarning = useCallback(() => {
+    markerWarningAckRef.current = false;
+    setPendingMarkerWarning(null);
+    setIsConfirming(false);
   }, []);
 
   // ══════════════════════════════════════════════
@@ -593,6 +641,7 @@ export function useEventCreation({
     savingDraft,
     isDraftConfirming,
     showDraftDialog,
+    pendingMarkerWarning,
 
     // Modal control
     open,
@@ -607,6 +656,10 @@ export function useEventCreation({
     // Save (routes to admin or requester based on permissions)
     handleSave,
     cancelSaveConfirmation,
+
+    // Holiday / office-closure submit warning
+    confirmMarkerWarning,
+    cancelMarkerWarning,
 
     // Draft
     handleSaveDraft,

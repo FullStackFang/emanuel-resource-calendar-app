@@ -15,6 +15,7 @@ export default function Navigation() {
     canApproveReservations,
     canManageUsers,
     canManageCalendarMarkers,
+    department,
     isAdmin
   } = usePermissions();
   const { apiToken } = useAuth();
@@ -173,6 +174,13 @@ export default function Navigation() {
           <li>
             <NavLink to="/admin/calendar-markers" className={({ isActive }) => isActive ? 'active' : ''}>
               Holidays &amp; Closures
+              {/* Department tag makes the department-derived grant obvious: this
+                  non-admin sees an admin-area link because they're in this dept. */}
+              {department && (
+                <span className="dept-tag">
+                  {department.charAt(0).toUpperCase() + department.slice(1)}
+                </span>
+              )}
             </NavLink>
           </li>
         )}

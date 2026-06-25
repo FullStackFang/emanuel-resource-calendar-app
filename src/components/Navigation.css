@@ -228,6 +228,37 @@
 }
 
 /* ==========================================================================
+   DEPARTMENT TAG
+   Gold pill on the top-level Holidays & Closures link, marking the
+   department-derived grant for non-admin Events-dept members. Scoped under
+   .nav-list so the generic class name can't leak into other stylesheets.
+   ========================================================================== */
+
+.nav-list .dept-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2);
+  padding: 3px var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  line-height: 1;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-50);
+  color: var(--color-accent-700);
+  border: 1px solid var(--color-accent-200);
+  user-select: none;
+}
+
+@media (max-width: 480px) {
+  .nav-list .dept-tag {
+    font-size: 9px;
+    padding: 2px var(--space-1);
+  }
+}
+
+/* ==========================================================================
    AUTHENTICATION STYLES
    ========================================================================== */
 

@@ -91,6 +91,13 @@ vi.mock('../../../utils/timeClampUtils', () => ({
   validateTimeOrdering: () => [],
 }));
 vi.mock('../../../components/RoomReservationForm.css', () => ({}));
+// Probe the advisory instead of running its real TanStack query (no QueryClient
+// in these renders). Exposes the props the base feeds it so we can assert wiring.
+vi.mock('../../../components/shared/ReservationMarkerAdvisory', () => ({
+  default: ({ apiToken, date }) => (
+    <div data-testid="marker-advisory-probe" data-api-token={apiToken || ''} data-date={date || ''} />
+  ),
+}));
 
 import RoomReservationFormBase from '../../../components/RoomReservationFormBase';
 
@@ -126,6 +133,28 @@ describe('RoomReservationFormBase', () => {
     expect(() => {
       render(<RoomReservationFormBase />);
     }).not.toThrow();
+  });
+
+  // ─── Marker Advisory Wiring ────────────────────────────────
+  // The warnOnReservation advisory lives in the shared base form so every entry
+  // point (new-booking route, New Reservation modal, review/edit) renders it.
+  // It must receive the LIVE selected date and the apiToken with no threading.
+
+  it('feeds the live selected date and apiToken to the marker advisory', async () => {
+    render(
+      <RoomReservationFormBase
+        apiToken="tok-123"
+        initialData={{ eventTitle: 'Gala', startDate: '2026-12-25', endDate: '2026-12-25' }}
+        showAllTabs={false}
+        activeTab="details"
+      />
+    );
+
+    await waitFor(() => {
+      const probe = screen.getByTestId('marker-advisory-probe');
+      expect(probe.getAttribute('data-date')).toBe('2026-12-25');
+      expect(probe.getAttribute('data-api-token')).toBe('tok-123');
+    });
   });
 
   // ─── Recurrence Change Banner (Details tab) ────────────────
