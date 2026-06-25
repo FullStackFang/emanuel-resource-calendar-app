@@ -103,9 +103,16 @@ new override logic across them as a maintenance hazard. Instead:
   it enforces the reason gate, upserts edges, and writes audits — returning a normalized
   decision (`proceed` | `409 payload`). Every call site delegates to it.
 - **One body contract** everywhere: `forceConflicts: boolean` + `overrideReason: string`. The
-  legacy `forcePublish`/`forceUpdate`/`forcePublishEdit`/`forceRestore` flags are migrated to
-  it. (Back-compat: accept the old flag as an alias for `forceConflicts` for one release if any
-  caller/test still sends it, but require `overrideReason` regardless.)
+  legacy `forcePublish`/`forceUpdate`/`forcePublishEdit`/`forceRestore` flags are migrated to it.
+- **No real migration window** (regression review S5): because `overrideReason` is required, an
+  old-flag caller that omits it 400s immediately — a flag *alias* buys nothing. The four force
+  paths have exactly **one** live UI caller (the restore button above) and a handful of tests;
+  there are no third-party API consumers. So we ship **atomically**: backend gate + `testApp.js`
+  + the restore-button reason field + updated tests land together, with no pretextual alias.
+- **`testApp.js` is a parallel reimplementation** of all four force paths
+  (`testApp.js:1591/2376/3538/4647`). Integration tests run against it, not `api-server.js`, so
+  the shared helper MUST be added to **both** in the same change — otherwise the suite stays
+  green while testing the old no-reason behavior (false confidence).
 
 ## Override Flow (write path)
 
@@ -136,8 +143,10 @@ to avoid colliding with the existing `reconcileOccurrenceOverrides` in `exceptio
 
 1. Load all `active` edges containing `eventId`.
 2. For each edge, decide "does a hard conflict still exist?" **by calling
-   `checkRoomConflicts(eventE, counterpartId)` and checking whether `counterpartId` still
-   appears in the returned `hardConflicts`** — NOT by re-implementing overlap geometry.
+   `checkRoomConflicts(eventE, null)` and checking whether the counterpart's `_id` still
+   appears in the returned `hardConflicts[].id`** — NOT by re-implementing overlap geometry.
+   (Note: `excludeId` is the self-exclusion parameter, not a filter-to-one-counterpart param,
+   so pass `null` and test membership of the result.)
    - Either event no longer `published` → counterpart drops out of `hardConflicts` → resolved (`event_removed`).
    - Time/room/setup edit removes the overlap → drops out → resolved (`time_room_edit`).
    - Re-check trigger from the counterpart's own publish/restore → resolved (`recheck`).
@@ -164,10 +173,16 @@ An enrichment step (mirroring `enrichSeriesMastersWithOverrides`) attaches
 section shows e.g. **"⚠️ Conflict overridden by Jane Doe on Jun 25 — reason: …"** so anyone
 reviewing either event sees why the double-book was allowed.
 
-Frontend: the approver hard-conflict path currently shows no override affordance (it was
-`canForce: false`). We add an override control + required reason textarea to the conflict
-section used by `ReviewModal` / `RoomReservationReview` / `EventReviewExperience`, following
-the in-button confirmation UX standard.
+Frontend scope is **larger than a reason textarea** (regression review N8):
+- The approver publish path has **no existing force affordance at all** — `useReviewModal.jsx:893`
+  always sends `forcePublish: false`, and a hard-conflict 409 currently dead-ends as an error
+  (`useReviewModal.jsx:960`). The override control + required-reason field on the publish side
+  is **net-new UI**, not an enhancement.
+- The **only** live force-from-UI path today is the "Override & Restore" button at
+  `EventManagement.jsx:984` → `handleRestore(event, true)` @430, which sends `forceRestore`
+  with no reason. It **must** be updated to collect a reason before submitting, shipping in
+  lockstep with the backend gate (else it 400s on day one).
+- Both follow the in-button confirmation UX standard.
 
 A global "all active overrides" admin dashboard is a natural future add-on (out of scope here).
 
@@ -212,6 +227,29 @@ A global "all active overrides" admin dashboard is a natural future add-on (out 
 - **Cosmos partial-unique index** on `pairKey where active:true` — supported on Cosmos Mongo
   API 4.0+, but concurrent-upsert unique-violation handling has differed from native MongoDB.
   Validate on the staging Cosmos tier, not only MongoDB Memory Server.
+
+## Regression & Safe Sequencing (from blast-radius review)
+
+This change touches four live admin force paths, so order matters — each commit boundary must
+leave the suite honest:
+
+1. **Tests first (no behavior change).** Add `overrideReason` to every force-flag send in the
+   five suites that would flip 200→400 (`publishConflict:132`, `saveConflict:139`,
+   `recurringConflict:316`, `restoreOccurrence:464`, `eventAdminRestore:605`). Update
+   `editRequestsApprove.test.js:298` from asserting the old `/admin/i` 403 to the new
+   reason-gate behavior. (These tests pass against `testApp.js`, so they go green only after
+   step 2 lands there too — stage them together.)
+2. **Backend, both engines together:** shared override helper + reason gate + edge/audit writes
+   in **`api-server.js` AND `testApp.js`** (the parallel reimplementation). Unify the four flags
+   into `forceConflicts` + `overrideReason`.
+3. **Frontend restore button** (`EventManagement.jsx:984`) — collect a reason before
+   `handleRestore(event, true)`. Ships **with or before** step 2, never after.
+4. **Frontend net-new approver publish override** (`useReviewModal.jsx`) — its own follow-up
+   PR after 2-3.
+
+Tests confirmed to **stay green** (no conflicting event seeded, or no bypass exists, so the
+gate never fires): `ownerRestore:506`, `editConflict:207`, `reservationTimes:97`,
+`holdEvent:203`. The reason gate fires only when `forceConflicts && hardConflicts.length > 0`.
 
 ## Out of Scope
 
