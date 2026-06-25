@@ -2033,10 +2033,17 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields — All times in unified block with group headers + operations accordion */}
             <div className="time-fields-stack">
-              {/* Reservation group header with All Day toggle */}
-              <div className="time-group-header">
+              {/* Reservation group header */}
+              <div className="time-group-header time-group-header--reservation">
                 <span className="group-indicator required" />
                 <span>Reservation</span>
+              </div>
+
+              {/* Event group header — sits on the same row, hovering over the event
+                  time columns; the All Day toggle is pushed to the far right edge. */}
+              <div className="time-group-header time-group-header--event">
+                <span className="group-indicator optional" />
+                <span>Event</span>
                 <button
                   type="button"
                   className={`time-block-allday-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
