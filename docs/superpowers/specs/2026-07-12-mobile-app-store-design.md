@@ -1,7 +1,9 @@
 # Mobile-Friendly App + App Store Publishing — Design
 
 **Date:** 2026-07-12
-**Status:** Approved by user (all four sections) 2026-07-12
+**Status:** Approved by user (all four sections) 2026-07-12; superseded by `openspec/changes/mobile-app-store-publishing/` after architecture review
+
+> **Amendments (2026-07-12 architecture review):** a code-architecture review against the actual codebase overturned four assumptions in this document. The authoritative, corrected design lives in `openspec/changes/mobile-app-store-publishing/design.md`. Key corrections: (1) the existing `/api/public/internal-events` endpoint is unusable and leaks requester PII today — a new projected endpoint is required and the old one must be locked down (P0); (2) MSAL cannot ride `@azure/msal-browser` through the system browser in Capacitor — native auth needs a native MSAL bridge and a real refactor of `useTokenRefresh`/`SessionExpiredDialog`/`App.jsx` token acquisition, not a "small adapter"; (3) `getProcessedFormData` is a component-local closure, not a reusable utility — it must be extracted first; Approvals reuse is at the `useEventReviewExperience`/`useCurrentUserGates` hook level, never the desktop component; (4) the PWA service worker must be disabled inside the native shell (Apple 3.3.1 / version-skew risk).
 
 ## Goal
 
