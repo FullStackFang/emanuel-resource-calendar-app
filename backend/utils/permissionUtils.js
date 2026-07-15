@@ -319,6 +319,14 @@ function sanitizeUserWrite(body) {
       continue;
     }
 
+    if (field === 'email' && typeof body.email === 'string') {
+      // Normalize on write: verifyToken lowercases the JWT email, so stored
+      // emails must be lowercase too or case-sensitive lookups miss the doc
+      // and silently drop the user's role.
+      clean.email = body.email.trim().toLowerCase();
+      continue;
+    }
+
     clean[field] = body[field];
   }
 

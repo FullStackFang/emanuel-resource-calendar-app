@@ -21,7 +21,7 @@ const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remap
 const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canManageCalendarMarkers, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
-const { standardLimiter, publicLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
+const { standardLimiter, publicLimiter, publicEventsLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
@@ -32,6 +32,7 @@ const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = requir
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { batchDelete } = require('./utils/batchDelete');
 const { buildEventDateRangeOverlapFilter } = require('./utils/eventDateRangeFilter');
+const { getPublicEvents } = require('./utils/publicEventsQuery');
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
@@ -279,8 +280,15 @@ app.use(cors({
 app.use(express.json());
 
 // Rate limiting middleware
-// Apply stricter limits to public endpoints, standard limits to authenticated endpoints
-app.use('/api/public', publicLimiter);
+// Apply stricter limits to public endpoints, standard limits to authenticated endpoints.
+// The guest calendar (/api/public/events) gets its own, much looser limiter: mobile
+// carriers share one CGNAT IP across many subscribers, so publicLimiter's 100/15min
+// would throttle real guests. It is therefore exempted from publicLimiter.
+app.use('/api/public/events', publicEventsLimiter);
+app.use('/api/public', (req, res, next) => {
+  if (req.path === '/events') return next();
+  return publicLimiter(req, res, next);
+});
 app.use('/api', standardLimiter);
 
 // Warmup endpoint for Azure App Service initialization
@@ -586,6 +594,29 @@ async function getCachedUser(userId) {
 function invalidateUserCache(userId) {
   if (userId) _userCache.delete(userId);
   else _userCache.clear();
+}
+
+/**
+ * Resolve the requesting user's DB record for permission checks.
+ *
+ * Matches by OID (userId) first, then by email case-insensitively.
+ * verifyToken always lowercases req.user.email, but user docs created
+ * before email normalization may store mixed-case emails (e.g.
+ * 'First.Last@emanuelnyc.org') — a case-sensitive findOne({ email })
+ * misses those docs and silently drops the user's role.
+ */
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function findRequestUser(reqUser) {
+  const userId = reqUser?.userId;
+  const email = reqUser?.email;
+  const clauses = [];
+  if (userId) clauses.push({ userId });
+  if (email) clauses.push({ email: { $regex: `^${escapeRegExp(email)}$`, $options: 'i' } });
+  if (clauses.length === 0) return null;
+  return usersCollection.findOne({ $or: clauses });
 }
 
 // ── Calendar config file cache (calendar-config.json) ──
@@ -8619,7 +8650,7 @@ app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.singl
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const user = await usersCollection.findOne({ email: req.user.email });
+    const user = await findRequestUser(req.user);
     if (!canAccessEventAttachments(event, user, req.user.email, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -8744,7 +8775,7 @@ app.get('/api/events/:eventId/attachments', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const user = await usersCollection.findOne({ email: userEmail });
+    const user = await findRequestUser(req.user);
     if (!canAccessEventAttachments(event, user, userEmail, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -8800,7 +8831,7 @@ app.delete('/api/events/:eventId/attachments/:attachmentId', verifyToken, async 
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const user = await usersCollection.findOne({ email: req.user.email });
+    const user = await findRequestUser(req.user);
     if (!canAccessEventAttachments(event, user, req.user.email, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -8886,12 +8917,14 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
     let hasPermission = false;
 
     if (attachment) {
-      // Verify user has access to the event
-      const event = await unifiedEventsCollection.findOne({
-        userId: userId,
-        eventId: attachment.eventId
-      });
-      hasPermission = !!event;
+      // Authorize the same way as the attachment list/upload/delete endpoints:
+      // staff, requester (by email), or owner (by OID). The legacy
+      // { userId, eventId } scope denied everyone but the event creator —
+      // imported events' userId matches no interactive user, so even the
+      // requester who uploaded a file could not download it.
+      const event = await unifiedEventsCollection.findOne({ eventId: attachment.eventId });
+      const user = await findRequestUser(req.user);
+      hasPermission = !!event && canAccessEventAttachments(event, user, req.user.email, userId);
     } else {
       // Check if attachment exists in reservation attachments
       attachment = await reservationAttachmentsCollection.findOne({
@@ -8908,7 +8941,7 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
           // Check if user is admin or requester
           // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
           const userEmail = req.user.email;
-          const user = await usersCollection.findOne({ email: userEmail });
+          const user = await findRequestUser(req.user);
           const isAdminUser = isAdmin(user, userEmail);
           const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
           const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
@@ -8993,7 +9026,7 @@ app.post('/api/reservations/:reservationId/attachments', verifyToken, attachment
     // Check if user has permission (admin or is the requester)
     // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
     const userEmail = req.user.email;
-    const user = await usersCollection.findOne({ email: userEmail });
+    const user = await findRequestUser(req.user);
     const isAdminUser = isAdmin(user, userEmail);
     const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
     const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
@@ -9106,7 +9139,7 @@ app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req,
     // Check if user has permission (admin or is the requester)
     // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
     const userEmail = req.user.email;
-    const user = await usersCollection.findOne({ email: userEmail });
+    const user = await findRequestUser(req.user);
     const isAdminUser = isAdmin(user, userEmail);
     const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
     const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
@@ -9170,7 +9203,7 @@ app.delete('/api/reservations/:reservationId/attachments/:attachmentId', verifyT
     // Check if user has permission (admin or is the requester)
     // Use req.user.email (not userId which is an OID) for DB lookup and ownership check
     const userEmail = req.user.email;
-    const user = await usersCollection.findOne({ email: userEmail });
+    const user = await findRequestUser(req.user);
     const isAdminUser = isAdmin(user, userEmail);
     const requesterEmail = reservation.roomReservationData?.requestedBy?.email;
     const isRequester = requesterEmail && userEmail && requesterEmail.toLowerCase() === userEmail.toLowerCase();
@@ -14045,39 +14078,53 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
 // ============================================
 // PUBLIC ENDPOINTS (No Authentication Required)
 // ============================================
-app.get('/api/public/internal-events', async (req, res) => {
-  try {
-    const { calendarId, includeDeleted } = req.query;
-    
-    const query = {};
-    if (calendarId) {
-      query.calendarId = calendarId;
-    }
-    
-    // By default, exclude deleted events unless specifically requested
-    if (includeDeleted !== 'true') {
-      query.isDeleted = { $ne: true };
-    }
-    
-    // Fetch events from unified collection without sorting to avoid index issues
-    const events = await unifiedEventsCollection
-      .find(query)
-      .limit(1000) // Increased limit for exports
-      .toArray();
 
-    // Sort in memory instead
-    events.sort((a, b) => {
-      const dateA = new Date(a.graphData?.start?.dateTime || 0);
-      const dateB = new Date(b.graphData?.start?.dateTime || 0);
-      return dateA - dateB;
-    });
-    
-    // Log the export for monitoring purposes
-    logger.log(`Public export requested: ${events.length} events exported`);
-    
-    res.status(200).json(events);
+// Guest calendar: published events overlapping a date window, shaped for the
+// mobile agenda. Unauthenticated — see utils/publicEventsQuery.js, whose MongoDB
+// projection is the PII boundary (requester identity and internal notes are never
+// read out of the database on this path).
+//
+// Removed 2026-07-12: GET /api/public/internal-events. It returned raw unprojected
+// documents (roomReservationData.requestedBy PII, draft/pending/rejected events) to
+// anyone on the internet. Its only caller was dead code in EventSearchExport.jsx.
+const MAX_PUBLIC_WINDOW_DAYS = 120;
+
+app.get('/api/public/events', async (req, res) => {
+  try {
+    const { start, end, calendarOwner } = req.query;
+
+    if (!start || !end) {
+      return res.status(400).json({ error: 'start and end query parameters are required' });
+    }
+
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'start and end must be valid dates' });
+    }
+    if (endDate <= startDate) {
+      return res.status(400).json({ error: 'end must be after start' });
+    }
+
+    const windowDays = (endDate - startDate) / (24 * 60 * 60 * 1000);
+    if (windowDays > MAX_PUBLIC_WINDOW_DAYS) {
+      return res.status(400).json({
+        error: `Date range too large. Maximum window is ${MAX_PUBLIC_WINDOW_DAYS} days.`
+      });
+    }
+
+    const owner = calendarOwner || await getDefaultCalendarOwner();
+
+    const events = await withCosmosRetry(() => getPublicEvents(unifiedEventsCollection, {
+      start: startDate,
+      end: endDate,
+      calendarOwner: owner,
+    }));
+
+    res.status(200).json({ events });
   } catch (error) {
-    logger.error('Error fetching internal events for public export:', error);
+    logger.error('Error fetching public events:', error);
     res.status(500).json({ error: 'Failed to fetch events' });
   }
 });

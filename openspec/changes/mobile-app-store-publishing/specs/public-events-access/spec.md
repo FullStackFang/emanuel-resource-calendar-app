@@ -11,8 +11,21 @@ The system SHALL expose a public, unauthenticated endpoint under `/api/public/` 
 #### Scenario: Non-public data excluded
 - **WHEN** the public endpoint builds its response
 - **THEN** it SHALL exclude events with status draft, pending, rejected, or deleted
-- **AND** it SHALL exclude exception/addition child documents (`eventType: { $nin: ['exception', 'addition'] }` consistent with list endpoints)
-- **AND** it SHALL NOT include `roomReservationData` (requester PII), `graphData`, internal notes, or audit fields
+- **AND** it SHALL NOT include `roomReservationData` (requester PII), `graphData`, internal notes (`setupNotes`/`doorNotes`/`eventNotes`), `eventDescription`, or audit fields
+
+### Requirement: Public endpoint returns occurrences, not documents
+The public endpoint is a RENDERING endpoint, so the unit of its response is the occurrence. (This deliberately differs from the list/queue endpoints, where the unit is the approval target and children are excluded via `eventType: { $nin: ['exception','addition'] }`. Applying that rule here would silently hide every moved or edited occurrence from the guest calendar.)
+
+#### Scenario: Published recurring series expands
+- **WHEN** a published series master's recurrence range overlaps the requested window
+- **THEN** the endpoint SHALL expand it into one entry per in-window occurrence
+- **AND** dates in `recurrence.exclusions` SHALL NOT be emitted
+
+#### Scenario: Overridden occurrence renders from its child document
+- **WHEN** an occurrence date has an exception or addition child document
+- **THEN** the master SHALL NOT also emit a virtual occurrence for that date (no duplicate)
+- **AND** a published child SHALL be emitted in its place, carrying the child's own display fields
+- **AND** a deleted child (a cancelled occurrence) SHALL result in no entry for that date at all
 
 #### Scenario: Rate limiting sized for mobile guest traffic
 - **WHEN** a client exceeds the endpoint's rate limit

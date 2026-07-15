@@ -1,8 +1,8 @@
 ## 1. Backend: public events (Phase 1)
 
-- [ ] 1.1 P0 fix: lock down `/api/public/internal-events` — add server-side projection excluding `roomReservationData`/`graphData`, filter to `status: 'published'` + `isDeleted: { $ne: true }`; verify `EventSearchExport.jsx` (its only consumer) still works. Jest tests for the projection.
-- [ ] 1.2 New `GET /api/public/events` endpoint: date-range query on top-level `startDateTime`/`endDateTime`, published-only, excludes exception/addition children, strict display-field projection. Jest tests: shape, status filtering, child exclusion, no PII fields present.
-- [ ] 1.3 Dedicated rate limiter for the guest endpoint sized for shared carrier IPs (not generic `publicLimiter`); test 429 behavior.
+- [x] 1.1 P0 fix: `/api/public/internal-events` **removed entirely** (not hardened). Investigation found its only caller — `fetchInternalEvents` in `EventSearchExport.jsx` — was dead code (never invoked; ESLint already flagged it) that read the long-gone `externalData` field. Endpoint + dead caller deleted; test asserts 404.
+- [x] 1.2 New `GET /api/public/events` endpoint (`backend/utils/publicEventsQuery.js` + route): date-range query on `calendarData.startDateTime`/`endDateTime` (NOT top-level — `buildEventFields` writes calendar fields into `calendarData`, and `getUnifiedEvents` queries there too), published-only, non-deleted, strict display-field projection as the PII boundary. Returns **occurrences**: published series masters expand server-side; dates owned by an exception/addition child render from the child instead (see spec deviation note). 13 Jest tests.
+- [x] 1.3 Dedicated `publicEventsLimiter` (600/15min/IP vs `publicLimiter`'s 100) sized for carrier CGNAT; `/api/public/events` exempted from `publicLimiter`. 2 Jest tests (default size + 429 body).
 
 ## 2. Guest mode (Phase 1)
 

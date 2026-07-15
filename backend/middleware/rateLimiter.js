@@ -53,6 +53,39 @@ const publicLimiter = rateLimit({
 });
 
 /**
+ * Rate limiter for the public guest calendar (GET /api/public/events).
+ *
+ * Deliberately much looser than publicLimiter (100/15min): mobile carriers put
+ * many subscribers behind one CGNAT address, so a single IP legitimately
+ * represents dozens of guests. A guest session costs a handful of requests
+ * (initial two-week window, then one per range extension or pull-to-refresh),
+ * so 600/15min/IP absorbs roughly 30-60 concurrent guests on a shared carrier IP
+ * while still capping scraping.
+ *
+ * @param {Object} [overrides] - windowMs/max overrides (tests use a tiny max)
+ */
+function createPublicEventsLimiter(overrides = {}) {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: 'Too many requests',
+      message: 'You have exceeded the rate limit for the public calendar. Please try again later.',
+      retryAfter: '15 minutes'
+    },
+    handler: (req, res, next, options) => {
+      logger.warn(`Public events rate limit exceeded for IP: ${req.ip}, path: ${req.path}`);
+      res.status(429).json(options.message);
+    },
+    ...overrides
+  });
+}
+
+const publicEventsLimiter = createPublicEventsLimiter();
+
+/**
  * Very strict rate limiter for sensitive operations
  * 10 requests per 15 minutes per IP (e.g., token generation, password reset)
  */
@@ -117,6 +150,8 @@ const burstLimiter = rateLimit({
 module.exports = {
   standardLimiter,
   publicLimiter,
+  publicEventsLimiter,
+  createPublicEventsLimiter,
   sensitiveLimiter,
   sseTicketLimiter,
   burstLimiter

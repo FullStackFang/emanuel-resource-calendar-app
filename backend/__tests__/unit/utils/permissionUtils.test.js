@@ -346,6 +346,19 @@ describe('permissionUtils', () => {
       });
     });
 
+    it('normalizes email to trimmed lowercase on write', () => {
+      // Mixed-case stored emails (e.g. 'First.Last@emanuelnyc.org') broke
+      // case-sensitive user lookups: verifyToken lowercases the JWT email,
+      // so the doc was missed and the user's role silently dropped.
+      const clean = sanitizeUserWrite({ email: '  Daniela.Guitelman@Emanuelnyc.ORG ' });
+      expect(clean.email).toBe('daniela.guitelman@emanuelnyc.org');
+    });
+
+    it('leaves non-string email values to downstream validation', () => {
+      const clean = sanitizeUserWrite({ email: 12345 });
+      expect(clean.email).toBe(12345);
+    });
+
     it('strips legacy escalation fields (isAdmin, permissions)', () => {
       const clean = sanitizeUserWrite({
         role: 'requester',

@@ -170,34 +170,6 @@ const EventSearchExport = ({
     }
   };
   
-  // Fetch internal events from MongoDB
-  const fetchInternalEvents = async () => {
-    try {
-      // Format dates for API
-      const startDate = dateRange?.start ? new Date(dateRange.start).toISOString() : new Date().toISOString();
-      const endDate = dateRange?.end ? new Date(dateRange.end).toISOString() : new Date().toISOString();
-      
-      // Use the public endpoint - no authentication required
-      const response = await fetch(`${apiBaseUrl}/public/internal-events?includeDeleted=false`);
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch internal events');
-      }
-
-      const events = await response.json();
-      
-      // Filter by date range
-      return events.filter(event => {
-        const eventStart = new Date(event.externalData?.start?.dateTime);
-        return eventStart >= new Date(startDate) && eventStart <= new Date(endDate);
-      });
-    } catch (error) {
-      logger.error('Error fetching internal events:', error);
-      showError(error, { context: 'EventSearchExport.fetchAllMatchingEvents', userMessage: 'Failed to fetch internal events. Please try again.' });
-      return null;
-    }
-  };
-
   // Helper function to format date in UTC for export consistency
   const formatDateForExport = (dateString) => {
     if (!dateString) return '';
