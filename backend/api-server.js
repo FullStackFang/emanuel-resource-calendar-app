@@ -31,7 +31,8 @@ const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { batchDelete } = require('./utils/batchDelete');
-const { buildEventDateRangeOverlapFilter } = require('./utils/eventDateRangeFilter');
+const { buildEventDateRangeOverlapFilter, buildSeriesAwareDateRangeClause } = require('./utils/eventDateRangeFilter');
+const { expandSearchResults } = require('./utils/searchOccurrenceExpansion');
 const { getPublicEvents } = require('./utils/publicEventsQuery');
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
@@ -7531,17 +7532,19 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       // Date range filter is applied below in the shared block.
     }
 
-    // ── Date range filter (applies to every view, including approval-queue / my-events) ──
-    // OVERLAP semantics: startDateTime <= windowEnd AND endDateTime >= windowStart, so a
-    // multi-day / ongoing event that STARTED before the window but is still running inside
-    // it is returned (the previous filter constrained both bounds on startDateTime and
-    // silently dropped those events — see eventDateRangeFilter.test.js / searchView SV-12).
-    // calendarData.* are local-time ISO strings, so the shared builder compares with
-    // local-time boundaries (no Date objects → no host-timezone shift). Only the search
-    // view requires both bounds (enforced above); other views treat dates as optional.
-    // None of the view branches above set calendarData.start/endDateTime, so Object.assign
-    // is a safe merge here.
-    Object.assign(query, buildEventDateRangeOverlapFilter(startDate, endDate));
+    // ── Date range filter ──
+    // OVERLAP semantics for concrete events. The SEARCH view additionally needs
+    // recurrence-aware matching: a seriesMaster's calendarData datetimes hold
+    // only its FIRST occurrence, so the flat overlap filter can never match a
+    // series for any later window — masters must match on recurrence.range
+    // instead (same approach as POST /api/events/load). calendarData.* are
+    // local-time ISO strings, so both builders compare with local-time string
+    // boundaries (no Date objects, no host-timezone shift).
+    if (view === 'search') {
+      query.$and = [...(query.$and || []), buildSeriesAwareDateRangeClause(startDate, endDate)];
+    } else {
+      Object.assign(query, buildEventDateRangeOverlapFilter(startDate, endDate));
+    }
 
     // ── Search filter (admin-browse, approval-queue, and search) ──
     if (search) {
@@ -7649,36 +7652,84 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     const MAX_COUNT = 5000;
     let totalCount = 0;
     let totalCapped = false;
+    let events;
 
-    if (limitNum > 0) {
-      totalCount = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query, { limit: MAX_COUNT + 1 }));
-      if (totalCount > MAX_COUNT) {
-        totalCapped = true;
-        totalCount = MAX_COUNT;
+    if (view === 'search') {
+      // Recurring-aware search: fetch EVERY matching raw doc in the window
+      // (no skip/limit — pagination happens after expansion), expand series
+      // masters into per-occurrence rows, and derive count + page from the
+      // SAME array so the displayed count can never disagree with the results
+      // (the '5 results of 8' bug was countDocuments and find diverging on a
+      // Cosmos partial cross-partition read).
+      const runRawFind = () => withCosmosRetry(() =>
+        unifiedEventsCollection.find(query).project(projection).limit(EXPORT_MAX_EVENTS).toArray()
+      );
+      const runRawCount = () => withCosmosRetry(() =>
+        unifiedEventsCollection.countDocuments(query, { limit: EXPORT_MAX_EVENTS + 1 })
+      );
+      let rawDocs = await findWithColdEmptyRetry(runRawFind, runRawCount, {
+        expectedFromCount: (count) => Math.min(count, EXPORT_MAX_EVENTS),
+        onColdEmpty: ({ attempt, count, maxRetries, got, expected }) =>
+          logger.warn(`[events/list] view=search short read: got=${got} expected=${expected} (count=${count}), retry ${attempt}/${maxRetries} (suspected Cosmos cold cross-partition query)`),
+      });
+      if (rawDocs.length >= EXPORT_MAX_EVENTS) {
+        logger.warn(`[events/list] view=search raw fetch hit cap (${EXPORT_MAX_EVENTS} docs); results may be truncated`);
       }
-    }
 
-    const runFind = () => withCosmosRetry(async () => {
-      let cursor = unifiedEventsCollection.find(query).project(projection);
+      // Overrides must be attached BEFORE expansion so materialized
+      // (customized) dates are skipped — otherwise the master's synthetic
+      // occurrence and the exception child both render for the same date.
+      if (rawDocs.some(e => e.eventType === 'seriesMaster')) {
+        rawDocs = await withCosmosRetry(() =>
+          enrichSeriesMastersWithOverrides(unifiedEventsCollection, rawDocs, {
+            log: (info) => logger.debug('[exceptionEnrichment] view=search(pre-expansion)', info),
+            warn: (msg, ctx) => logger.debug(`${msg} view=search(pre-expansion)`, ctx),
+            retry: (ctx) => logger.debug(`[exceptionEnrichment] view=search(pre-expansion) retry produced ${ctx.childCount} children`),
+          })
+        );
+      }
+
+      const expanded = expandSearchResults(rawDocs, startDate, endDate);
+      // Sort BEFORE slicing — the page is a window into the sorted whole.
+      expanded.sort((a, b) => {
+        const dateA = a.calendarData?.startDateTime || a.graphData?.start?.dateTime || '';
+        const dateB = b.calendarData?.startDateTime || b.graphData?.start?.dateTime || '';
+        return dateB.localeCompare(dateA);
+      });
+
+      totalCapped = expanded.length > MAX_COUNT;
+      totalCount = totalCapped ? MAX_COUNT : expanded.length;
+      events = limitNum > 0 ? expanded.slice(skip, skip + limitNum) : expanded;
+    } else {
       if (limitNum > 0) {
-        cursor = cursor.skip(skip).limit(limitNum);
+        totalCount = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query, { limit: MAX_COUNT + 1 }));
+        if (totalCount > MAX_COUNT) {
+          totalCapped = true;
+          totalCount = MAX_COUNT;
+        }
       }
-      return cursor.toArray();
-    });
 
-    let events = await runFind();
+      const runFind = () => withCosmosRetry(async () => {
+        let cursor = unifiedEventsCollection.find(query).project(projection);
+        if (limitNum > 0) {
+          cursor = cursor.skip(skip).limit(limitNum);
+        }
+        return cursor.toArray();
+      });
 
-    // Cosmos cross-partition cold-query mitigation. The count and the find use
-    // the IDENTICAL query, so an empty find while the count is positive means the
-    // cross-partition find returned silently-empty on a cold call (index metadata
-    // warming) — the same behavior enrichSeriesMastersWithOverrides guards against
-    // for its secondary query. withCosmosRetry only retries thrown throttle errors,
-    // not a successful-but-empty result, so retry the find once here. This only
-    // fires on a provable count/find inconsistency, so a legitimately empty result
-    // (totalCount 0) never retries. Manifested as "Found N events. Showing first 0".
-    if (limitNum > 0 && totalCount > 0 && events.length === 0) {
-      logger.warn(`[events/list] view=${view}: count=${totalCount} but find returned 0; retrying find once (suspected Cosmos cold cross-partition query)`);
       events = await runFind();
+
+      // Cosmos cross-partition cold-query mitigation. The count and the find use
+      // the IDENTICAL query, so an empty find while the count is positive means the
+      // cross-partition find returned silently-empty on a cold call (index metadata
+      // warming). withCosmosRetry only retries thrown throttle errors, not a
+      // successful-but-empty result, so retry the find once here. This only fires
+      // on a provable count/find inconsistency. Manifested as 'Found N events.
+      // Showing first 0'.
+      if (limitNum > 0 && totalCount > 0 && events.length === 0) {
+        logger.warn(`[events/list] view=${view}: count=${totalCount} but find returned 0; retrying find once (suspected Cosmos cold cross-partition query)`);
+        events = await runFind();
+      }
     }
 
     // Sort client-side (Cosmos DB index limitations)
