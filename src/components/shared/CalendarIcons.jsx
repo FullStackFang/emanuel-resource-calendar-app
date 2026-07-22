@@ -23,8 +23,9 @@ export const PencilIcon = ({ size = 12, className = '' }) => (
   </svg>
 );
 
-export const RecurringIcon = ({ size = 12, className = '' }) => (
-  <svg {...svgProps(size, className)}>
+export const RecurringIcon = ({ size = 12, className = '', title = 'Recurring event' }) => (
+  <svg {...svgProps(size, className)} role="img" aria-label={title}>
+    <title>{title}</title>
     <path d="M2.5 8a5.5 5.5 0 0 1 9.3-4" />
     <polyline points="12 1 12 4.5 8.5 4.5" />
     <path d="M13.5 8a5.5 5.5 0 0 1-9.3 4" />
@@ -32,8 +33,9 @@ export const RecurringIcon = ({ size = 12, className = '' }) => (
   </svg>
 );
 
-export const RecurringExceptionIcon = ({ size = 12, className = '' }) => (
-  <svg {...svgProps(size, className)}>
+export const RecurringExceptionIcon = ({ size = 12, className = '', title = 'Recurring event - this occurrence was modified from the series' }) => (
+  <svg {...svgProps(size, className)} role="img" aria-label={title}>
+    <title>{title}</title>
     <path d="M2.5 8a5.5 5.5 0 0 1 9.3-4" />
     <polyline points="12 1 12 4.5 8.5 4.5" />
     <path d="M13.5 8a5.5 5.5 0 0 1-9.3 4" />
