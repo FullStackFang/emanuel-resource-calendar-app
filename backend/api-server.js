@@ -7682,6 +7682,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       if (rawDocs.some(e => e.eventType === 'seriesMaster')) {
         rawDocs = await withCosmosRetry(() =>
           enrichSeriesMastersWithOverrides(unifiedEventsCollection, rawDocs, {
+            forceQuery: true,
             log: (info) => logger.debug('[exceptionEnrichment] view=search(pre-expansion)', info),
             warn: (msg, ctx) => logger.debug(`${msg} view=search(pre-expansion)`, ctx),
             retry: (ctx) => logger.debug(`[exceptionEnrichment] view=search(pre-expansion) retry produced ${ctx.childCount} children`),
@@ -7689,15 +7690,23 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         );
       }
 
-      const expanded = expandSearchResults(rawDocs, startDate, endDate);
+      const expanded = expandSearchResults(rawDocs, startDate, endDate, {
+        onMasterCap: ({ masterEventId, produced }) =>
+          logger.warn(`[events/list] view=search master ${masterEventId} hit per-master occurrence cap (produced=${produced})`),
+      });
       // Sort BEFORE slicing — the page is a window into the sorted whole.
       expanded.sort((a, b) => {
         const dateA = a.calendarData?.startDateTime || a.graphData?.start?.dateTime || '';
         const dateB = b.calendarData?.startDateTime || b.graphData?.start?.dateTime || '';
-        return dateB.localeCompare(dateA);
+        const cmp = dateB.localeCompare(dateA);
+        if (cmp !== 0) return cmp;
+        return String(a.eventId || '').localeCompare(String(b.eventId || ''));
       });
 
       totalCapped = expanded.length > MAX_COUNT;
+      if (totalCapped) {
+        logger.warn(`[events/list] view=search totalCapped: expanded=${expanded.length} MAX_COUNT=${MAX_COUNT}`);
+      }
       totalCount = totalCapped ? MAX_COUNT : expanded.length;
       events = limitNum > 0 ? expanded.slice(skip, skip + limitNum) : expanded;
     } else {

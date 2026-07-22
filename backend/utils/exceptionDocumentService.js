@@ -786,6 +786,11 @@ function _buildOverrideEntry(doc) {
  * @param {Array<Object>} events - Primary result array; masters get mutated (copy-on-write)
  * @param {Object} [options]
  * @param {Function} [options.log] - Receives `{ masterCount, overrideCount, perMaster }` for diagnostics
+ * @param {boolean} [options.forceQuery] - Skip the in-array shortcut and always resolve
+ *   children via the collection query. Required when the caller's primary query applied
+ *   filters (text/category/location) that can exclude some of a master's children while
+ *   still returning others — the in-array pass would then see a partial set and treat it
+ *   as complete, silently dropping the missing overrides.
  * @returns {Promise<Array<Object>>} New events array with overrides spread onto masters
  */
 async function enrichSeriesMastersWithOverrides(collection, events, options = {}) {
@@ -807,12 +812,15 @@ async function enrichSeriesMastersWithOverrides(collection, events, options = {}
   // whose seriesMasterEventId matches a master in the array. This is how the
   // Calendar `/api/events/load` path has always worked reliably — children
   // are in the same result set as their master, no separate query needed.
-  let childDocs = events.filter(e =>
-    EXCEPTION_TYPES.includes(e.eventType) &&
-    e.seriesMasterEventId &&
-    masterEventIdSet.has(e.seriesMasterEventId) &&
-    e.isDeleted !== true
-  );
+  // Skipped entirely when options.forceQuery is set (see JSDoc above).
+  let childDocs = options.forceQuery
+    ? []
+    : events.filter(e =>
+        EXCEPTION_TYPES.includes(e.eventType) &&
+        e.seriesMasterEventId &&
+        masterEventIdSet.has(e.seriesMasterEventId) &&
+        e.isDeleted !== true
+      );
   let source = 'in-array';
 
   // Fallback: if no in-array children were found (e.g., the caller's primary

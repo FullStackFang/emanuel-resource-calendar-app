@@ -88,4 +88,58 @@ describe('expandSearchResults', () => {
     expect(out[0].occurrenceOverrides).toBeUndefined();
     expect(out[0]._id).toBe('master-oid-1-occ-2026-06-16');
   });
+
+  it('expands two independent masters in the same rawDocs batch', () => {
+    const masterA = makeMaster({ _id: 'master-oid-a', eventId: 'master-a', eventTitle: 'Weekly Torah Study' });
+    const masterB = makeMaster({
+      _id: 'master-oid-b',
+      eventId: 'master-b',
+      eventTitle: 'Weekly Board Meeting',
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [],
+        exclusions: [],
+      },
+      calendarData: {
+        eventTitle: 'Weekly Board Meeting',
+        startDateTime: '2026-03-10T18:00:00',
+        endDateTime: '2026-03-10T19:00:00',
+      },
+    });
+    const out = expandSearchResults([masterA, masterB], '2026-06-16', '2026-06-16');
+    expect(out).toHaveLength(2);
+    const titles = out.map(o => o.calendarData.eventTitle).sort();
+    expect(titles).toEqual(['Weekly Board Meeting', 'Weekly Torah Study']);
+    expect(out.every(o => o.startDate === '2026-06-16')).toBe(true);
+  });
+
+  it('fires onMasterCap when a daily noEnd master produces >= MAX_OCCURRENCES over a long window', () => {
+    const dailyMaster = makeMaster({
+      eventId: 'master-daily',
+      recurrence: {
+        pattern: { type: 'daily', interval: 1 },
+        range: { type: 'noEnd', startDate: '2020-01-01' },
+        additions: [],
+        exclusions: [],
+      },
+    });
+    const calls = [];
+    // Window spans well over 500 days so the per-master cap is hit.
+    const out = expandSearchResults([dailyMaster], '2020-01-01', '2022-06-01', {
+      onMasterCap: (info) => calls.push(info),
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].masterEventId).toBe('master-daily');
+    expect(calls[0].produced).toBeGreaterThanOrEqual(500);
+    expect(out.length).toBeGreaterThanOrEqual(500);
+  });
+
+  it('does not fire onMasterCap when a master stays under MAX_OCCURRENCES', () => {
+    const calls = [];
+    expandSearchResults([makeMaster()], '2026-06-15', '2026-06-24', {
+      onMasterCap: (info) => calls.push(info),
+    });
+    expect(calls).toHaveLength(0);
+  });
 });

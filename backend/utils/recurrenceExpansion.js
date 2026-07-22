@@ -228,6 +228,7 @@ function expandAllOccurrences(recurrence, masterStartDateTime, masterEndDateTime
 }
 
 module.exports = {
+  MAX_OCCURRENCES,
   isDateInPattern,
   expandRecurringOccurrencesInWindow,
   expandAllOccurrences,

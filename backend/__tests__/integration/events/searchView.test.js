@@ -404,4 +404,37 @@ describe('Search View Tests (SV-1 to SV-11)', () => {
     expect(res.body.events).toHaveLength(5);
     expect(res.body.events.every(e => e.eventType === 'occurrence')).toBe(true);
   });
+
+  // SV-20: a search text filter can exclude SOME of a master's children while
+  // still admitting the master and OTHER children — enrichSeriesMastersWithOverrides
+  // must resolve the complete occurrenceOverrides set (forceQuery) so a retitled,
+  // non-matching child's date is not resurrected as a phantom synthetic occurrence.
+  it('SV-20: forceQuery prevents a phantom occurrence on a date whose child was filtered out by the text search', async () => {
+    const master = makePublishedMaster();
+    // Matches the 'Torah' search (inherits master title — no title override).
+    const matchingException = createExceptionDocument(
+      master, '2026-06-16', {}, { status: 'published' }
+    );
+    // Retitled so it does NOT match 'Torah' — this is the child the in-array
+    // shortcut would miss, since the search query filters it out of rawDocs.
+    const nonMatchingException = createExceptionDocument(
+      master, '2026-06-23', { eventTitle: 'Special Shabbat Dinner' }, { status: 'published' }
+    );
+    await insertEvents(db, [master, matchingException, nonMatchingException]);
+
+    const res = await request(app)
+      .get(`${ENDPOINTS.LIST_EVENTS}?view=search&search=Torah&startDate=2026-06-16&endDate=2026-06-23`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+
+    expect(res.status).toBe(200);
+    const byDate = (d) => res.body.events.filter(e => (e.calendarData?.startDate || e.startDate) === d);
+
+    // Exactly one event on 2026-06-16: the matching exception child.
+    expect(byDate('2026-06-16')).toHaveLength(1);
+    expect(byDate('2026-06-16')[0].eventType).toBe('exception');
+
+    // Zero events on 2026-06-23: the retitled child doesn't match 'Torah', and no
+    // synthetic 'Weekly Torah Study' occurrence may appear on that date either.
+    expect(byDate('2026-06-23')).toHaveLength(0);
+  });
 });

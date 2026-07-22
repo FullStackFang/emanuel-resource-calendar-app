@@ -13,7 +13,7 @@
 // Callers MUST run enrichSeriesMastersWithOverrides on the raw docs first,
 // otherwise customized dates double-render (synthetic occurrence + child).
 
-const { expandRecurringOccurrencesInWindow } = require('./recurrenceExpansion');
+const { expandRecurringOccurrencesInWindow, MAX_OCCURRENCES } = require('./recurrenceExpansion');
 
 function buildOccurrenceRow(master, occ) {
   const row = {
@@ -45,9 +45,13 @@ function buildOccurrenceRow(master, occ) {
  * @param {Array<object>} rawDocs - enriched raw documents from the search find
  * @param {string} startDate - 'YYYY-MM-DD' window start (inclusive)
  * @param {string} endDate - 'YYYY-MM-DD' window end (inclusive)
+ * @param {Object} [options]
+ * @param {Function} [options.onMasterCap] - Called with `{ masterEventId, produced }` when a
+ *   master's expanded occurrences hit expandRecurringOccurrencesInWindow's MAX_OCCURRENCES cap,
+ *   so callers can surface a warning instead of silently truncating results.
  * @returns {Array<object>} non-master docs + synthetic occurrence rows
  */
-function expandSearchResults(rawDocs, startDate, endDate) {
+function expandSearchResults(rawDocs, startDate, endDate, options = {}) {
   const masters = [];
   const rest = [];
   for (const doc of rawDocs) {
@@ -61,11 +65,18 @@ function expandSearchResults(rawDocs, startDate, endDate) {
 
   const occurrenceRows = [];
   for (const master of masters) {
+    // Malformed master (missing recurrence.pattern/range) has no sensible date to
+    // appear under in a per-occurrence list, so it is dropped here. Deliberate
+    // asymmetry with the mobile pipeline (agendaEventPipeline keeps a corrupt
+    // master as a plain event) — search has no fallback row shape for it.
     if (!master.recurrence?.pattern || !master.recurrence?.range) continue;
     const materialized = new Set(
       (master.occurrenceOverrides || []).map(o => o && o.occurrenceDate).filter(Boolean)
     );
     const occurrences = expandRecurringOccurrencesInWindow(master, windowStart, windowEnd);
+    if (occurrences.length >= MAX_OCCURRENCES) {
+      options.onMasterCap?.({ masterEventId: master.eventId, produced: occurrences.length });
+    }
     for (const occ of occurrences) {
       if (materialized.has(occ.occurrenceDate)) continue;
       occurrenceRows.push(buildOccurrenceRow(master, occ));

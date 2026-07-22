@@ -830,6 +830,33 @@ describe('enrichSeriesMastersWithOverrides', () => {
     expect(result[0].occurrenceOverrides).toBeUndefined();
   });
 
+  it('EDS-38: forceQuery bypasses the in-array shortcut so a child present only in the collection is not missed', async () => {
+    // One child is present in the passed-in array (simulating a caller whose
+    // filtered primary query happened to include it); a second child for the
+    // SAME master exists only in the collection (simulating a filter that
+    // excluded it, e.g. a retitled search-text mismatch). Without forceQuery,
+    // finding the in-array child would short-circuit and never see the second.
+    const inArrayChild = await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
+    await createExceptionDocument(collection, master, '2026-03-24', { eventTitle: 'Renamed Occurrence' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master, inArrayChild], { forceQuery: true });
+
+    expect(result[0].occurrenceOverrides).toHaveLength(2);
+    const dates = result[0].occurrenceOverrides.map(o => o.occurrenceDate).sort();
+    expect(dates).toEqual(['2026-03-17', '2026-03-24']);
+  });
+
+  it('EDS-39: without forceQuery, the in-array shortcut misses a collection-only child (regression guard)', async () => {
+    const inArrayChild = await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
+    await createExceptionDocument(collection, master, '2026-03-24', { eventTitle: 'Renamed Occurrence' });
+
+    const result = await enrichSeriesMastersWithOverrides(collection, [master, inArrayChild]);
+
+    // Default behavior unchanged: only the in-array child is reflected.
+    expect(result[0].occurrenceOverrides).toHaveLength(1);
+    expect(result[0].occurrenceOverrides[0].occurrenceDate).toBe('2026-03-17');
+  });
+
   it('EDS-34: invokes the log callback with diagnostic info', async () => {
     await createExceptionDocument(collection, master, '2026-03-17', { startTime: '14:00' });
     await createExceptionDocument(collection, master, '2026-03-24', { startTime: '15:00' });
