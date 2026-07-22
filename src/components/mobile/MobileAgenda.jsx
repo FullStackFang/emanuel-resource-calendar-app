@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext';
 import APP_CONFIG from '../../config/config';
 import { transformEventToFlatStructure } from '../../utils/eventTransformers';
+import { prepareEventsForAgenda } from '../../utils/agendaEventPipeline';
 import MobileWeekStrip, { formatDateKey } from './MobileWeekStrip';
 import MobileEventCard from './MobileEventCard';
 import MobileEventDetail from './MobileEventDetail';
@@ -71,7 +72,10 @@ function MobileAgenda() {
       const data = await response.json();
       const rawEvents = data.events || [];
 
-      const transformed = rawEvents
+      // Expand recurring series and dedupe customized occurrences BEFORE
+      // flattening — raw docs contain seriesMaster + exception/addition
+      // children, not renderable occurrence rows (see agendaEventPipeline).
+      const transformed = prepareEventsForAgenda(rawEvents, rangeStart, rangeEnd)
         .map(e => transformEventToFlatStructure(e))
         .filter(e => e.status === 'published' || e.status === 'pending');
 
