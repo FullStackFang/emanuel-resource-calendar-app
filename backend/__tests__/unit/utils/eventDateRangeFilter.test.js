@@ -11,7 +11,7 @@
  * Dates are local-time ISO strings (no Z), compared lexicographically — which
  * is chronological for the fixed 'YYYY-MM-DDTHH:MM:SS' shape used in storage.
  */
-const { buildEventDateRangeOverlapFilter } = require('../../../utils/eventDateRangeFilter');
+const { buildEventDateRangeOverlapFilter, buildSeriesAwareDateRangeClause } = require('../../../utils/eventDateRangeFilter');
 
 describe('buildEventDateRangeOverlapFilter', () => {
   it('EDR-1: returns overlap predicates on the OPPOSITE fields when both dates given', () => {
@@ -51,5 +51,54 @@ describe('buildEventDateRangeOverlapFilter', () => {
   it('EDR-5: returns an empty filter when neither date is given', () => {
     expect(buildEventDateRangeOverlapFilter('', '')).toEqual({});
     expect(buildEventDateRangeOverlapFilter(undefined, undefined)).toEqual({});
+  });
+});
+
+describe('buildSeriesAwareDateRangeClause (EDR-10+)', () => {
+  it('EDR-10: returns a $or with four branches', () => {
+    const clause = buildSeriesAwareDateRangeClause('2026-07-21', '2026-07-22');
+    expect(Array.isArray(clause.$or)).toBe(true);
+    expect(clause.$or).toHaveLength(4);
+  });
+
+  it('EDR-11: concrete-event branch excludes seriesMaster and stored occurrence docs and uses overlap bounds', () => {
+    const clause = buildSeriesAwareDateRangeClause('2026-07-21', '2026-07-21');
+    const concrete = clause.$or[0];
+    expect(concrete.eventType).toEqual({ $nin: ['seriesMaster', 'occurrence'] });
+    expect(concrete['calendarData.startDateTime']).toEqual({ $lte: '2026-07-21T23:59:59' });
+    expect(concrete['calendarData.endDateTime']).toEqual({ $gte: '2026-07-21T00:00:00' });
+  });
+
+  it('EDR-12: legacy branch matches docs with no eventType via overlap bounds', () => {
+    const clause = buildSeriesAwareDateRangeClause('2026-07-21', '2026-07-21');
+    const legacy = clause.$or[1];
+    expect(legacy.eventType).toEqual({ $exists: false });
+    expect(legacy['calendarData.startDateTime']).toEqual({ $lte: '2026-07-21T23:59:59' });
+    expect(legacy['calendarData.endDateTime']).toEqual({ $gte: '2026-07-21T00:00:00' });
+  });
+
+  it('EDR-13: seriesMaster branch matches on recurrence range, not first-occurrence end', () => {
+    const clause = buildSeriesAwareDateRangeClause('2026-07-21', '2026-07-21');
+    const master = clause.$or[2];
+    expect(master.eventType).toBe('seriesMaster');
+    expect(master['calendarData.startDateTime']).toEqual({ $lte: '2026-07-21T23:59:59' });
+    expect(master.$or).toEqual([
+      { 'recurrence.range.endDate': { $gte: '2026-07-21' } },
+      { 'recurrence.range.type': 'noEnd' },
+      { 'recurrence.range.type': 'numbered' },
+    ]);
+    // The clause must NOT constrain calendarData.endDateTime for masters —
+    // that field holds only the FIRST occurrence's end and is what excluded
+    // every series from search until now.
+    expect(master['calendarData.endDateTime']).toBeUndefined();
+  });
+
+  it('EDR-14: additions branch matches masters with an ad-hoc date inside the window via $elemMatch', () => {
+    const clause = buildSeriesAwareDateRangeClause('2026-07-21', '2026-07-22');
+    const additions = clause.$or[3];
+    expect(additions.eventType).toBe('seriesMaster');
+    expect(additions['recurrence.additions']).toEqual({
+      $elemMatch: { $gte: '2026-07-21', $lte: '2026-07-22' },
+    });
   });
 });
