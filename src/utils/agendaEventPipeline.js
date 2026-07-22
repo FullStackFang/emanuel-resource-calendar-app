@@ -133,13 +133,30 @@ export function prepareEventsForAgenda(rawEvents, rangeStart, rangeEnd) {
         // them onto its output, but this row is rebuilt from ...master, so
         // master values would win without this (same block as Calendar.jsx).
         ...(occurrence.hasOccurrenceOverride ? {
+          // Location overrides
           ...(occurrence.locations !== undefined && { locations: occurrence.locations }),
           ...(occurrence.locationDisplayNames !== undefined && { locationDisplayNames: occurrence.locationDisplayNames }),
+          // Time overrides
           ...(occurrence.startTime !== undefined && { startTime: occurrence.startTime }),
           ...(occurrence.endTime !== undefined && { endTime: occurrence.endTime }),
+          ...(occurrence.setupTime !== undefined && { setupTime: occurrence.setupTime }),
+          ...(occurrence.teardownTime !== undefined && { teardownTime: occurrence.teardownTime }),
+          ...(occurrence.reservationStartTime !== undefined && { reservationStartTime: occurrence.reservationStartTime }),
+          ...(occurrence.reservationEndTime !== undefined && { reservationEndTime: occurrence.reservationEndTime }),
+          ...(occurrence.doorOpenTime !== undefined && { doorOpenTime: occurrence.doorOpenTime }),
+          ...(occurrence.doorCloseTime !== undefined && { doorCloseTime: occurrence.doorCloseTime }),
+          // Category/service overrides
           ...(occurrence.categories !== undefined && { categories: occurrence.categories }),
           ...(occurrence.services !== undefined && { services: occurrence.services }),
+          ...(occurrence.assignedTo !== undefined && { assignedTo: occurrence.assignedTo }),
+          // Additional Information overrides
+          ...(occurrence.setupNotes !== undefined && { setupNotes: occurrence.setupNotes }),
+          ...(occurrence.doorNotes !== undefined && { doorNotes: occurrence.doorNotes }),
+          ...(occurrence.eventNotes !== undefined && { eventNotes: occurrence.eventNotes }),
+          ...(occurrence.specialRequirements !== undefined && { specialRequirements: occurrence.specialRequirements }),
           ...(occurrence.eventDescription !== undefined && { eventDescription: occurrence.eventDescription }),
+          // Other overrides
+          ...(occurrence.attendeeCount !== undefined && { attendeeCount: occurrence.attendeeCount }),
           ...(occurrence.isOffsite !== undefined && { isOffsite: occurrence.isOffsite }),
           ...(occurrence.offsiteName !== undefined && { offsiteName: occurrence.offsiteName }),
           ...(occurrence.offsiteAddress !== undefined && { offsiteAddress: occurrence.offsiteAddress }),
