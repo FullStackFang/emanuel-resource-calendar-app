@@ -71,12 +71,20 @@ function drawProgress(label, processed, total) {
 const titleOf = (doc) => doc.eventTitle || doc.calendarData?.eventTitle || '(no title)';
 
 /**
- * Addition child documents for a master that still have no Graph event.
+ * Child documents on an ADDED date that still have no Graph event.
+ *
+ * Selected by date, not by eventType. A date that was added and then customized
+ * can be represented by an `exception` document rather than an `addition` one,
+ * and it still needs a standalone Outlook event: added dates are outside the
+ * recurrence pattern, so there is no series instance on that day to attach to.
+ * Filtering on eventType:'addition' silently skipped those.
  */
 async function findUnsyncedAdditions(collection, master) {
+  const additions = master.recurrence?.additions || [];
+  if (additions.length === 0) return [];
   return withCosmosRetry(() => collection.find({
     seriesMasterEventId: master.eventId,
-    eventType: 'addition',
+    occurrenceDate: { $in: additions },
     isDeleted: { $ne: true },
     $or: [{ graphEventId: null }, { graphEventId: { $exists: false } }],
   }).toArray());
@@ -229,9 +237,12 @@ async function main() {
             createdByEmail: 'backfill-script@internal',
           });
           stats.docsMaterialized += materialized.created.length;
-          stats.alreadyLinked += materialized.existing.length;
 
           const unsynced = await findUnsyncedAdditions(collection, master);
+          // Count what needed no work, so the tally matches --dry-run's.
+          // (materialized.existing means "already had a child doc", which is not
+          // the same as "already has an Outlook event".)
+          stats.alreadyLinked += (master.recurrence?.additions?.length || 0) - unsynced.length;
 
           for (const doc of unsynced) {
             try {
