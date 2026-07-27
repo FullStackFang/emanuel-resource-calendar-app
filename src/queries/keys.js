@@ -78,6 +78,8 @@ export const keys = {
   syncHealth: {
     all: () => ['syncHealth'],
     report: (scope) => scope === undefined ? ['syncHealth', 'report'] : ['syncHealth', 'report', scope],
+    // The reportable mailboxes (allowedDisplayCalendars from calendar-config).
+    calendars: () => ['syncHealth', 'calendars'],
   },
 
   // ─── Events ────────────────────────────────────────────────────────────

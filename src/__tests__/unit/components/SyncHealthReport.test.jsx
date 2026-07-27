@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import SyncHealthReport from '../../../components/SyncHealthReport';
@@ -19,9 +19,25 @@ const renderPage = () => {
   );
 };
 
-const respondWith = (body) => {
-  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => body });
+// The calendar picker is populated from the same admin-managed allowlist the
+// calendar view uses (calendar-config.json -> allowedDisplayCalendars), served
+// by /calendar-display-config. Today it holds only TempleEvents.
+const ALLOWED = {
+  allowedDisplayCalendars: ['TempleEvents@emanuelnyc.org'],
+  defaultCalendar: 'TempleEvents@emanuelnyc.org',
 };
+
+const respondWith = (body, { allowed = ALLOWED } = {}) => {
+  global.fetch = vi.fn().mockImplementation((url) => {
+    if (String(url).includes('/calendar-display-config')) {
+      return Promise.resolve({ ok: true, json: async () => allowed });
+    }
+    return Promise.resolve({ ok: true, json: async () => body });
+  });
+};
+
+const reportCalls = () =>
+  (global.fetch.mock?.calls || []).filter(([u]) => String(u).includes('/reports/sync-health'));
 
 describe('SyncHealthReport', () => {
   beforeEach(() => {
@@ -36,7 +52,43 @@ describe('SyncHealthReport', () => {
 
     expect(screen.getByRole('button', { name: /run check/i })).toBeInTheDocument();
     expect(screen.getByText(/choose a date range/i)).toBeInTheDocument();
-    expect(global.fetch).not.toHaveBeenCalled();
+    // The allowlist fetch is expected on mount; the report itself is not.
+    expect(reportCalls()).toHaveLength(0);
+  });
+
+  it('populates the calendar picker from the allowed-calendars config', async () => {
+    respondWith({ window: {}, calendars: [] });
+    renderPage();
+
+    const select = await screen.findByLabelText(/calendar/i);
+    await waitFor(() => {
+      expect(within(select).getByRole('option', { name: /TempleEvents@emanuelnyc\.org/i })
+        .selected).toBe(true);
+    });
+    // Only the allow-listed mailbox is offered, so the sandbox cannot be run.
+    expect(within(select).getAllByRole('option')).toHaveLength(1);
+    expect(within(select).queryByRole('option', { name: /sandbox/i })).toBeNull();
+  });
+
+  it('sends the selected calendar as calendarOwner', async () => {
+    respondWith({
+      window: { start: '2026-08-01', end: '2026-09-30' },
+      calendars: [{
+        calendarOwner: 'TempleEvents@emanuelnyc.org', calendarId: null, error: null,
+        counts: { appExpected: 1, outlookFound: 1, matched: 1 },
+        missingFromOutlook: [], untethered: [], shouldNotBeInOutlook: [], untracked: [],
+      }],
+    });
+    renderPage();
+
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
+
+    await waitFor(() => expect(reportCalls()).toHaveLength(1));
+    expect(reportCalls()[0][0]).toContain(
+      `calendarOwner=${encodeURIComponent('TempleEvents@emanuelnyc.org')}`
+    );
   });
 
   it('renders an all-green banner when a calendar has no findings', async () => {
@@ -52,7 +104,11 @@ describe('SyncHealthReport', () => {
     });
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+    // Run Check stays disabled until the calendar allowlist resolves and a
+    // mailbox is selected, so wait on the button itself.
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
@@ -82,7 +138,11 @@ describe('SyncHealthReport', () => {
     });
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+    // Run Check stays disabled until the calendar allowlist resolves and a
+    // mailbox is selected, so wait on the button itself.
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
 
     await waitFor(() => {
       expect(screen.getByText('Extra Rehearsal')).toBeInTheDocument();
@@ -110,12 +170,16 @@ describe('SyncHealthReport', () => {
     });
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+    // Run Check stays disabled until the calendar allowlist resolves and a
+    // mailbox is selected, so wait on the button itself.
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
     });
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(reportCalls()).toHaveLength(1);
 
     // Simulate the tab being hidden and shown again — TanStack's focus manager
     // listens on visibilitychange.
@@ -126,7 +190,7 @@ describe('SyncHealthReport', () => {
     await waitFor(() => {
       expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
     });
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(reportCalls()).toHaveLength(1);
   });
 
   it('renders an error card for a calendar whose Graph call failed', async () => {
@@ -142,7 +206,11 @@ describe('SyncHealthReport', () => {
     });
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+    // Run Check stays disabled until the calendar allowlist resolves and a
+    // mailbox is selected, so wait on the button itself.
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/graph is down/i)).toBeInTheDocument();

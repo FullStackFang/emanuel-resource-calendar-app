@@ -153,6 +153,34 @@ export default function SyncHealthReport({ apiToken }) {
   // Bumped by every Run Check click so an unchanged date range still refetches.
   const [runVersion, setRunVersion] = useState(0);
   const [appliedRange, setAppliedRange] = useState(null);
+  const [calendarOwner, setCalendarOwner] = useState('');
+
+  // The reportable calendars are the admin-managed allowlist from
+  // calendar-config.json (allowedDisplayCalendars), the same list that governs
+  // the main calendar view. Today it contains only TempleEvents, so that is the
+  // only mailbox offered here; adding one in Calendar Config surfaces it here
+  // too, with no change to this component.
+  const { data: allowedCalendars = [] } = useQuery({
+    queryKey: keys.syncHealth.calendars(),
+    enabled: !!apiToken,
+    queryFn: async () => {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/calendar-display-config`, {
+        headers: { Authorization: `Bearer ${apiToken}` },
+      });
+      if (!response.ok) throw new Error('Could not load the calendar list');
+      const body = await response.json();
+      return body.allowedDisplayCalendars || [];
+    },
+  });
+
+  // Settle on a selection as soon as the list arrives. Selecting here rather
+  // than defaulting in render keeps the submitted value and the visible value
+  // the same thing.
+  useEffect(() => {
+    if (!calendarOwner && allowedCalendars.length > 0) {
+      setCalendarOwner(allowedCalendars[0]);
+    }
+  }, [allowedCalendars, calendarOwner]);
 
   const queryKey = useMemo(
     () => keys.syncHealth.report({ version: runVersion }),
@@ -188,6 +216,9 @@ export default function SyncHealthReport({ apiToken }) {
         startDate: appliedRange.startDate,
         endDate: appliedRange.endDate,
       });
+      if (appliedRange.calendarOwner) {
+        params.set('calendarOwner', appliedRange.calendarOwner);
+      }
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/reports/sync-health?${params}`,
         { headers: { Authorization: `Bearer ${apiToken}` } }
@@ -213,7 +244,7 @@ export default function SyncHealthReport({ apiToken }) {
   }, [error, showError]);
 
   const handleRunCheck = () => {
-    setAppliedRange({ ...range });
+    setAppliedRange({ ...range, calendarOwner });
     setRunVersion(v => v + 1);
   };
 
@@ -230,6 +261,21 @@ export default function SyncHealthReport({ apiToken }) {
       {/* DatePickerInput renders a bare <input type="date"> — it has NO label
           prop, and its onChange is a raw DOM handler, so read e.target.value. */}
       <div className="sync-health-controls">
+        <div className="sync-health-field">
+          <label htmlFor="sync-health-calendar">Calendar</label>
+          <select
+            id="sync-health-calendar"
+            className="sync-health-select"
+            value={calendarOwner}
+            onChange={(e) => setCalendarOwner(e.target.value)}
+            disabled={allowedCalendars.length === 0}
+          >
+            {allowedCalendars.length === 0 && <option value="">Loading...</option>}
+            {allowedCalendars.map((owner) => (
+              <option key={owner} value={owner}>{owner}</option>
+            ))}
+          </select>
+        </div>
         <div className="sync-health-field">
           <label htmlFor="sync-health-start">From</label>
           <DatePickerInput
@@ -250,7 +296,7 @@ export default function SyncHealthReport({ apiToken }) {
           type="button"
           className="sync-health-run-btn"
           onClick={handleRunCheck}
-          disabled={isRunning || isFetching}
+          disabled={isRunning || isFetching || !calendarOwner}
         >
           {isRunning || isFetching ? 'Checking...' : 'Run Check'}
         </button>

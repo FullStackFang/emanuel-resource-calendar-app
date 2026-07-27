@@ -12263,6 +12263,11 @@ app.get('/api/admin/reports/sync-health', verifyToken, async (req, res) => {
       graphApi: graphApiService,
       startDate: reportWindow.startDate,
       endDate: reportWindow.endDate,
+      // Optional: scope the report to one mailbox. The UI populates its
+      // picker from allowedDisplayCalendars (calendar-config.json), so the
+      // set of reportable calendars follows the same admin-managed allowlist
+      // the calendar view already uses.
+      calendarOwner: req.query.calendarOwner || null,
     });
 
     res.json(report);

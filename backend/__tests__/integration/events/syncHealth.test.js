@@ -258,6 +258,67 @@ describe('GET /api/admin/reports/sync-health', () => {
     expect(calls[0].calendarId).toBeNull();
   });
 
+  // --- calendarOwner scoping ---------------------------------------------
+
+  it('reports only the requested calendarOwner when one is given', async () => {
+    const token = await authAs(createAdmin());
+
+    const wanted = createPublishedEventWithGraph({
+      eventTitle: 'Wanted Mailbox Event',
+      startDateTime: at('2026-08-14T13:00:00'),
+      endDateTime: at('2026-08-14T14:00:00'),
+      calendarOwner: TEST_CALENDAR_OWNER,
+    });
+    await insertEvent(db, wanted);
+
+    const other = createPublishedEventWithGraph({
+      eventTitle: 'Other Mailbox Event',
+      startDateTime: at('2026-08-15T13:00:00'),
+      endDateTime: at('2026-08-15T14:00:00'),
+      calendarOwner: 'other@emanuelnyc.org',
+    });
+    await insertEvent(db, other);
+
+    graphApiMock.setMockResponse('getCalendarEvents', []);
+
+    const res = await request(app).get(ENDPOINT)
+      .query({ ...WINDOW, calendarOwner: TEST_CALENDAR_OWNER })
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.calendars).toHaveLength(1);
+    expect(res.body.calendars[0].calendarOwner).toBe(TEST_CALENDAR_OWNER);
+
+    // The other mailbox must not be fetched from Graph at all.
+    const calls = graphApiMock.getCallHistory('getCalendarEvents');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(TEST_CALENDAR_OWNER);
+  });
+
+  // calendar-config.json stores 'TempleEvents@...' while documents store
+  // 'templeevents@...'. The filter must not care.
+  it('matches calendarOwner case-insensitively', async () => {
+    const token = await authAs(createAdmin());
+
+    const doc = createPublishedEventWithGraph({
+      eventTitle: 'Case Test',
+      startDateTime: at('2026-08-14T13:00:00'),
+      endDateTime: at('2026-08-14T14:00:00'),
+      calendarOwner: TEST_CALENDAR_OWNER, // lower-case in the document
+    });
+    await insertEvent(db, doc);
+
+    graphApiMock.setMockResponse('getCalendarEvents', []);
+
+    const res = await request(app).get(ENDPOINT)
+      .query({ ...WINDOW, calendarOwner: TEST_CALENDAR_OWNER.toUpperCase() })
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.calendars).toHaveLength(1);
+    expect(res.body.calendars[0].counts.appExpected).toBe(1);
+  });
+
   // --- partial failure ----------------------------------------------------
 
   it('returns partial results when one calendar Graph call fails', async () => {

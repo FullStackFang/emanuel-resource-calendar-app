@@ -219,9 +219,13 @@ function buildAppSide(docs, startDate, endDate) {
  * @param {object} params.graphApi - needs getCalendarEvents(owner, calId, startIso, endIso, opts)
  * @param {string} params.startDate - 'YYYY-MM-DD'
  * @param {string} params.endDate - 'YYYY-MM-DD'
+ * @param {string} [params.calendarOwner] - restrict the report to one mailbox.
+ *   Matched case-insensitively: calendar-config.json spells it
+ *   'TempleEvents@...' while documents store 'templeevents@...'.
  * @returns {Promise<{window: object, calendars: Array<object>}>}
  */
-async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDate }) {
+async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDate, calendarOwner }) {
+  const ownerFilter = calendarOwner ? String(calendarOwner).toLowerCase() : null;
   // Published events overlapping the window. buildSeriesAwareDateRangeClause is
   // reused verbatim from the search view so masters match on their recurrence
   // RANGE (a master's own startDateTime holds only its first occurrence).
@@ -249,6 +253,9 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
   for (const doc of allDocs) {
     if (!doc.calendarOwner) continue;
     const key = calendarKeyOf(doc);
+    // Scope to a single mailbox when asked. Filtering on the same lower-cased
+    // key the grouping uses keeps the two consistent by construction.
+    if (ownerFilter && key !== ownerFilter) continue;
     if (!docsByCalendar.has(key)) {
       docsByCalendar.set(key, { calendarOwner: doc.calendarOwner, docs: [] });
     }
