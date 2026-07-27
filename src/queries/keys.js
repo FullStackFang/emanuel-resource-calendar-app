@@ -72,6 +72,14 @@ export const keys = {
     all: () => ['calendarMarkers'],
   },
 
+  // Sync Health report (app-vs-Outlook diff). Manual-run only, so the key is
+  // versioned by run count rather than by filter values — clicking Run Check
+  // must refetch even when the date range has not changed.
+  syncHealth: {
+    all: () => ['syncHealth'],
+    report: (scope) => scope === undefined ? ['syncHealth', 'report'] : ['syncHealth', 'report', scope],
+  },
+
   // ─── Events ────────────────────────────────────────────────────────────
   events: {
     all: () => ['events'],

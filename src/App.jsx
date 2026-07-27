@@ -90,6 +90,7 @@ const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
 const EventManagement = lazy(() => import('./components/EventManagement'));
 const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
 const RschedImport = lazy(() => import('./components/RschedImport'));
+const SyncHealthReport = lazy(() => import('./components/SyncHealthReport'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 // Guards /admin/users — reachable by anyone with canManageUsers (approver + admin).
@@ -106,6 +107,16 @@ function RequireUserManagement({ children }) {
 function RequireCalendarMarkers({ children }) {
   const { effectivePermissions } = useRoleSimulation();
   if (!effectivePermissions.canManageCalendarMarkers) return <Navigate to="/" replace />;
+  return children;
+}
+
+// Guards /admin/sync-health — reachable by admins and approvers. UX redirect
+// only; the backend gate is authoritative.
+function RequireSyncHealth({ children }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.isAdmin && !effectivePermissions.canApproveReservations) {
+    return <Navigate to="/" replace />;
+  }
   return children;
 }
 
@@ -141,7 +152,7 @@ function App() {
   const [selectedCalendarId, setSelectedCalendarId] = useState(null);
   const [availableCalendars, setAvailableCalendars] = useState([]);
   const [changingCalendar, setChangingCalendar] = useState(false);
-  const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
+  const [showRegistrationTimes] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const [showReservationModal, setShowReservationModal] = useState(false);
   const [reservationPrefillData, setReservationPrefillData] = useState(null);
@@ -247,7 +258,7 @@ function App() {
           APP_CONFIG.DEFAULT_DISPLAY_CALENDAR = config.defaultDisplayCalendar;
           logger.log('Runtime config loaded, calendar mode:', config.calendarMode);
         }
-      } catch (error) {
+      } catch {
         logger.warn('Failed to load runtime config, using defaults');
       }
     };
@@ -351,6 +362,7 @@ function App() {
                   <Route path="/admin/users" element={<RequireUserManagement><UserAdmin apiToken={apiToken} /></RequireUserManagement>} />
                   <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-markers" element={<RequireCalendarMarkers><CalendarMarkersManagement apiToken={apiToken} /></RequireCalendarMarkers>} />
+                  <Route path="/admin/sync-health" element={<RequireSyncHealth><SyncHealthReport apiToken={apiToken} /></RequireSyncHealth>} />
                   <Route path="/admin/departments" element={<DepartmentManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 
