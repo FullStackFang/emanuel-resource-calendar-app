@@ -2,6 +2,7 @@ const {
   toEasternDateKey,
   buildOutlookIndex,
   seriesDateKey,
+  diffCalendar,
   CALENDAR_TIMEZONE,
 } = require('../../../utils/syncHealthDiff');
 
@@ -98,5 +99,246 @@ describe('syncHealthDiff — Outlook normalization', () => {
       expect(buildOutlookIndex([]).entries).toEqual([]);
       expect(buildOutlookIndex(undefined).entries).toEqual([]);
     });
+  });
+});
+
+// --- builders -------------------------------------------------------------
+const outlookEvent = (id, date, extra = {}) => ({
+  id,
+  subject: extra.subject || `Outlook ${id}`,
+  start: { dateTime: `${date}T17:00:00.0000000`, timeZone: 'UTC' },
+  ...extra,
+});
+
+const occurrenceOf = (id, masterId, date, extra = {}) =>
+  outlookEvent(id, date, { seriesMasterId: masterId, type: 'occurrence', ...extra });
+
+const appInstance = (over = {}) => ({
+  mongoId: 'm1',
+  eventTitle: 'Test Event',
+  date: '2026-08-14',
+  eventType: 'singleInstance',
+  graphId: 'g1',
+  seriesGraphId: null,
+  isDeleted: false,
+  ...over,
+});
+
+const emptyArgs = { appInstances: [], trackedSeries: [], outlookInstances: [] };
+
+describe('syncHealthDiff — diffCalendar', () => {
+  it('reports no findings when app and Outlook agree', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance()],
+      outlookInstances: [outlookEvent('g1', '2026-08-14')],
+    });
+
+    expect(result.missingFromOutlook).toEqual([]);
+    expect(result.untethered).toEqual([]);
+    expect(result.shouldNotBeInOutlook).toEqual([]);
+    expect(result.untracked).toEqual([]);
+    expect(result.counts).toEqual({ appExpected: 1, outlookFound: 1, matched: 1 });
+  });
+
+  it('matches a series pattern date by (master graph id, local date)', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        eventType: 'seriesMaster', graphId: null, seriesGraphId: 'master1', eventTitle: 'Weekly Standup',
+      })],
+      trackedSeries: [{ mongoId: 'm1', eventTitle: 'Weekly Standup', seriesGraphId: 'master1', exclusions: [] }],
+      outlookInstances: [occurrenceOf('occ1', 'master1', '2026-08-14')],
+    });
+
+    expect(result.missingFromOutlook).toEqual([]);
+    expect(result.untracked).toEqual([]);
+    expect(result.counts.matched).toBe(1);
+  });
+
+  // REGRESSION: the shipped recurrence.additions bug. 43 added dates rendered
+  // in the app while Outlook had never heard of them.
+  it('flags an added date whose child document has no Outlook event', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        mongoId: 'add1', eventTitle: 'Extra Rehearsal', date: '2026-08-20',
+        eventType: 'addition', graphId: null, seriesGraphId: 'master1',
+      })],
+      trackedSeries: [{ mongoId: 'm1', eventTitle: 'Weekly Standup', seriesGraphId: 'master1', exclusions: [] }],
+      outlookInstances: [],
+    });
+
+    // The child carries a seriesGraphId but has no Outlook match on that date.
+    expect(result.missingFromOutlook).toEqual([{
+      mongoId: 'add1',
+      eventTitle: 'Extra Rehearsal',
+      date: '2026-08-20',
+      eventType: 'addition',
+      reason: 'no Outlook event for added date',
+    }]);
+    expect(result.counts.matched).toBe(0);
+  });
+
+  it('flags an added date whose stored Graph event is absent from Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        mongoId: 'add1', eventTitle: 'Extra Rehearsal', date: '2026-08-20',
+        eventType: 'addition', graphId: 'gone', seriesGraphId: 'master1',
+      })],
+      outlookInstances: [],
+    });
+
+    expect(result.missingFromOutlook).toEqual([{
+      mongoId: 'add1',
+      eventTitle: 'Extra Rehearsal',
+      date: '2026-08-20',
+      eventType: 'addition',
+      reason: 'no Outlook event for added date',
+    }]);
+  });
+
+  it('flags a single instance whose Graph event is absent from Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance()],
+      outlookInstances: [],
+    });
+
+    expect(result.missingFromOutlook).toEqual([{
+      mongoId: 'm1', eventTitle: 'Test Event', date: '2026-08-14',
+      eventType: 'singleInstance', reason: 'no Outlook event with this Graph ID',
+    }]);
+  });
+
+  // An untethered master must produce ONE finding, not one per pattern date.
+  it('reports an untethered master once and does not spam per-date findings', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [
+        appInstance({ eventType: 'seriesMaster', date: '2026-08-14', graphId: null, seriesGraphId: null, eventTitle: 'Untethered Series' }),
+        appInstance({ eventType: 'seriesMaster', date: '2026-08-21', graphId: null, seriesGraphId: null, eventTitle: 'Untethered Series' }),
+      ],
+      outlookInstances: [],
+    });
+
+    expect(result.untethered).toEqual([
+      { mongoId: 'm1', eventTitle: 'Untethered Series', eventType: 'seriesMaster' },
+    ]);
+    expect(result.missingFromOutlook).toEqual([]);
+  });
+
+  it('reports an untethered addition child with no stored Graph ID at all', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        mongoId: 'add1', eventTitle: 'Extra Rehearsal', date: '2026-08-20',
+        eventType: 'addition', graphId: null, seriesGraphId: null,
+      })],
+      outlookInstances: [],
+    });
+
+    expect(result.untethered).toEqual([
+      { mongoId: 'add1', eventTitle: 'Extra Rehearsal', eventType: 'addition' },
+    ]);
+    expect(result.missingFromOutlook).toEqual([]);
+  });
+
+  it('flags an excluded date that is still present in Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [],
+      trackedSeries: [{
+        mongoId: 'm1', eventTitle: 'Weekly Standup', seriesGraphId: 'master1',
+        exclusions: ['2026-09-02'],
+      }],
+      outlookInstances: [occurrenceOf('occ9', 'master1', '2026-09-02', { subject: 'Weekly Standup' })],
+    });
+
+    expect(result.shouldNotBeInOutlook).toEqual([{
+      graphId: 'occ9', subject: 'Weekly Standup', date: '2026-09-02',
+      reason: 'excluded date still present',
+    }]);
+    // Consumed by the exclusion check, so it must NOT also appear as untracked.
+    expect(result.untracked).toEqual([]);
+  });
+
+  it('flags a deleted app event that is still present in Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({ isDeleted: true, eventTitle: 'Deleted Event' })],
+      outlookInstances: [outlookEvent('g1', '2026-08-14', { subject: 'Deleted Event' })],
+    });
+
+    expect(result.shouldNotBeInOutlook).toEqual([{
+      graphId: 'g1', subject: 'Deleted Event', date: '2026-08-14',
+      reason: 'deleted in app but still in Outlook',
+    }]);
+    // Deleted events are not "expected", so they must not inflate appExpected.
+    expect(result.counts.appExpected).toBe(0);
+  });
+
+  it('reports an Outlook event the app knows nothing about as untracked', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      outlookInstances: [outlookEvent('stray', '2026-08-01', { subject: 'Booked in Outlook' })],
+    });
+
+    expect(result.untracked).toEqual([
+      { graphId: 'stray', subject: 'Booked in Outlook', date: '2026-08-01' },
+    ]);
+    expect(result.counts.outlookFound).toBe(1);
+  });
+
+  it('treats a cancelled Outlook instance as absent', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance()],
+      outlookInstances: [outlookEvent('g1', '2026-08-14', { isCancelled: true })],
+    });
+
+    expect(result.missingFromOutlook).toHaveLength(1);
+    expect(result.counts).toEqual({ appExpected: 1, outlookFound: 0, matched: 0 });
+  });
+
+  it('matches an exception child by (master graph id, date) before falling back to its own id', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        mongoId: 'exc1', eventType: 'exception', graphId: 'standalone-id', seriesGraphId: 'master1',
+      })],
+      outlookInstances: [occurrenceOf('exception-occ', 'master1', '2026-08-14')],
+    });
+
+    expect(result.counts.matched).toBe(1);
+    expect(result.missingFromOutlook).toEqual([]);
+    expect(result.untracked).toEqual([]);
+  });
+
+  it('falls back to the exception child own Graph ID when it is standalone', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        mongoId: 'exc1', eventType: 'exception', graphId: 'standalone-id', seriesGraphId: 'master1',
+      })],
+      outlookInstances: [outlookEvent('standalone-id', '2026-08-14')],
+    });
+
+    expect(result.counts.matched).toBe(1);
+    expect(result.untracked).toEqual([]);
+  });
+
+  // A rename in Outlook must not register as a discrepancy — matching is by ID.
+  it('does not flag an event that was renamed in Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({ eventTitle: 'Original Title' })],
+      outlookInstances: [outlookEvent('g1', '2026-08-14', { subject: 'Totally Different Title' })],
+    });
+
+    expect(result.missingFromOutlook).toEqual([]);
+    expect(result.untracked).toEqual([]);
+    expect(result.counts.matched).toBe(1);
   });
 });
