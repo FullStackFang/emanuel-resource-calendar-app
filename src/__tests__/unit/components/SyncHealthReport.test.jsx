@@ -113,7 +113,9 @@ describe('SyncHealthReport', () => {
     await waitFor(() => {
       expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/12 instances matched/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing needs attention/i)).toBeInTheDocument();
+    // The reconciliation sentence replaces the three bare counts.
+    expect(screen.getByText(/they agree on/i)).toBeInTheDocument();
   });
 
   it('renders discrepancy rows for a calendar with findings', async () => {
@@ -147,10 +149,53 @@ describe('SyncHealthReport', () => {
     await waitFor(() => {
       expect(screen.getByText('Extra Rehearsal')).toBeInTheDocument();
     });
-    expect(screen.getByText(/no Outlook event for added date/i)).toBeInTheDocument();
+    // Sections are named for what breaks, not for the API field name.
+    expect(screen.getByText(/never linked to outlook/i)).toBeInTheDocument();
+    expect(screen.getByText(/removed here, still on outlook/i)).toBeInTheDocument();
+    expect(screen.queryByText(/untethered/i)).not.toBeInTheDocument();
+
     expect(screen.getByText('Orphan Series')).toBeInTheDocument();
     expect(screen.getByText('Cancelled Standup')).toBeInTheDocument();
-    expect(screen.queryByText(/app and outlook agree/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/3 events need attention/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing needs attention/i)).not.toBeInTheDocument();
+
+    // Informational findings stay collapsed so they cannot bury the real ones.
+    expect(screen.queryByText('Booked in Outlook')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /show 1 event/i })).toBeInTheDocument();
+  });
+
+  // The headline fix: a broken series is ONE row with N dates, not N rows.
+  it('collapses a multi-date series into one row and reveals dates on click', async () => {
+    const dates = ['2026-07-01', '2026-07-02', '2026-07-08', '2026-07-09'];
+    respondWith({
+      window: { start: '2026-08-01', end: '2026-09-30' },
+      calendars: [{
+        calendarOwner: 'templeevents@emanuelnyc.org', calendarId: null, error: null,
+        counts: { appExpected: 10, outlookFound: 6, matched: 6 },
+        missingFromOutlook: dates.map((date) => ({
+          mongoId: 'm1', eventTitle: 'NS Pick Up', eventType: 'seriesMaster',
+          date, reason: 'no Outlook occurrence on this date',
+        })),
+        untethered: [], shouldNotBeInOutlook: [], untracked: [],
+      }],
+    });
+    renderPage();
+
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
+
+    await waitFor(() => expect(screen.getByText('NS Pick Up')).toBeInTheDocument());
+
+    // One row, not four, and the dates are hidden until asked for.
+    expect(screen.getAllByText('NS Pick Up')).toHaveLength(1);
+    expect(screen.getByText('4 dates')).toBeInTheDocument();
+    expect(screen.queryByText('2026-07-01')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('NS Pick Up'));
+    for (const d of dates) {
+      expect(screen.getByText(d)).toBeInTheDocument();
+    }
   });
 
   // REGRESSION: with staleTime 0 the result was stale the moment it arrived, so

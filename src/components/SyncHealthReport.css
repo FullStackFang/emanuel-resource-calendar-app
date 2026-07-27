@@ -1,20 +1,35 @@
 /* src/components/SyncHealthReport.css
-   Scoped under .sync-health so nothing leaks into other admin stylesheets. */
+ *
+ * Everything is scoped under .sync-health so nothing leaks into other admin
+ * stylesheets (see the unscoped .modal-* precedent in this codebase).
+ *
+ * Treatment is a ledger, not a dashboard: hairline rules, tabular numerals, a
+ * left column of counts. PRODUCT.md names "generic SaaS admin dashboards with
+ * uniform card grids" as the first anti-reference, and a reconciliation report
+ * reads better as a statement than as a set of tiles.
+ */
 
-.sync-health { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+.sync-health { padding: 1.5rem; max-width: 1000px; margin: 0 auto; }
 
-.sync-health-header h2 { margin: 0 0 0.25rem; }
-.sync-health-subtitle { margin: 0 0 1.25rem; color: var(--color-neutral-600); font-size: 0.9rem; }
-
-.sync-health-controls {
-  display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
-  padding: 1rem; margin-bottom: 1.5rem;
-  background: var(--color-neutral-50); border-radius: 6px;
+.sync-health-header { border-bottom: 2px solid var(--color-neutral-900); padding-bottom: 1rem; }
+.sync-health-header h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.015em; }
+.sync-health-subtitle {
+  margin: 0.35rem 0 0; color: var(--color-neutral-600);
+  font-size: 0.875rem; max-width: 62ch;
 }
 
-.sync-health-field { display: flex; flex-direction: column; gap: 0.25rem; }
-.sync-health-field label { font-size: 0.75rem; font-weight: 600; color: var(--color-neutral-600); }
-
+/* ── controls ───────────────────────────────────────────────────────────── */
+.sync-health-controls {
+  display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-end;
+  padding: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--color-neutral-200);
+  margin-bottom: 2.5rem;
+}
+.sync-health-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.sync-health-field label {
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--color-neutral-500);
+}
 .sync-health-select {
   font-family: inherit; font-size: 0.875rem; padding: 0.4rem 0.55rem;
   border: 1px solid var(--color-neutral-300); border-radius: 4px;
@@ -23,60 +38,161 @@
 .sync-health-select:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .sync-health-run-btn {
-  padding: 0.5rem 1.25rem; border: none; border-radius: 4px; cursor: pointer;
-  background: var(--color-info-500); color: #fff; font-weight: 600;
+  margin-left: auto;
+  padding: 0.5rem 1.25rem; border: 1px solid var(--color-primary-700);
+  border-radius: 4px; cursor: pointer;
+  background: var(--color-primary-500); color: #fff;
+  font-family: inherit; font-size: 0.875rem; font-weight: 600;
 }
 .sync-health-run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .sync-health-idle { color: var(--color-neutral-600); font-style: italic; }
 
-.sync-health-card {
-  border: 1px solid var(--color-neutral-200); border-radius: 6px;
-  padding: 1rem; margin-bottom: 1.25rem; background: #fff;
+/* ── one calendar ───────────────────────────────────────────────────────── */
+.sync-health-calendar { margin-bottom: 3.5rem; }
+.sync-health-calendar:last-child { margin-bottom: 0; }
+
+.sync-health-calendar-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-neutral-900);
+  margin-bottom: 1.25rem;
 }
-.sync-health-card--errored { border-color: var(--color-error-500); }
+.sync-health-calendar-title { margin: 0; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.sync-health-verdict { margin-left: auto; font-size: 0.8125rem; font-weight: 600; }
+.sync-health-verdict.bad { color: var(--color-error-700); }
+.sync-health-verdict.ok { color: var(--color-success-700); }
 
-.sync-health-card-header {
-  display: flex; flex-wrap: wrap; justify-content: space-between;
-  align-items: center; gap: 1rem; margin-bottom: 0.75rem;
+.sync-health-calendar--errored .sync-health-calendar-head { border-bottom-color: var(--color-error-500); }
+.sync-health-error { margin: 0; color: var(--color-error-500); font-size: 0.875rem; }
+
+/* ── reconciliation: a Venn diagram flattened onto one axis ─────────────── */
+.sync-health-recon { margin-bottom: 1.75rem; }
+.sync-health-recon-bar {
+  display: flex; height: 30px; overflow: hidden;
+  border: 1px solid var(--color-neutral-300); border-radius: 4px;
 }
-.sync-health-card-title { margin: 0; font-size: 1rem; }
-
-.sync-health-counts { display: flex; gap: 1.25rem; margin: 0; }
-.sync-health-counts div { text-align: center; }
-.sync-health-counts dt { font-size: 0.7rem; text-transform: uppercase; color: var(--color-neutral-600); }
-.sync-health-counts dd { margin: 0; font-size: 1.1rem; font-weight: 600; }
-
-.sync-health-banner {
-  margin: 0; padding: 0.6rem 0.9rem; border-radius: 4px; font-weight: 500;
+.sync-health-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+  font-variant-numeric: tabular-nums; overflow: hidden; min-width: 0;
 }
-.sync-health-banner--ok {
-  background: var(--color-success-50, #eaf7ee);
-  color: var(--color-success-700, #1c6b34);
+/* Hatching, not solid fill: these segments are the discrepancy, and a hatch
+   reads as "unresolved" without shouting like a solid red block. */
+.sync-health-seg--app {
+  background: repeating-linear-gradient(-45deg,
+    var(--color-error-50), var(--color-error-50) 5px, #fff 5px, #fff 10px);
+  color: var(--color-error-700);
+  border-right: 1px solid var(--color-neutral-300);
+}
+.sync-health-seg--match { background: var(--color-success-50); color: var(--color-success-700); }
+.sync-health-seg--out {
+  background: repeating-linear-gradient(-45deg,
+    var(--color-neutral-100), var(--color-neutral-100) 5px, #fff 5px, #fff 10px);
+  color: var(--color-neutral-600);
+  border-left: 1px solid var(--color-neutral-300);
+}
+.sync-health-recon-legend {
+  display: flex; margin-top: 0.5rem;
+  font-size: 0.75rem; color: var(--color-neutral-600);
+}
+.sync-health-recon-legend span { flex: 1; }
+.sync-health-recon-legend .mid { text-align: center; }
+.sync-health-recon-legend .right { text-align: right; }
+.sync-health-recon-sentence {
+  margin: 0.85rem 0 0; font-size: 0.875rem;
+  color: var(--color-neutral-700); max-width: 72ch;
+}
+.sync-health-recon-sentence b {
+  font-weight: 600; color: var(--color-neutral-900);
+  font-variant-numeric: tabular-nums;
 }
 
-.sync-health-error { margin: 0; color: var(--color-error-500); }
+/* ── a problem group ────────────────────────────────────────────────────── */
+.sync-health-group { border-top: 1px solid var(--color-neutral-200); padding: 1.25rem 0; }
+.sync-health-group:last-of-type { border-bottom: 1px solid var(--color-neutral-200); }
 
-.sync-health-section { margin-top: 1rem; }
-.sync-health-section-title { margin: 0 0 0.5rem; font-size: 0.9rem; }
-.sync-health-section--critical .sync-health-section-title { color: var(--color-error-500); }
+.sync-health-group-head {
+  display: grid; grid-template-columns: 3.25rem 1fr;
+  gap: 1rem; align-items: baseline;
+}
+.sync-health-tally {
+  font-size: 1.375rem; font-weight: 500; text-align: right;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.sync-health-group--critical .sync-health-tally { color: var(--color-error-500); }
+.sync-health-group--warning .sync-health-tally { color: var(--color-warning-500); }
+.sync-health-group--info .sync-health-tally { color: var(--color-neutral-500); }
 
-.sync-health-count {
-  display: inline-block; min-width: 1.4em; padding: 0 0.4em;
-  border-radius: 10px; background: var(--color-neutral-200);
-  font-size: 0.75rem; text-align: center;
+.sync-health-group-title { margin: 0; font-size: 0.9375rem; font-weight: 700; }
+.sync-health-group--info .sync-health-group-title {
+  font-weight: 600; color: var(--color-neutral-700);
+}
+.sync-health-group-why {
+  margin: 0.2rem 0 0; font-size: 0.8125rem;
+  color: var(--color-neutral-600); max-width: 70ch;
 }
 
-.sync-health-rows { list-style: none; margin: 0; padding: 0; }
-.sync-health-row {
-  display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline;
-  padding: 0.4rem 0; border-top: 1px solid var(--color-neutral-100);
+/* ── event rows ─────────────────────────────────────────────────────────── */
+.sync-health-rows {
+  list-style: none; margin: 0.9rem 0 0 4.25rem; padding: 0;
+  border-top: 1px solid var(--color-neutral-200);
 }
-.sync-health-row-title { font-weight: 500; }
-.sync-health-row-date { font-variant-numeric: tabular-nums; color: var(--color-neutral-600); }
-.sync-health-row-reason { color: var(--color-neutral-600); font-size: 0.85rem; }
+.sync-health-row { border-bottom: 1px solid var(--color-neutral-100); }
 
-.sync-health-disclosure {
-  background: none; border: none; padding: 0; cursor: pointer;
-  font-size: 0.9rem; font-weight: 600; color: var(--color-neutral-700);
+.sync-health-row-main {
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: 0.75rem; align-items: baseline; width: 100%;
+  padding: 0.45rem 0; background: none; border: none;
+  font: inherit; text-align: left; color: inherit; cursor: pointer;
+}
+.sync-health-row-main:disabled { cursor: default; }
+.sync-health-row-main:hover:not(:disabled) { background: var(--color-neutral-100); }
+.sync-health-row-main:focus-visible {
+  outline: 2px solid var(--color-primary-500); outline-offset: -2px;
+}
+
+.sync-health-row-title { font-size: 0.875rem; color: var(--color-neutral-900); }
+.sync-health-row-kind {
+  font-size: 0.6875rem; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--color-neutral-500);
+}
+.sync-health-row-count {
+  font-size: 0.75rem; color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums; min-width: 5.5rem; text-align: right;
+}
+
+.sync-health-dates {
+  list-style: none; margin: 0; padding: 0 0 0.6rem 0;
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+}
+.sync-health-dates li {
+  font-size: 0.75rem; color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 3px; padding: 0.1rem 0.4rem;
+}
+
+.sync-health-disclose {
+  margin: 0.75rem 0 0 4.25rem; padding: 0;
+  background: none; border: none; font: inherit; font-size: 0.8125rem;
+  color: var(--color-primary-700); text-decoration: underline; cursor: pointer;
+}
+.sync-health-disclose:focus-visible {
+  outline: 2px solid var(--color-primary-500); outline-offset: 2px;
+}
+
+.sync-health-allclear {
+  display: flex; gap: 0.6rem; align-items: baseline;
+  margin: 0; padding: 1rem 0;
+  font-size: 0.875rem; color: var(--color-neutral-700);
+}
+.sync-health-allclear .tick { color: var(--color-success-500); }
+
+@media (max-width: 640px) {
+  .sync-health { padding: 1rem; }
+  .sync-health-rows, .sync-health-disclose { margin-left: 0; }
+  .sync-health-group-head { grid-template-columns: 2.5rem 1fr; gap: 0.6rem; }
+  .sync-health-run-btn { margin-left: 0; }
 }
