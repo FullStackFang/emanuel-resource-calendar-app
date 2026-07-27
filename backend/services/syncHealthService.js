@@ -73,7 +73,23 @@ function validateWindow({ startDate, endDate }) {
 }
 
 const titleOf = (doc) => doc.eventTitle || doc.calendarData?.eventTitle || '(no title)';
-const calendarKeyOf = (doc) => `${doc.calendarOwner || ''}|${doc.calendarId || ''}`;
+
+/**
+ * Group key for a document's calendar.
+ *
+ * Deliberately keyed on calendarOwner ALONE, never on calendarId. Graph's
+ * `calendarId` is a PER-MAILBOX opaque handle, and this database stores several
+ * different values for the same owner — some captured from a different
+ * mailbox's view of the shared calendar (the calendar-config.json value, which
+ * maps every owner to an id scoped to one admin's mailbox). Including
+ * calendarId in the key split a single real mailbox into multiple phantom
+ * calendars, each diffed against a partial Outlook view, which manufactured
+ * bogus missingFromOutlook and untracked findings.
+ *
+ * Owner is lower-cased because the same mailbox appears in both cases across
+ * documents and config.
+ */
+const calendarKeyOf = (doc) => String(doc.calendarOwner || '').toLowerCase();
 
 /**
  * The LOCAL date of an app-side document.
@@ -226,18 +242,15 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
 
   const allDocs = [...publishedDocs, ...deletedDocs];
 
-  // The set of distinct (calendarOwner, calendarId) pairs IS the set of
-  // calendars the app manages — there is no separate registry.
+  // The set of distinct calendarOwner mailboxes IS the set of calendars the app
+  // manages — there is no separate registry. See calendarKeyOf for why
+  // calendarId is deliberately excluded from the key.
   const docsByCalendar = new Map();
   for (const doc of allDocs) {
     if (!doc.calendarOwner) continue;
     const key = calendarKeyOf(doc);
     if (!docsByCalendar.has(key)) {
-      docsByCalendar.set(key, {
-        calendarOwner: doc.calendarOwner,
-        calendarId: doc.calendarId || null,
-        docs: [],
-      });
+      docsByCalendar.set(key, { calendarOwner: doc.calendarOwner, docs: [] });
     }
     docsByCalendar.get(key).docs.push(doc);
   }
@@ -246,20 +259,29 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
   const windowEndIso = `${endDate}T23:59:59Z`;
 
   const calendars = [];
-  for (const { calendarOwner, calendarId, docs } of docsByCalendar.values()) {
+  for (const { calendarOwner, docs } of docsByCalendar.values()) {
     const { appInstances, trackedSeries } = buildAppSide(docs, startDate, endDate);
+
+    // Always the mailbox's DEFAULT calendar. The stored calendarId cannot be
+    // used here: it is scoped to whichever mailbox it was captured from, so
+    // /users/{owner}/calendars/{storedId} 404s (ErrorItemNotFound) whenever it
+    // came from a different mailbox. Passing null targets
+    // /users/{owner}/calendar/calendarView, which is where every calendar this
+    // app manages actually lives — every VALID stored calendarId in the
+    // database resolves to that mailbox's isDefaultCalendar entry.
+    const graphCalendarId = null;
 
     let outlookInstances;
     try {
       outlookInstances = await withGraphRetry(() => graphApi.getCalendarEvents(
-        calendarOwner, calendarId, windowStartIso, windowEndIso, { select: GRAPH_SELECT }
+        calendarOwner, graphCalendarId, windowStartIso, windowEndIso, { select: GRAPH_SELECT }
       ));
     } catch (err) {
       // Per-calendar isolation: one mailbox failing must not blank the report.
       logger.warn('[syncHealth] Graph fetch failed for %s: %s', calendarOwner, err.message);
       calendars.push({
         calendarOwner,
-        calendarId,
+        calendarId: graphCalendarId,
         error: err.message || 'Graph request failed',
         counts: {
           appExpected: appInstances.filter(i => !i.isDeleted).length,
@@ -276,7 +298,7 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
 
     calendars.push({
       calendarOwner,
-      calendarId,
+      calendarId: graphCalendarId,
       error: null,
       ...diffCalendar({ appInstances, trackedSeries, outlookInstances }),
     });

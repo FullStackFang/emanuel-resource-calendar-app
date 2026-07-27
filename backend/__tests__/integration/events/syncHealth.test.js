@@ -188,6 +188,76 @@ describe('GET /api/admin/reports/sync-health', () => {
     expect(flagged.some(f => f.eventType === 'addition')).toBe(true);
   });
 
+  // --- mailbox-scoped calendarId (regression) ----------------------------
+  //
+  // Graph calendarId is a PER-MAILBOX opaque handle. Real data has the same
+  // calendarOwner carrying several different stored calendarId values — some
+  // captured from another mailbox's view of the shared calendar (the
+  // calendar-config.json value), which 404s as ErrorItemNotFound when used as
+  // /users/{owner}/calendars/{id}. Grouping by calendarId also split one real
+  // mailbox into several phantom calendars, each diffed against a partial
+  // Outlook view, manufacturing bogus findings.
+
+  it('groups a mailbox once regardless of differing stored calendarId values', async () => {
+    const token = await authAs(createAdmin());
+
+    // Three docs, one owner, three different stored calendarId shapes —
+    // mirrors the real database exactly.
+    const foreignCalendarId = 'AAMkAFOREIGN_MAILBOX_SCOPED_ID=';
+    const ownCalendarId = 'AAMkAOWN_MAILBOX_SCOPED_ID=';
+
+    for (const [i, calendarId] of [foreignCalendarId, ownCalendarId, null].entries()) {
+      const doc = createPublishedEventWithGraph({
+        eventTitle: `Event ${i}`,
+        startDateTime: at(`2026-08-1${i + 1}T13:00:00`),
+        endDateTime: at(`2026-08-1${i + 1}T14:00:00`),
+        calendarOwner: TEST_CALENDAR_OWNER,
+        calendarId,
+      });
+      await insertEvent(db, doc);
+    }
+
+    graphApiMock.setMockResponse('getCalendarEvents', []);
+
+    const res = await request(app).get(ENDPOINT).query(WINDOW)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    // One mailbox => one calendar entry, not three.
+    expect(res.body.calendars).toHaveLength(1);
+    expect(res.body.calendars[0].calendarOwner).toBe(TEST_CALENDAR_OWNER);
+    // All three docs are expected on that single calendar.
+    expect(res.body.calendars[0].counts.appExpected).toBe(3);
+  });
+
+  it('queries the mailbox default calendar rather than a stored calendarId', async () => {
+    const token = await authAs(createAdmin());
+
+    const doc = createPublishedEventWithGraph({
+      eventTitle: 'Foreign Calendar Id Event',
+      startDateTime: at('2026-08-14T13:00:00'),
+      endDateTime: at('2026-08-14T14:00:00'),
+      calendarOwner: TEST_CALENDAR_OWNER,
+      // A calendarId belonging to a DIFFERENT mailbox. Passing this through
+      // to Graph is what produced the 404 ErrorItemNotFound in production.
+      calendarId: 'AAMkAFOREIGN_MAILBOX_SCOPED_ID=',
+    });
+    await insertEvent(db, doc);
+
+    graphApiMock.setMockResponse('getCalendarEvents', []);
+
+    const res = await request(app).get(ENDPOINT).query(WINDOW)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+
+    const calls = graphApiMock.getCallHistory('getCalendarEvents');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(TEST_CALENDAR_OWNER);
+    // null => /users/{owner}/calendar/calendarView (the mailbox default)
+    expect(calls[0].calendarId).toBeNull();
+  });
+
   // --- partial failure ----------------------------------------------------
 
   it('returns partial results when one calendar Graph call fails', async () => {
