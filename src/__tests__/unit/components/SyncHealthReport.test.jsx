@@ -93,6 +93,42 @@ describe('SyncHealthReport', () => {
     expect(screen.queryByText(/app and outlook agree/i)).not.toBeInTheDocument();
   });
 
+  // REGRESSION: with staleTime 0 the result was stale the moment it arrived, so
+  // every tab-visibility event (the app refreshes its token on visibility) fired
+  // another ~11s refetch. The results pane gates on isFetching, so the spinner
+  // re-armed before the data could render — an infinite spinner.
+  it('does not refetch when the tab regains focus', async () => {
+    respondWith({
+      window: { start: '2026-08-01', end: '2026-09-30' },
+      calendars: [{
+        calendarOwner: 'templeevents@emanuelnyc.org',
+        calendarId: null,
+        error: null,
+        counts: { appExpected: 5, outlookFound: 5, matched: 5 },
+        missingFromOutlook: [], untethered: [], shouldNotBeInOutlook: [], untracked: [],
+      }],
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /run check/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // Simulate the tab being hidden and shown again — TanStack's focus manager
+    // listens on visibilitychange.
+    fireEvent(window, new Event('visibilitychange'));
+    fireEvent(window, new Event('focus'));
+
+    // Results must survive; no second request may be issued.
+    await waitFor(() => {
+      expect(screen.getByText(/app and outlook agree/i)).toBeInTheDocument();
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('renders an error card for a calendar whose Graph call failed', async () => {
     respondWith({
       window: { start: '2026-08-01', end: '2026-09-30' },

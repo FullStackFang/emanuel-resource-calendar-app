@@ -164,7 +164,25 @@ export default function SyncHealthReport({ apiToken }) {
   const { data, isPending, isFetching, error } = useQuery({
     queryKey,
     enabled,
-    staleTime: 0,
+    // This report is expensive (a calendarView page per mailbox; ~10s in
+    // production) and is EXPLICITLY user-triggered, so it must never re-run
+    // itself in the background. Two settings enforce that:
+    //
+    //  - refetchOnWindowFocus: false — the app refreshes its API token on tab
+    //    visibility (useTokenRefresh), so focus events are frequent. Left on,
+    //    each one queued another full run; because the results pane gates on
+    //    isFetching, the spinner re-armed before results could render and never
+    //    cleared.
+    //  - staleTime inherited from the global default (5 min) rather than 0. A
+    //    zero staleTime marks the result stale the instant it lands, which is
+    //    what made every focus event eligible to refetch in the first place.
+    //
+    // Freshness on demand comes from runVersion instead: every Run Check click
+    // mints a new query key with no cached entry, so a click always refetches.
+    refetchOnWindowFocus: false,
+    // Same reasoning for the other global auto-refetch trigger: a network blip
+    // must not silently queue another 10s run behind the user's back.
+    refetchOnReconnect: false,
     queryFn: async () => {
       const params = new URLSearchParams({
         startDate: appliedRange.startDate,
