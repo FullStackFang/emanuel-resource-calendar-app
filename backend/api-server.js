@@ -53,6 +53,7 @@ const { extractDatePart } = require('./utils/dateUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
+const syncHealthService = require('./services/syncHealthService');
 let graphApiService = require('./services/graphApiService');
 const rschedImportService = require('./services/rschedImportService');
 const rschedRecurrenceDetection = require('./services/rschedRecurrenceDetection');
@@ -12228,6 +12229,48 @@ async function requireAdminUser(req, res) {
   }
   return { userId, userEmail };
 }
+
+/**
+ * GET /api/admin/reports/sync-health
+ *
+ * On-demand diff between what the app believes is published and what Outlook
+ * actually shows. Read-only; no remediation. All logic lives in
+ * services/syncHealthService.js so the diff is unit-testable in isolation.
+ *
+ * NOTE: `graphApiService` is read INSIDE the handler on purpose — tests swap it
+ * via setGraphApiService(), and capturing it at module load would pin the real
+ * client and bypass the mock.
+ */
+app.get('/api/admin/reports/sync-health', verifyToken, async (req, res) => {
+  try {
+    const user = await getCachedUser(req.user.userId);
+    const userEmail = req.user.email;
+    if (!isAdmin(user, userEmail) && !canApproveReservations(user, userEmail)) {
+      return res.status(403).json({ error: 'Admin or Approver access required' });
+    }
+
+    const reportWindow = syncHealthService.resolveWindow({
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+    });
+    const validationError = syncHealthService.validateWindow(reportWindow);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const report = await syncHealthService.runSyncHealthCheck({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      startDate: reportWindow.startDate,
+      endDate: reportWindow.endDate,
+    });
+
+    res.json(report);
+  } catch (err) {
+    logger.error('sync-health report error:', err);
+    res.status(500).json({ error: err.message || 'Failed to run sync health check' });
+  }
+});
 
 // On-disk CSV library lives under backend/csv-imports/. Files there are
 // available as a dropdown source so admins don't have to re-upload the same
