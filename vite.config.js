@@ -100,7 +100,12 @@ export default defineConfig({
   ].filter(Boolean),
   server: {
     port: 5173, // Standard Vite development port
-    
+    // Fail loudly if 5173 is taken instead of silently falling forward to 5174.
+    // The backend CORS allowlist (api-server.js) pins exact origins including
+    // localhost:5173 — any other port gets no Access-Control-Allow-Origin and
+    // every API call dies at preflight with a confusing CORS error.
+    strictPort: true,
+
     // Enable CORS globally
     cors: {
       origin: '*',
