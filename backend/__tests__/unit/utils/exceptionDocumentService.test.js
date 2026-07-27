@@ -25,6 +25,7 @@ const {
   softDeleteException,
   undeleteExceptionForRestore,
   enrichSeriesMastersWithOverrides,
+  materializeAdditionDocuments,
 } = require('../../../utils/exceptionDocumentService');
 
 let db;
@@ -868,5 +869,159 @@ describe('enrichSeriesMastersWithOverrides', () => {
     expect(logs[0].masterCount).toBe(1);
     expect(logs[0].overrideCount).toBe(2);
     expect(logs[0].perMaster).toEqual([{ masterEventId: master.eventId, count: 2 }]);
+  });
+});
+
+// ─── materializeAdditionDocuments ───────────────────────────────────────
+//
+// Bridges the two representations of an ad-hoc added date:
+//   1. master.recurrence.additions[] — bare 'YYYY-MM-DD' strings (what the UI writes)
+//   2. eventType:'addition' child documents (what Graph sync reads)
+//
+// Commit 98a84db moved Graph sync onto representation #2 without building the
+// bridge from #1, so added dates rendered in-app but were never created in
+// Outlook. These tests lock the bridge.
+
+describe('materializeAdditionDocuments', () => {
+  it('EDS-40: creates an addition document for each date in recurrence.additions', async () => {
+    master.recurrence.additions = ['2026-12-07', '2027-01-11'];
+
+    const result = await materializeAdditionDocuments(collection, master, {
+      createdBy: 'admin@example.com',
+    });
+
+    expect(result.created).toEqual(['2026-12-07', '2027-01-11']);
+    expect(result.existing).toEqual([]);
+
+    const docs = await getExceptionsForMaster(collection, master.eventId);
+    expect(docs).toHaveLength(2);
+    for (const doc of docs) {
+      expect(doc.eventType).toBe('addition');
+      expect(doc.seriesMasterEventId).toBe(master.eventId);
+    }
+  });
+
+  it('EDS-41: inherits master field values so the addition is a complete event', async () => {
+    master.recurrence.additions = ['2026-12-07'];
+
+    await materializeAdditionDocuments(collection, master, {});
+
+    const doc = await findExceptionForDate(collection, master.eventId, '2026-12-07');
+    expect(doc.eventTitle).toBe('Weekly Staff Meeting');
+    expect(doc.startTime).toBe('10:00');
+    expect(doc.endTime).toBe('11:00');
+    // Dates are pinned to the addition's own date, not the master's first occurrence
+    expect(doc.calendarData.startDateTime).toBe('2026-12-07T10:00:00');
+    expect(doc.calendarData.endDateTime).toBe('2026-12-07T11:00:00');
+  });
+
+  it('EDS-42: is idempotent — a second run creates nothing new', async () => {
+    master.recurrence.additions = ['2026-12-07', '2027-01-11'];
+
+    await materializeAdditionDocuments(collection, master, {});
+    const second = await materializeAdditionDocuments(collection, master, {});
+
+    expect(second.created).toEqual([]);
+    expect(second.existing).toEqual(['2026-12-07', '2027-01-11']);
+    expect(await getExceptionsForMaster(collection, master.eventId)).toHaveLength(2);
+  });
+
+  it('EDS-43: does not duplicate a date that already has an exception document', async () => {
+    // A date can be added AND customized. The customization already produced a
+    // child doc; materializing must adopt it rather than create a second one —
+    // two child docs for one date renders the event twice.
+    master.recurrence.additions = ['2026-12-07'];
+    await createExceptionDocument(collection, master, '2026-12-07', { startTime: '18:30' });
+
+    const result = await materializeAdditionDocuments(collection, master, {});
+
+    expect(result.created).toEqual([]);
+    expect(result.existing).toEqual(['2026-12-07']);
+    const docs = await getExceptionsForMaster(collection, master.eventId);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].overrides.startTime).toBe('18:30');
+  });
+
+  it('EDS-44: skips dates listed in exclusions', async () => {
+    master.recurrence.additions = ['2026-12-07', '2027-01-11'];
+    master.recurrence.exclusions = ['2027-01-11'];
+
+    const result = await materializeAdditionDocuments(collection, master, {});
+
+    expect(result.created).toEqual(['2026-12-07']);
+    expect(await getExceptionsForMaster(collection, master.eventId)).toHaveLength(1);
+  });
+
+  it('EDS-45: no-ops for a master with no additions', async () => {
+    master.recurrence.additions = [];
+    const result = await materializeAdditionDocuments(collection, master, {});
+    expect(result).toEqual({ created: [], existing: [] });
+    expect(await getExceptionsForMaster(collection, master.eventId)).toHaveLength(0);
+  });
+
+  it('EDS-46: no-ops for a non-seriesMaster document', async () => {
+    const notMaster = { ...master, eventType: 'singleInstance' };
+    notMaster.recurrence = { additions: ['2026-12-07'] };
+
+    const result = await materializeAdditionDocuments(collection, notMaster, {});
+
+    expect(result).toEqual({ created: [], existing: [] });
+    expect(await getExceptionsForMaster(collection, master.eventId)).toHaveLength(0);
+  });
+
+  it('EDS-47: reads additions from calendarData.recurrence when top-level is absent', async () => {
+    const legacyMaster = { ...master, recurrence: undefined };
+    legacyMaster.calendarData = {
+      ...master.calendarData,
+      recurrence: { ...master.recurrence, additions: ['2026-12-07'] },
+    };
+
+    const result = await materializeAdditionDocuments(collection, legacyMaster, {});
+
+    expect(result.created).toEqual(['2026-12-07']);
+  });
+
+  it('EDS-49: seeds a new addition from a matching occurrenceOverrides entry', async () => {
+    // The Recurrence tab can add a date AND customize it in the same save. The
+    // customization arrives on the master's occurrenceOverrides[]; the addition
+    // document must be born with it, or the Outlook event is created with the
+    // series defaults and the customization is silently lost.
+    master.recurrence.additions = ['2026-12-07'];
+    master.occurrenceOverrides = [
+      { occurrenceDate: '2026-12-07', eventTitle: 'Special Session', startTime: '18:30' },
+    ];
+
+    await materializeAdditionDocuments(collection, master, {});
+
+    const doc = await findExceptionForDate(collection, master.eventId, '2026-12-07');
+    expect(doc.eventTitle).toBe('Special Session');
+    expect(doc.startTime).toBe('18:30');
+    expect(doc.calendarData.startDateTime).toBe('2026-12-07T18:30:00');
+    // occurrenceDate is a locator, not an override field — it must not be stored
+    // as one, or DATE_IMMUTABLE checks on later edits compare against junk.
+    expect(doc.overrides.occurrenceDate).toBeUndefined();
+  });
+
+  it('EDS-50: ignores occurrenceOverrides entries for non-addition dates', async () => {
+    master.recurrence.additions = ['2026-12-07'];
+    master.occurrenceOverrides = [
+      { occurrenceDate: '2026-03-17', eventTitle: 'A pattern date, not an addition' },
+    ];
+
+    const result = await materializeAdditionDocuments(collection, master, {});
+
+    expect(result.created).toEqual(['2026-12-07']);
+    const doc = await findExceptionForDate(collection, master.eventId, '2026-12-07');
+    expect(doc.eventTitle).toBe('Weekly Staff Meeting');
+    expect(await findExceptionForDate(collection, master.eventId, '2026-03-17')).toBeNull();
+  });
+
+  it('EDS-48: created additions carry the master status so cascades treat them alike', async () => {
+    master.recurrence.additions = ['2026-12-07'];
+
+    await materializeAdditionDocuments(collection, master, {});
+
+    const doc = await findExceptionForDate(collection, master.eventId, '2026-12-07');
+    expect(doc.status).toBe(master.status);
   });
 });

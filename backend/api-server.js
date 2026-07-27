@@ -39,7 +39,7 @@ const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, materializeAdditionDocuments, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
 const { isEventOwner, isSameDepartment } = require('./utils/eventEditability');
 
@@ -2201,6 +2201,30 @@ function buildEffectiveEditData(event) {
 const { buildGraphRecurrence } = require('./utils/recurrenceGraphMapping');
 
 /**
+ * Build Graph `location` / `locations` fields from a locationDisplayNames value.
+ *
+ * That field has two shapes in templeEvents__Events: a '; '-joined string
+ * (written by the location-resolution helpers) and an array of names (written
+ * by other paths and inherited by exception/addition child documents). The
+ * per-occurrence Graph sync helpers below assumed the string shape and called
+ * `.split()` on it unconditionally, so an array threw
+ * "locDispName.split is not a function" — caught by their per-document
+ * try/catch and reduced to a log line, silently skipping the Graph write.
+ *
+ * @param {string|string[]} locationDisplayNames
+ * @returns {{location: Object, locations: Array<Object>}}
+ */
+function buildGraphLocationFields(locationDisplayNames) {
+  const names = Array.isArray(locationDisplayNames)
+    ? locationDisplayNames.filter(Boolean).map(String)
+    : String(locationDisplayNames || '').split('; ').filter(Boolean);
+  return {
+    location: { displayName: names.join('; '), locationType: 'default' },
+    locations: names.map(name => ({ displayName: name, locationType: 'default' })),
+  };
+}
+
+/**
  * Sync recurrence exclusions and additions to Graph API after creating a recurring series.
  * Exclusions: Cancel specific occurrence instances via deleteCalendarEvent.
  * Additions: Create standalone single-instance events via createCalendarEvent.
@@ -2306,10 +2330,7 @@ async function restoreGraphOccurrence(calendarOwner, calendarId, seriesGraphId, 
   }
   if (overrides.categories !== undefined) patch.categories = overrides.categories;
   if (overrides.locationDisplayNames !== undefined) {
-    const locDispName = overrides.locationDisplayNames || '';
-    patch.location = { displayName: locDispName, locationType: 'default' };
-    patch.locations = locDispName.split('; ').filter(Boolean)
-      .map(name => ({ displayName: name, locationType: 'default' }));
+    Object.assign(patch, buildGraphLocationFields(overrides.locationDisplayNames));
   }
 
   // Case 2: stored graphEventId — try direct PATCH
@@ -2393,10 +2414,7 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
           categories: doc.categories || eventData.categories,
         };
         if (doc.locationDisplayNames) {
-          const locDispName = doc.locationDisplayNames;
-          additionEvent.location = { displayName: locDispName, locationType: 'default' };
-          additionEvent.locations = locDispName.split('; ').filter(Boolean)
-            .map(name => ({ displayName: name, locationType: 'default' }));
+          Object.assign(additionEvent, buildGraphLocationFields(doc.locationDisplayNames));
         }
 
         if (doc.graphEventId) {
@@ -2429,10 +2447,7 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
         }
         if (overrides.categories !== undefined) patch.categories = overrides.categories;
         if (overrides.locationDisplayNames !== undefined) {
-          const locDispName = overrides.locationDisplayNames || '';
-          patch.location = { displayName: locDispName, locationType: 'default' };
-          patch.locations = locDispName.split('; ').filter(Boolean)
-            .map(name => ({ displayName: name, locationType: 'default' }));
+          Object.assign(patch, buildGraphLocationFields(overrides.locationDisplayNames));
         }
 
         if (Object.keys(patch).length === 0) continue;
@@ -21946,6 +21961,31 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         // Exception doc operations only apply to recurring series masters.
         // Non-recurring events have no children — skip to avoid wasted DB round trips.
         if (isRecurringPublish) {
+          // Materialize ad-hoc added dates into addition documents BEFORE the
+          // cascade and the Graph sync below. syncExceptionDocumentsToGraph is
+          // driven by child documents, so dates that live only as strings in
+          // recurrence.additions[] would otherwise be skipped silently and
+          // never reach Outlook. Runs before cascadeStatusUpdate so the new
+          // children are picked up by the same status cascade.
+          //
+          // `event` is the pre-publish snapshot, so its eventType is not yet
+          // 'seriesMaster' (that is set by the publishUpdate above) — pass the
+          // type explicitly or the helper no-ops on its guard.
+          try {
+            const materialized = await materializeAdditionDocuments(
+              unifiedEventsCollection,
+              { ...event, eventType: EVENT_TYPE.SERIES_MASTER },
+              { createdBy: userEmail, createdByEmail: userEmail }
+            );
+            if (materialized.created.length) {
+              logger.info('Publish: materialized addition documents', {
+                eventId: event.eventId, dates: materialized.created,
+              });
+            }
+          } catch (materializeErr) {
+            logger.warn('Failed to materialize addition documents on publish:', materializeErr.message);
+          }
+
           // Cascade status synchronously (data consistency: children must show
           // as 'published' immediately after the parent is published).
           await cascadeStatusUpdate(unifiedEventsCollection, event.eventId, 'published', {
@@ -21959,11 +21999,29 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
             reviewNotes: notes || '',
           });
 
-          // Sync exception documents to Graph — fire-and-forget.
-          // Non-fatal: graphEventId fallback discovery exists in the occurrence-edit path.
-          syncExceptionDocumentsToGraph(
-            selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
-          ).catch(err => logger.warn('Failed to sync exception documents to Graph on publish:', err.message));
+          // Sync exception/addition documents to Graph. Awaited, not
+          // fire-and-forget: the addition branch is the ONLY code that creates
+          // the standalone Outlook event for an ad-hoc date, and its result
+          // (graphEventId) must be persisted before we respond. Detaching it
+          // meant publish reported success while Outlook had not been touched,
+          // and any failure surfaced only as a log line.
+          //
+          // Still non-fatal — a Graph failure here must not roll back a
+          // successful publish — but failures are now reported, and partial
+          // results are recoverable because the sync is idempotent.
+          try {
+            const exDocSync = await syncExceptionDocumentsToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, event.eventId, graphEventData
+            );
+            if (exDocSync.failed.length) {
+              logger.warn('Publish: some exception/addition documents did not sync to Graph', {
+                eventId: event.eventId, failed: exDocSync.failed,
+              });
+            }
+            calendarEventResult.exceptionDocSyncResults = exDocSync;
+          } catch (err) {
+            logger.warn('Failed to sync exception documents to Graph on publish:', err.message);
+          }
         }
         // Mark cascade phase complete (no-op for non-recurring events).
         cascadeCompleted = true;
@@ -25897,6 +25955,57 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       mongoId: id,
       updatedBy: userEmail
     });
+
+    // Ad-hoc dates added to an already-published series must reach Outlook.
+    //
+    // recurrence.additions[] holds bare date strings; the Graph sync is driven
+    // by addition child documents. Publish materializes them, but dates are
+    // usually added AFTER publish — and that path had no bridge, so the dates
+    // rendered in the app while Outlook never heard about them.
+    //
+    // Runs after the write so a rejected save (OCC conflict) materializes
+    // nothing, and reads updatedEventDoc so the new dates and field values are
+    // the ones inherited. Non-fatal: a Graph failure must not fail the save,
+    // and both halves are idempotent, so the next save completes the work.
+    if (updatedEventDoc?.eventType === EVENT_TYPE.SERIES_MASTER) {
+      try {
+        const materialized = await materializeAdditionDocuments(
+          unifiedEventsCollection, updatedEventDoc,
+          { createdBy: userEmail, createdByEmail: userEmail }
+        );
+
+        // Only sync documents that have no Graph event yet. Passing them as
+        // preloadedDocs keeps this from re-PATCHing every existing child, which
+        // the cascade block above has already handled.
+        if (updatedEventDoc.graphData?.id && updatedEventDoc.calendarOwner) {
+          const children = await getExceptionsForMaster(unifiedEventsCollection, updatedEventDoc.eventId);
+          const unsynced = children.filter(doc => !doc.graphEventId);
+          if (unsynced.length > 0) {
+            const graphTz = updatedEventDoc.graphData?.start?.timeZone || 'America/New_York';
+            const syncResults = await syncExceptionDocumentsToGraph(
+              updatedEventDoc.calendarOwner, updatedEventDoc.calendarId,
+              updatedEventDoc.graphData.id, updatedEventDoc.eventId,
+              { subject: updatedEventDoc.eventTitle, start: { timeZone: graphTz } },
+              { preloadedDocs: unsynced }
+            );
+            logger.info('Admin save: synced previously-unsynced occurrence documents to Graph', {
+              eventId: updatedEventDoc.eventId,
+              materialized: materialized.created,
+              synced: syncResults.synced.map(s => s.date),
+              failed: syncResults.failed,
+            });
+          }
+        } else if (materialized.created.length > 0) {
+          logger.warn('Admin save: materialized addition documents but cannot sync to Graph', {
+            eventId: updatedEventDoc.eventId,
+            dates: materialized.created,
+            reason: !updatedEventDoc.graphData?.id ? 'no graphData.id' : 'no calendarOwner',
+          });
+        }
+      } catch (additionSyncErr) {
+        logger.warn('Non-fatal: failed to sync added dates to Graph on admin save:', additionSyncErr.message);
+      }
+    }
 
     // Send event updated notification for published events with key field changes (non-blocking)
     if (publishedEventChanges && publishedEventChanges.length > 0) {

@@ -280,6 +280,87 @@ async function createAdditionDocument(collection, masterEvent, occurrenceDate, f
 }
 
 /**
+ * Ensure every ad-hoc date in `master.recurrence.additions[]` has a child document.
+ *
+ * Added dates exist in two representations: bare `YYYY-MM-DD` strings on the
+ * master (written by the Recurrence tab, and what the calendar renders from)
+ * and `addition` child documents (what Graph sync reads). This is the bridge
+ * between them.
+ *
+ * It matters because a Graph event needs somewhere to record its
+ * `graphEventId`. A bare date string has no such home, so without a child
+ * document every save would re-create the Outlook event instead of updating
+ * it. Materializing first is what makes {@link module:api-server~syncExceptionDocumentsToGraph}
+ * able to create — and later maintain — a standalone Outlook event per date.
+ *
+ * Idempotent: dates that already have an `exception` OR `addition` document are
+ * left alone. Adopting an existing exception matters — a date can be both added
+ * and customized, and a second child document for the same date renders the
+ * event twice.
+ *
+ * Errors are NOT swallowed; callers wrap this in their own try/catch. Because
+ * the operation is idempotent, a partial run is completed by the next save.
+ *
+ * @param {Collection} collection - The templeEvents__Events collection
+ * @param {Object} master - The series master document
+ * @param {Object} [options] - Passed through to createAdditionDocument
+ *        ({ createdBy, createdByEmail })
+ * @returns {Promise<{created: string[], existing: string[]}>} Dates by outcome
+ */
+async function materializeAdditionDocuments(collection, master, options = {}) {
+  const created = [];
+  const existing = [];
+
+  if (!master || master.eventType !== EVENT_TYPE.SERIES_MASTER) {
+    return { created, existing };
+  }
+
+  const recurrence = master.recurrence || master.calendarData?.recurrence;
+  const additions = Array.isArray(recurrence?.additions) ? recurrence.additions : [];
+  if (additions.length === 0) return { created, existing };
+
+  const exclusions = new Set(
+    Array.isArray(recurrence.exclusions) ? recurrence.exclusions : []
+  );
+
+  // A date can be added and customized in the same save: the customization
+  // arrives on the master's occurrenceOverrides[]. Seed the new document with
+  // it so the Outlook event is created customized, rather than with series
+  // defaults that a later reconcile would have to correct.
+  const incomingOverrides = Array.isArray(master.occurrenceOverrides)
+    ? master.occurrenceOverrides
+    : (Array.isArray(master.calendarData?.occurrenceOverrides)
+      ? master.calendarData.occurrenceOverrides
+      : []);
+  const overridesByDate = new Map();
+  for (const entry of incomingOverrides) {
+    if (entry && entry.occurrenceDate) overridesByDate.set(entry.occurrenceDate, entry);
+  }
+
+  const seen = new Set();
+
+  for (const occurrenceDate of additions) {
+    if (!occurrenceDate || seen.has(occurrenceDate) || exclusions.has(occurrenceDate)) continue;
+    seen.add(occurrenceDate);
+
+    if (await findExceptionForDate(collection, master.eventId, occurrenceDate)) {
+      existing.push(occurrenceDate);
+      continue;
+    }
+
+    // With no matching override the addition inherits every field from the
+    // master. `occurrenceDate` is a locator, not an override field — storing it
+    // as one would trip the DATE_IMMUTABLE guard on later edits.
+    const { occurrenceDate: _locator, ...seedOverrides } = overridesByDate.get(occurrenceDate) || {};
+
+    await createAdditionDocument(collection, master, occurrenceDate, seedOverrides, options);
+    created.push(occurrenceDate);
+  }
+
+  return { created, existing };
+}
+
+/**
  * Update an existing exception document with new override fields.
  *
  * Merges new overrides into the existing overrides object and recomputes
@@ -897,4 +978,5 @@ module.exports = {
   resolveSeriesMaster,
   enrichSeriesMastersWithOverrides,
   reconcileOccurrenceOverrides,
+  materializeAdditionDocuments,
 };

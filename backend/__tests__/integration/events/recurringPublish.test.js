@@ -368,11 +368,18 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(additionCall.eventData.start.dateTime).toMatch(new RegExp(`^${additionDate}T`));
       expect(additionCall.eventData.recurrence).toBeUndefined();
 
-      // Verify exceptionEventIds stored in MongoDB
-      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(updated.exceptionEventIds).toEqual(
-        expect.arrayContaining([expect.objectContaining({ date: additionDate })])
-      );
+      // The Graph id must be recorded so later edits update this event rather
+      // than creating a duplicate. Under the Exception-as-Document architecture
+      // it lives on the addition child document's graphEventId — the master's
+      // legacy exceptionEventIds[] array is no longer written.
+      const additionDoc = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: saved.eventId,
+        eventType: 'addition',
+        occurrenceDate: additionDate,
+      });
+      expect(additionDoc).not.toBeNull();
+      expect(typeof additionDoc.graphEventId).toBe('string');
+      expect(additionDoc.graphEventId.length).toBeGreaterThan(0);
     });
   });
 
@@ -900,8 +907,13 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const additionCall = createCalls[1];
       // Should use series master defaults (categories from event, not overridden)
       expect(additionCall.eventData.subject).toBe('Series No Override Addition');
-      // No override location applied
-      expect(additionCall.eventData.locations).toBeUndefined();
+      // Inherits the master's room. (Previously this asserted `undefined`, which
+      // described the old implementation — additions only carried a room when an
+      // override supplied one. The addition document now inherits the master's
+      // fields, so the room is populated from the series rather than left blank.)
+      expect(additionCall.eventData.locations).toEqual([
+        { displayName: 'Room A', locationType: 'default' },
+      ]);
     });
   });
 
@@ -1083,6 +1095,107 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const masterCall = updateCalls[0];
       expect(masterCall.eventData.startDateTime).toBe('2026-03-18T13:00:00');
       expect(masterCall.eventData.endDateTime).toBe('2026-03-18T14:00:00');
+    });
+  });
+
+  describe('RP-32: Dates added to an already-published series reach Outlook', () => {
+    // Production regression ("YMC Committee Meeting", 2026-07): a published
+    // series had five dates added via the Recurrence tab. They rendered in the
+    // app but were never created in Outlook, because the only code that creates
+    // a standalone Graph event for an added date is driven by addition child
+    // documents — and nothing materialized one for a bare recurrence.additions[]
+    // string on a save. Publish-time additions were covered; post-publish ones
+    // were not, which is the common case (you publish, then add dates later).
+    it('creates a Graph event for a date added after publish', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'YMC Committee Meeting',
+        graphData: { id: 'graph-master-rp32', subject: 'YMC Committee Meeting' },
+        owner: adminUser,
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-03-10' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      graphApiMock.clearCallHistory();
+
+      // The Recurrence tab adds a date: it sends the full recurrence with the
+      // new date appended to additions[].
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'YMC Committee Meeting',
+          recurrence: {
+            pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+            range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-03-10' },
+            additions: ['2026-12-07'],
+            exclusions: [],
+          },
+          _version: saved._version,
+        })
+        .expect(200);
+
+      // An addition document now exists for the date...
+      const additionDoc = await db.collection(COLLECTIONS.EVENTS).findOne({
+        seriesMasterEventId: saved.eventId,
+        eventType: 'addition',
+        occurrenceDate: '2026-12-07',
+      });
+      expect(additionDoc).not.toBeNull();
+
+      // ...and a standalone Outlook event was created for it, on its own date.
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(createCalls.length).toBe(1);
+      expect(createCalls[0].eventData.start.dateTime).toMatch(/^2026-12-07T/);
+      expect(createCalls[0].eventData.recurrence).toBeUndefined();
+
+      // The Graph id is persisted, so a later edit updates this event instead
+      // of creating a duplicate.
+      expect(typeof additionDoc.graphEventId).toBe('string');
+      expect(additionDoc.graphEventId.length).toBeGreaterThan(0);
+    });
+
+    it('does not create a second Graph event when the same date is saved again', async () => {
+      const recurrenceWithAddition = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-03-10' },
+        additions: ['2026-12-07'],
+        exclusions: [],
+      };
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Idempotent Series',
+        graphData: { id: 'graph-master-rp32b', subject: 'Idempotent Series' },
+        owner: adminUser,
+        recurrence: recurrenceWithAddition,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      graphApiMock.clearCallHistory();
+
+      // First save materializes + creates the Graph event
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ eventTitle: 'Idempotent Series', recurrence: recurrenceWithAddition, _version: saved._version })
+        .expect(200);
+
+      const afterFirst = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(graphApiMock.getCallHistory('createCalendarEvent').length).toBe(1);
+
+      // Second save with the same recurrence must not create another one
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ eventTitle: 'Idempotent Series Renamed', recurrence: recurrenceWithAddition, _version: afterFirst._version })
+        .expect(200);
+
+      expect(graphApiMock.getCallHistory('createCalendarEvent').length).toBe(1);
     });
   });
 
