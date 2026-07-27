@@ -2199,6 +2199,20 @@ function buildEffectiveEditData(event) {
 // buildGraphRecurrence extracted to backend/utils/recurrenceGraphMapping.js
 // so the rsched-import publish path can share the same implementation.
 const { buildGraphRecurrence } = require('./utils/recurrenceGraphMapping');
+const { findGraphOccurrenceForDate: findGraphOccurrenceForDateShared } = require('./utils/graphOccurrenceLookup');
+
+/**
+ * Locate a series' Graph occurrence instance for a date.
+ *
+ * Thin wrapper over the shared util that injects this module's graphApiService
+ * (which tests replace via setGraphApiService). See
+ * utils/graphOccurrenceLookup.js for why this needs care.
+ */
+async function findGraphOccurrenceForDate(calendarOwner, calendarId, seriesGraphId, occurrenceDate, timeZone) {
+  return findGraphOccurrenceForDateShared(
+    graphApiService, calendarOwner, calendarId, seriesGraphId, occurrenceDate, timeZone
+  );
+}
 
 /**
  * Build Graph `location` / `locations` fields from a locationDisplayNames value.
@@ -2348,13 +2362,9 @@ async function restoreGraphOccurrence(calendarOwner, calendarId, seriesGraphId, 
 
   // Case 3: discover instance and PATCH
   try {
-    const dayStart = `${occurrenceDate}T00:00:00`;
-    const dayEnd = `${occurrenceDate}T23:59:59`;
-    const instances = await graphApiService.getRecurringEventInstances(
-      calendarOwner, calendarId, seriesGraphId, dayStart, dayEnd
+    const match = await findGraphOccurrenceForDate(
+      calendarOwner, calendarId, seriesGraphId, occurrenceDate, graphTimezone
     );
-    const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
-    const match = instanceList.find(inst => inst.start?.dateTime?.startsWith(occurrenceDate));
     if (!match) {
       logger.warn('[restoreGraphOccurrence] no Graph instance found for restored date (cancellation likely sticky; defer to Plan 3)', {
         seriesGraphId, occurrenceDate,
@@ -2457,14 +2467,8 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
           results.synced.push({ date: doc.occurrenceDate, graphId: doc.graphEventId });
         } else {
           // Discover Graph instance ID
-          const dayStart = `${doc.occurrenceDate}T00:00:00`;
-          const dayEnd = `${doc.occurrenceDate}T23:59:59`;
-          const instances = await graphApiService.getRecurringEventInstances(
-            calendarOwner, calendarId, seriesMasterGraphId, dayStart, dayEnd
-          );
-          const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
-          const match = instanceList.find(inst =>
-            inst.start?.dateTime?.startsWith(doc.occurrenceDate)
+          const match = await findGraphOccurrenceForDate(
+            calendarOwner, calendarId, seriesMasterGraphId, doc.occurrenceDate, graphTimezone
           );
           if (match) {
             await graphApiService.updateCalendarEvent(calendarOwner, calendarId, match.id, patch);
@@ -24767,15 +24771,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, exGraphId, graphUpdate);
               graphSynced = true;
             } else {
-              const occDate = new Date(updates.occurrenceDate);
-              const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
-              const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
-              const instances = await graphApiService.getRecurringEventInstances(
-                event.calendarOwner, event.calendarId, seriesMasterId || storedGraphEventId,
-                dayStart.toISOString(), dayEnd.toISOString()
-              );
-              const match = (instances || []).find(occ =>
-                new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
+              const match = await findGraphOccurrenceForDate(
+                event.calendarOwner, event.calendarId,
+                seriesMasterId || storedGraphEventId, dateKey, graphTimezone
               );
               if (match) {
                 await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, match.id, graphUpdate);
@@ -25160,24 +25158,30 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       try {
 
         if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
-          // Find the specific occurrence for single-instance edits
+          // Find the specific occurrence for single-instance edits.
+          //
+          // NOTE: when no instance is found, targetEventId stays as the SERIES
+          // MASTER's id, so the PATCH below would apply the edit to the whole
+          // series. That made the (previously always-failing) lookup actively
+          // dangerous, not merely ineffective.
           try {
-            const occDate = new Date(occurrenceDate);
-            const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
-            const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
-            const instances = await graphApiService.getRecurringEventInstances(
+            const match = await findGraphOccurrenceForDate(
               event.calendarOwner, event.calendarId, seriesMasterId,
-              dayStart.toISOString(), dayEnd.toISOString()
-            );
-            const match = (instances || []).find(occ =>
-              new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
+              String(occurrenceDate).split('T')[0],
+              event.graphData?.start?.timeZone
             );
             if (match) {
               targetEventId = match.id;
               logger.debug('Found occurrence ID', { targetEventId });
+            } else {
+              logger.warn('No Graph occurrence found for date; skipping Graph sync rather than patching the whole series', {
+                eventId: event.eventId, occurrenceDate,
+              });
+              targetEventId = null;
             }
           } catch (e) {
-            logger.error('Failed to find occurrence, using stored Graph ID:', e.message);
+            logger.error('Failed to find occurrence; skipping Graph sync rather than patching the whole series:', e.message);
+            targetEventId = null;
           }
         } else if (editScope === 'allEvents' && seriesMasterId) {
           targetEventId = seriesMasterId;
@@ -25378,19 +25382,27 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           fullPayload: JSON.stringify(graphUpdate, null, 2)
         });
 
-        // Update via graphApiService (app-only auth)
-        graphSyncResult = await graphApiService.updateCalendarEvent(
-          event.calendarOwner,
-          event.calendarId,
-          targetEventId,
-          graphUpdate
-        );
+        // targetEventId is null when a single-occurrence edit could not resolve
+        // its Graph instance. Skipping is the safe outcome: the alternative is
+        // PATCHing the series master, which would apply a one-day edit to every
+        // occurrence in Outlook.
+        if (!targetEventId) {
+          logger.warn('Skipping Graph update: no target event id resolved', { eventId: event.eventId });
+        } else {
+          // Update via graphApiService (app-only auth)
+          graphSyncResult = await graphApiService.updateCalendarEvent(
+            event.calendarOwner,
+            event.calendarId,
+            targetEventId,
+            graphUpdate
+          );
 
-        logger.info('Graph API update successful via graphApiService:', {
-          returnedId: graphSyncResult.id,
-          returnedLocation: graphSyncResult.location,
-          returnedSubject: graphSyncResult.subject
-        });
+          logger.info('Graph API update successful via graphApiService:', {
+            returnedId: graphSyncResult.id,
+            returnedLocation: graphSyncResult.location,
+            returnedSubject: graphSyncResult.subject
+          });
+        }
 
         // CASCADE: When editing a series master (allEvents or no scope), also update
         // addition events and occurrence overrides in Graph so changes propagate fully.

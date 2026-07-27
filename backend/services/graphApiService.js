@@ -318,14 +318,20 @@ async function batchRequest(requests) {
 
 /**
  * Get instances of a recurring event
+ *
  * @param {string} userId - User ID or email
  * @param {string} calendarId - Calendar ID
  * @param {string} seriesMasterId - Series master event ID
  * @param {string} startDateTime - ISO date string
  * @param {string} endDateTime - ISO date string
+ * @param {string} [timeZone] - Timezone to return instance times in (Windows
+ *        name, e.g. 'Eastern Standard Time', or IANA). Without it Graph
+ *        answers in UTC, so an evening event lands on the FOLLOWING calendar
+ *        date — callers matching an instance to a YYYY-MM-DD occurrence date
+ *        must pass this or they will miss it.
  * @returns {Promise<Array>} Array of event instances
  */
-async function getRecurringEventInstances(userId, calendarId, seriesMasterId, startDateTime, endDateTime) {
+async function getRecurringEventInstances(userId, calendarId, seriesMasterId, startDateTime, endDateTime, timeZone) {
   const basePath = `/users/${encodeURIComponent(userId)}`;
   const endpoint = calendarId
     ? `${basePath}/calendars/${calendarId}/events/${seriesMasterId}/instances`
@@ -336,7 +342,11 @@ async function getRecurringEventInstances(userId, calendarId, seriesMasterId, st
     endDateTime
   });
 
-  const data = await graphRequest(`${endpoint}?${params}`);
+  const options = timeZone
+    ? { headers: { Prefer: `outlook.timezone="${timeZone}"` } }
+    : {};
+
+  const data = await graphRequest(`${endpoint}?${params}`, options);
   return data.value || [];
 }
 
