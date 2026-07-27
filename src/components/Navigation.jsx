@@ -44,7 +44,7 @@ export default function Navigation() {
           setApprovalCount((data.pending || 0) + (data.published_edit || 0));
         }
       }
-    } catch (err) {
+    } catch {
       // Silently fail - badges just won't show
     }
   }, [authFetch, canSubmitReservation, canApproveReservations]);
@@ -185,6 +185,16 @@ export default function Navigation() {
           </li>
         )}
 
+        {/* Sync Health - top-level for approvers who are not admins. Admins
+            reach it in the Admin dropdown below, same as Holidays & Closures. */}
+        {canApproveReservations && !isAdmin && (
+          <li>
+            <NavLink to="/admin/sync-health" className={({ isActive }) => isActive ? 'active' : ''}>
+              Sync Health
+            </NavLink>
+          </li>
+        )}
+
         {/* Admin dropdown - Admins only. Holds all admin tools, including the
             (constrained) User Management entry. */}
         {isAdmin && (
@@ -243,6 +253,15 @@ export default function Navigation() {
                     onClick={handleDropdownLinkClick}
                   >
                     Holidays &amp; Closures
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/sync-health"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Sync Health
                   </NavLink>
                 </li>
                 <li>
