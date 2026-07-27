@@ -238,11 +238,42 @@ describe('SyncHealthReport', () => {
     expect(reportCalls()).toHaveLength(1);
   });
 
+  // Frontend and backend deploy separately in this project, so a UI that sends
+  // calendarOwner can be talking to an API that ignores it. The displayed
+  // report must honour the picker regardless of what the API returns.
+  it('shows only the selected calendar even if the API returns extra ones', async () => {
+    const calendarFor = (owner) => ({
+      calendarOwner: owner, calendarId: null, error: null,
+      counts: { appExpected: 5, outlookFound: 5, matched: 5 },
+      missingFromOutlook: [], untethered: [], shouldNotBeInOutlook: [], untracked: [],
+    });
+
+    respondWith({
+      window: { start: '2026-08-01', end: '2026-09-30' },
+      calendars: [
+        calendarFor('templeevents@emanuelnyc.org'),
+        calendarFor('templeeventssandbox@emanuelnyc.org'),
+      ],
+    });
+    renderPage();
+
+    const runBtn = screen.getByRole('button', { name: /run check/i });
+    await waitFor(() => expect(runBtn).toBeEnabled());
+    fireEvent.click(runBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('templeevents@emanuelnyc.org')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('templeeventssandbox@emanuelnyc.org')).not.toBeInTheDocument();
+  });
+
   it('renders an error card for a calendar whose Graph call failed', async () => {
     respondWith({
       window: { start: '2026-08-01', end: '2026-09-30' },
       calendars: [{
-        calendarOwner: 'broken@emanuelnyc.org',
+        // The SELECTED calendar is the one that failed, which is the case a
+        // user actually hits now that the report is scoped to one mailbox.
+        calendarOwner: 'TempleEvents@emanuelnyc.org',
         calendarId: null,
         error: 'Graph is down',
         counts: { appExpected: 4, outlookFound: 0, matched: 0 },
@@ -260,6 +291,8 @@ describe('SyncHealthReport', () => {
     await waitFor(() => {
       expect(screen.getByText(/graph is down/i)).toBeInTheDocument();
     });
-    expect(screen.getByText('broken@emanuelnyc.org')).toBeInTheDocument();
+    // Scope to the heading: the picker option carries the same text.
+    expect(screen.getByRole('heading', { name: 'TempleEvents@emanuelnyc.org' }))
+      .toBeInTheDocument();
   });
 });

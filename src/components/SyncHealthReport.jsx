@@ -346,6 +346,24 @@ export default function SyncHealthReport({ apiToken }) {
     { enabled }
   );
 
+  // Honour the picker on the client too, not only via the query parameter.
+  // The frontend and backend of this app deploy separately, so a UI that sends
+  // calendarOwner can be talking to an API old enough to ignore it; without
+  // this, the user picks one mailbox and the page shows every mailbox. The
+  // server-side filter is still the one that matters for cost, since it is what
+  // avoids the extra calendarView fetch.
+  const visibleCalendars = useMemo(() => {
+    const all = data?.calendars || [];
+    const selected = appliedRange?.calendarOwner;
+    if (!selected) return all;
+    const wanted = selected.toLowerCase();
+    const scoped = all.filter(c => String(c.calendarOwner || '').toLowerCase() === wanted);
+    // If the requested mailbox simply has nothing in the window, the API
+    // returns no entry for it. Falling back to `all` there would resurrect the
+    // other calendars, so an empty result stays empty.
+    return scoped;
+  }, [data, appliedRange]);
+
   useEffect(() => {
     if (error) {
       logger.error('Sync health check failed:', error);
@@ -419,10 +437,12 @@ export default function SyncHealthReport({ apiToken }) {
           <p className="sync-health-idle">
             Choose a date range and click Run Check to compare the app against Outlook.
           </p>
-        ) : data.calendars.length === 0 ? (
-          <p className="sync-health-idle">No managed calendars have events in this window.</p>
+        ) : visibleCalendars.length === 0 ? (
+          <p className="sync-health-idle">
+            This calendar has no events in the selected window.
+          </p>
         ) : (
-          data.calendars.map((calendar) => (
+          visibleCalendars.map((calendar) => (
             <CalendarReport
               key={`${calendar.calendarOwner}|${calendar.calendarId || ''}`}
               calendar={calendar}
