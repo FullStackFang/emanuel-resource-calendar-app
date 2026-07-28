@@ -1,7 +1,10 @@
+/* No longer the tab root — it is now a flex child of .mobile-calendar-tab,
+   below the week strip and the view switcher. */
 .mobile-agenda {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .mobile-agenda-list {

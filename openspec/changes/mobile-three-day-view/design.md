@@ -53,11 +53,11 @@ Week strip taps, chevrons, date picker, and Today all just move `selectedDate`; 
 
 ### 4. Grid rendering rules
 
-- 44px hour gutter; hour labels 10px `--text-tertiary` medium, right-aligned, centred on their hour line. Day columns `flex: 1`, `--border-subtle` left borders, hairline per hour.
+- 28px hour gutter; compact hour labels (`7a`, `12p`, `12a`) 10px `--text-tertiary` medium, right-aligned, centred on their hour line. Day columns `flex: 1`, `--border-subtle` left borders, hairline per hour. (Was 44px, sized to fit "10:00 AM" — see Decision 7.)
 - Sticky day-header row: 10px uppercase day letter + 28px number circle (today = `--color-primary-600` fill + inverse text). Today's column tinted `--color-primary-50`.
 - Current-time indicator on today only: 1px `--color-error-500` line, 7px dot at the left edge, updated on a 1-minute interval.
 - 8px top inset so the first hour label is not clipped. Scrollbars hidden (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`) so columns stay aligned with the sticky header.
-- Event blocks: absolutely positioned by local start/end minutes (derived from UTC `startDateTime`/`endDateTime` via `Date`, consistent with `appTimeUtils` usage). 1px outline in category color over `color + '21'` fill, `--radius-sm`; 9px semibold time (`--text-secondary`), 10px medium title (`--text-primary`), ellipsis. Pending at 0.9 opacity (drafts never reach mobile — pipeline filters them, so the mockup's 0.8 draft rule is moot). Minimum block height 20px for tappability. Tap opens the shared detail sheet.
+- Event blocks: absolutely positioned by local start/end minutes. These are parsed out of the `startDateTime` **string** via `appTimeUtils.parseTimeFromString`, never `new Date()` — stored datetimes are naive local-time strings, so constructing a `Date` reinterprets them in the browser's timezone and slides every block by the offset. This is the same parse `MobileEventCard` uses, which is what keeps a block's position and its time from disagreeing. Styling and text content are Decision 7. Pending at 0.9 opacity (drafts never reach mobile — pipeline filters them, so the mockup's 0.8 draft rule is moot). Minimum block height 20px for tappability. Tap opens the shared detail sheet.
 - Overlapping events split their column width side-by-side within the overlap cluster (desktop day-view idiom).
 - All-day events (mockup is silent; they exist in real data): a thin chip row pinned under the sticky day headers, same outline-over-wash idiom, tappable.
 
@@ -70,11 +70,50 @@ New `src/utils/categoryColors.js` exports the Outlook `preset0-24` -> hex map (e
 - Switcher: `--bg-tertiary` track, active pill `--bg-primary` + `--color-primary-600` + `--shadow-xs`, `--text-xs` medium labels, `white-space: nowrap`, right-aligned on its own row beneath the week strip (never beside the month label — that caret opens `MobileDatePicker`). Targets >= 44px; press state `--bg-tertiary`; no hover states; no emoji; no colors outside tokens except the Outlook category hexes.
 - Empty grid space does nothing in v1. Pull-to-refresh stays agenda-only (the gesture fights vertical panning in a grid).
 
+### 7. Block density: colour rail + height-adaptive text (revised 2026-07-28)
+
+The first implementation printed a 9px start time above a 10px title inside every block. At phone
+width that fails on the most common block in real data: a 30-minute event is 26px tall, which is
+22px of content after border and padding, and time (~11px) + title (~12px) does not fit. The line
+that survived was the time — so half-hour events told you *when* and not *what*, while the grid's
+Y axis was already saying when. Reviewed against rendered mockups at 370px; user chose the
+combined option.
+
+- **No time text on blocks.** The Y position is the time. The start time moves into the block's
+  `aria-label` only, where it becomes load-bearing rather than decorative: with the visual time
+  gone, that label is the sole source of the time for assistive technology.
+- **Colour rail instead of outline.** `border-left: 3px solid <category>`, no other border, wash
+  down from `color + '21'` (13%) to `color + '14'` (8%). The rail carries identification, so the
+  fill no longer has to, and the lighter wash stops adjacent blocks muddying together. Title goes
+  semibold to hold against the lighter background.
+- **Three density tiers by rendered height** — `short` <34px: one clamped line of title at 9.5px;
+  `med` 34-49px: two clamped lines at 10px; `tall` >=50px: two lines plus the location at 9px.
+  Tier is computed in `layoutDayEvents` beside `top`/`height`, so it is a pure function of geometry
+  and unit-testable; the component only maps tier to a class.
+- **`-webkit-line-clamp`, not bare `overflow: hidden`.** Both truncate, but clamp ends on an
+  ellipsis at a line boundary. Raw overflow slices a glyph in half and reads as a rendering bug —
+  this was the visible failure of the "just fit as much as possible" alternative.
+- **Gutter 44px -> 28px** with compact labels (`7a`, `12p`). 44px existed only to fit the string
+  "10:00 AM" — 13% of the phone's width spent on labels read once. The 16px returns ~5px to every
+  column, roughly one extra character per line on every block simultaneously. The `all-day` text
+  label in the gutter spacer is dropped: it cannot render legibly at 28px, and a chip row pinned
+  under the day headers does not need naming.
+- All-day chips take the same rail treatment so the two rows read as one system.
+
+Rejected: shrinking the type alone (buys characters, not lines — the 30-minute block still cannot
+fit two lines); raising the hour height above 52px (helps short blocks but lengthens the scroll for
+everyone); dropping to a 2-day window (the 3-day window was an explicit user decision).
+
+Unchanged by this revision: 52px hour height, 20px minimum block height, the overlap cluster
+algorithm, the current-time indicator, and the entire agenda view.
+
 ## Risks / Trade-offs
 
 - [Restructure regresses agenda behavior] -> hook extraction is verbatim (no logic edits); dedicated behavior-parity tests; existing mobile suites (64 passing baseline) must stay green.
 - [Timezone drift between block position and day grouping] -> both derive from the same flat-structure fields already used by the agenda (`startDate` for grouping, `startDateTime` for position); grid tests pin known UTC fixtures to expected pixel offsets.
 - [Overlap algorithm complexity balloons] -> cluster-split only (equal widths within a cluster); no Outlook-style cascading offsets in v1.
+- [Removing the visible time regresses accessibility] -> the start time stays in each block's `aria-label`, and a scenario asserts it; the aria-label is now the only source of the time, so it must not be weakened later.
+- [Colour rail is the sole category signal on short blocks] -> the wash keeps a second, weaker cue, and every block still opens the detail sheet on tap; unknown categories resolve to gray rather than vanishing.
 - [Categories query returns empty (Graph down)] -> resolver falls back to `#cccccc`; the grid remains fully functional, just uncolored.
 - [Uncommitted mobile-requests-tab baseline shifts underneath] -> this change touches `MobileApp.jsx` only at the `'calendar'` case and does not touch `MobileRequests`/`MobileEventDetail`; rebase surface is one line.
 

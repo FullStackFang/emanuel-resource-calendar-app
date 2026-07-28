@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { usePermissions } from '../../hooks/usePermissions';
 import MobileHeader from './MobileHeader';
 import MobileBottomTabs from './MobileBottomTabs';
-import MobileAgenda from './MobileAgenda';
+import MobileCalendarTab from './MobileCalendarTab';
 import MobileRequests from './MobileRequests';
 import './MobileApp.css';
 
@@ -13,7 +13,7 @@ function MobileApp() {
   const renderActiveView = () => {
     switch (activeTab) {
       case 'calendar':
-        return <MobileAgenda />;
+        return <MobileCalendarTab />;
       case 'my-events':
         return <MobileRequests />;
       default:

@@ -32,7 +32,7 @@ The 3-day grid SHALL display three consecutive day columns with the selected dat
 - **THEN** the leftmost column SHALL be today
 
 ### Requirement: Time grid layout
-The 3-day grid SHALL render a 24-hour vertical time grid at 52px per hour with a 44px hour-label gutter, day columns of equal width separated by subtle borders, a hairline at each hour, and hidden scrollbars. The scroll area SHALL have an 8px top inset and SHALL open scrolled to 9 AM. A sticky day-header row (day letter plus number circle, today's number circle filled with the primary color) SHALL remain visible while the grid scrolls; today's column SHALL be tinted with the primary-50 token.
+The 3-day grid SHALL render a 24-hour vertical time grid at 52px per hour with a 28px hour-label gutter using compact hour labels (`7a`, `12p`, `12a`), day columns of equal width separated by subtle borders, a hairline at each hour, and hidden scrollbars. The scroll area SHALL have an 8px top inset and SHALL open scrolled to 9 AM. A sticky day-header row (day letter plus number circle, today's number circle filled with the primary color) SHALL remain visible while the grid scrolls; today's column SHALL be tinted with the primary-50 token.
 
 #### Scenario: Initial scroll position
 - **WHEN** the 3 Day view first renders
@@ -59,11 +59,18 @@ The grid SHALL render a current-time indicator — a 1px error-500 line with a 7
 - **THEN** no current-time indicator SHALL render
 
 ### Requirement: Event block rendering
-Timed events SHALL render as blocks absolutely positioned by their local start and end times, styled with a 1px outline in the event's category color over a ~13% alpha fill of the same color, small radius, showing the start time (9px semibold) and title (10px medium) with ellipsis clipping. Pending events SHALL render at 0.9 opacity. Blocks SHALL have a minimum height of 20px. Tapping a block SHALL open the shared event detail sheet. Category colors SHALL resolve from the Outlook category presets via the shared resolver, falling back to #cccccc for uncategorized or unknown categories.
+Timed events SHALL render as blocks absolutely positioned by their local start and end times, styled with a 3px solid left rail in the event's category color over a ~8% alpha fill of the same color, small radius, and no other border. Pending events SHALL render at 0.9 opacity. Blocks SHALL have a minimum height of 20px. Tapping a block SHALL open the shared event detail sheet. Category colors SHALL resolve from the Outlook category presets via the shared resolver, falling back to #cccccc for uncategorized or unknown categories.
+
+Blocks SHALL NOT display the event's start time as text: the block's vertical position already encodes it, and on a 30-minute block the time line consumes the only line available to the title. The start time SHALL remain in the block's accessible name, which is the sole remaining source of the time for assistive technology.
 
 #### Scenario: Block position matches times
 - **WHEN** an event runs 10:00-11:30 local time
 - **THEN** its block SHALL start at the 10:00 line and span 1.5 hour-heights (78px) in its day column
+
+#### Scenario: No visible time text
+- **WHEN** any timed event block renders
+- **THEN** the block SHALL NOT render its start time as visible text
+- **AND** the block's accessible name SHALL still include the start time
 
 #### Scenario: Pending event opacity
 - **WHEN** an event with status pending renders in the grid
@@ -77,6 +84,28 @@ Timed events SHALL render as blocks absolutely positioned by their local start a
 - **WHEN** an event has no categories or a category absent from the Outlook master list
 - **THEN** its block SHALL use #cccccc as the category color
 
+### Requirement: Block text density adapts to block height
+Block text SHALL be selected by the block's rendered height so that short blocks stay readable and tall blocks carry more information. Every text line SHALL clamp at a line boundary with an ellipsis; text SHALL NOT be clipped mid-line.
+
+- Blocks under 34px SHALL render the title only, clamped to one line.
+- Blocks from 34px to under 50px SHALL render the title only, clamped to two lines.
+- Blocks of 50px or more SHALL render the title clamped to two lines plus the event's location on its own line.
+
+The density tier SHALL be derived from geometry in the same pure layout function that computes block position, not in the rendering component.
+
+#### Scenario: Half-hour block shows its title
+- **WHEN** a 30-minute event renders (26px tall)
+- **THEN** the block SHALL show one clamped line of the event title
+- **AND** SHALL NOT show a location line
+
+#### Scenario: Hour-long block shows the location
+- **WHEN** a 60-minute event with a location renders (52px tall)
+- **THEN** the block SHALL show up to two lines of title and the location on its own line
+
+#### Scenario: Overlong title truncates cleanly
+- **WHEN** a title exceeds the lines available at the block's tier
+- **THEN** it SHALL end in an ellipsis at a line boundary
+
 ### Requirement: Overlapping events split column width
 Events in the same day column whose times overlap SHALL be laid out side by side, splitting the column width equally within their overlap cluster.
 
@@ -85,7 +114,7 @@ Events in the same day column whose times overlap SHALL be laid out side by side
 - **THEN** each SHALL occupy half the column width, side by side, with neither obscured
 
 ### Requirement: All-day events render in a chip row
-All-day events SHALL render as tappable chips in a thin row pinned beneath the sticky day headers, one chip per event in its day's column, using the same outline-over-wash category styling. All-day events SHALL NOT occupy space in the timed grid.
+All-day events SHALL render as tappable chips in a thin row pinned beneath the sticky day headers, one chip per event in its day's column, using the same rail-over-wash category styling as timed blocks. All-day events SHALL NOT occupy space in the timed grid.
 
 #### Scenario: All-day chip display
 - **WHEN** a day in the window has an all-day event

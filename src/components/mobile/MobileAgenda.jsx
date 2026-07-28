@@ -1,155 +1,34 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import APP_CONFIG from '../../config/config';
-import { transformEventToFlatStructure } from '../../utils/eventTransformers';
-import { prepareEventsForAgenda } from '../../utils/agendaEventPipeline';
-import MobileWeekStrip, { formatDateKey } from './MobileWeekStrip';
+import React, { useEffect, useCallback, useRef } from 'react';
+import { formatDateKey } from './MobileWeekStrip';
 import MobileEventCard from './MobileEventCard';
-import MobileEventDetail from './MobileEventDetail';
 import { DAY_NAMES, MONTH_NAMES_SHORT } from './mobileConstants';
-import { logger } from '../../utils/logger';
 import './MobileAgenda.css';
 
-function getCalendarOwner() {
-  const config = APP_CONFIG.CALENDAR_CONFIG;
-  return config.DEFAULT_MODE === 'production'
-    ? config.PRODUCTION_CALENDAR
-    : config.SANDBOX_CALENDAR;
-}
-
-function getWeekRange(centerDate) {
-  const start = new Date(centerDate);
-  start.setDate(start.getDate() - start.getDay());
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 13);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
-
-function MobileAgenda() {
-  const { apiToken: token } = useAuth();
-
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [events, setEvents] = useState([]);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState(null);
+/**
+ * The agenda list — presentational.
+ *
+ * The selected date, the event window, the week strip, and the detail sheet all
+ * live in `MobileCalendarTab` so the 3-day grid can share them. What stays here
+ * is the list itself, its day headers, and pull-to-refresh (which is
+ * agenda-only: the gesture fights vertical panning in a time grid).
+ *
+ * @param {Date} selectedDate      Drives the scroll-into-view on date change.
+ * @param {Date[]} datesToShow     The day sections to render, in order.
+ * @param {Object} groupedEvents   'YYYY-MM-DD' -> events for that day.
+ */
+function MobileAgenda({
+  selectedDate,
+  datesToShow,
+  groupedEvents,
+  loading,
+  refreshing,
+  error,
+  onEventTap,
+  onRefresh,
+  onRetry,
+}) {
   const listRef = useRef(null);
   const dateRefs = useRef({});
-  const loadedRangeRef = useRef(null);
-  const fetchingRef = useRef(false);
-
-  const fetchEvents = useCallback(async (rangeStart, rangeEnd, { append = false } = {}) => {
-    if (!token || fetchingRef.current) return;
-    fetchingRef.current = true;
-    setError(null);
-
-    try {
-      const calendarOwner = getCalendarOwner();
-
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/events/load`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            calendarOwners: [calendarOwner],
-            calendarIds: [],
-            startTime: rangeStart.toISOString(),
-            endTime: rangeEnd.toISOString(),
-            forceRefresh: false
-          })
-        }
-      );
-
-      if (!response.ok) throw new Error('Failed to load events');
-
-      const data = await response.json();
-      const rawEvents = data.events || [];
-
-      // Expand recurring series and dedupe customized occurrences BEFORE
-      // flattening — raw docs contain seriesMaster + exception/addition
-      // children, not renderable occurrence rows (see agendaEventPipeline).
-      const transformed = prepareEventsForAgenda(rawEvents, rangeStart, rangeEnd)
-        .map(e => transformEventToFlatStructure(e))
-        .filter(e => e.status === 'published' || e.status === 'pending');
-
-      transformed.sort((a, b) =>
-        (a.startDateTime || '').localeCompare(b.startDateTime || '')
-      );
-
-      if (append) {
-        setEvents(prev => {
-          const existingIds = new Set(prev.map(e => e.id || e._id));
-          const newEvents = transformed.filter(e => !existingIds.has(e.id || e._id));
-          if (newEvents.length === 0) return prev;
-          return [...prev, ...newEvents].sort((a, b) =>
-            (a.startDateTime || '').localeCompare(b.startDateTime || '')
-          );
-        });
-      } else {
-        setEvents(transformed);
-      }
-
-      const prevRange = loadedRangeRef.current;
-      if (prevRange && append) {
-        loadedRangeRef.current = {
-          start: new Date(Math.min(prevRange.start.getTime(), rangeStart.getTime())),
-          end: new Date(Math.max(prevRange.end.getTime(), rangeEnd.getTime())),
-        };
-      } else {
-        loadedRangeRef.current = { start: new Date(rangeStart), end: new Date(rangeEnd) };
-      }
-    } catch (err) {
-      logger.error('MobileAgenda: Error loading events:', err);
-      setError('Unable to load events. Pull down to retry.');
-    } finally {
-      setInitialLoading(false);
-      setRefreshing(false);
-      fetchingRef.current = false;
-    }
-  }, [token]);
-
-  useEffect(() => {
-    const { start, end } = getWeekRange(new Date());
-    fetchEvents(start, end);
-  }, [fetchEvents]);
-
-  useEffect(() => {
-    if (!loadedRangeRef.current) return;
-    const { start, end } = getWeekRange(selectedDate);
-    const loaded = loadedRangeRef.current;
-    if (start < loaded.start || end > loaded.end) {
-      fetchEvents(start, end, { append: true });
-    }
-  }, [selectedDate, fetchEvents]);
-
-  const groupedEvents = useMemo(() => events.reduce((groups, event) => {
-    const key = event.startDate || null;
-    if (!key) return groups;
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(event);
-    return groups;
-  }, {}), [events]);
-
-  const eventDates = useMemo(() => new Set(Object.keys(groupedEvents)), [groupedEvents]);
-
-  // Memoize date list — only recalculate when selected week changes
-  const datesToShow = useMemo(() => {
-    const { start, end } = getWeekRange(selectedDate);
-    const dates = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
-      dates.push(new Date(cursor));
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return dates;
-  }, [selectedDate.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Precompute today/tomorrow keys for date headers
   const todayKey = formatDateKey(new Date());
@@ -168,16 +47,23 @@ function MobileAgenda() {
     return `${DAY_NAMES[date.getDay()]}, ${MONTH_NAMES_SHORT[date.getMonth()]} ${date.getDate()}`;
   }
 
-  const handleDateSelect = useCallback((date) => {
-    setSelectedDate(date);
+  // Scroll the picked day into view. Skips the first run: on mount the list
+  // should open at the top of its window, exactly as it did when this component
+  // owned the date and only scrolled from inside its own onDateSelect handler.
+  const didMountRef = useRef(false);
+  const selectedKey = formatDateKey(selectedDate);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     requestAnimationFrame(() => {
-      const key = formatDateKey(date);
-      const el = dateRefs.current[key];
+      const el = dateRefs.current[selectedKey];
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     });
-  }, []);
+  }, [selectedKey]);
 
   // Pull-to-refresh
   const pullStartY = useRef(null);
@@ -189,15 +75,12 @@ function MobileAgenda() {
   const handleTouchEnd = useCallback((e) => {
     if (pullStartY.current !== null) {
       const pullDistance = e.changedTouches[0].clientY - pullStartY.current;
-      if (pullDistance > 80 && !fetchingRef.current) {
-        setRefreshing(true);
-        const { start, end } = getWeekRange(selectedDate);
-        loadedRangeRef.current = null;
-        fetchEvents(start, end);
+      if (pullDistance > 80) {
+        onRefresh?.();
       }
       pullStartY.current = null;
     }
-  }, [selectedDate, fetchEvents]);
+  }, [onRefresh]);
 
   // Clean up stale dateRefs when date range changes
   useEffect(() => {
@@ -209,12 +92,6 @@ function MobileAgenda() {
 
   return (
     <div className="mobile-agenda">
-      <MobileWeekStrip
-        selectedDate={selectedDate}
-        onDateSelect={handleDateSelect}
-        eventDates={eventDates}
-      />
-
       {refreshing && (
         <div className="mobile-agenda-refresh">
           <div className="mobile-agenda-refresh-spinner" />
@@ -227,7 +104,7 @@ function MobileAgenda() {
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {initialLoading ? (
+        {loading ? (
           <div className="mobile-agenda-skeleton">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="mobile-agenda-skeleton-item">
@@ -239,15 +116,7 @@ function MobileAgenda() {
         ) : error ? (
           <div className="mobile-agenda-error">
             <p>{error}</p>
-            <button
-              className="mobile-agenda-retry"
-              onClick={() => {
-                const { start, end } = getWeekRange(selectedDate);
-                loadedRangeRef.current = null;
-                setInitialLoading(true);
-                fetchEvents(start, end);
-              }}
-            >
+            <button className="mobile-agenda-retry" onClick={onRetry}>
               Retry
             </button>
           </div>
@@ -271,7 +140,7 @@ function MobileAgenda() {
                       <MobileEventCard
                         key={event.id || event._id}
                         event={event}
-                        onTap={setSelectedEvent}
+                        onTap={onEventTap}
                       />
                     ))}
                   </div>
@@ -283,11 +152,6 @@ function MobileAgenda() {
           })
         )}
       </div>
-
-      <MobileEventDetail
-        event={selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-      />
     </div>
   );
 }

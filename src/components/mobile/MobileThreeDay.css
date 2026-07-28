@@ -1,0 +1,248 @@
+/* 3-day time grid.
+   Geometry constants (52px/hour, 28px gutter, 8px inset) are duplicated in
+   MobileThreeDay.jsx, which positions blocks and hour lines in px. Change both.
+
+   The gutter is 28px because hour labels are compact ('7a', '12p'). Spelling
+   them out needs 44px, and those 16px come straight off every day column. */
+
+.mobile-three-day {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
+/* ---- Sticky rows (outside the scroller, so a scrollbar can never shift the
+       columns out of alignment with the grid) ---- */
+
+.mobile-three-day-header,
+.mobile-three-day-allday {
+  display: flex;
+  flex-shrink: 0;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mobile-three-day-gutter-spacer {
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.mobile-three-day-header-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2) 0;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.mobile-three-day-header-letter {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.mobile-three-day-header-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.mobile-three-day-header-cell.today .mobile-three-day-header-number {
+  background: var(--color-primary-600);
+  color: var(--text-inverse);
+}
+
+/* ---- All-day chip row ---- */
+
+.mobile-three-day-allday-cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) 2px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* Same rail-over-wash treatment as the timed blocks, so the two rows read as
+   one system. The 3px left rail arrives as an inline style. */
+.mobile-three-day-chip {
+  display: block;
+  width: 100%;
+  padding: 2px 4px 2px 5px;
+  /* Same reason as .mobile-three-day-block: the rail is the only border. */
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.mobile-three-day-chip.pending {
+  opacity: 0.9;
+}
+
+/* ---- Scrolling grid ---- */
+
+.mobile-three-day-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  /* Hidden so the scroll box and the header row above it share an inner width. */
+  scrollbar-width: none;
+}
+
+.mobile-three-day-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-three-day-grid {
+  display: flex;
+  position: relative;
+}
+
+.mobile-three-day-gutter {
+  position: relative;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.mobile-three-day-hour-label {
+  position: absolute;
+  right: 3px;
+  transform: translateY(-50%);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.mobile-three-day-column {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.mobile-three-day-column.today {
+  background: var(--color-primary-50);
+}
+
+.mobile-three-day-hourline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+/* ---- Timed event blocks ----
+   No start time is rendered: the block's Y position states it. What text a
+   block carries is chosen by its height (the .short/.med/.tall tier comes from
+   layoutDayEvents), so short blocks stay readable instead of spending their one
+   line restating the axis. */
+
+.mobile-three-day-block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 1px 3px 1px 5px;
+  /* Required, not cosmetic: blockStyle sets ONLY border-left inline, so
+     without this the browser's default button border shows on the other three
+     sides. The colored rail is meant to be the block's only border. */
+  border: none;
+  border-radius: var(--radius-sm);
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-three-day-block.pending {
+  opacity: 0.9;
+}
+
+.mobile-three-day-block-title {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  /* Clamp rather than plain overflow: this ends on an ellipsis at a line
+     boundary. Bare `overflow: hidden` slices a glyph in half, which reads as a
+     rendering bug rather than a deliberate truncation. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* A 30-minute block is 26px -> 22px of content: exactly one line. */
+.mobile-three-day-block.short .mobile-three-day-block-title {
+  -webkit-line-clamp: 1;
+  font-size: 9.5px;
+}
+
+.mobile-three-day-block-location {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: var(--font-normal);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Current-time indicator ---- */
+
+.mobile-three-day-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--color-error-500);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.mobile-three-day-now-dot {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-3px, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-error-500);
+}
+
+/* ---- Loading ---- */
+
+.mobile-three-day-skeleton {
+  flex: 1;
+  margin: var(--space-3);
+  border-radius: var(--radius-lg);
+}
