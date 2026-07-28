@@ -19,6 +19,24 @@ vi.mock('../../../context/AuthContext', () => ({
 }));
 vi.mock('../../../hooks/useScrollLock', () => ({ default: vi.fn() }));
 
+// The sheet gained a withdraw action (Requests tab), which pulls in MSAL for
+// the requester check, authFetch for the DELETE, and toasts for the outcome.
+// None of it engages here — these cases pass no showReservationContext — but
+// the hooks still run, so they need providers or stubs. The withdraw behaviour
+// itself is covered by mobile/MobileEventDetail.withdraw.test.jsx.
+vi.mock('@azure/msal-react', () => ({
+  useMsal: () => ({ accounts: [] }),
+}));
+vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
+  useAuthenticatedFetch: () => vi.fn(),
+}));
+vi.mock('../../../context/NotificationContext', () => ({
+  useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() }),
+}));
+vi.mock('../../../utils/logger', () => ({
+  logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn(), log: vi.fn() },
+}));
+
 let mockFloorPlan;
 vi.mock('../../../hooks/useFloorPlan', () => ({
   default: () => mockFloorPlan,

@@ -586,6 +586,49 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Mobile Requests tab (implemented 2026-07-28)
+
+Spec: `openspec/changes/mobile-requests-tab/`. Frontend-only; no endpoint, schema, or
+backend change.
+
+**Shipped:**
+- Mobile tab set is now **Calendar / Requests** — the `chat` placeholder is gone and
+  `my-events` renders real content. `MobileBottomTabs` takes a `permissions` prop and
+  filters on a per-tab `requires` key, so the future Approvals tab is one array entry.
+- **The tab id stays `my-events`.** Only the label changed. `?view=my-events`,
+  `keys.events.list({ view: 'my-events', includeDeleted: true })`, and the four
+  MyReservations test suites are untouched. Locked by `MobileBottomTabs.test.jsx` MBT-3.
+- `MobileRequests.jsx` — the **requester's** view (the naming in this repo is inverted:
+  `ReservationRequests.jsx` is the approver's inbox). Shares MyReservations' exact cache
+  key, which is only sound because both queryFns resolve to the same shape (a flat array
+  from `transformEventsToFlatStructure`). **Do not return a wrapper object from either.**
+- `MobileEventDetail` gained reservation context behind `showReservationContext`: a
+  `statusHistory[]` timeline, the rejection reason, and its first mutating action —
+  withdraw, gated to the viewer's own pending request. A `409 VERSION_CONFLICT` is
+  reported as one sentence plus a refetch, deliberately not the desktop `ConflictDialog`.
+- `eventTransformers.js` now preserves `statusHistory` (it was dropped; the backend's
+  `EVENT_LIST_PROJECTION` has always returned it).
+
+**Deferred / blocked:**
+- **Approvals tab** — its own change. Should be *triage, not adjudication*: who asked,
+  what, when, where, does it collide; approve and reject-with-reason; anything needing a
+  change routes to desktop. Reuse `useCurrentUserGates`, not the desktop
+  `EventReviewExperience` component.
+- **Conflict context on a rejected request** (task 3.3) — **blocked, scenario removed
+  from the spec.** Scheduling conflicts are transient: `checkRoomConflicts()` returns
+  them in a `409 SchedulingConflict` body and nothing persists them on the event
+  document (`conflictDetails` is an rsched staging field only). Prerequisite is
+  persisting a conflict snapshot at rejection time.
+- The mobile reservation request wizard is **cut**, not deferred.
+
+**Outstanding:** tasks 6.1 / 6.2 — on-device verification of the list, filters, detail
+sheet, and the withdraw round-trip, plus the cold-reload no-flash check. Needs a live
+MSAL session and writes to a real reservation.
+
+**Note for the calendarData-removal refactor:** the mobile detail sheet's 85dvh cap no
+longer exists — the sheet ships as `position: fixed; inset: 0`. The
+`mobile-event-detail` spec still says 85dvh and should be corrected when next revised.
+
 ### Sync Health Hardening + Reconcile v1 (implemented 2026-07-27)
 
 Spec: `openspec/changes/sync-health-hardening-and-reconcile/`. Architecture:

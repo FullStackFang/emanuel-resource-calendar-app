@@ -1,6 +1,14 @@
 import React from 'react';
 import './MobileBottomTabs.css';
 
+// Tab `id` is a wire identifier, not a label. `my-events` feeds
+// `?view=my-events`, `keys.events.list({ view: 'my-events' })` and the existing
+// test suites — relabeling the tab must never rename it.
+//
+// `requires` names a key of the `permissions` prop. Tabs without it are always
+// shown; gated tabs (the Approvals tab, when it lands) drop out of the bar
+// entirely and the survivors reflow to equal widths, matching how the desktop
+// nav hides the Approval Queue link.
 const TABS = [
   {
     id: 'calendar',
@@ -16,7 +24,7 @@ const TABS = [
   },
   {
     id: 'my-events',
-    label: 'My Events',
+    label: 'Requests',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
@@ -24,21 +32,14 @@ const TABS = [
       </svg>
     ),
   },
-  {
-    id: 'chat',
-    label: 'Chat',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-  },
 ];
 
-function MobileBottomTabs({ activeTab, onTabChange }) {
+function MobileBottomTabs({ activeTab, onTabChange, permissions = {} }) {
+  const visibleTabs = TABS.filter(tab => !tab.requires || !!permissions[tab.requires]);
+
   return (
     <nav className="mobile-bottom-tabs" aria-label="Main navigation">
-      {TABS.map(tab => (
+      {visibleTabs.map(tab => (
         <button
           key={tab.id}
           className={`mobile-tab ${activeTab === tab.id ? 'active' : ''}`}

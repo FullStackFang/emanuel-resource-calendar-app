@@ -315,6 +315,182 @@
   font-weight: var(--weight-medium);
 }
 
+/* ── Reservation context (Requests tab) ───────────── */
+
+/* Rejection notice. Sits first in the body, above the timing details — the
+   answer to "why was this turned down?" should not be scrolled to. */
+.mobile-detail-notice {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+}
+
+.mobile-detail-notice.red {
+  background: var(--color-error-50);
+  border-color: var(--color-error-200);
+}
+
+.mobile-detail-notice-label {
+  display: block;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-1);
+  color: var(--color-error-700);
+}
+
+.mobile-detail-notice-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Review timeline — a vertical rail with a status dot per entry. The rail is
+   drawn on the list, not per item, so it connects entries without needing a
+   ::before on every one. */
+.mobile-detail-timeline {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.mobile-detail-timeline::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--border-default);
+}
+
+.mobile-detail-timeline-item {
+  position: relative;
+}
+
+.mobile-detail-timeline-dot {
+  position: absolute;
+  left: calc(var(--space-5) * -1);
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  /* Sits on top of the rail rather than beside it. */
+  box-shadow: 0 0 0 3px var(--bg-primary);
+}
+
+.mobile-detail-timeline-dot.green { background: var(--color-success-500); }
+.mobile-detail-timeline-dot.yellow { background: var(--color-warning-500); }
+.mobile-detail-timeline-dot.gray { background: var(--color-neutral-400); }
+.mobile-detail-timeline-dot.red { background: var(--color-error-500); }
+
+.mobile-detail-timeline-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mobile-detail-timeline-status {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.mobile-detail-timeline-meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  word-break: break-word;
+}
+
+.mobile-detail-timeline-reason {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+}
+
+/* ── Withdraw action ──────────────────────────────── */
+
+.mobile-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-6);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mobile-detail-reason {
+  display: block;
+}
+
+.mobile-detail-reason-input {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  /* 16px minimum — anything smaller makes iOS Safari zoom the viewport on
+     focus, which on a bottom sheet reads as the sheet jumping. */
+  font-size: var(--text-base);
+  line-height: var(--leading-snug);
+  resize: none;
+}
+
+.mobile-detail-reason-input:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.mobile-detail-withdraw {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-error-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-error-50);
+  color: var(--color-error-700);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+/* Armed state: solid destructive fill plus a pulse, matching the in-button
+   confirmation standard used across the desktop admin screens. */
+.mobile-detail-withdraw.confirm {
+  background: var(--color-error-500);
+  border-color: var(--color-error-500);
+  color: #fff;
+  animation: mobile-detail-pulse-confirm 1s ease-in-out infinite;
+}
+
+.mobile-detail-withdraw:disabled {
+  opacity: 0.6;
+  cursor: default;
+  animation: none;
+}
+
+@keyframes mobile-detail-pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.82; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-detail-withdraw.confirm {
+    animation: none;
+  }
+}
+
 /* ── Floor Plan (read-only thumbnail) ─────────────── */
 
 .mobile-detail-floorplan {

@@ -1,0 +1,186 @@
+/* ===================================================
+   MobileRequests — the requester's own reservation
+   requests. Design tokens only; no literal colors.
+
+   Weight tokens: use --font-medium / --font-semibold.
+   --weight-medium / --weight-semibold are NOT defined
+   anywhere (design-tokens.css:136-138 names them
+   --font-*), so the ~47 existing usages across the
+   mobile stylesheets and App.css silently render at
+   inherited 400. Fixing those is its own change.
+   =================================================== */
+
+.mobile-requests {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* ── Status ledger ────────────────────────────── */
+
+/* Five equal columns, no scroll at any supported width. This is chrome, not
+   content: it takes --bg-primary against the list's --bg-secondary so it
+   separates cleanly once it sticks. */
+.mobile-requests-filters {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  padding: 0 var(--space-2);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.mobile-requests-status {
+  position: relative;
+  flex: 1 1 0;
+  /* Without this, a long label would widen its column and break the even
+     five-up rhythm. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  /* Bottom padding is 2px short to leave room for the selection rule, so
+     selecting a status does not shift the row. Total height clears 44px. */
+  padding: var(--space-3) var(--space-1) calc(var(--space-3) - 2px);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-requests-status-count {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--text-primary);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.mobile-requests-status-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  /* 0.045em, not the 0.08em used on detail-sheet labels: 'PUBLISHED' is the
+     width constraint here and the looser tracking overflows 320px. */
+  letter-spacing: 0.045em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+/* A status with no requests recedes rather than disappearing. Absence of work
+   is still information; it just should not compete for the eye, and a filter
+   set that changes shape between renders is one users stop trusting. */
+.mobile-requests-status.empty .mobile-requests-status-count,
+.mobile-requests-status.empty .mobile-requests-status-label {
+  color: var(--color-neutral-400);
+}
+
+/* Selection is a rule under the column, the way a tab strip marks position.
+   Deliberately not a filled pill: this app reserves filled primary for commit
+   actions, and a row of pills is the SaaS-dashboard pattern PRODUCT.md names
+   as an anti-reference. */
+.mobile-requests-status::after {
+  content: '';
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: var(--color-primary-500);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.mobile-requests-status.active::after {
+  opacity: 1;
+}
+
+.mobile-requests-status.active .mobile-requests-status-count {
+  color: var(--color-primary-600);
+}
+
+.mobile-requests-status.active .mobile-requests-status-label {
+  color: var(--color-primary-700);
+  font-weight: var(--font-semibold);
+}
+
+.mobile-requests-status:active {
+  background: var(--bg-secondary);
+}
+
+.mobile-requests-status:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+/* ── List ─────────────────────────────────────── */
+
+.mobile-requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+/* A background refetch dims the list rather than blanking it. */
+.mobile-requests-list.refreshing {
+  opacity: 0.6;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+/* ── Loading skeleton ─────────────────────────── */
+/* .skeleton (shimmer keyframes) is defined in MobileAgenda.css and shared. */
+
+.mobile-requests-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mobile-requests-skeleton-card {
+  width: 100%;
+  height: 64px;
+  border-radius: var(--radius-xl);
+}
+
+/* ── Empty states ─────────────────────────────── */
+
+.mobile-requests-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.mobile-requests-empty-title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.mobile-requests-empty-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  line-height: var(--leading-snug);
+}
+
+/* A filter that matched nothing is not a failure and gets no refresh CTA —
+   the fix is one tap on another status. */
+.mobile-requests-no-match {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}

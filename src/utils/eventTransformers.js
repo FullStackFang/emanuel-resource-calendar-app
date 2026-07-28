@@ -448,6 +448,11 @@ export function transformEventToFlatStructure(event) {
     // Optimistic concurrency control
     _version: event._version || null,
 
+    // Status transition log — [{ status, changedAt, changedBy, changedByEmail,
+    // reason }], appended server-side on every status write and projected by
+    // EVENT_LIST_PROJECTION. Read by the mobile detail sheet's review timeline.
+    statusHistory: Array.isArray(event.statusHistory) ? event.statusHistory : [],
+
     // Edit request data (for approval queue filtering)
     pendingEditRequest: event.pendingEditRequest || null,
 

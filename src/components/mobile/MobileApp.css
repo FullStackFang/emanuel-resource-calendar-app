@@ -43,37 +43,3 @@
 .mobile-agenda-list::-webkit-scrollbar-thumb:active {
   background: var(--color-neutral-400);
 }
-
-/* Placeholder tabs */
-.mobile-placeholder-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: var(--space-3);
-  padding: var(--space-8);
-  text-align: center;
-}
-
-.mobile-placeholder-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: var(--radius-2xl);
-  background: var(--color-primary-50);
-  color: var(--color-primary-400);
-}
-
-.mobile-placeholder-title {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-}
-
-.mobile-placeholder-desc {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-}
