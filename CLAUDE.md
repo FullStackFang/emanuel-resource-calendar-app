@@ -21,7 +21,7 @@ npm start          # Start production server
 
 ### Testing
 
-**IMPORTANT: Do NOT run the full test suite (`npm test`) after every change.** The full suite has 472 backend tests and takes ~2 minutes. Instead, run only the specific test file(s) directly related to your changes. Only run the full suite when explicitly asked by the user.
+**IMPORTANT: Do NOT run the full test suite (`npm test`) after every change.** The full suite has ~1,650 backend tests and takes several minutes. Instead, run only the specific test file(s) directly related to your changes. Only run the full suite when explicitly asked by the user.
 
 **Backend (Jest):**
 ```bash
@@ -558,9 +558,19 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 **Calendar cold-reload empty (the home grid).** The Calendar does NOT use a TanStack query for its event list, so the above does not apply to it. Its analogue is `shouldVerifyZeroResult()` in `calendarLoadDecision.js`: a fresh reload has no cached events to preserve, so the first cold (non-silent, non-retry) `0`-result per calendar selection is verified with one retry — keeping the loading overlay up via `verifyPendingRef` — before the "No events to display" card is allowed to render. Locked by `calendarLoadDecision.test.js`.
 
 ### Testing
-- **472 backend tests** (31 suites) — Jest with MongoDB Memory Server
-- **169 frontend tests** — Vitest
+- **1,659 backend tests** (128 suites) — Jest with MongoDB Memory Server
+- **1,175 frontend tests** (82 files) — Vitest
+- **The suite is RED on main and has been for a while** (2026-07-27: 229 backend failures
+  across 38 suites, 10 frontend failures across 3 files). There is no CI catching them.
+  Treat those as untriaged bugs, not noise — but before blaming your own change, measure the
+  baseline: `git stash push -u` → run → `git stash pop` → run, and compare counts.
+- `retryWithBackoff.test.js` has two wall-clock-sensitive cases (RB-13 honours a 3s
+  RetryAfterMs; RB-14 measures jitter bounds) that flake under full-suite load and pass in
+  isolation. Re-run the file alone before investigating.
 - Test helpers in `backend/__tests__/__helpers__/` (testSetup, userFactory, eventFactory, authHelpers, graphApiMock, testApp)
+- **Graph failures in tests MUST be built with `graphApiMock.graphError(status, msg)` or
+  `graphNetworkError(code)`**, never hand-rolled. Both delegate to the same `buildGraphError`
+  production throws with, so a predicate that only understands the mock cannot pass.
 - MongoDB Memory Server auto-detects Windows ARM64 and uses x64 emulation
 
 ## Important Notes
@@ -575,6 +585,73 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 - **Graph API calls from backend MUST use `graphApiService.js`** with app-only authentication, NOT user's `graphToken`
 
 ## Current In-Progress Work
+
+### Sync Health Hardening + Reconcile v1 (implemented 2026-07-27)
+
+Spec: `openspec/changes/sync-health-hardening-and-reconcile/`. Architecture:
+`docs/superpowers/specs/2026-07-27-sync-health-reconciliation-design.md`.
+
+**Report hardening (all shipped):**
+- Deleted-docs query now `$or`s `graphData.id` with `graphEventId`, so deleted
+  exception/addition CHILD documents (created with `graphData: null`) finally reach the
+  failed-deletion check. This was the `additions` bug class the report was built to catch.
+- `runSyncHealthCheck` scopes by `calendarOwner` and projects (`REPORT_PROJECTION`) in the
+  database. Case-insensitivity via `$in` over `distinct('calendarOwner')` — **not** `$regex`,
+  which Cosmos handles unreliably. Locked by a parity test that runs the same fixtures with
+  and without the projection and asserts identical findings.
+- `outlookOnly` in `syncHealthGrouping.reconcile()` now comes from `untracked.length`, not
+  `outlookFound - matched`. `reconcile()` takes the whole calendar entry, not its `counts`.
+- `buildAppSide` returns `nullDateMongoIds`; a null local date logs at error level and sets
+  `calendar.degraded` (a banner, deliberately NOT `error`, which suppresses all findings).
+
+**Graph retry/breaker (new `backend/utils/graphRetry.js`, `backend/utils/graphError.js`):**
+- Every inlined Graph retry predicate was dead: production throws `err.status`, all five
+  copies read `err.statusCode`. Consolidated into `withGraphRetry` / `isRetryableGraphError`.
+- undici's `fetch` puts the OS error code on `err.cause.code`, never `err.code` (verified
+  against Node 22 — table in graphRetry.js). `AbortSignal.timeout` yields a DOMException
+  whose `code` is the NUMBER 23, hence the string-check before comparison.
+- Graph gets its **own** circuit breaker. `retryWithBackoff` accepts `options.breaker`
+  (defaults to the shared Cosmos one) — a Graph 429 burst can no longer halt Cosmos retries.
+- `graphApiMock` builds all HTTP failures with the same exported `buildGraphError` the
+  service throws with. Hand-rolled mock errors are what hid the predicate bug; use
+  `graphApiMock.graphError(status, msg)` / `graphNetworkError(code)`.
+
+**Reconcile v1 (new):** `POST /api/admin/sync-health/reconcile/plan` and `/apply`,
+admin-only. Pure decisions in `backend/utils/syncReconcilePlan.js`, orchestration in
+`backend/services/syncReconcileService.js` (injected deps), create-then-link mechanics
+shared with the republish endpoint via `backend/services/republishCore.js`.
+- Stateless fingerprint handshake: `apply` re-observes and re-plans from scratch, then
+  deep-compares against `expectedState`; any drift → `409 STALE_FINDING` with **zero**
+  writes. 10-minute soft `expiresAt`.
+- Actions: `shouldNotBeInOutlook` → `deleteOutlook` (server-enforced `confirmIrreversible`,
+  series-master guard, attendee warning, pre-delete snapshot in audit, 404 → `alreadyGone`);
+  `untethered` → `archive` / `linkExisting` / `publish`. Publish refuses `seriesMaster`.
+- Duplicate guard: subject+date match against untracked entries on that day (`[Hold]` prefix
+  normalized away); candidates flip the recommendation to link, and publish needs
+  `allowDuplicate` or gets `422 DUPLICATE_CANDIDATE`.
+- Audit entry per apply (`source: 'SyncHealthReconcile'`); `statusHistory` + SSE on Mongo writes.
+- UI: admin-only "Fix…" panel in `SyncHealthReport.jsx` rendering the server plan **verbatim**
+  (never a client paraphrase), in-button confirmation, scoped re-run after apply/stale.
+
+**Deferred:** v1.5 seriesMaster publish (needs `syncRecurrenceExclusionsToGraph` +
+`syncExceptionDocumentsToGraph` extracted to `graphSeriesSync.js`, else publishing a master
+immediately manufactures new `shouldNotBeInOutlook` findings for every excluded date).
+v2 `missingFromOutlook` actions and bulk per-category reconcile. Untracked adoption is an
+import feature, out of scope. Bulk cleanup of the 46 legacy untethered docs stays
+script-only, blocked on the archive-vs-publish product decision.
+
+**Outstanding:** task 8.2 — manual verification against the sandbox mailbox (run the report,
+confirm the previously invisible deleted-child findings appear, exercise one archive and one
+link end-to-end). Not done: it needs live Graph credentials and writes to a real mailbox.
+
+**calendarData-removal refactor checklist — add these call sites:**
+- `syncHealthService.localDateOf` (reads `calendarData.startDateTime` first)
+- `syncHealthService.titleOf` (`calendarData.eventTitle` fallback)
+- `syncHealthService.buildAppSide` master expansion (`calendarData.startDateTime/endDateTime`)
+- `syncHealthService.REPORT_PROJECTION` (three `calendarData.*` entries)
+- `syncReconcileService.observe` (`calendarData.startTime/endTime` for subject derivation)
+- `graphEventBuilder.buildGraphEventDataFromRecord` (whole payload reads `event.calendarData`)
+The null-date guard above exists specifically so this refactor fails loudly here.
 
 ### Loading-Experience Standardization (Phases 1-2 done 2026-05-30; Phase 3 deferred)
 

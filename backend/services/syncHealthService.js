@@ -14,7 +14,7 @@
 const { diffCalendar } = require('../utils/syncHealthDiff');
 const { expandAllOccurrences } = require('../utils/recurrenceExpansion');
 const { buildSeriesAwareDateRangeClause } = require('../utils/eventDateRangeFilter');
-const { retryWithBackoff } = require('../utils/retryWithBackoff');
+const { withGraphRetry } = require('../utils/graphRetry');
 const logger = require('../utils/logger');
 
 const DEFAULT_LOOKBACK_DAYS = 30;
@@ -26,12 +26,61 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // interactive, so we keep the payload tight.
 const GRAPH_SELECT = 'id,subject,start,end,type,seriesMasterId,isCancelled';
 
-// Same retryable-error policy as backfill-addition-graph-events.js.
-const withGraphRetry = (op) => retryWithBackoff(op, {
-  maxAttempts: 3,
-  retryableError: (err) =>
-    err?.statusCode === 429 || err?.statusCode === 503 ||
-    err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET',
+/**
+ * The exact set of fields this report reads. Nothing else leaves the database.
+ *
+ * Without it every run pulled whole documents — including the full graphData
+ * blob (a complete cached Graph event per doc) and statusHistory arrays — for
+ * essentially the entire events collection, to use a dozen scalars. On Cosmos
+ * that is billed RU, not just bandwidth.
+ *
+ * Each entry traces to a reader:
+ *   _id, eventTitle, calendarData.eventTitle ......... titleOf / instance ids
+ *   calendarOwner .................................... calendarKeyOf
+ *   status, isDeleted ................................ deleted-instance flag
+ *   eventType ........................................ buildAppSide bucketing
+ *   eventId, seriesMasterEventId, occurrenceDate ..... master <-> child overlay
+ *   graphData.id, graphEventId ....................... the two linkage shapes
+ *   recurrence ....................................... expandAllOccurrences + exclusions
+ *   calendarData.startDateTime/endDateTime,
+ *   startDateTime, endDateTime, startDate ............ localDateOf + expansion
+ *
+ * `recurrence` is taken WHOLE deliberately — expandAllOccurrences reads
+ * pattern, range and additions, and exclusions feeds trackedSeries.
+ *
+ * buildSeriesAwareDateRangeClause needs no entry: it is a filter evaluated
+ * server-side, not a field anything reads back.
+ *
+ * Exported so the parity test can prove the projected and unprojected runs
+ * produce identical findings.
+ */
+const REPORT_PROJECTION = Object.freeze({
+  _id: 1,
+  eventId: 1,
+  eventType: 1,
+  status: 1,
+  isDeleted: 1,
+  calendarOwner: 1,
+  eventTitle: 1,
+  startDate: 1,
+  startDateTime: 1,
+  endDateTime: 1,
+  recurrence: 1,
+  seriesMasterEventId: 1,
+  occurrenceDate: 1,
+  graphEventId: 1,
+  'graphData.id': 1,
+  'calendarData.eventTitle': 1,
+  'calendarData.startDateTime': 1,
+  'calendarData.endDateTime': 1,
+  // Displayed as report columns, not used for matching. Matching is by Graph id
+  // ONLY (see syncHealthDiff) — a room rename must never manufacture a finding.
+  startTime: 1,
+  endTime: 1,
+  locationDisplayNames: 1,
+  'calendarData.startTime': 1,
+  'calendarData.endTime': 1,
+  'calendarData.locationDisplayNames': 1,
 });
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -73,6 +122,25 @@ function validateWindow({ startDate, endDate }) {
 }
 
 const titleOf = (doc) => doc.eventTitle || doc.calendarData?.eventTitle || '(no title)';
+
+/**
+ * Room list as one display string.
+ *
+ * Purely for the report's Where column. Deliberately NOT part of any matching
+ * rule: the app and Outlook routinely spell the same room differently
+ * ('Lowenstein' vs 'Leon Lowenstein', because Locations carries Graph-sourced
+ * aliases), and matching on it would invent findings out of naming drift.
+ */
+function locationOf(doc) {
+  const raw = doc.locationDisplayNames ?? doc.calendarData?.locationDisplayNames;
+  if (Array.isArray(raw)) return raw.filter(Boolean).join('; ');
+  return raw || '';
+}
+
+const timesOf = (doc) => ({
+  startTime: doc.calendarData?.startTime ?? doc.startTime ?? '',
+  endTime: doc.calendarData?.endTime ?? doc.endTime ?? '',
+});
 
 /**
  * Group key for a document's calendar.
@@ -123,11 +191,19 @@ function localDateOf(doc) {
  * @param {Array<object>} docs - event documents for one calendar
  * @param {string} startDate - 'YYYY-MM-DD' window start
  * @param {string} endDate - 'YYYY-MM-DD' window end
- * @returns {{appInstances: Array<object>, trackedSeries: Array<object>}}
+ * @returns {{appInstances: Array<object>, trackedSeries: Array<object>,
+ *            nullDateMongoIds: Array<string>}}
  */
 function buildAppSide(docs, startDate, endDate) {
   const appInstances = [];
   const trackedSeries = [];
+  // Documents whose local date could not be resolved. A null date silently
+  // fails every match in diffCalendar, so the instance shows up as
+  // missingFromOutlook whether or not Outlook has it — a wrong finding that
+  // looks exactly like a right one. localDateOf reads calendarData first, and
+  // the calendarData removal refactor is in flight, so this is the failure mode
+  // to make loud rather than absorb.
+  const nullDateMongoIds = [];
 
   const masters = docs.filter(d => d.eventType === 'seriesMaster');
   const children = docs.filter(d => d.eventType === 'exception' || d.eventType === 'addition');
@@ -149,14 +225,25 @@ function buildAppSide(docs, startDate, endDate) {
   }
 
   for (const doc of singles) {
+    const date = localDateOf(doc);
+    if (!date) {
+      nullDateMongoIds.push(String(doc._id));
+      logger.error(
+        '[syncHealth] Could not resolve a local date for document %s (%s) on %s — ' +
+        'its findings for this document are unreliable',
+        String(doc._id), titleOf(doc), doc.calendarOwner
+      );
+    }
     appInstances.push({
       mongoId: String(doc._id),
       eventTitle: titleOf(doc),
-      date: localDateOf(doc),
+      date,
       eventType: 'singleInstance',
       graphId: doc.graphData?.id || null,
       seriesGraphId: null,
       isDeleted: doc.isDeleted === true || doc.status === 'deleted',
+      location: locationOf(doc),
+      ...timesOf(doc),
     });
   }
 
@@ -191,6 +278,8 @@ function buildAppSide(docs, startDate, endDate) {
         graphId: null,
         seriesGraphId,
         isDeleted: master.isDeleted === true || master.status === 'deleted',
+        location: locationOf(master),
+        ...timesOf(master),
       });
     }
   }
@@ -205,10 +294,45 @@ function buildAppSide(docs, startDate, endDate) {
       graphId: child.graphEventId || child.graphData?.id || null,
       seriesGraphId: masterGraphIdByEventId.get(child.seriesMasterEventId) || null,
       isDeleted: child.isDeleted === true || child.status === 'deleted',
+      location: locationOf(child),
+      ...timesOf(child),
     });
   }
 
-  return { appInstances, trackedSeries };
+  return { appInstances, trackedSeries, nullDateMongoIds };
+}
+
+/**
+ * Degraded-data marker for one calendar entry.
+ *
+ * Deliberately NOT the `error` field: the report page renders `error` as "could
+ * not check this calendar" and suppresses every finding, so one malformed
+ * document would blank an otherwise complete report. This keeps the findings
+ * visible and puts a banner above them.
+ *
+ * @param {Array<string>} nullDateMongoIds
+ * @returns {{reason: string, mongoIds: Array<string>}|null}
+ */
+function degradedFrom(nullDateMongoIds) {
+  if (!nullDateMongoIds || nullDateMongoIds.length === 0) return null;
+  return { reason: 'unresolved-app-side-dates', mongoIds: nullDateMongoIds };
+}
+
+/**
+ * Every stored spelling of one mailbox, for a case-insensitive `$in`.
+ *
+ * Returns [] when the mailbox has no documents, which makes `$in: []` match
+ * nothing — the same empty report the JS-side filter used to produce.
+ *
+ * @param {import('mongodb').Collection} eventsCollection
+ * @param {string} ownerFilter - already lower-cased
+ * @returns {Promise<Array<string>>}
+ */
+async function ownerCasingsFor(eventsCollection, ownerFilter) {
+  const stored = await eventsCollection.distinct('calendarOwner');
+  return (stored || []).filter(
+    (value) => typeof value === 'string' && value.toLowerCase() === ownerFilter
+  );
 }
 
 /**
@@ -226,23 +350,58 @@ function buildAppSide(docs, startDate, endDate) {
  */
 async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDate, calendarOwner }) {
   const ownerFilter = calendarOwner ? String(calendarOwner).toLowerCase() : null;
+
+  // Scope in the DATABASE, not in JS. Fetching every mailbox and discarding all
+  // but one is the difference between reading one calendar's documents and
+  // reading the whole collection on a report that only ever renders one.
+  //
+  // Case-insensitivity without $regex: the same mailbox is stored with
+  // different casing across documents ('TempleEvents@...' in calendar-config,
+  // 'templeevents@...' in most rows). distinct() is one indexed round-trip and
+  // returns the casings that actually exist, so $in matches them exactly.
+  // Cosmos' support for case-insensitive $regex/collation is unreliable, which
+  // is why this is not a regex.
+  const ownerClause = ownerFilter
+    ? { calendarOwner: { $in: await ownerCasingsFor(eventsCollection, ownerFilter) } }
+    : {};
+
   // Published events overlapping the window. buildSeriesAwareDateRangeClause is
   // reused verbatim from the search view so masters match on their recurrence
   // RANGE (a master's own startDateTime holds only its first occurrence).
   const publishedDocs = await eventsCollection.find({
     status: 'published',
     isDeleted: { $ne: true },
+    ...ownerClause,
     $and: [buildSeriesAwareDateRangeClause(startDate, endDate)],
-  }).toArray();
+  }, { projection: REPORT_PROJECTION }).toArray();
 
   // Deleted-but-tracked events feed ONLY the failed-deletion check. A deleted
-  // doc keeps its graphData.id, which is exactly the handle we need to ask
-  // "is it still in Outlook?".
+  // doc keeps its Graph handle, which is exactly what we need to ask "is it
+  // still in Outlook?".
+  //
+  // TWO linkage shapes exist and both must match. Single instances and series
+  // masters carry graphData.id; exception/addition CHILD documents are created
+  // by exceptionDocumentService with `graphData: null` and the Graph id on a
+  // top-level `graphEventId`. Matching only graphData.id made every deleted
+  // child invisible to this check — precisely the `additions` bug class the
+  // report exists to catch. buildAppSide already reads both shapes.
+  //
+  // The linkage $or lives INSIDE $and: buildSeriesAwareDateRangeClause returns
+  // its own bare $or, and two sibling $or keys in one object literal would
+  // silently overwrite each other.
   const deletedDocs = await eventsCollection.find({
     isDeleted: true,
-    'graphData.id': { $exists: true, $ne: null },
-    $and: [buildSeriesAwareDateRangeClause(startDate, endDate)],
-  }).toArray();
+    ...ownerClause,
+    $and: [
+      buildSeriesAwareDateRangeClause(startDate, endDate),
+      {
+        $or: [
+          { 'graphData.id': { $exists: true, $ne: null } },
+          { graphEventId: { $exists: true, $ne: null } },
+        ],
+      },
+    ],
+  }, { projection: REPORT_PROJECTION }).toArray();
 
   const allDocs = [...publishedDocs, ...deletedDocs];
 
@@ -253,8 +412,9 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
   for (const doc of allDocs) {
     if (!doc.calendarOwner) continue;
     const key = calendarKeyOf(doc);
-    // Scope to a single mailbox when asked. Filtering on the same lower-cased
-    // key the grouping uses keeps the two consistent by construction.
+    // Belt and braces: ownerClause already scoped the queries. This second
+    // check costs one string compare and guarantees the grouping key and the
+    // requested scope agree even if a stored owner value is malformed.
     if (ownerFilter && key !== ownerFilter) continue;
     if (!docsByCalendar.has(key)) {
       docsByCalendar.set(key, { calendarOwner: doc.calendarOwner, docs: [] });
@@ -267,7 +427,8 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
 
   const calendars = [];
   for (const { calendarOwner, docs } of docsByCalendar.values()) {
-    const { appInstances, trackedSeries } = buildAppSide(docs, startDate, endDate);
+    const { appInstances, trackedSeries, nullDateMongoIds } = buildAppSide(docs, startDate, endDate);
+    const degraded = degradedFrom(nullDateMongoIds);
 
     // Always the mailbox's DEFAULT calendar. The stored calendarId cannot be
     // used here: it is scoped to whichever mailbox it was captured from, so
@@ -290,6 +451,7 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
         calendarOwner,
         calendarId: graphCalendarId,
         error: err.message || 'Graph request failed',
+        degraded,
         counts: {
           appExpected: appInstances.filter(i => !i.isDeleted).length,
           outlookFound: 0,
@@ -307,6 +469,7 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
       calendarOwner,
       calendarId: graphCalendarId,
       error: null,
+      degraded,
       ...diffCalendar({ appInstances, trackedSeries, outlookInstances }),
     });
   }
@@ -318,6 +481,11 @@ async function runSyncHealthCheck({ eventsCollection, graphApi, startDate, endDa
 
 module.exports = {
   MAX_WINDOW_DAYS,
+  REPORT_PROJECTION,
+  // Exported for syncReconcileService: reconcile must resolve a document's
+  // local date exactly the way the report did, or its duplicate probe would
+  // look at a different day than the finding it is fixing.
+  localDateOf,
   resolveWindow,
   validateWindow,
   buildAppSide,

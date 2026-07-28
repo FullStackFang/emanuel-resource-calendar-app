@@ -13,13 +13,17 @@ const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__h
 const { createAdmin, createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const {
+  createPublishedEvent,
   createPublishedEventWithGraph,
   createRecurringSeriesMaster,
   createAdditionDocument,
+  createDeletedEvent,
   insertEvent,
 } = require('../../__helpers__/eventFactory');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
+const syncHealthService = require('../../../services/syncHealthService');
+const { REPORT_PROJECTION } = syncHealthService;
 
 const ENDPOINT = '/api/admin/reports/sync-health';
 const WINDOW = { startDate: '2026-08-01', endDate: '2026-09-30' };
@@ -188,6 +192,86 @@ describe('GET /api/admin/reports/sync-health', () => {
     expect(flagged.some(f => f.eventType === 'addition')).toBe(true);
   });
 
+  // --- failed-deletion detection across BOTH linkage shapes ---------------
+  //
+  // Child documents (exception/addition) are created by exceptionDocumentService
+  // with `graphData: null` and the Graph id on a top-level `graphEventId`. The
+  // shipped deleted-docs query matched only `graphData.id`, so every deleted
+  // child was invisible to the failed-deletion check.
+
+  it('flags a deleted addition child whose Outlook event survived', async () => {
+    const token = await authAs(createAdmin());
+
+    const master = createRecurringSeriesMaster({
+      eventTitle: 'Weekly Standup',
+      startDateTime: at('2026-08-03T13:00:00'),
+      endDateTime: at('2026-08-03T14:00:00'),
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+        range: { type: 'endDate', startDate: '2026-08-03', endDate: '2026-08-31' },
+        additions: ['2026-08-20'],
+        exclusions: [],
+      },
+      status: 'published',
+      graphData: { id: 'master-graph-1' },
+    });
+    await insertEvent(db, master);
+
+    // Deleted in the app, but linked through graphEventId (graphData stays null).
+    const addition = createAdditionDocument(master, '2026-08-20', {}, {
+      status: 'deleted',
+      isDeleted: true,
+      graphEventId: 'addition-graph-1',
+    });
+    await insertEvent(db, addition);
+
+    // Outlook still shows the added date alongside every pattern occurrence.
+    graphApiMock.setMockResponse('getCalendarEvents', [
+      ...['2026-08-03', '2026-08-10', '2026-08-17', '2026-08-24', '2026-08-31'].map((d, i) =>
+        outlookEvent(`occ${i}`, d, {
+          seriesMasterId: 'master-graph-1', type: 'occurrence', subject: 'Weekly Standup',
+        })
+      ),
+      outlookEvent('addition-graph-1', '2026-08-20', { subject: 'Weekly Standup' }),
+    ]);
+
+    const res = await request(app).get(ENDPOINT).query(WINDOW)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const calendar = res.body.calendars[0];
+    const flagged = calendar.shouldNotBeInOutlook.find(f => f.graphId === 'addition-graph-1');
+    expect(flagged).toBeDefined();
+    expect(flagged.reason).toBe('deleted in app but still in Outlook');
+    // ...and it must NOT be summarized as an event the app does not manage.
+    expect(calendar.untracked.some(u => u.graphId === 'addition-graph-1')).toBe(false);
+  });
+
+  it('still flags a deleted single instance linked via graphData.id', async () => {
+    const token = await authAs(createAdmin());
+
+    const doc = createDeletedEvent({
+      eventTitle: 'Cancelled Concert',
+      previousStatus: 'published',
+      startDateTime: at('2026-08-14T13:00:00'),
+      endDateTime: at('2026-08-14T14:00:00'),
+      graphData: { id: 'single-graph-1' },
+    });
+    await insertEvent(db, doc);
+
+    graphApiMock.setMockResponse('getCalendarEvents', [
+      outlookEvent('single-graph-1', '2026-08-14', { subject: 'Cancelled Concert' }),
+    ]);
+
+    const res = await request(app).get(ENDPOINT).query(WINDOW)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const calendar = res.body.calendars[0];
+    expect(calendar.shouldNotBeInOutlook).toHaveLength(1);
+    expect(calendar.shouldNotBeInOutlook[0].graphId).toBe('single-graph-1');
+  });
+
   // --- mailbox-scoped calendarId (regression) ----------------------------
   //
   // Graph calendarId is a PER-MAILBOX opaque handle. Real data has the same
@@ -317,6 +401,124 @@ describe('GET /api/admin/reports/sync-health', () => {
     expect(res.status).toBe(200);
     expect(res.body.calendars).toHaveLength(1);
     expect(res.body.calendars[0].counts.appExpected).toBe(1);
+  });
+
+  // --- database-side scoping and projection -------------------------------
+
+  it('scopes the events query itself, not the results in JS', async () => {
+    await insertEvent(db, createPublishedEventWithGraph({
+      eventTitle: 'Wanted', startDateTime: at('2026-08-14T13:00:00'),
+      endDateTime: at('2026-08-14T14:00:00'), calendarOwner: TEST_CALENDAR_OWNER,
+    }));
+    await insertEvent(db, createPublishedEventWithGraph({
+      eventTitle: 'Other Mailbox', startDateTime: at('2026-08-15T13:00:00'),
+      endDateTime: at('2026-08-15T14:00:00'), calendarOwner: 'other@emanuelnyc.org',
+    }));
+
+    graphApiMock.setMockResponse('getCalendarEvents', []);
+
+    // Watch what actually leaves the database. Driven through the service
+    // rather than the route because db.collection() hands out a fresh wrapper
+    // per call, so patching one instance would not intercept the route's.
+    const events = db.collection(COLLECTIONS.EVENTS);
+    const finds = [];
+    const spying = {
+      distinct: events.distinct.bind(events),
+      find: (filter, options) => { finds.push({ filter, options }); return events.find(filter, options); },
+    };
+
+    // Requested in the OTHER casing, which is how calendar-config spells it.
+    const report = await syncHealthService.runSyncHealthCheck({
+      eventsCollection: spying,
+      graphApi: graphApiMock,
+      startDate: WINDOW.startDate,
+      endDate: WINDOW.endDate,
+      calendarOwner: TEST_CALENDAR_OWNER.toUpperCase(),
+    });
+
+    expect(report.calendars).toHaveLength(1);
+    expect(finds).toHaveLength(2); // published + deleted
+    for (const { filter, options } of finds) {
+      // Owner scope is IN the query, resolved to the casing actually stored.
+      expect(filter.calendarOwner.$in).toContain(TEST_CALENDAR_OWNER);
+      expect(filter.calendarOwner.$in).not.toContain('other@emanuelnyc.org');
+      // ...and only the fields the report reads come back.
+      expect(options.projection).toBe(REPORT_PROJECTION);
+    }
+  });
+
+  // The projection is the riskiest hardening change: a missed field degrades
+  // findings silently rather than throwing. This proves equivalence by running
+  // the same seeded data both ways.
+  it('produces identical findings with and without the projection', async () => {
+    // One fixture per finding type.
+    const matched = createPublishedEventWithGraph({
+      eventTitle: 'Matched', startDateTime: at('2026-08-05T13:00:00'),
+      endDateTime: at('2026-08-05T14:00:00'), graphId: 'match-1',
+    });
+    const missing = createPublishedEventWithGraph({
+      eventTitle: 'Missing', startDateTime: at('2026-08-06T13:00:00'),
+      endDateTime: at('2026-08-06T14:00:00'), graphId: 'gone-1',
+    });
+    const untethered = createPublishedEvent({
+      eventTitle: 'Never Linked', startDateTime: at('2026-08-07T13:00:00'),
+      endDateTime: at('2026-08-07T14:00:00'), graphData: {},
+    });
+    const zombie = createDeletedEvent({
+      eventTitle: 'Deleted But Present', previousStatus: 'published',
+      startDateTime: at('2026-08-08T13:00:00'), endDateTime: at('2026-08-08T14:00:00'),
+      graphData: { id: 'zombie-1' },
+    });
+    const master = createRecurringSeriesMaster({
+      eventTitle: 'Weekly With Exclusion',
+      startDateTime: at('2026-08-03T13:00:00'), endDateTime: at('2026-08-03T14:00:00'),
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+        range: { type: 'endDate', startDate: '2026-08-03', endDate: '2026-08-17' },
+        additions: [], exclusions: ['2026-08-10'],
+      },
+      status: 'published',
+      graphData: { id: 'series-1' },
+    });
+    for (const doc of [matched, missing, untethered, zombie, master]) await insertEvent(db, doc);
+
+    graphApiMock.setMockResponse('getCalendarEvents', [
+      outlookEvent('match-1', '2026-08-05', { subject: 'Matched' }),
+      outlookEvent('zombie-1', '2026-08-08', { subject: 'Deleted But Present' }),
+      outlookEvent('stray-1', '2026-08-09', { subject: 'Booked In Outlook' }),
+      ...['2026-08-03', '2026-08-10', '2026-08-17'].map((d, i) =>
+        outlookEvent(`occ-${i}`, d, {
+          seriesMasterId: 'series-1', type: 'occurrence', subject: 'Weekly With Exclusion',
+        })),
+    ]);
+
+    const events = db.collection(COLLECTIONS.EVENTS);
+    const args = {
+      graphApi: graphApiMock,
+      startDate: WINDOW.startDate,
+      endDate: WINDOW.endDate,
+      calendarOwner: TEST_CALENDAR_OWNER,
+    };
+
+    const projected = await syncHealthService.runSyncHealthCheck({ eventsCollection: events, ...args });
+
+    // Same collection with the projection stripped off every find().
+    const unprojected = await syncHealthService.runSyncHealthCheck({
+      eventsCollection: {
+        distinct: events.distinct.bind(events),
+        find: (filter) => events.find(filter),
+      },
+      ...args,
+    });
+
+    // Every finding type must be represented, or the parity claim is vacuous.
+    const [cal] = projected.calendars;
+    expect(cal.missingFromOutlook.length).toBeGreaterThan(0);
+    expect(cal.untethered.length).toBeGreaterThan(0);
+    expect(cal.shouldNotBeInOutlook.length).toBeGreaterThan(0);
+    expect(cal.untracked.length).toBeGreaterThan(0);
+
+    expect(projected).toEqual(unprojected);
   });
 
   // --- partial failure ----------------------------------------------------

@@ -225,16 +225,18 @@ describe('circuit breaker', () => {
 
     // Call 2: throttle events = 2 → warning logged
     await expect(retryWithBackoff(fn, { maxAttempts: 2, initialDelayMs: 1 })).rejects.toThrow();
+    // Breakers are per-backend now, so the log names which one is under
+    // pressure ('Cosmos' for the default instance).
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Circuit breaker at'),
-      expect.any(Number), expect.any(Number)
+      expect.any(Number), expect.any(Number), 'Cosmos'
     );
 
     // Call 3: throttle events = 3 → breaker opens
     await expect(retryWithBackoff(fn, { maxAttempts: 2, initialDelayMs: 1 })).rejects.toThrow();
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining('Circuit breaker OPEN'),
-      expect.any(Number), expect.any(Number)
+      'Cosmos', expect.any(Number), expect.any(Number)
     );
 
     expect(isBreakerOpen()).toBe(true);

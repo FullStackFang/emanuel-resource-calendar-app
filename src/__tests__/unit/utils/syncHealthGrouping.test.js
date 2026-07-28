@@ -94,24 +94,47 @@ describe('syncHealthGrouping — groupFindingsByEvent', () => {
 });
 
 describe('syncHealthGrouping — reconcile', () => {
-  // The live templeevents numbers.
-  it('splits the two counts into agreement and the two disagreements', () => {
-    expect(reconcile({ appExpected: 1384, outlookFound: 1444, matched: 1325 }))
-      .toEqual({ appOnly: 59, matched: 1325, outlookOnly: 119, total: 1503 });
+  // n undated Outlook-only rows, enough to stand in for a real untracked array.
+  const untracked = (n) =>
+    Array.from({ length: n }, (_, i) => ({ graphId: `g${i}`, subject: 'Stray', date: '2026-07-01' }));
+
+  // The live templeevents numbers: 119 unmatched Outlook instances, all of them
+  // genuinely unmanaged.
+  it('splits the counts into agreement and the two disagreements', () => {
+    expect(reconcile({
+      counts: { appExpected: 1384, outlookFound: 1444, matched: 1325 },
+      untracked: untracked(119),
+    })).toEqual({ appOnly: 59, matched: 1325, outlookOnly: 119, total: 1503 });
   });
 
   it('reports no disagreement when both sides agree', () => {
-    expect(reconcile({ appExpected: 10, outlookFound: 10, matched: 10 }))
-      .toEqual({ appOnly: 0, matched: 10, outlookOnly: 0, total: 10 });
+    expect(reconcile({
+      counts: { appExpected: 10, outlookFound: 10, matched: 10 },
+      untracked: [],
+    })).toEqual({ appOnly: 0, matched: 10, outlookOnly: 0, total: 10 });
+  });
+
+  // THE FIX: unmatched Outlook instances split two ways. A failed deletion is a
+  // problem listed under shouldNotBeInOutlook, and must not be summarized as an
+  // event the app does not manage. Arithmetic (outlookFound - matched) would
+  // say 3 here; the array says 2.
+  it('excludes failed deletions from the Outlook-only segment', () => {
+    expect(reconcile({
+      counts: { appExpected: 5, outlookFound: 8, matched: 5 },
+      shouldNotBeInOutlook: [{ graphId: 'zombie', subject: 'Cancelled', date: '2026-07-01' }],
+      untracked: untracked(2),
+    }).outlookOnly).toBe(2);
   });
 
   // A calendar whose Graph call failed reports zeroes; it must not go negative.
   it('never returns a negative segment', () => {
-    expect(reconcile({ appExpected: 4, outlookFound: 0, matched: 0 }))
-      .toEqual({ appOnly: 4, matched: 0, outlookOnly: 0, total: 4 });
+    expect(reconcile({
+      counts: { appExpected: 4, outlookFound: 0, matched: 0 },
+      untracked: [],
+    })).toEqual({ appOnly: 4, matched: 0, outlookOnly: 0, total: 4 });
   });
 
-  it('tolerates a missing counts object', () => {
+  it('tolerates a missing calendar object', () => {
     expect(reconcile()).toEqual({ appOnly: 0, matched: 0, outlookOnly: 0, total: 0 });
   });
 });

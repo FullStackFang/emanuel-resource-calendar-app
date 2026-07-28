@@ -34,6 +34,7 @@ const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
+const { withGraphRetry } = require('./utils/graphRetry');
 const graphApiService = require('./services/graphApiService');
 const { materializeAdditionDocuments } = require('./utils/exceptionDocumentService');
 const { buildGraphEventDataFromRecord } = require('./utils/graphEventBuilder');
@@ -56,12 +57,6 @@ const MASTER_QUERY = {
 };
 
 const withCosmosRetry = (op) => retryWithBackoff(op, { maxAttempts: 3 });
-const withGraphRetry = (op) => retryWithBackoff(op, {
-  maxAttempts: 3,
-  retryableError: (err) =>
-    err?.statusCode === 429 || err?.statusCode === 503 ||
-    err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET',
-});
 
 function drawProgress(label, processed, total) {
   const percent = total > 0 ? Math.round((processed / total) * 100) : 100;

@@ -39,9 +39,11 @@ export const OUTLOOK_FINDING = {
  * @param {Array<object>} rows - findings from one section of one calendar
  * @param {{keyOf: Function, titleOf: Function, kindOf: Function}} accessors
  * @returns {Array<{key: string, title: string, kind: string|null,
- *                  dates: string[], count: number}>}
+ *                  dates: string[], count: number, rows: object[]}>}
  *   Sorted by date count descending, then title, so the biggest breakage is
- *   read first and the order is stable across runs.
+ *   read first and the order is stable across runs. `rows` keeps the original
+ *   instance findings: grouping is a reading aid, but a fix acts on ONE Outlook
+ *   entry, whose graphId only exists on the instance row.
  */
 export function groupFindingsByEvent(rows, { keyOf, titleOf, kindOf }) {
   const byKey = new Map();
@@ -49,8 +51,9 @@ export function groupFindingsByEvent(rows, { keyOf, titleOf, kindOf }) {
   for (const row of rows || []) {
     const key = String(keyOf(row) ?? '');
     if (!byKey.has(key)) {
-      byKey.set(key, { key, title: titleOf(row), kind: kindOf(row), dates: [] });
+      byKey.set(key, { key, title: titleOf(row), kind: kindOf(row), dates: [], rows: [] });
     }
+    byKey.get(key).rows.push(row);
     // Undated findings (an untethered series has no single date) still count as
     // one occurrence of the problem, so only real dates enter the list.
     if (row.date) byKey.get(key).dates.push(row.date);
@@ -67,24 +70,35 @@ export function groupFindingsByEvent(rows, { keyOf, titleOf, kindOf }) {
 }
 
 /**
- * The three counts are one reconciliation, not three facts:
+ * The counts are one reconciliation, not separate facts:
  *
  *   appExpected  = matched + (things Outlook does not have)
- *   outlookFound = matched + (things the app does not manage)
  *
  * Returning the two differences lets the UI render the agreement and the
  * disagreement as one object instead of asking the reader to subtract.
  *
- * @param {{appExpected: number, outlookFound: number, matched: number}} counts
+ * `outlookOnly` is deliberately the LENGTH OF THE `untracked` ARRAY, not the
+ * arithmetic `outlookFound - matched`. The unmatched side of Outlook splits two
+ * ways: entries the app never managed (`untracked`) and entries the app tried
+ * to remove but Outlook kept (`shouldNotBeInOutlook`). The subtraction lumps
+ * both into "sit on the Outlook calendar that this app does not manage", which
+ * summarizes real failed deletions as normal. Deriving from the same array the
+ * section renders makes bar and section incapable of disagreeing.
+ *
+ * Takes the whole calendar entry rather than its `counts` so the two inputs
+ * cannot drift apart at a call site.
+ *
+ * @param {{counts?: {appExpected: number, outlookFound: number, matched: number},
+ *          untracked?: Array<object>}} calendar - one entry from `calendars`
  * @returns {{appOnly: number, matched: number, outlookOnly: number, total: number}}
  */
-export function reconcile(counts = {}) {
+export function reconcile(calendar = {}) {
+  const counts = calendar.counts || {};
   const appExpected = counts.appExpected || 0;
-  const outlookFound = counts.outlookFound || 0;
   const matched = counts.matched || 0;
 
   const appOnly = Math.max(0, appExpected - matched);
-  const outlookOnly = Math.max(0, outlookFound - matched);
+  const outlookOnly = (calendar.untracked || []).length;
 
   return { appOnly, matched, outlookOnly, total: appOnly + matched + outlookOnly };
 }

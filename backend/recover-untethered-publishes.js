@@ -45,6 +45,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 require('dotenv').config();
 
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
+const { withGraphRetry } = require('./utils/graphRetry');
 const graphApiService = require('./services/graphApiService');
 // Shared Graph event builder — same logic as the publish endpoint and the
 // new POST /api/admin/events/:id/republish endpoint. Centralized so all three
@@ -115,19 +116,6 @@ async function withCosmosRetry(operation, maxAttempts = 3) {
 }
 
 /**
- * Retry with Graph-specific predicate (429, 503, ETIMEDOUT, ECONNRESET).
- * Graph 429s do NOT match isCosmosRetryable, so we explicit the predicate.
- */
-async function withGraphRetry(operation, maxAttempts = 3) {
-  return retryWithBackoff(operation, {
-    maxAttempts,
-    retryableError: (err) =>
-      err?.statusCode === 429 || err?.statusCode === 503 ||
-      err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET',
-  });
-}
-
-/**
  * Fetch a Graph event by id. Returns null on 404 (Graph event was deleted).
  * graphApiService.getEvent is the actual method (see services/graphApiService.js:232).
  */
@@ -137,7 +125,8 @@ async function fetchGraphEvent(calendarOwner, calendarId, graphId) {
       graphApiService.getEvent(calendarOwner, calendarId, graphId)
     );
   } catch (err) {
-    if (err?.statusCode === 404) return null;
+    // graphApiService throws `status`; `statusCode` kept for any legacy shape.
+    if ((err?.status ?? err?.statusCode) === 404) return null;
     throw err;
   }
 }
@@ -393,7 +382,7 @@ async function diagnose(collection, id) {
       graphApiService.getEvent(event.calendarOwner, event.calendarId || null, graphId)
     );
   } catch (err) {
-    if (err?.statusCode === 404) {
+    if ((err?.status ?? err?.statusCode) === 404) {
       printDiagnoseField('Found', 'NO (HTTP 404 — Graph event no longer exists)');
       console.log(`\n   ⚠️  DIAGNOSIS: stale graphData.id`);
       console.log(`     The Graph event referenced by graphData.id has been deleted from Outlook.`);

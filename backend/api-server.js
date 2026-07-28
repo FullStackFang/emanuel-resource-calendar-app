@@ -36,6 +36,7 @@ const { expandSearchResults } = require('./utils/searchOccurrenceExpansion');
 const { getPublicEvents } = require('./utils/publicEventsQuery');
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
+const { withGraphRetry } = require('./utils/graphRetry');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
@@ -54,6 +55,8 @@ const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 const syncHealthService = require('./services/syncHealthService');
+const syncReconcileService = require('./services/syncReconcileService');
+const { republishEventCore } = require('./services/republishCore');
 let graphApiService = require('./services/graphApiService');
 const rschedImportService = require('./services/rschedImportService');
 const rschedRecurrenceDetection = require('./services/rschedRecurrenceDetection');
@@ -12277,6 +12280,228 @@ app.get('/api/admin/reports/sync-health', verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * Sync Health reconcile — POST /api/admin/sync-health/reconcile/plan and /apply
+ *
+ * Two thin routes over services/syncReconcileService. Generic across finding
+ * types on purpose: per-action endpoints would multiply the
+ * fingerprint/stale/audit boilerplate by eight.
+ *
+ * ADMIN-ONLY, unlike the report itself (admin + approver). These write to
+ * Outlook, and one of the actions cannot be undone.
+ *
+ * The handshake: `plan` re-observes reality and returns an `expectedState`
+ * fingerprint; `apply` takes that fingerprint back, re-observes AGAIN, and
+ * refuses with 409 STALE_FINDING before any write if anything moved. Nothing is
+ * stored server-side between the two calls, so it survives restarts and
+ * concurrent admins.
+ *
+ * As with the report route, `graphApiService` is read INSIDE the handler so the
+ * test harness's setGraphApiService() swap is observed.
+ */
+
+/**
+ * Shared validation for both reconcile routes.
+ *
+ * `action` is optional ONLY on /plan, where omitting it means "just tell me
+ * what this finding is and what I could do about it" (context mode — reads
+ * only). /apply passes requireAction so an actionless apply cannot slip through.
+ * @private
+ */
+function parseReconcileRequest(body = {}, { requireAction = true } = {}) {
+  const { calendarOwner, findingType, action, target } = body;
+  if (!calendarOwner) return { error: 'calendarOwner is required' };
+  if (!findingType) return { error: 'findingType is required' };
+  if (requireAction && !action) return { error: 'action is required' };
+  if (!target || typeof target !== 'object') return { error: 'target is required' };
+  if (!target.mongoId && !target.graphId) {
+    return { error: 'target must carry a mongoId or a graphId' };
+  }
+  return { value: { calendarOwner, findingType, action: action || null, target } };
+}
+
+/**
+ * SSE adapter. The service reports WHAT changed; re-reading the document and
+ * shaping the broadcast is the route's job, so the service stays free of the
+ * api-server broadcast contract.
+ * @private
+ */
+function reconcileBroadcaster() {
+  return ({ eventId, action, actorEmail, oldStatus, newStatus }) => {
+    unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) })
+      .then((refreshed) => broadcastEventChange({
+        eventId,
+        action,
+        actorEmail,
+        requesterEmail: refreshed?.roomReservationData?.requestedBy?.email,
+        event: refreshed,
+        oldStatus,
+        newStatus,
+      }))
+      .catch((err) => logger.warn('[reconcile] SSE broadcast failed: %s', err.message));
+  };
+}
+
+app.post('/api/admin/sync-health/reconcile/plan', verifyToken, async (req, res) => {
+  try {
+    const actor = await requireAdminUser(req, res);
+    if (!actor) return;
+
+    // action omitted => context mode: observe and describe, plan nothing.
+    const parsed = parseReconcileRequest(req.body, { requireAction: false });
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const result = await syncReconcileService.planReconcile({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      ...parsed.value,
+      linkTargetGraphId: req.body.linkTargetGraphId || null,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status || 409).json({
+        error: result.code,
+        message: result.reason,
+        candidates: result.candidates || [],
+      });
+    }
+
+    if (result.context) {
+      return res.json({
+        context: true,
+        availableActions: result.availableActions,
+        observed: result.observed,
+      });
+    }
+
+    return res.json({
+      ...result.plan,
+      expectedState: result.expectedState,
+      expiresAt: result.expectedState.expiresAt,
+    });
+  } catch (err) {
+    logger.error('sync-health reconcile plan error:', err);
+    return res.status(500).json({ error: 'Failed to plan reconcile', message: err.message });
+  }
+});
+
+app.post('/api/admin/sync-health/reconcile/apply', verifyToken, async (req, res) => {
+  try {
+    const actor = await requireAdminUser(req, res);
+    if (!actor) return;
+
+    const parsed = parseReconcileRequest(req.body);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const result = await syncReconcileService.applyReconcile({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      auditService,
+      broadcast: reconcileBroadcaster(),
+      ...parsed.value,
+      linkTargetGraphId: req.body.linkTargetGraphId || null,
+      expectedState: req.body.expectedState,
+      allowDuplicate: req.body.allowDuplicate === true,
+      confirmIrreversible: req.body.confirmIrreversible === true,
+      actor: { userId: actor.userId, email: actor.userEmail },
+    });
+
+    if (!result.ok) {
+      return res.status(result.status || 409).json({
+        error: result.code,
+        message: result.reason,
+        drifts: result.drifts,
+        candidates: result.candidates,
+        observed: result.observed,
+        orphanedGraphId: result.orphanedGraphId,
+        orphanCompensated: result.orphanCompensated,
+      });
+    }
+
+    return res.json({ success: true, results: result.results, observed: result.observed });
+  } catch (err) {
+    logger.error('sync-health reconcile apply error:', err);
+    return res.status(500).json({ error: 'Failed to apply reconcile', message: err.message });
+  }
+});
+
+/**
+ * Batch link — POST /api/admin/sync-health/reconcile/batch/plan and /batch/apply
+ *
+ * Bulk is offered for link-to-existing ONLY. It writes Mongo, creates nothing,
+ * and is reversible by unsetting the id. Bulk publish would mint duplicate
+ * Outlook events; bulk delete cannot be undone. Neither is exposed here.
+ *
+ * plan classifies every row (confident / ambiguous / none) and returns a
+ * per-row `expectedState`; apply runs each selected row through the ordinary
+ * single-finding path so nothing skips the fingerprint handshake, the OCC
+ * write, the audit entry or the SSE broadcast.
+ */
+app.post('/api/admin/sync-health/reconcile/batch/plan', verifyToken, async (req, res) => {
+  try {
+    const actor = await requireAdminUser(req, res);
+    if (!actor) return;
+
+    const { calendarOwner, mongoIds } = req.body || {};
+    if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
+    if (!Array.isArray(mongoIds) || mongoIds.length === 0) {
+      return res.status(400).json({ error: 'mongoIds must be a non-empty array' });
+    }
+
+    const result = await syncReconcileService.planBatchLink({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      calendarOwner,
+      mongoIds,
+    });
+
+    return res.json({
+      rows: result.rows,
+      summary: result.summary,
+      truncated: mongoIds.length > syncReconcileService.MAX_BATCH_ROWS,
+    });
+  } catch (err) {
+    logger.error('sync-health batch link plan error:', err);
+    return res.status(500).json({ error: 'Failed to plan batch link', message: err.message });
+  }
+});
+
+app.post('/api/admin/sync-health/reconcile/batch/apply', verifyToken, async (req, res) => {
+  try {
+    const actor = await requireAdminUser(req, res);
+    if (!actor) return;
+
+    const { calendarOwner, selections } = req.body || {};
+    if (!calendarOwner) return res.status(400).json({ error: 'calendarOwner is required' });
+    if (!Array.isArray(selections) || selections.length === 0) {
+      return res.status(400).json({ error: 'selections must be a non-empty array' });
+    }
+    // Every row must name the Outlook event it is linking to and carry the
+    // fingerprint it was planned against — no defaults, no inference.
+    const malformed = selections.find((s) => !s?.mongoId || !s?.graphId || !s?.expectedState);
+    if (malformed) {
+      return res.status(400).json({
+        error: 'Each selection needs mongoId, graphId and expectedState',
+      });
+    }
+
+    const result = await syncReconcileService.applyBatchLink({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      auditService,
+      broadcast: reconcileBroadcaster(),
+      calendarOwner,
+      selections,
+      actor: { userId: actor.userId, email: actor.userEmail },
+    });
+
+    return res.json({ success: true, results: result.results, summary: result.summary });
+  } catch (err) {
+    logger.error('sync-health batch link apply error:', err);
+    return res.status(500).json({ error: 'Failed to apply batch link', message: err.message });
+  }
+});
+
 // On-disk CSV library lives under backend/csv-imports/. Files there are
 // available as a dropdown source so admins don't have to re-upload the same
 // reference exports. Listing/reading is admin-only and confined to that dir.
@@ -22124,20 +22349,15 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         //
         // Note: withCosmosRetry's predicate (isCosmosRetryable) only matches
         // Cosmos throttle signals (code 16500, RequestRateTooLarge,
-        // RetryAfterMs). Graph 429s/503s do NOT match, so we use
-        // retryWithBackoff directly with a Graph-specific predicate.
+        // RetryAfterMs). Graph 429s/503s do NOT match, so this uses the shared
+        // Graph policy (utils/graphRetry.js) — its own predicate and its own
+        // circuit breaker.
         if (graphEventId) {
           try {
-            await retryWithBackoff(
+            await withGraphRetry(
               () => graphApiService.deleteCalendarEvent(
                 selectedCalendarOwner, selectedCalendarId, graphEventId
-              ),
-              {
-                maxAttempts: 3,
-                retryableError: (err) =>
-                  err?.statusCode === 429 || err?.statusCode === 503 ||
-                  err?.code === 'ETIMEDOUT' || err?.code === 'ECONNRESET'
-              }
+              )
             );
             logger.info('Rolled back orphan Graph event during publish failure', {
               graphEventId, calendarOwner: selectedCalendarOwner
@@ -22427,65 +22647,24 @@ app.post('/api/admin/events/:id/republish', verifyToken, async (req, res) => {
       });
     }
 
-    // Build the Graph event payload from the record's current state (same
-    // logic the publish endpoint uses, centralized in graphEventBuilder.js).
-    const graphEventData = buildGraphEventDataFromRecord(event);
-
-    logger.info('Republish: creating fresh Graph event', {
-      eventId: id,
-      calendarOwner: event.calendarOwner,
-      previousGraphId: event.graphData?.id || null,
-      subject: graphEventData.subject,
-    });
-
-    // Create the fresh Graph event (app-only auth via graphApiService)
-    const createdEvent = await graphApiService.createCalendarEvent(
-      event.calendarOwner,
-      event.calendarId || null,
-      graphEventData
-    );
-
-    // Preserve any non-id auxiliary fields delta sync may have written
-    // (e.g. location.displayName) — only overwrite id/iCalUId.
-    const previousGraphId = event.graphData?.id || null;
-    const newGraphData = {
-      ...(event.graphData && typeof event.graphData === 'object' ? event.graphData : {}),
-      id: createdEvent.id,
-      iCalUId: createdEvent.iCalUId,
-    };
-
-    // OCC-guarded Mongo write. Filter on `_version` (from request body or
-    // freshly-read value) to ensure no concurrent admin save slipped in
-    // between our read and write. If matchedCount is 0, the Graph event
-    // was created but the link was NOT persisted — surface this clearly.
+    // Create-then-link mechanics live in services/republishCore.js so the
+    // sync-health reconcile publish action shares this exact write order and
+    // orphan-reporting behavior instead of forking it.
     const expectedVersion = (typeof _version === 'number') ? _version : event._version;
-    const updateResult = await withCosmosRetry(() => unifiedEventsCollection.updateOne(
-      { _id: objectId, _version: expectedVersion },
-      {
-        $set: { graphData: newGraphData },
-        $inc: { _version: 1 },
-        $push: {
-          'roomReservationData.createdGraphEventIds': createdEvent.id,
-          statusHistory: buildStatusHistoryEntry(
-            'published',
-            userId,
-            userEmail,
-            previousGraphId
-              ? `Republished to Outlook (orphaned previous: ${previousGraphId})`
-              : 'Republished to Outlook'
-          ),
-        },
-      }
-    ));
+    const result = await republishEventCore({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      event,
+      expectedVersion,
+      userId,
+      userEmail,
+      withRetry: withCosmosRetry,
+    });
+    const { createdEvent, newGraphData, previousGraphId } = result;
 
-    if (updateResult.matchedCount === 0) {
+    if (!result.ok) {
       // Concurrent admin save bumped _version. Graph event was created but
       // not linked. Operator must handle the orphan manually before retry.
-      logger.error('Republish OCC conflict — Graph event created but not linked', {
-        eventId: id,
-        orphanedGraphId: createdEvent.id,
-        expectedVersion,
-      });
       return res.status(409).json({
         error: 'VERSION_CONFLICT',
         message: 'Record was modified during republish. Graph event was created but not linked. Delete the orphan in Outlook and retry.',

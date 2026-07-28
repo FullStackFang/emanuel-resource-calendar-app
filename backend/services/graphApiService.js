@@ -8,6 +8,9 @@
 
 const msal = require('@azure/msal-node');
 const logger = require('../utils/logger');
+// Shared with __tests__/__helpers__/graphApiMock so simulated failures carry the
+// same shape as real ones (see utils/graphError.js).
+const { buildGraphError } = require('../utils/graphError');
 
 // Azure AD Configuration (shared)
 const { APP_ID, TENANT_ID } = require('../config/azureConfig');
@@ -135,10 +138,7 @@ async function graphRequest(endpoint, options = {}) {
         error: data.error
       });
 
-      const error = new Error(errorMessage);
-      error.status = response.status;
-      error.graphError = data.error;
-      throw error;
+      throw buildGraphError(response.status, errorMessage, data.error);
     }
 
     return data;
@@ -845,6 +845,9 @@ module.exports = {
   // Generic request
   graphRequest,
   batchRequest,
+  // Re-exported so callers and mocks build failures the same way this service
+  // throws them.
+  buildGraphError,
 
   // Calendar operations
   getCalendars,

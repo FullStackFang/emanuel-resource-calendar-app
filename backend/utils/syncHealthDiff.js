@@ -22,6 +22,17 @@ const EASTERN_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 });
 
+// Same reasoning for wall-clock time. Without this, a Graph instant renders as
+// its UTC time and sits next to the app's LOCAL time in the same table — a
+// 17:00 booking appearing as 22:00 next to '17:00', which reads as a mismatch
+// when the two are in fact identical.
+const EASTERN_TIME_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: CALENDAR_TIMEZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
 /**
  * Normalize a Graph instance start time to its LOCAL date in the calendar's
  * timezone.
@@ -50,6 +61,34 @@ function toEasternDateKey(dateTime, timeZone = 'UTC') {
   if (Number.isNaN(parsed.getTime())) return null;
 
   return EASTERN_DATE_FORMATTER.format(parsed);
+}
+
+/**
+ * The LOCAL wall-clock time of a Graph instant, as 'HH:MM'.
+ *
+ * Companion to toEasternDateKey and subject to the same trap: Graph's
+ * `start.dateTime` has no trailing Z but a sibling timeZone of 'UTC', so naive
+ * parsing yields host-local time. Used for DISPLAY only — the diff never
+ * compares times, because an event retimed in Outlook is still the same event.
+ *
+ * @param {string|null|undefined} dateTime
+ * @param {string} [timeZone='UTC'] - the sibling Graph timeZone field
+ * @returns {string|null} 'HH:MM' local time, or null when input is falsy
+ */
+function toEasternTimeKey(dateTime, timeZone = 'UTC') {
+  if (!dateTime) return null;
+
+  // Already rendered as wall-clock in a named zone — take the time part as-is.
+  if (timeZone && timeZone !== 'UTC') {
+    const timePart = dateTime.split('T')[1];
+    return timePart ? timePart.slice(0, 5) : null;
+  }
+
+  const utcString = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dateTime) ? dateTime : `${dateTime}Z`;
+  const parsed = new Date(utcString);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return EASTERN_TIME_FORMATTER.format(parsed);
 }
 
 /**
@@ -138,6 +177,25 @@ function consumeMatch(index, instance) {
   return null;
 }
 
+/**
+ * Fields a finding carries purely so the report can show them as columns.
+ *
+ * Strictly display. NOTHING here participates in matching — that is by Graph ID
+ * (plus date for series occurrences) and nothing else, so a room rename or a
+ * retimed event cannot produce a finding. Kept in one helper so it is obvious
+ * that adding a column is not the same as adding a matching rule.
+ *
+ * @param {object} instance - an AppInstance
+ * @returns {{location: string, startTime: string, endTime: string}}
+ */
+function displayFieldsOf(instance) {
+  return {
+    location: instance.location || '',
+    startTime: instance.startTime || '',
+    endTime: instance.endTime || '',
+  };
+}
+
 const MISSING_REASON = {
   addition: 'no Outlook event for added date',
   seriesMaster: 'no Outlook occurrence on this date',
@@ -187,6 +245,13 @@ function diffCalendar({ appInstances = [], trackedSeries = [], outlookInstances 
           mongoId: instance.mongoId,
           eventTitle: instance.eventTitle,
           eventType: instance.eventType,
+          // A seriesMaster is reported ONCE for the whole pattern, so the first
+          // expanded date is not "the" date and stating it would mislead. Every
+          // other type has exactly one real date, and without it the report
+          // renders "whole series" for a single instance — which is both wrong
+          // and the reason an admin cannot tell what they are about to fix.
+          date: instance.eventType === 'seriesMaster' ? null : instance.date,
+          ...displayFieldsOf(instance),
         });
       }
       continue;
@@ -201,6 +266,7 @@ function diffCalendar({ appInstances = [], trackedSeries = [], outlookInstances 
         date: instance.date,
         eventType: instance.eventType,
         reason: MISSING_REASON[instance.eventType] || 'no matching Outlook event',
+        ...displayFieldsOf(instance),
       });
     }
   }
@@ -256,6 +322,7 @@ function diffCalendar({ appInstances = [], trackedSeries = [], outlookInstances 
 module.exports = {
   CALENDAR_TIMEZONE,
   toEasternDateKey,
+  toEasternTimeKey,
   seriesDateKey,
   buildOutlookIndex,
   diffCalendar,

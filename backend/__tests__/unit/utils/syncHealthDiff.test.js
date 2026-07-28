@@ -1,5 +1,6 @@
 const {
   toEasternDateKey,
+  toEasternTimeKey,
   buildOutlookIndex,
   seriesDateKey,
   diffCalendar,
@@ -126,6 +127,36 @@ const appInstance = (over = {}) => ({
 
 const emptyArgs = { appInstances: [], trackedSeries: [], outlookInstances: [] };
 
+// App-side findings carry location/time so the report can show them as
+// columns. Purely display — see displayFieldsOf in syncHealthDiff.js; nothing
+// here participates in matching. Spread into the exact-equality assertions
+// below so those keep asserting "these fields and no others".
+const NO_DISPLAY = { location: '', startTime: '', endTime: '' };
+
+describe('syncHealthDiff — toEasternTimeKey', () => {
+  // Graph sends `start.dateTime` with NO trailing Z and a sibling timeZone of
+  // 'UTC'. A 17:00 Eastern booking in January arrives as 22:00; printing that
+  // raw next to the app's local '17:00' makes one event look like two.
+  it('converts a UTC instant to local wall clock (EST)', () => {
+    expect(toEasternTimeKey('2027-01-23T22:00:00.0000000', 'UTC')).toBe('17:00');
+  });
+
+  it('converts across the DST boundary (EDT)', () => {
+    expect(toEasternTimeKey('2026-07-15T21:00:00.0000000', 'UTC')).toBe('17:00');
+  });
+
+  // A named zone means Graph already rendered wall-clock time; shifting again
+  // would double-apply the offset.
+  it('takes the time as-is when Graph already localized it', () => {
+    expect(toEasternTimeKey('2027-01-23T17:00:00.0000000', 'America/New_York')).toBe('17:00');
+  });
+
+  it('is null for nothing', () => {
+    expect(toEasternTimeKey(null)).toBeNull();
+    expect(toEasternTimeKey('')).toBeNull();
+  });
+});
+
 describe('syncHealthDiff — diffCalendar', () => {
   it('reports no findings when app and Outlook agree', () => {
     const result = diffCalendar({
@@ -176,6 +207,7 @@ describe('syncHealthDiff — diffCalendar', () => {
       date: '2026-08-20',
       eventType: 'addition',
       reason: 'no Outlook event for added date',
+      ...NO_DISPLAY,
     }]);
     expect(result.counts.matched).toBe(0);
   });
@@ -196,6 +228,7 @@ describe('syncHealthDiff — diffCalendar', () => {
       date: '2026-08-20',
       eventType: 'addition',
       reason: 'no Outlook event for added date',
+      ...NO_DISPLAY,
     }]);
   });
 
@@ -209,7 +242,42 @@ describe('syncHealthDiff — diffCalendar', () => {
     expect(result.missingFromOutlook).toEqual([{
       mongoId: 'm1', eventTitle: 'Test Event', date: '2026-08-14',
       eventType: 'singleInstance', reason: 'no Outlook event with this Graph ID',
+      ...NO_DISPLAY,
     }]);
+  });
+
+  it('carries location and time onto findings for the report columns', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        eventTitle: 'Religious School Reserved',
+        location: 'Lowenstein', startTime: '09:00', endTime: '12:00',
+      })],
+      outlookInstances: [],
+    });
+
+    expect(result.missingFromOutlook[0]).toMatchObject({
+      location: 'Lowenstein', startTime: '09:00', endTime: '12:00',
+    });
+  });
+
+  // The app calls a room 'Lowenstein', Outlook calls it 'Leon Lowenstein'
+  // (Locations carries Graph-sourced aliases). Matching is by Graph ID alone,
+  // so that drift must be invisible to the diff — it is a column, not a rule.
+  it('does not flag an event whose room is named differently in Outlook', () => {
+    const result = diffCalendar({
+      ...emptyArgs,
+      appInstances: [appInstance({
+        eventTitle: 'Religious School Reserved', location: 'Lowenstein',
+      })],
+      outlookInstances: [outlookEvent('g1', '2026-08-14', {
+        subject: 'Religious School Reserved', location: { displayName: 'Leon Lowenstein' },
+      })],
+    });
+
+    expect(result.missingFromOutlook).toEqual([]);
+    expect(result.untracked).toEqual([]);
+    expect(result.counts.matched).toBe(1);
   });
 
   // An untethered master must produce ONE finding, not one per pattern date.
@@ -224,7 +292,8 @@ describe('syncHealthDiff — diffCalendar', () => {
     });
 
     expect(result.untethered).toEqual([
-      { mongoId: 'm1', eventTitle: 'Untethered Series', eventType: 'seriesMaster' },
+      // A master stands for its whole pattern, so no single date is "the" date.
+      { mongoId: 'm1', eventTitle: 'Untethered Series', eventType: 'seriesMaster', date: null, ...NO_DISPLAY },
     ]);
     expect(result.missingFromOutlook).toEqual([]);
   });
@@ -239,8 +308,10 @@ describe('syncHealthDiff — diffCalendar', () => {
       outlookInstances: [],
     });
 
+    // Everything that is not a master carries its date, so the report can say
+    // WHEN rather than falling back to "whole series".
     expect(result.untethered).toEqual([
-      { mongoId: 'add1', eventTitle: 'Extra Rehearsal', eventType: 'addition' },
+      { mongoId: 'add1', eventTitle: 'Extra Rehearsal', eventType: 'addition', date: '2026-08-20', ...NO_DISPLAY },
     ]);
     expect(result.missingFromOutlook).toEqual([]);
   });

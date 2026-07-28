@@ -9,7 +9,15 @@
  * reads better as a statement than as a set of tiles.
  */
 
-.sync-health { padding: 1.5rem; max-width: 1000px; margin: 0 auto; }
+/* Wide on purpose. The rows are a ledger of events with a date, a time, a room
+   and a type — five columns want the width, and hiding four of them behind a
+   click is what made the report unscannable. Capped rather than full-bleed so
+   the prose blocks above stay readable. */
+.sync-health { padding: 1.5rem; max-width: 1500px; margin: 0 auto; }
+.sync-health-header,
+.sync-health-subtitle,
+.sync-health-group-why,
+.sync-health-recon-sentence { max-width: 78ch; }
 
 .sync-health-header { border-bottom: 2px solid var(--color-neutral-900); padding-bottom: 1rem; }
 .sync-health-header h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.015em; }
@@ -65,6 +73,16 @@
 
 .sync-health-calendar--errored .sync-health-calendar-head { border-bottom-color: var(--color-error-500); }
 .sync-health-error { margin: 0; color: var(--color-error-500); font-size: 0.875rem; }
+
+/* Degraded data: the findings below are still shown, but they cannot be trusted
+   for the named records, so the warning sits above them rather than replacing
+   them (which is what the .sync-health-error path does). */
+.sync-health-degraded {
+  margin: 0 0 1rem; padding: 0.625rem 0.75rem;
+  border-left: 3px solid var(--color-error-500);
+  background: var(--color-error-50, #fef2f2);
+  color: var(--color-error-500); font-size: 0.8125rem; word-break: break-all;
+}
 
 /* ── reconciliation: a Venn diagram flattened onto one axis ─────────────── */
 .sync-health-recon { margin-bottom: 1.75rem; }
@@ -140,11 +158,25 @@
 }
 .sync-health-row { border-bottom: 1px solid var(--color-neutral-100); }
 
+/* The Fix affordance sits beside the row's disclosure button, not inside it —
+   nesting a button in a button is invalid HTML and swallows the click. */
+.sync-health-row-head { display: flex; align-items: baseline; gap: 0.5rem; }
+.sync-health-row-head .sync-health-row-main { flex: 1; min-width: 0; }
+
+/* Title | when | time | where | type. Fixed track widths so the columns line
+   up down the whole list — that alignment is what makes 46 rows scannable
+   instead of 46 separate sentences. */
 .sync-health-row-main {
-  display: grid; grid-template-columns: 1fr auto auto;
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) 9rem 7.5rem minmax(8rem, 1fr) 7rem;
   gap: 0.75rem; align-items: baseline; width: 100%;
   padding: 0.45rem 0; background: none; border: none;
   font: inherit; text-align: left; color: inherit; cursor: pointer;
+}
+/* Narrow screens: drop to the old stacked shape rather than crushing columns. */
+@media (max-width: 900px) {
+  .sync-health-row-main { grid-template-columns: 1fr auto; }
+  .sync-health-row-time, .sync-health-row-where { display: none; }
 }
 .sync-health-row-main:disabled { cursor: default; }
 .sync-health-row-main:hover:not(:disabled) { background: var(--color-neutral-100); }
@@ -161,6 +193,18 @@
   font-size: 0.75rem; color: var(--color-neutral-600);
   font-variant-numeric: tabular-nums; min-width: 5.5rem; text-align: right;
 }
+
+/* Column cells. Truncate rather than wrap: a row that stays one line tall is
+   what lets the eye run down a column. */
+.sync-health-row-when,
+.sync-health-row-time,
+.sync-health-row-where {
+  font-size: 0.75rem; color: var(--color-neutral-700);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sync-health-row-when, .sync-health-row-time { font-variant-numeric: tabular-nums; }
+.sync-health-row-time { color: var(--color-neutral-500); }
+.sync-health-row-where { color: var(--color-neutral-600); }
 
 .sync-health-dates {
   list-style: none; margin: 0; padding: 0 0 0.6rem 0;
@@ -195,4 +239,177 @@
   .sync-health-rows, .sync-health-disclose { margin-left: 0; }
   .sync-health-group-head { grid-template-columns: 2.5rem 1fr; gap: 0.6rem; }
   .sync-health-run-btn { margin-left: 0; }
+}
+
+/* ── reconcile: the Fix panel ───────────────────────────────────────────────
+   Everything the panel SAYS about an action comes from the server's plan; this
+   only styles it. The apply button follows the app-wide in-button confirmation
+   standard, and colours the confirm state by whether the plan is reversible. */
+
+.sync-health-fix-toggle {
+  flex: none; padding: 0.2rem 0.55rem; font-size: 0.75rem;
+  background: none; color: var(--color-primary-600);
+  border: 1px solid var(--color-neutral-300); border-radius: 4px; cursor: pointer;
+}
+.sync-health-fix-toggle:hover { background: var(--color-neutral-100); }
+
+.sync-health-fix {
+  margin: 0 0 0.75rem; padding: 0.75rem;
+  background: var(--color-neutral-50, #fafafa);
+  border: 1px solid var(--color-neutral-200); border-radius: 4px;
+}
+
+.sync-health-fix-instance {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; color: var(--color-neutral-700); margin-bottom: 0.6rem;
+}
+
+.sync-health-fix-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.sync-health-fix-btn {
+  padding: 0.3rem 0.65rem; font-size: 0.75rem; cursor: pointer;
+  background: white; color: var(--color-neutral-800);
+  border: 1px solid var(--color-neutral-300); border-radius: 4px;
+}
+.sync-health-fix-btn:hover:not(:disabled) { border-color: var(--color-primary-500); }
+.sync-health-fix-btn.selected {
+  border-color: var(--color-primary-500); background: var(--color-primary-50, #eff6ff);
+}
+.sync-health-fix-btn:disabled { opacity: 0.55; cursor: default; }
+
+.sync-health-fix-candidates {
+  margin-top: 0.7rem; font-size: 0.75rem; color: var(--color-neutral-800);
+}
+.sync-health-fix-candidates p { margin: 0 0 0.35rem; font-weight: 600; }
+.sync-health-fix-candidates label {
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0;
+}
+
+.sync-health-fix-problem {
+  margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--color-error-500);
+}
+
+.sync-health-fix-plan { margin-top: 0.75rem; }
+.sync-health-fix-ops { margin: 0 0 0.5rem; padding-left: 1.1rem; }
+.sync-health-fix-ops li { font-size: 0.8125rem; margin-bottom: 0.3rem; }
+.sync-health-fix-op-desc { display: block; color: var(--color-neutral-900); }
+.sync-health-fix-op-dir {
+  display: block; font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--color-neutral-500);
+}
+
+.sync-health-fix-warning {
+  margin: 0 0 0.5rem; padding: 0.4rem 0.55rem; font-size: 0.75rem;
+  border-left: 3px solid var(--color-warning-500);
+  background: var(--color-warning-50, #fffbeb); color: var(--color-neutral-900);
+}
+
+.sync-health-fix-apply {
+  padding: 0.35rem 0.9rem; font-size: 0.8125rem; font-weight: 600;
+  color: white; background: var(--color-primary-600);
+  border: none; border-radius: 4px; cursor: pointer;
+}
+.sync-health-fix-apply:disabled { opacity: 0.6; cursor: default; }
+.sync-health-fix-apply.confirm {
+  background: var(--color-warning-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+/* Destructive actions confirm in red, per the action-colour standard. */
+.sync-health-fix-apply.confirm.destructive { background: var(--color-error-500); }
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+/* ── reconcile: the facts behind a decision ─────────────────────────────────
+   Archive / link / publish are not interchangeable, so the panel states what
+   the event IS and what Outlook shows that day before offering the choice. */
+
+.sync-health-facts-loading {
+  margin: 0 0 0.6rem; font-size: 0.75rem;
+  color: var(--color-neutral-600); font-style: italic;
+}
+
+.sync-health-facts { margin: 0 0 0.7rem; font-size: 0.75rem; }
+.sync-health-facts > div { display: flex; gap: 0.5rem; padding: 0.1rem 0; }
+.sync-health-facts dt {
+  flex: none; width: 7rem; color: var(--color-neutral-500);
+  text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.6875rem;
+}
+.sync-health-facts dd { margin: 0; color: var(--color-neutral-900); }
+
+.sync-health-day {
+  margin: 0 0 0.7rem; padding: 0.5rem 0.6rem;
+  background: #fff; border: 1px solid var(--color-neutral-200); border-radius: 4px;
+}
+.sync-health-day-head {
+  margin: 0; font-size: 0.75rem; font-weight: 600; color: var(--color-neutral-800);
+}
+.sync-health-day-list {
+  list-style: none; margin: 0.4rem 0 0; padding: 0;
+  max-height: 11rem; overflow-y: auto;
+}
+.sync-health-day-list li {
+  display: flex; gap: 0.5rem; padding: 0.12rem 0;
+  font-size: 0.75rem; color: var(--color-neutral-700);
+}
+.sync-health-day-time {
+  flex: none; width: 3rem; font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-500);
+}
+
+/* ── reconcile: batch link review table ─────────────────────────────────────
+   Confident rows arrive checked; everything else is listed with the reason it
+   was held back so a human can accept it deliberately. */
+
+.sync-health-batch { margin: 0.9rem 0 0 4.25rem; }
+
+.sync-health-batch-start {
+  padding: 0.35rem 0.8rem; font-size: 0.8125rem; cursor: pointer;
+  background: #fff; color: var(--color-primary-600);
+  border: 1px solid var(--color-primary-500); border-radius: 4px;
+}
+.sync-health-batch-start:disabled { opacity: 0.6; cursor: default; }
+
+.sync-health-batch-table {
+  width: 100%; border-collapse: collapse; font-size: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+.sync-health-batch-table th {
+  text-align: left; font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--color-neutral-500);
+  padding: 0.3rem 0.5rem 0.3rem 0; font-weight: 600;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+.sync-health-batch-table td {
+  padding: 0.35rem 0.5rem 0.35rem 0; vertical-align: top;
+  border-bottom: 1px solid var(--color-neutral-100);
+  color: var(--color-neutral-900);
+}
+.sync-health-batch-table td.tabular { font-variant-numeric: tabular-nums; }
+
+/* A confident row is the default action; an ambiguous one is a question. The
+   left edge carries that distinction so the eye can sort the table at a glance
+   without reading every verdict. */
+.sync-health-batch-table tr.tier-confident td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-success-500);
+}
+.sync-health-batch-table tr.tier-ambiguous td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-warning-500);
+}
+.sync-health-batch-table tr.tier-none { opacity: 0.6; }
+
+.sync-health-batch-sub {
+  display: block; font-size: 0.6875rem; color: var(--color-neutral-500);
+}
+.sync-health-batch-why { color: var(--color-neutral-600); max-width: 30ch; }
+
+.sync-health-batch-foot {
+  display: flex; align-items: center; gap: 0.75rem;
+  font-size: 0.75rem; color: var(--color-neutral-700);
+}
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
 }

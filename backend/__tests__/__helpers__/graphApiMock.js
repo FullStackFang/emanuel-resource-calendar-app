@@ -3,7 +3,22 @@
  *
  * Provides mock implementations of Graph API operations for testing.
  * Use with: jest.mock('../../services/graphApiService', () => require('../__helpers__/graphApiMock'));
+ * (createAppForTest instead injects it via setGraphApiService.)
+ *
+ * ERROR SHAPE CONTRACT: simulated Graph failures MUST be built with
+ * buildGraphError — the same constructor services/graphApiService throws with.
+ * A hand-rolled `{ statusCode: 429 }` is how the dead outer retry predicate
+ * survived review: production threw `status`, every predicate read `statusCode`,
+ * and the mock happened to agree with the predicate instead of with production.
+ * Use graphError(status, message) below; setMockError still accepts a raw Error
+ * for non-HTTP failures (network errors), but HTTP failures should go through
+ * the builder.
  */
+
+// Imported from utils/graphError, NOT from services/graphApiService — the
+// service pulls in MSAL and Azure config at require time, which a test helper
+// has no business loading.
+const { buildGraphError } = require('../../utils/graphError');
 
 // Track call history for assertions
 const callHistory = {
@@ -13,6 +28,7 @@ const callHistory = {
   getAccessToken: [],
   getRecurringEventInstances: [],
   getCalendarEvents: [],
+  getEvent: [],
 };
 
 // Configurable responses (can be modified per-test)
@@ -23,6 +39,7 @@ const mockResponses = {
   getAccessToken: null,
   getRecurringEventInstances: null,
   getCalendarEvents: null,
+  getEvent: null,
 };
 
 // Error responses to simulate failures
@@ -33,6 +50,7 @@ const mockErrors = {
   getAccessToken: null,
   getRecurringEventInstances: null,
   getCalendarEvents: null,
+  getEvent: null,
 };
 
 /**
@@ -44,6 +62,32 @@ function generateMockGraphId() {
 }
 
 /**
+ * Build a Graph HTTP failure with exactly the shape production throws.
+ * @param {number} status - e.g. 429, 404
+ * @param {string} [message]
+ * @returns {Error} carrying `status` (NOT `statusCode`) and `graphError`
+ */
+function graphError(status, message) {
+  const text = message || `Graph API error: ${status}`;
+  return buildGraphError(status, text, { code: `MockGraphError${status}`, message: text });
+}
+
+/**
+ * Build a NETWORK failure with the shape Node's fetch (undici) actually
+ * produces: a TypeError whose `cause` carries the OS code. The code never
+ * appears on the thrown error itself — see utils/graphRetry.js for the probe
+ * results this mirrors.
+ *
+ * @param {string} [code='ECONNRESET']
+ * @returns {TypeError}
+ */
+function graphNetworkError(code = 'ECONNRESET') {
+  const err = new TypeError('fetch failed');
+  err.cause = Object.assign(new Error(`connect ${code} 20.190.1.1:443`), { code });
+  return err;
+}
+
+/**
  * Validate a Graph recurrence object the way Microsoft Graph does, so tests
  * catch malformed patterns (e.g. absoluteMonthly missing dayOfMonth) instead
  * of getting a false success. Throws with Graph's real error messages.
@@ -52,16 +96,17 @@ function generateMockGraphId() {
 function assertValidGraphRecurrence(recurrence) {
   const pattern = recurrence?.pattern;
   if (!pattern) return;
+  // Real Graph rejects these with 400 and these exact messages.
   if (pattern.type === 'absoluteMonthly' || pattern.type === 'absoluteYearly') {
     const day = pattern.dayOfMonth;
     if (typeof day !== 'number' || day < 1 || day > 31) {
-      throw new Error("Your request can't be completed. DayOfMonth should be between 1 and 31.");
+      throw graphError(400, "Your request can't be completed. DayOfMonth should be between 1 and 31.");
     }
   }
   if (pattern.type === 'absoluteYearly') {
     const month = pattern.month;
     if (typeof month !== 'number' || month < 1 || month > 12) {
-      throw new Error("Your request can't be completed. Month should be between 1 and 12.");
+      throw graphError(400, "Your request can't be completed. Month should be between 1 and 12.");
     }
   }
 }
@@ -227,6 +272,40 @@ async function getCalendarEvents(userId, calendarId, startDateTime, endDateTime,
 }
 
 /**
+ * Mock getEvent (single Graph event by id).
+ *
+ * Supports per-id responses: set the mock response to a plain object for a
+ * single-event test, or to a map keyed by eventId when a test needs different
+ * results (or a thrown error, e.g. a 404) per id. An id absent from a map
+ * throws a production-shaped 404, which is what Graph does.
+ *
+ * @param {string} userId
+ * @param {string|null} calendarId
+ * @param {string} eventId
+ * @param {Object} [options]
+ * @returns {Promise<Object>}
+ */
+async function getEvent(userId, calendarId, eventId, options = {}) {
+  callHistory.getEvent.push({ userId, calendarId, eventId, options });
+
+  if (mockErrors.getEvent) {
+    throw mockErrors.getEvent;
+  }
+
+  const configured = mockResponses.getEvent;
+  if (configured && typeof configured === 'object') {
+    // A map keyed by event id, or a single event object.
+    if (configured.id !== undefined) return configured;
+    const perId = configured[eventId];
+    if (perId instanceof Error) throw perId;
+    if (perId) return perId;
+    throw graphError(404, `The specified object was not found in the store: ${eventId}`);
+  }
+
+  return { id: eventId };
+}
+
+/**
  * Clear all call history (call in beforeEach)
  */
 function clearCallHistory() {
@@ -236,6 +315,7 @@ function clearCallHistory() {
   callHistory.getAccessToken = [];
   callHistory.getRecurringEventInstances = [];
   callHistory.getCalendarEvents = [];
+  callHistory.getEvent = [];
 }
 
 /**
@@ -249,6 +329,8 @@ function resetMocks() {
   mockResponses.getAccessToken = null;
   mockResponses.getRecurringEventInstances = null;
   mockResponses.getCalendarEvents = null;
+  mockResponses.getEvent = null;
+  mockErrors.getEvent = null;
   mockErrors.createCalendarEvent = null;
   mockErrors.updateCalendarEvent = null;
   mockErrors.deleteCalendarEvent = null;
@@ -339,6 +421,7 @@ module.exports = {
   getAccessToken,
   getRecurringEventInstances,
   getCalendarEvents,
+  getEvent,
 
   // Test utilities
   clearCallHistory,
@@ -349,4 +432,8 @@ module.exports = {
   assertCalled,
   assertNotCalled,
   generateMockGraphId,
+
+  // Production-shaped failure builders — prefer these over hand-rolled Errors.
+  graphError,
+  graphNetworkError,
 };

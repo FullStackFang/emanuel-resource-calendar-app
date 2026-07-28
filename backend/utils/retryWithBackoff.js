@@ -65,8 +65,21 @@ const DEFAULT_BREAKER_OPTIONS = {
   warnThreshold: 8,       // 50% — log warning when breaker is "breathing"
   cooldownMs: 60_000,     // how long the breaker stays open
   decayIntervalMs: 10_000, // how often one throttle event decays
+  label: 'Cosmos',        // named in log lines and thrown messages
 };
 
+/**
+ * Create an INDEPENDENT breaker instance.
+ *
+ * Breakers must not be shared across unrelated backends. The default instance
+ * below gates Cosmos retries; a Microsoft Graph throttling burst tripping it
+ * would halt every database retry in the process for a full cooldown, for a
+ * reason that has nothing to do with the database. Graph callers pass their own
+ * via `options.breaker` (see utils/graphRetry.js).
+ *
+ * @param {object} [options] - overrides for DEFAULT_BREAKER_OPTIONS
+ * @returns {object} breaker state
+ */
 function createCircuitBreaker(options = {}) {
   const config = { ...DEFAULT_BREAKER_OPTIONS, ...options };
 
@@ -78,7 +91,7 @@ function createCircuitBreaker(options = {}) {
   };
 }
 
-// Module-level breaker instance — shared across all callers in this process
+// Default breaker instance — shared by every caller that does not inject one.
 let breaker = createCircuitBreaker();
 
 /**
@@ -86,45 +99,46 @@ let breaker = createCircuitBreaker();
  * Called before every retry attempt so the breaker doesn't trip on
  * bursts that have already passed.
  */
-function decayBreaker() {
-  if (breaker.throttleEvents === 0) return; // nothing to decay
+function decayBreaker(b) {
+  if (b.throttleEvents === 0) return; // nothing to decay
   const now = Date.now();
-  const elapsed = now - breaker.lastDecay;
-  if (elapsed >= breaker.config.decayIntervalMs) {
-    const steps = Math.floor(elapsed / breaker.config.decayIntervalMs);
-    breaker.throttleEvents = Math.max(0, breaker.throttleEvents - steps);
-    breaker.lastDecay = now;
+  const elapsed = now - b.lastDecay;
+  if (elapsed >= b.config.decayIntervalMs) {
+    const steps = Math.floor(elapsed / b.config.decayIntervalMs);
+    b.throttleEvents = Math.max(0, b.throttleEvents - steps);
+    b.lastDecay = now;
   }
 }
 
 /**
  * Record a throttle event (called on every retryable error, not just exhaustion).
- * Opens the breaker after sustained throttling across all callers.
+ * Opens the breaker after sustained throttling across all callers sharing it.
  */
-function recordThrottle() {
-  decayBreaker();
-  breaker.throttleEvents++;
+function recordThrottle(b) {
+  decayBreaker(b);
+  b.throttleEvents++;
 
-  if (breaker.throttleEvents >= breaker.config.threshold) {
-    breaker.openUntil = Date.now() + breaker.config.cooldownMs;
+  if (b.throttleEvents >= b.config.threshold) {
+    b.openUntil = Date.now() + b.config.cooldownMs;
     logger.error(
-      '[retryWithBackoff] Circuit breaker OPEN — halting Cosmos retries for %dms (%d throttle events)',
-      breaker.config.cooldownMs, breaker.throttleEvents
+      '[retryWithBackoff] Circuit breaker OPEN — halting %s retries for %dms (%d throttle events)',
+      b.config.label, b.config.cooldownMs, b.throttleEvents
     );
-    breaker.throttleEvents = 0;
-  } else if (breaker.throttleEvents >= breaker.config.warnThreshold) {
+    b.throttleEvents = 0;
+  } else if (b.throttleEvents >= b.config.warnThreshold) {
     logger.warn(
-      '[retryWithBackoff] Circuit breaker at %d/%d — Cosmos under pressure',
-      breaker.throttleEvents, breaker.config.threshold
+      '[retryWithBackoff] Circuit breaker at %d/%d — %s under pressure',
+      b.throttleEvents, b.config.threshold, b.config.label
     );
   }
 }
 
 /**
- * Check if the circuit breaker is currently open.
+ * Check if a circuit breaker is currently open. Defaults to the shared one.
+ * @param {object} [b] - a breaker from createCircuitBreaker
  */
-function isBreakerOpen() {
-  return Date.now() < breaker.openUntil;
+function isBreakerOpen(b = breaker) {
+  return Date.now() < b.openUntil;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +156,9 @@ function isBreakerOpen() {
  * @param {number} [options.maxDelayMs=30000] - Ceiling for backoff delay
  * @param {Function} [options.retryableError] - Predicate: (err) => boolean. Defaults to isCosmosRetryable.
  * @param {Function} [options.onRetry] - Called before each retry with { attempt, delay, error }
+ * @param {object} [options.breaker] - Circuit breaker instance from createCircuitBreaker.
+ *   Defaults to the shared Cosmos breaker. Inject a separate one for a different
+ *   backend so its failures cannot halt retries for this one.
  * @returns {Promise<*>} Result of fn()
  * @throws The last error if all attempts fail, or immediately for non-retryable errors
  */
@@ -152,13 +169,15 @@ async function retryWithBackoff(fn, options = {}) {
     maxDelayMs = 30_000,
     retryableError = isCosmosRetryable,
     onRetry = null,
+    breaker: activeBreaker = breaker,
   } = options;
+  const label = activeBreaker.config.label;
 
   // Circuit breaker: fail fast during sustained outage
-  if (isBreakerOpen()) {
-    const err = new Error('Circuit breaker open — Cosmos DB under sustained pressure');
+  if (isBreakerOpen(activeBreaker)) {
+    const err = new Error(`Circuit breaker open — ${label} under sustained pressure`);
     err.code = 'CIRCUIT_BREAKER_OPEN';
-    err.reopensAt = breaker.openUntil;
+    err.reopensAt = activeBreaker.openUntil;
     throw err;
   }
 
@@ -166,28 +185,28 @@ async function retryWithBackoff(fn, options = {}) {
     try {
       const result = await fn();
       // Success: relieve one unit of breaker pressure
-      if (breaker.throttleEvents > 0) breaker.throttleEvents--;
+      if (activeBreaker.throttleEvents > 0) activeBreaker.throttleEvents--;
       return result;
     } catch (err) {
       // Non-retryable errors fail fast — don't consume retry budget
       if (!retryableError(err) || attempt === maxAttempts) {
         if (retryableError(err) && attempt === maxAttempts) {
           logger.error(
-            '[retryWithBackoff] Cosmos retry exhausted after %d attempts: %s',
-            maxAttempts, err.message
+            '[retryWithBackoff] %s retry exhausted after %d attempts: %s',
+            label, maxAttempts, err.message
           );
         }
         throw err;
       }
 
       // Record throttle event for circuit breaker (every 429 counts)
-      recordThrottle();
+      recordThrottle(activeBreaker);
 
       // Check if breaker just opened from this event
-      if (isBreakerOpen()) {
-        const breakerErr = new Error('Circuit breaker opened during retry — Cosmos DB under sustained pressure');
+      if (isBreakerOpen(activeBreaker)) {
+        const breakerErr = new Error(`Circuit breaker opened during retry — ${label} under sustained pressure`);
         breakerErr.code = 'CIRCUIT_BREAKER_OPEN';
-        breakerErr.reopensAt = breaker.openUntil;
+        breakerErr.reopensAt = activeBreaker.openUntil;
         breakerErr.cause = err;
         throw breakerErr;
       }
@@ -222,6 +241,7 @@ function _getBreakerState() {
 
 module.exports = {
   retryWithBackoff,
+  createCircuitBreaker,
   isCosmosRetryable,
   parseRetryAfterMs,
   isBreakerOpen,
