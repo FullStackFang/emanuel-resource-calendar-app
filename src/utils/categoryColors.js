@@ -31,15 +31,51 @@ export const CATEGORY_PRESET_COLORS = {
   preset15: '#76608a',  // Mauve
 };
 
-/** Uncategorized, unknown category, or unmapped preset. */
+/** Genuinely uncategorized, or a preset the app does not map. */
 export const DEFAULT_CATEGORY_COLOR = '#cccccc';
+
+/**
+ * Palette for categories that exist on events but are not registered as Outlook
+ * categories. Same list, same order, same hash as `Calendar.jsx` — the two
+ * surfaces MUST agree on the color for a given name, so do not "improve" either
+ * copy in isolation.
+ */
+export const DYNAMIC_CATEGORY_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#556270', '#C7F464', '#FF8C94',
+  '#9DE0AD', '#45ADA8', '#547980', '#594F4F', '#FE4365',
+  '#83AF9B', '#FC9D9A', '#F18D9E', '#3A89C9', '#F9CDAD',
+];
+
+/**
+ * Stable color for an unregistered category name.
+ *
+ * Why this exists rather than falling back to gray: in practice most event
+ * categories are NOT registered Outlook categories, and the master list is
+ * empty outright whenever Graph is unreachable. Returning gray in those cases
+ * makes every event on the calendar the same color, which is worse than an
+ * arbitrary-but-stable one.
+ */
+export function getDynamicCategoryColor(categoryName) {
+  const hash = String(categoryName).split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a;
+  }, 0);
+  return DYNAMIC_CATEGORY_COLORS[Math.abs(hash) % DYNAMIC_CATEGORY_COLORS.length];
+}
+
+/** Treated as "no category" rather than as a category literally named this. */
+const UNCATEGORIZED = 'Uncategorized';
 
 /**
  * Build a resolver over a fetched Outlook category master list.
  *
- * Deliberately total: an empty or failed categories query (the hook falls back
- * to `[]` when Graph is down) yields a resolver that returns gray for
- * everything, so callers render fully — just uncolored.
+ * Behavior-equivalent to `Calendar.jsx`'s `getCategoryColor`, deliberately:
+ *   1. registered Outlook category -> its preset hex
+ *   2. absent / 'Uncategorized'    -> gray
+ *   3. anything else               -> a stable hashed color
+ *
+ * Total by construction, so an empty or failed categories query still yields a
+ * fully colored calendar.
  *
  * @param {Array<{name: string, color: string}>} [outlookCategories]
  * @returns {(categoryName: string) => string} hex color
@@ -51,9 +87,15 @@ export function buildCategoryColorResolver(outlookCategories) {
   );
 
   return function resolveCategoryColor(categoryName) {
-    if (!categoryName) return DEFAULT_CATEGORY_COLOR;
-    const preset = byName.get(categoryName);
-    return CATEGORY_PRESET_COLORS[preset] || DEFAULT_CATEGORY_COLOR;
+    if (!categoryName || categoryName === UNCATEGORIZED) {
+      return DEFAULT_CATEGORY_COLOR;
+    }
+    if (byName.has(categoryName)) {
+      // Registered, but on a preset the app has never mapped: gray, matching
+      // the desktop rather than hashing behind Outlook's back.
+      return CATEGORY_PRESET_COLORS[byName.get(categoryName)] || DEFAULT_CATEGORY_COLOR;
+    }
+    return getDynamicCategoryColor(categoryName);
   };
 }
 

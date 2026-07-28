@@ -59,7 +59,7 @@ The grid SHALL render a current-time indicator — a 1px error-500 line with a 7
 - **THEN** no current-time indicator SHALL render
 
 ### Requirement: Event block rendering
-Timed events SHALL render as blocks absolutely positioned by their local start and end times, styled with a 3px solid left rail in the event's category color over a ~8% alpha fill of the same color, small radius, and no other border. Pending events SHALL render at 0.9 opacity. Blocks SHALL have a minimum height of 20px. Tapping a block SHALL open the shared event detail sheet. Category colors SHALL resolve from the Outlook category presets via the shared resolver, falling back to #cccccc for uncategorized or unknown categories.
+Timed events SHALL render as blocks absolutely positioned by their local start and end times, styled with a 3px solid left rail in the event's category color over a ~8% alpha fill of the same color, small radius, and no other border. Pending events SHALL render at 0.9 opacity. Blocks SHALL have a minimum height of 20px. Tapping a block SHALL open the shared event detail sheet. Category colors SHALL resolve via the shared resolver, whose behavior SHALL match the desktop calendar's: a category registered in the Outlook master list takes its preset color; a category that is absent, empty, or the literal `Uncategorized` takes #cccccc; any other category takes a stable hashed color. The resolver SHALL NOT return #cccccc for unregistered categories, because most real event categories are unregistered and the Outlook master list is empty whenever Graph is unreachable — graying them renders the entire calendar in one color.
 
 Blocks SHALL NOT display the event's start time as text: the block's vertical position already encodes it, and on a 30-minute block the time line consumes the only line available to the title. The start time SHALL remain in the block's accessible name, which is the sole remaining source of the time for assistive technology.
 
@@ -80,9 +80,18 @@ Blocks SHALL NOT display the event's start time as text: the block's vertical po
 - **WHEN** the user taps an event block
 - **THEN** the event detail sheet SHALL open with that event's details
 
-#### Scenario: Unknown category color
-- **WHEN** an event has no categories or a category absent from the Outlook master list
+#### Scenario: Uncategorized event color
+- **WHEN** an event has no categories, or its category is the literal `Uncategorized`
 - **THEN** its block SHALL use #cccccc as the category color
+
+#### Scenario: Unregistered category color
+- **WHEN** an event's category is absent from the Outlook master list
+- **THEN** its block SHALL use a stable hashed color, not #cccccc
+- **AND** that color SHALL be the same one the desktop calendar assigns to that category name
+
+#### Scenario: Categories query unavailable
+- **WHEN** the Outlook categories query resolves empty because Graph is unreachable
+- **THEN** blocks SHALL still render in hashed category colors rather than all gray
 
 ### Requirement: Block text density adapts to block height
 Block text SHALL be selected by the block's rendered height so that short blocks stay readable and tall blocks carry more information. Every text line SHALL clamp at a line boundary with an ellipsis; text SHALL NOT be clipped mid-line.

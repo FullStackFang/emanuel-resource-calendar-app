@@ -34,3 +34,10 @@
 - [x] 5.5 Narrow the gutter to 28px with compact hour labels (`7a`/`12p`/`12a`); drop the now-illegible `all-day` gutter label
 - [x] 5.6 Update the affected `MobileThreeDay` tests (border/background assertions, visible-time assertion) and add tier + clamp coverage; whole mobile suite green
 - [x] 5.7 Suggest the conventional commit message for the revision
+
+## 6. Category color fix (found on device, 2026-07-28)
+
+- [x] 6.1 Port the two missing branches of `Calendar.jsx` `getCategoryColor` into `buildCategoryColorResolver`: gray only for uncategorized, stable hashed color for unregistered categories
+- [x] 6.2 Reset the default button border on blocks and chips (the rail is the only border)
+- [x] 6.3 Amend the spec scenarios and design Decision 5 / risk line, which had codified the gray-everything behavior
+- [ ] 6.4 Confirm on device that blocks render in category colors

@@ -63,7 +63,7 @@ Week strip taps, chevrons, date picker, and Today all just move `selectedDate`; 
 
 ### 5. Category colors via shared util fed by the existing query
 
-New `src/utils/categoryColors.js` exports the Outlook `preset0-24` -> hex map (extracted from `Calendar.jsx`'s inline `getCategoryColor`) and `buildCategoryColorResolver(outlookCategories)` -> `(categoryName) => hex`, `#cccccc` fallback. `MobileCalendarTab` feeds it from the already-cached `useOutlookCategoriesQuery(apiToken, APP_CONFIG.DEFAULT_DISPLAY_CALENDAR)` (30-min staleTime, graceful `[]` fallback — everything renders gray if Graph is down). `Calendar.jsx` keeps its inline copy for now (surgical-change rule); consolidation is a follow-up.
+New `src/utils/categoryColors.js` extracts `Calendar.jsx`'s inline `getCategoryColor` — **all three of its branches**, which is the correction made on 2026-07-28 after the mobile grid shipped rendering every event gray. The resolver is registered-preset -> gray-if-uncategorized -> **stable hashed color** for everything else, plus the hash palette from `getDynamicCategoryColor`. Only the first branch was extracted originally; collapsing the other two into `#cccccc` made every block gray, because most real event categories are not registered Outlook categories and the master list is empty outright whenever Graph is down. Desktop never showed the symptom precisely because it hashes. The hash and its 15-color palette are duplicated verbatim so the two surfaces assign the same color to the same category name; a parity test pins this. `MobileCalendarTab` feeds it from the already-cached `useOutlookCategoriesQuery(apiToken, APP_CONFIG.DEFAULT_DISPLAY_CALENDAR)` (30-min staleTime, graceful `[]` fallback — everything renders gray if Graph is down). `Calendar.jsx` keeps its inline copy for now (surgical-change rule); consolidation is a follow-up.
 
 ### 6. Interaction details
 
@@ -114,7 +114,7 @@ algorithm, the current-time indicator, and the entire agenda view.
 - [Overlap algorithm complexity balloons] -> cluster-split only (equal widths within a cluster); no Outlook-style cascading offsets in v1.
 - [Removing the visible time regresses accessibility] -> the start time stays in each block's `aria-label`, and a scenario asserts it; the aria-label is now the only source of the time, so it must not be weakened later.
 - [Colour rail is the sole category signal on short blocks] -> the wash keeps a second, weaker cue, and every block still opens the detail sheet on tap; unknown categories resolve to gray rather than vanishing.
-- [Categories query returns empty (Graph down)] -> resolver falls back to `#cccccc`; the grid remains fully functional, just uncolored.
+- [Categories query returns empty (Graph down)] -> resolver hashes unregistered names to a stable color, so the grid stays fully colored. (Originally specified as "falls back to `#cccccc`, just uncolored" — that was wrong: it is the *normal* case, not a rare one, and it renders every event identically.)
 - [Uncommitted mobile-requests-tab baseline shifts underneath] -> this change touches `MobileApp.jsx` only at the `'calendar'` case and does not touch `MobileRequests`/`MobileEventDetail`; rebase surface is one line.
 
 ## Migration Plan

@@ -8,7 +8,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCategoryColorResolver,
+  getDynamicCategoryColor,
   CATEGORY_PRESET_COLORS,
+  DYNAMIC_CATEGORY_COLORS,
   DEFAULT_CATEGORY_COLOR,
 } from '../../../utils/categoryColors';
 
@@ -26,32 +28,72 @@ describe('buildCategoryColorResolver', () => {
     expect(resolve('Education')).toBe('#60a917');
   });
 
-  it('falls back to gray for a category absent from the master list', () => {
+  it('hashes a category absent from the master list to a stable color', () => {
+    // NOT gray. Most real event categories are unregistered, so graying them
+    // renders the whole calendar in one color — the bug this branch fixes.
     const resolve = buildCategoryColorResolver(CATEGORIES);
-    expect(resolve('Not A Real Category')).toBe(DEFAULT_CATEGORY_COLOR);
+    const color = resolve('Not A Real Category');
+
+    expect(color).not.toBe(DEFAULT_CATEGORY_COLOR);
+    expect(DYNAMIC_CATEGORY_COLORS).toContain(color);
+    expect(resolve('Not A Real Category')).toBe(color); // stable across calls
   });
 
-  it('falls back to gray for empty, null, and undefined category names', () => {
+  it('gives different unregistered categories different colors', () => {
+    const resolve = buildCategoryColorResolver([]);
+    const colors = new Set(
+      ['Worship', 'Education', 'Meeting', 'Facilities', 'Youth'].map(resolve)
+    );
+    expect(colors.size).toBeGreaterThan(1);
+  });
+
+  it('falls back to gray for empty, null, undefined, and Uncategorized', () => {
     const resolve = buildCategoryColorResolver(CATEGORIES);
     expect(resolve('')).toBe(DEFAULT_CATEGORY_COLOR);
     expect(resolve(null)).toBe(DEFAULT_CATEGORY_COLOR);
     expect(resolve(undefined)).toBe(DEFAULT_CATEGORY_COLOR);
+    // The literal placeholder getEventCategories emits, not a real category.
+    expect(resolve('Uncategorized')).toBe(DEFAULT_CATEGORY_COLOR);
   });
 
-  it('falls back to gray for a preset the app does not map', () => {
-    // Outlook exposes preset16-24; the app has never mapped them. Gray, not
-    // undefined — a block with `undefined` for a color renders unstyled.
+  it('matches the desktop hash exactly', () => {
+    // Calendar.jsx getDynamicCategoryColor, copied verbatim. If this drifts,
+    // the same category renders in two different colors on the two surfaces.
+    const desktop = (categoryName) => {
+      const hash = categoryName.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+      const colors = [
+        '#FF6B6B', '#4ECDC4', '#556270', '#C7F464', '#FF8C94',
+        '#9DE0AD', '#45ADA8', '#547980', '#594F4F', '#FE4365',
+        '#83AF9B', '#FC9D9A', '#F18D9E', '#3A89C9', '#F9CDAD',
+      ];
+      return colors[Math.abs(hash) % colors.length];
+    };
+
+    for (const name of ['Worship', 'Adult Education', 'B Mitzvah', 'Facilities', 'x']) {
+      expect(getDynamicCategoryColor(name)).toBe(desktop(name));
+    }
+  });
+
+  it('falls back to gray for a REGISTERED category on a preset the app does not map', () => {
+    // Outlook exposes preset16-24; the app has never mapped them. Gray rather
+    // than hashing — the category IS registered, so we defer to Outlook and
+    // show no opinion, exactly as the desktop does.
     const resolve = buildCategoryColorResolver(CATEGORIES);
     expect(resolve('Unmapped Preset')).toBe(DEFAULT_CATEGORY_COLOR);
     expect(resolve('No Color')).toBe(DEFAULT_CATEGORY_COLOR);
   });
 
-  it('returns gray for everything when the category list is empty or missing', () => {
-    // Graph down -> useOutlookCategoriesQuery resolves []. Everything must still
-    // render, just uncolored.
+  it('stays colorful when the category list is empty or missing', () => {
+    // Graph down -> useOutlookCategoriesQuery resolves []. The calendar must
+    // degrade to hashed colors, NOT to a wall of gray.
     for (const input of [[], undefined, null, 'not-an-array']) {
       const resolve = buildCategoryColorResolver(input);
-      expect(resolve('Worship')).toBe(DEFAULT_CATEGORY_COLOR);
+      const color = resolve('Worship');
+      expect(color).not.toBe(DEFAULT_CATEGORY_COLOR);
+      expect(color).toBe(getDynamicCategoryColor('Worship'));
     }
   });
 
