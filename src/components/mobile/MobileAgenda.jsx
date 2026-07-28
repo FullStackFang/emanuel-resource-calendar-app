@@ -1,6 +1,7 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useMemo } from 'react';
 import { formatDateKey } from './MobileWeekStrip';
 import MobileEventCard from './MobileEventCard';
+import { dayAtScrollTop } from '../../utils/agendaScrollSpy';
 import { DAY_NAMES, MONTH_NAMES_SHORT } from './mobileConstants';
 import './MobileAgenda.css';
 
@@ -9,12 +10,18 @@ import './MobileAgenda.css';
  *
  * The selected date, the event window, the week strip, and the detail sheet all
  * live in `MobileCalendarTab` so the 3-day grid can share them. What stays here
- * is the list itself, its day headers, and pull-to-refresh (which is
- * agenda-only: the gesture fights vertical panning in a time grid).
+ * is the list itself, its day headers, pull-to-refresh (agenda-only: the
+ * gesture fights vertical panning in a time grid), and the scroll spy that
+ * tells the shell which day the reader is actually looking at.
  *
  * @param {Date} selectedDate      Drives the scroll-into-view on date change.
  * @param {Date[]} datesToShow     The day sections to render, in order.
  * @param {Object} groupedEvents   'YYYY-MM-DD' -> events for that day.
+ * @param {(date: Date) => void} onVisibleDateChange
+ *        Reports the day at the top of the viewport. Observation, not intent —
+ *        the shell must not feed it back into `selectedDate`.
+ * @param {React.MutableRefObject<'x'|'y'|null>} axisRef
+ *        The shell's swipe axis. An `x`-locked gesture never pull-to-refreshes.
  */
 function MobileAgenda({
   selectedDate,
@@ -26,6 +33,8 @@ function MobileAgenda({
   onEventTap,
   onRefresh,
   onRetry,
+  onVisibleDateChange,
+  axisRef,
 }) {
   const listRef = useRef(null);
   const dateRefs = useRef({});
@@ -52,11 +61,21 @@ function MobileAgenda({
   // owned the date and only scrolled from inside its own onDateSelect handler.
   const didMountRef = useRef(false);
   const selectedKey = formatDateKey(selectedDate);
+  // Holds the day a smooth scroll is travelling toward. `scrollIntoView` emits
+  // a scroll event per intervening pixel, so without this the strip would race
+  // through every day between here and the target before settling.
+  const programmaticTargetRef = useRef(null);
+  /** The day the shell is known to already have. Suppresses redundant reports. */
+  const lastReportedRef = useRef(null);
   useEffect(() => {
     if (!didMountRef.current) {
       didMountRef.current = true;
       return;
     }
+    programmaticTargetRef.current = selectedKey;
+    // The shell already believes this day is visible — it forces `visibleDate`
+    // to follow intent — so landing on it is not news worth reporting back.
+    lastReportedRef.current = selectedKey;
     requestAnimationFrame(() => {
       const el = dateRefs.current[selectedKey];
       if (el) {
@@ -65,14 +84,83 @@ function MobileAgenda({
     });
   }, [selectedKey]);
 
+  // Report the day at the top of the viewport. Passive and rAF-throttled: this
+  // runs on every scroll frame of a list the user flicks.
+  const dateByKey = useMemo(() => {
+    const map = new Map();
+    datesToShow.forEach(date => map.set(formatDateKey(date), date));
+    return map;
+  }, [datesToShow]);
+  useEffect(() => {
+    const listEl = listRef.current;
+    if (!listEl || !onVisibleDateChange) return undefined;
+
+    // `scheduled` is tracked separately from the frame handle: the handle is
+    // only assigned after the callback returns, so a callback that runs
+    // synchronously would leave a stale non-zero handle behind.
+    let scheduled = false;
+    let frame = 0;
+    const observe = () => {
+      scheduled = false;
+      const el = listRef.current;
+      if (!el) return;
+      // Offsets are normalized against the list's own box rather than read from
+      // `offsetTop`, whose origin depends on which ancestor happens to be
+      // positioned.
+      const listTop = el.getBoundingClientRect().top;
+      const scrollTop = el.scrollTop;
+      const sections = [];
+      Object.entries(dateRefs.current).forEach(([key, node]) => {
+        if (!node) return;
+        sections.push({
+          key,
+          offsetTop: node.getBoundingClientRect().top - listTop + scrollTop,
+        });
+      });
+
+      const key = dayAtScrollTop(sections, scrollTop);
+      if (!key) return;
+      if (programmaticTargetRef.current) {
+        if (key !== programmaticTargetRef.current) return;
+        programmaticTargetRef.current = null;
+      }
+      if (key === lastReportedRef.current) return;
+      lastReportedRef.current = key;
+      const date = dateByKey.get(key);
+      if (date) onVisibleDateChange(date);
+    };
+
+    const handleScroll = () => {
+      if (scheduled) return;
+      scheduled = true;
+      frame = requestAnimationFrame(observe);
+    };
+    listEl.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      listEl.removeEventListener('scroll', handleScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [onVisibleDateChange, dateByKey]);
+
   // Pull-to-refresh
   const pullStartY = useRef(null);
   const handleTouchStart = useCallback((e) => {
+    // A touch means the user has taken the list over: any smooth scroll still
+    // in flight is now theirs to interrupt, so stop ignoring observations.
+    // Without this, tapping a day that needs no scroll would strand the spy.
+    programmaticTargetRef.current = null;
     if (listRef.current?.scrollTop === 0) {
       pullStartY.current = e.touches[0].clientY;
     }
   }, []);
   const handleTouchEnd = useCallback((e) => {
+    // The swipe's locked axis is authoritative. A firm diagonal drag from the
+    // top of the list can clear the 80px pull threshold and the swipe distance
+    // at once; it must do one thing, and stepping the day is what it was.
+    if (axisRef?.current === 'x') {
+      pullStartY.current = null;
+      return;
+    }
     if (pullStartY.current !== null) {
       const pullDistance = e.changedTouches[0].clientY - pullStartY.current;
       if (pullDistance > 80) {
@@ -80,7 +168,7 @@ function MobileAgenda({
       }
       pullStartY.current = null;
     }
-  }, [onRefresh]);
+  }, [onRefresh, axisRef]);
 
   // Clean up stale dateRefs when date range changes
   useEffect(() => {

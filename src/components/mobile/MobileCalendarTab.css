@@ -4,3 +4,13 @@
   height: 100%;
   min-height: 0;
 }
+
+/* The day-swipe zone. It wraps the active view only — never the week strip,
+   whose chevrons already step weeks — and has to relay the flex chain
+   unchanged, since both view roots are `flex: 1; min-height: 0` children. */
+.mobile-calendar-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
