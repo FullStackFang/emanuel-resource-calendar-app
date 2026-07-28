@@ -1,6 +1,14 @@
-# sync-health-reconcile — Delta Spec
+# sync-health-reconcile Specification
 
-## ADDED Requirements
+## Purpose
+
+Defines safe remediation of Sync Health findings: the plan/apply handshake, the per-category actions and their guards, permissions, audit, batch linking, and the report-page UI flow.
+
+The governing constraint is that an Outlook delete cannot be undone, and an Outlook create can silently duplicate a real booking. So no plan is ever trusted across time: `plan` fingerprints observed reality, `apply` re-observes and re-derives the plan from scratch, and any drift aborts before the first write. Nothing is stored server-side between the two calls, which keeps the handshake restart-safe and correct with several admins working at once.
+
+Pure decisions live in `backend/utils/syncReconcilePlan.js`; orchestration in `backend/services/syncReconcileService.js` with injected dependencies; create-then-link mechanics are shared with the republish endpoint via `backend/services/republishCore.js`. Routes in `api-server.js` stay thin.
+
+## Requirements
 
 ### Requirement: Two-phase plan/apply reconcile API
 The system SHALL expose two admin-only endpoints:
@@ -76,8 +84,8 @@ SHALL report success as `alreadyGone`.
 - **THEN** the plan response includes a warning that deletion will send cancellations
 
 ### Requirement: Untethered event actions
-For an `untethered` finding (published app document with no stored Graph link), the
-system SHALL offer three actions: (a) **link to existing** — set the document's Graph
+The system SHALL offer three actions for an `untethered` finding (a published app
+document with no stored Graph link): (a) **link to existing** — set the document's Graph
 linkage to an admin-chosen candidate Outlook event, writing Mongo only; (b) **archive
 in app** — soft-archive via the existing delete/restore machinery with a distinct
 statusHistory reason, writing Mongo only; (c) **publish to Outlook** — single-instance
@@ -112,6 +120,41 @@ MUST be refused with `422 DUPLICATE_CANDIDATE` unless the request carries
 #### Scenario: Publish over a candidate requires override
 - **WHEN** apply is called with action `publish` while candidates exist and `allowDuplicate` is absent
 - **THEN** the response is `422 DUPLICATE_CANDIDATE` and no Graph event is created
+
+### Requirement: Batch link with a reviewed selection
+The system SHALL expose `POST /api/admin/sync-health/reconcile/batch/plan` and
+`.../batch/apply`, admin-only, offering **link-to-existing only**. Bulk publish
+and bulk delete SHALL NOT be offered, because the first creates duplicate
+Outlook events and the second cannot be undone.
+
+`batch/plan` SHALL classify each document as `confident` (exactly one candidate
+AND matching subject, date and start time), `ambiguous` (several candidates, or
+a differing or missing start time), or `none`, returning a human-readable
+reason and a per-row `expectedState`. Only `confident` rows SHALL be selected by
+default. Graph SHALL be probed once per distinct date rather than once per
+document.
+
+`batch/apply` SHALL execute each selected row through the same single-finding
+path, so every row is subject to the fingerprint handshake, OCC write, audit
+entry and SSE broadcast. A row whose state has moved SHALL be skipped
+individually without preventing the remaining rows. Selections lacking a
+`graphId` or `expectedState` SHALL be rejected with 400.
+
+#### Scenario: Only exact matches are pre-selected
+- **WHEN** a batch contains one record whose name, date and start time match a single Outlook entry, one whose candidate's time differs, and one with no candidate
+- **THEN** only the first is selected by default, and the other two carry the reason they were held back
+
+#### Scenario: Ambiguity is surfaced, not resolved
+- **WHEN** two Outlook entries on the same date share the record's name
+- **THEN** the row is `ambiguous` with no candidate chosen, and the admin must pick one
+
+#### Scenario: A stale row does not stop the batch
+- **WHEN** one selected record's `_version` changes between plan and apply
+- **THEN** that row is reported as skipped with `STALE_FINDING` and the remaining rows are linked
+
+#### Scenario: Batch probes once per date
+- **WHEN** several records in a batch share a date
+- **THEN** the mailbox calendarView is fetched once for that date, not once per record
 
 ### Requirement: Every apply is audited
 Every apply SHALL write one entry to `templeEvents__EventAuditHistory` with

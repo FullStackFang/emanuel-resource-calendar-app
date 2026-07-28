@@ -7,8 +7,9 @@
 // useFloorPlan is mocked (its fetch/blob path is covered by useFloorPlan.test.js)
 // so these tests focus purely on the component's rendering + lightbox logic.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import { __resetBackDismissForTests } from '../../../hooks/useBackDismiss';
 
 vi.mock('../../../config/config', () => ({
   default: { API_BASE_URL: 'http://localhost:3001/api' },
@@ -31,6 +32,32 @@ const baseEvent = {
   status: 'published',
   startDate: '2026-05-01',
 };
+
+/** Presses the device Back button. */
+function pressBack() {
+  fireEvent.popState(window, { state: window.history.state });
+}
+
+/**
+ * Resolves once the next popstate lands. Register BEFORE the action that
+ * triggers it — jsdom's history traversal is asynchronous and takes longer than
+ * a single macrotask, so awaiting a bare setTimeout(0) races it.
+ */
+function nextPopState() {
+  return new Promise((resolve) => {
+    window.addEventListener('popstate', resolve, { once: true });
+  });
+}
+
+// useBackDismiss keeps module-level bookkeeping and retires its history marker
+// asynchronously, so give every case a clean slate and let stray traversals
+// from the previous one land before the next begins.
+beforeEach(() => {
+  __resetBackDismissForTests();
+});
+afterEach(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+});
 
 describe('MobileEventDetail — floor plan', () => {
   beforeEach(() => {
@@ -113,5 +140,76 @@ describe('MobileEventDetail — floor plan', () => {
     fireEvent.click(screen.getByRole('button', { name: /view floor plan/i }));
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: /floor plan/i })).toBeNull();
+  });
+});
+
+// The mobile shell renders no routes, so without this the device Back button
+// leaves the app instead of backing out of the event — and in the installed PWA
+// it is the only back affordance there is.
+describe('MobileEventDetail — device Back button', () => {
+  beforeEach(() => {
+    mockFloorPlan = { floorPlanUrl: null, fileName: '' };
+  });
+
+  it('closes the sheet when Back is pressed', () => {
+    const onClose = vi.fn();
+
+    render(<MobileEventDetail event={baseEvent} onClose={onClose} />);
+    pressBack();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hijack Back while the sheet is closed', () => {
+    const onClose = vi.fn();
+
+    render(<MobileEventDetail event={null} onClose={onClose} />);
+    pressBack();
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('backs out of the lightbox first, leaving the sheet open', () => {
+    mockFloorPlan = { floorPlanUrl: 'blob:plan', fileName: 'social-hall.png' };
+    const onClose = vi.fn();
+
+    render(<MobileEventDetail event={baseEvent} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: /view floor plan/i }));
+
+    pressBack();
+
+    expect(screen.queryByRole('dialog', { name: /floor plan/i })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes the sheet on the next Back after the lightbox is dismissed', () => {
+    mockFloorPlan = { floorPlanUrl: 'blob:plan', fileName: 'social-hall.png' };
+    const onClose = vi.fn();
+
+    render(<MobileEventDetail event={baseEvent} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: /view floor plan/i }));
+
+    pressBack();
+    pressBack();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Back working after the lightbox is closed by its own button', async () => {
+    mockFloorPlan = { floorPlanUrl: 'blob:plan', fileName: 'social-hall.png' };
+    const onClose = vi.fn();
+
+    render(<MobileEventDetail event={baseEvent} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: /view floor plan/i }));
+
+    // Closing the lightbox retires its own marker; that must not spill over and
+    // close the sheet underneath, nor swallow the user's next Back press.
+    const retired = nextPopState();
+    fireEvent.click(screen.getByRole('button', { name: /close floor plan/i }));
+    await retired;
+    expect(onClose).not.toHaveBeenCalled();
+
+    pressBack();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

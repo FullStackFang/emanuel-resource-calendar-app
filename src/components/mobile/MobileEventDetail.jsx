@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatHoursMinutes, formatTimeFromDateTimeString } from '../../utils/appTimeUtils';
 import useScrollLock from '../../hooks/useScrollLock';
+import useBackDismiss from '../../hooks/useBackDismiss';
 import useFloorPlan from '../../hooks/useFloorPlan';
 import { useAuth } from '../../context/AuthContext';
 import { STATUS_MAP, DAY_NAMES, MONTH_NAMES } from './mobileConstants';
@@ -31,6 +32,13 @@ function MobileEventDetail({ event, onClose }) {
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+
+  // The device Back button unwinds one layer at a time — lightbox, then sheet,
+  // then out of the app. Declared outermost-first so the layers stack in the
+  // order they appear on screen. See useBackDismiss for why this is needed at
+  // all: the mobile shell is state-driven and owns no routes.
+  useBackDismiss(isOpen, onClose);
+  useBackDismiss(lightboxOpen, () => setLightboxOpen(false));
 
   // Reset the viewer whenever the sheet closes or switches to another event,
   // so a recycled component never reopens onto a stale floor plan.
@@ -70,7 +78,7 @@ function MobileEventDetail({ event, onClose }) {
         {/* Nav bar */}
         <div className="mobile-detail-nav">
           <button className="mobile-detail-back" onClick={onClose}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6" />
             </svg>
             Back

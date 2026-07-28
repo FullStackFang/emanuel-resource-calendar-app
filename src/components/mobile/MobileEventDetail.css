@@ -41,30 +41,65 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
+  /* 56px, not 48px: the Back pill needs room to sit without looking stuffed. */
+  height: 56px;
   padding: 0 var(--space-4);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
+/* Peer to the status badge across the bar, built from the same pill grammar
+   (50 fill / 200 border / 700 text, semibold, full radius) in sapphire. Blue
+   reads interactive, the badge's hue reads state, so the two never compete for
+   the same meaning. Deliberately NOT a solid fill — this codebase reserves
+   filled primary for commit actions (Publish, Approve), and backing out of a
+   read-only sheet is not one. */
 .mobile-detail-back {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-2) var(--space-2) 0;
-  min-height: 44px;
-  background: none;
-  border: none;
-  color: var(--color-primary-600);
+  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-50);
+  border: 1px solid var(--color-primary-200);
+  color: var(--color-primary-700);
   font-family: var(--font-body);
   font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
+  font-weight: var(--font-semibold);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+/* Keeps the drawn pill modest (~36px) so it never outweighs the event title,
+   while the thumb still gets a full 44px. The old rule set min-height: 44px on
+   a borderless button, which reserved the space but drew nothing in it — the
+   target and the affordance disagreed. */
+.mobile-detail-back::after {
+  content: '';
+  position: absolute;
+  inset: -4px -8px;
 }
 
 .mobile-detail-back:active {
-  opacity: 0.7;
+  background: var(--color-primary-100);
+  border-color: var(--color-primary-300);
+  transform: scale(0.97);
+}
+
+.mobile-detail-back:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-detail-back:active {
+    transform: none;
+  }
 }
 
 /* Status badge */
