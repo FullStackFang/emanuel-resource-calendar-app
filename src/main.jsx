@@ -13,6 +13,8 @@ import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import { CHUNK_RELOAD_FLAG } from './utils/lazyWithRetry';
 import { bootstrapMsalAccount } from './utils/msalBootstrap';
+import { registerSW } from 'virtual:pwa-register';
+import { watchForServiceWorkerUpdates } from './utils/pwaUpdates';
 import './index.css'; // optional
 
 // Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
@@ -38,6 +40,25 @@ window.addEventListener('vite:preloadError', (event) => {
   sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
   event.preventDefault();
   window.location.reload();
+});
+
+// Keep an installed PWA current. Until this import existed, vite-plugin-pwa
+// fell back to injecting a bare navigator.serviceWorker.register() — which
+// precaches a new build and then sits on it, because the running page keeps
+// the JS and CSS it already parsed. In standalone display mode there is no
+// URL bar and no reload button, so users had no way to reach the new bundle
+// short of force-quitting the app. Importing the virtual module instead opts
+// into registerType: 'autoUpdate', whose 'activated' handler reloads the page
+// as soon as a new worker takes over.
+//
+// The reload still needs something to trigger the check. Browsers only look
+// for a new sw.js on a navigation, and a PWA resumed from the app switcher
+// does not navigate — hence the foreground watcher.
+registerSW({
+  immediate: true,
+  onRegisteredSW: (_swUrl, registration) => {
+    watchForServiceWorkerUpdates(registration);
+  },
 });
 
 // Force full page reload on HMR for critical modules to prevent React hooks errors
