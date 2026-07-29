@@ -289,6 +289,37 @@ describe('MobileCalendarTab', () => {
       await waitFor(() => expect(globalThis.fetch.mock.calls.length).toBeGreaterThan(callsBefore));
       expect(screen.getByRole('button', { name: /Sunday July 26/i }).getAttribute('aria-pressed')).toBe('true');
     });
+
+    // The 3-day grid is the second consumer of the swipe hook's axis lock,
+    // alongside the agenda's pull-to-refresh. Asserted through behavior rather
+    // than by inspecting the prop: what matters is that ONE gesture cannot
+    // drive two things, and both halves of that live in different components.
+    it('does not open a block on a swipe that ends over it in the 3-day grid', async () => {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, 'threeDay');
+      const { container } = await renderTab();
+
+      swipe(viewZone(container), -120);
+      await act(async () => {});
+
+      // The day stepped, so Thursday's event is now on screen.
+      expect(screen.getByTestId('three-day-column-2026-07-16')).toBeTruthy();
+      // The axis stays locked until the next gesture starts, which is exactly
+      // the window in which a stray click arrives.
+      fireEvent.click(screen.getByRole('button', { name: /Board Meeting/i }));
+      await act(async () => {});
+
+      expect(screen.queryByTestId('detail-sheet')).toBeNull();
+    });
+
+    it('opens a block in the 3-day grid on a plain tap', async () => {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, 'threeDay');
+      await renderTab();
+
+      fireEvent.click(screen.getByRole('button', { name: /Morning Minyan/i }));
+      await act(async () => {});
+
+      expect(screen.getByTestId('detail-sheet')).toBeTruthy();
+    });
   });
 
   describe('agenda scroll drives the week strip', () => {

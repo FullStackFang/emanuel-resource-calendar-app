@@ -53,10 +53,10 @@
 
 - [x] 6.1 Run the mobile Vitest suites and fix regressions; measure the baseline
   first per CLAUDE.md (the suite is red on main)
-- [ ] 6.2 On-device: swipe both directions in both views; confirm the strip
+- [x] 6.2 On-device: swipe both directions in both views; confirm the strip
   follows agenda scroll including across a month boundary; confirm swiping
   forward across a Sunday (which shifts `getWeekRange` and re-renders all 14
   sections mid-animation) lands correctly — design Risk 2
-- [ ] 6.3 On-device: confirm a firm diagonal drag from the top of the agenda
+- [x] 6.3 On-device: confirm a firm diagonal drag from the top of the agenda
   does not both step a day and refresh
 - [x] 6.4 Suggest the conventional commit message

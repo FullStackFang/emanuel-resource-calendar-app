@@ -586,6 +586,55 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Mobile 3-day elastic axis (implemented 2026-07-28)
+
+Spec: `openspec/changes/mobile-three-day-elastic-axis/`. Frontend-only; no
+endpoint, schema, query-key, or `useMobileEvents` change.
+
+**Shipped:**
+- **The 3-day grid's vertical axis is no longer uniform.** `buildTimeScale()` in
+  `MobileThreeDay.jsx` sizes each hour from the max concurrency observed in that
+  hour *per column, then maxed* — 52px at one booking (deliberately unchanged),
+  74 at two, 96 at three or more, 20 for an isolated empty hour, and 26px total
+  for a run of 2+ empty hours however long the run is. One scale for all three
+  columns; a per-column scale would destroy the only reason the view exists.
+- `minutesToY` / `yToMinutes` are pure, exported, and mutually inverse.
+  **Run heights are distributed as integers** so every offset stays an integer —
+  that is what keeps the pixel-exact test assertions honest instead of drifting.
+- **Clusters of 3+ stop splitting the column and render as a stack**: one
+  container over the cluster envelope, one full-width row each (dot, title,
+  `time · room`), truncating to `+N more`. Two still split 50/50.
+- **Tap-to-expand**, one `expandedRange` with two triggers (a stack, a gap band).
+  Tagged with the window key rather than cleared by an effect, so "cleared when
+  the date moves" is structural and cannot render stale for a frame.
+- Scroll anchors to clock time across a scale change (layout effect, previous
+  scale in a ref). Initial scroll opens at the first event hour, 9 AM fallback.
+- Blocks and all-day chips: full 1px category border over a 12% wash, replacing
+  the 3px rail over 8%. The time range returns on `tall` blocks only; the
+  `aria-label` still carries the time in every tier.
+- `MobileThreeDay` now takes `axisRef` (optional) — the second consumer of the
+  swipe axis lock after `MobileAgenda`'s pull-to-refresh.
+
+**Resolved a design/spec conflict:** design.md D5 says every hour in an expanded
+range renders at `EXPANDED_HOUR_HEIGHT` (168px); the spec scenario says a tapped
+empty band expands "to their uncollapsed height". The spec's reading is
+implemented — populated hours get 168px, empty hours get 20px — because 168px
+across a 6-hour midnight run is ~1000px of void. An **expanded stack is also
+allowed to outgrow its envelope** (four events inside 45 minutes cannot fit four
+rows in three quarters of an hour), which is the only place in the grid where a
+container is not strictly its own time extent.
+
+**Tests:** 39 new in `timeScale.test.js`, `MobileThreeDay.test.jsx` rewritten to
+78 (was 32), 2 added to `MobileCalendarTab.test.jsx`. Mobile suites 231/231
+(baseline was 144/144). Full frontend suite unchanged at 10 failures / 3 files.
+
+**Outstanding:** tasks 8.3 / 8.4 — on-device verification. Needs a real phone:
+confirm the 4-9 PM window is legible with a 3+ cluster present, that swiping does
+not displace the viewport, that a diagonal drag neither expands nor opens, and
+that the expand transition behaves under normal and reduced-motion settings.
+`EXPANDED_HOUR_HEIGHT = 168` covers a four-way cluster; whether five-way clusters
+actually occur is the open question that would make it dynamic.
+
 ### Mobile Requests tab (implemented 2026-07-28)
 
 Spec: `openspec/changes/mobile-requests-tab/`. Frontend-only; no endpoint, schema, or

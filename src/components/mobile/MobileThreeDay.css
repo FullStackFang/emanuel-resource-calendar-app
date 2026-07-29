@@ -1,6 +1,19 @@
 /* 3-day time grid.
-   Geometry constants (52px/hour, 28px gutter, 8px inset) are duplicated in
-   MobileThreeDay.jsx, which positions blocks and hour lines in px. Change both.
+
+   The vertical axis is ELASTIC — there is no px-per-hour constant to match
+   here. Every vertical position (block tops, hour lines, gap bands, the grid's
+   own height) is computed by buildTimeScale/minutesToY in MobileThreeDay.jsx
+   and arrives as an inline style. An hour is 52px when one thing is booked in
+   it, 74px at two, 96px at three or more, and a run of empty hours collapses to
+   26px total however long it is. Nothing in this file may assume otherwise.
+
+   What IS duplicated and must be changed in both places:
+     28px gutter          .mobile-three-day-gutter / -gutter-spacer
+     8px  top inset       GRID_TOP_INSET
+     16 / 38 / 18px       STACK_HEADER_HEIGHT / STACK_ROW_HEIGHT /
+                          STACK_MORE_HEIGHT — the stack's row arithmetic decides
+                          how many rows fit before a '+N more', so these heights
+                          are load-bearing, not cosmetic.
 
    The gutter is 28px because hour labels are compact ('7a', '12p'). Spelling
    them out needs 44px, and those 16px come straight off every day column. */
@@ -78,14 +91,15 @@
   border-left: 1px solid var(--border-subtle);
 }
 
-/* Same rail-over-wash treatment as the timed blocks, so the two rows read as
-   one system. The 3px left rail arrives as an inline style. */
+/* Same border-over-wash treatment as the timed blocks, so the two rows read as
+   one system. The category-tinted 1px border arrives as an inline style. */
 .mobile-three-day-chip {
   display: block;
   width: 100%;
-  padding: 2px 4px 2px 5px;
-  /* Same reason as .mobile-three-day-block: the rail is the only border. */
-  border: none;
+  padding: 2px 4px;
+  /* Transparent, not none: blockStyle always overrides this, and a base of
+     `none` would collapse the box model by 2px if it ever did not. */
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
   font-size: 10px;
@@ -161,21 +175,24 @@
 }
 
 /* ---- Timed event blocks ----
-   No start time is rendered: the block's Y position states it. What text a
-   block carries is chosen by its height (the .short/.med/.tall tier comes from
-   layoutDayEvents), so short blocks stay readable instead of spending their one
-   line restating the axis. */
+   What text a block carries is chosen by its height (the .short/.med/.tall tier
+   comes from layoutDayEvents), so short blocks stay readable instead of
+   spending their one line restating the axis. The time range returns only at
+   .tall, where the axis is least trustworthy as a statement of duration and the
+   block has the line to spare. */
 
 .mobile-three-day-block {
   position: absolute;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 1px 3px 1px 5px;
-  /* Required, not cosmetic: blockStyle sets ONLY border-left inline, so
-     without this the browser's default button border shows on the other three
-     sides. The colored rail is meant to be the block's only border. */
-  border: none;
+  /* Symmetric now that the 3px rail is gone — those 3px went to the text,
+     which is the entire margin a split block has to work with. */
+  padding: 1px 3px;
+  /* Transparent, not none: blockStyle supplies the real 1px category border
+     inline, and a base of `none` would shift every block by 1px if it ever did
+     not. */
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   line-height: 1.2;
   text-align: left;
@@ -206,6 +223,18 @@
   font-size: 9.5px;
 }
 
+/* .tall only. 8.5px costs nothing on a 96px block and restores the duration
+   the non-linear axis stopped stating. */
+.mobile-three-day-block-time {
+  font-family: var(--font-body);
+  font-size: 8.5px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .mobile-three-day-block-location {
   font-family: var(--font-body);
   font-size: 9px;
@@ -214,6 +243,153 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---- Overlap stacks (clusters of 3+) ----
+   One container over the cluster's time envelope, one full-width row per event.
+   A three-way split leaves ~28px of text on a 390px phone; a full-width row
+   leaves ~110px. The trade is the members' individual vertical extent, which is
+   restated per row as text and is one tap from the detail sheet. */
+
+.mobile-three-day-stack {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.06));
+}
+
+.mobile-three-day-stack.expanded {
+  border-color: var(--color-primary-400);
+  z-index: 1;
+}
+
+/* 16px — STACK_HEADER_HEIGHT. */
+.mobile-three-day-stack-header {
+  flex-shrink: 0;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  font-family: var(--font-body);
+  font-size: 8.5px;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* 38px — STACK_ROW_HEIGHT. Two lines of text plus the padding around them. */
+.mobile-three-day-stack-row {
+  flex-shrink: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-three-day-stack-row:last-child {
+  border-bottom: none;
+}
+
+.mobile-three-day-stack-row.pending {
+  opacity: 0.9;
+}
+
+.mobile-three-day-stack-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.mobile-three-day-stack-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.mobile-three-day-stack-title {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-three-day-stack-meta {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: var(--font-normal);
+  color: var(--text-tertiary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 18px — STACK_MORE_HEIGHT. */
+.mobile-three-day-stack-more {
+  flex-shrink: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: var(--font-semibold);
+  color: var(--color-primary-600);
+  cursor: pointer;
+}
+
+/* ---- Collapsed empty runs ----
+   Spans the whole grid, not each column: a run is empty in every column by
+   definition, so the range is stated once. */
+
+.mobile-three-day-gap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-top: 1px dashed var(--border-subtle);
+  border-bottom: 1px dashed var(--border-subtle);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.mobile-three-day-gap-label {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 /* ---- Current-time indicator ---- */
@@ -245,4 +421,17 @@
   flex: 1;
   margin: var(--space-3);
   border-radius: var(--radius-lg);
+}
+
+/* ---- Motion ----
+   The expand already skips document.startViewTransition entirely under reduced
+   motion, so this is the second line of defence: it also covers a transition
+   started before the preference was read. */
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

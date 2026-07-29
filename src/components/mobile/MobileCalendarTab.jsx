@@ -153,6 +153,7 @@ function MobileCalendarTab() {
             error={error}
             onEventTap={handleEventTap}
             onRetry={retry}
+            axisRef={axisRef}
           />
         ) : (
           <MobileAgenda
