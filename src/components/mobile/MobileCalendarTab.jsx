@@ -6,7 +6,6 @@ import { useOutlookCategoriesQuery } from '../../hooks/useCategoriesQuery';
 import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe';
 import { buildCategoryColorResolver } from '../../utils/categoryColors';
 import MobileWeekStrip, { formatDateKey, isSameDay } from './MobileWeekStrip';
-import MobileViewSwitcher from './MobileViewSwitcher';
 import MobileAgenda from './MobileAgenda';
 import MobileThreeDay from './MobileThreeDay';
 import MobileEventDetail from './MobileEventDetail';
@@ -139,9 +138,9 @@ function MobileCalendarTab() {
         selectedDate={visibleDate}
         onDateSelect={setSelectedDate}
         eventDates={eventDates}
+        activeView={activeView}
+        onViewChange={setActiveView}
       />
-
-      <MobileViewSwitcher activeView={activeView} onChange={setActiveView} />
 
       <div className="mobile-calendar-view" {...swipeHandlers}>
         {activeView === 'threeDay' ? (

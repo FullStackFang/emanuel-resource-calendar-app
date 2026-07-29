@@ -1,5 +1,15 @@
-## ADDED Requirements
+# mobile-agenda Specification
 
+## Purpose
+
+Defines the mobile Calendar tab's agenda view: a vertically scrollable list of
+day sections over a rolling two-week window, the event cards inside it, the week
+strip that heads it, and the pull-to-refresh gesture. This is the default mobile
+calendar presentation; the `mobile-three-day` capability specifies the
+alternative time-grid presentation of the same in-memory window, and
+`mobile-day-navigation` specifies which day either view is focused on and how
+that focus moves.
+## Requirements
 ### Requirement: Agenda displays all events grouped by date
 The system SHALL display all calendar events in a vertically scrollable list, grouped by date with date section headers. Events within each date SHALL be sorted by start time ascending.
 
@@ -33,7 +43,11 @@ Each event in the agenda list SHALL be rendered as a card showing the event time
 - **THEN** the MobileEventDetail bottom sheet SHALL open with that event's full details
 
 ### Requirement: Week strip date picker for navigation
-The system SHALL display a horizontal week strip at the top of the agenda view showing 7 days. The strip SHALL be swipeable to navigate between weeks and tappable to select a date.
+The system SHALL display a horizontal week strip at the top of the agenda view
+showing 7 days. The strip SHALL be swipeable to navigate between weeks and
+tappable to select a date. The strip's selected day SHALL reflect the day
+currently at the top of the agenda viewport, which changes both by tapping and
+by scrolling the list.
 
 #### Scenario: Week strip shows current week by default
 - **WHEN** the Calendar tab loads
@@ -49,6 +63,12 @@ The system SHALL display a horizontal week strip at the top of the agenda view s
 - **WHEN** the user swipes left on the week strip
 - **THEN** the strip SHALL navigate to the next week
 - **AND** event data for the new date range SHALL load if not already cached
+
+#### Scenario: Scrolling the agenda updates the selected day
+- **WHEN** the user scrolls the agenda list so that a different day's section
+  reaches the top of the viewport
+- **THEN** that day SHALL become the strip's selected day
+- **AND** the strip SHALL display the week containing it
 
 #### Scenario: Today button returns to current date
 - **WHEN** the user has navigated away from the current week
@@ -69,10 +89,20 @@ The system SHALL load events for a 2-week window and load additional weeks as th
 - **AND** previously loaded events SHALL remain in memory
 
 ### Requirement: Pull-to-refresh
-The system SHALL support the pull-to-refresh gesture on the agenda list to reload event data for the current date range.
+The system SHALL support the pull-to-refresh gesture on the agenda list to
+reload event data for the current date range. The gesture SHALL be suppressed
+for touches that have locked to the horizontal axis, so that a day-stepping
+swipe never also refreshes.
 
 #### Scenario: Pull down to refresh
 - **WHEN** the user pulls down on the agenda list from the top
 - **THEN** the system SHALL reload events for the currently visible date range
 - **AND** a refresh indicator SHALL display during the reload
 - **AND** the list SHALL update with fresh data upon completion
+
+#### Scenario: Diagonal swipe from the top does not refresh
+- **WHEN** a touch begins at the top of the agenda list, locks to the
+  horizontal axis, and ends with enough vertical distance to satisfy the
+  pull-to-refresh threshold
+- **THEN** the system SHALL step the day and SHALL NOT reload events
+

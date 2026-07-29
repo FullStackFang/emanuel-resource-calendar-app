@@ -14,12 +14,14 @@
   margin-bottom: var(--space-2);
 }
 
-.mobile-week-header-center {
+/* Navigation and labelling, left-aligned as one group; the view switcher takes
+   the right edge. The two chevrons pair up here rather than flanking the label,
+   which is what freed the right edge in the first place. */
+.mobile-week-header-main {
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -33,11 +35,20 @@
   color: var(--text-primary);
   background: none;
   border: none;
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1);
   margin: 0;
   border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
+  /* A cross-year label ('December 2026 / January 2027') is far too wide for the
+     space left over. It truncates rather than pushing the switcher off-screen. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-week-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mobile-week-label:active {
@@ -49,12 +60,16 @@
   flex-shrink: 0;
 }
 
+/* 38px rather than 44: the chevrons are adjacent now instead of flanking the
+   label, so they no longer need edge-of-screen slop, and the 12px this frees
+   goes to the month label. Still well clear of the 24px WCAG minimum. */
 .mobile-week-nav {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 38px;
   height: 36px;
+  flex-shrink: 0;
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -134,9 +149,9 @@
   background: var(--color-primary-200);
 }
 
-/* Today pill — sits inline beside the month label in the centered group, so it
-   never overlaps the week-nav chevrons (the previous absolute-positioned version
-   painted directly on top of the next-week chevron). */
+/* Today pill — sits inline beside the month label in the header's main group, so
+   it never overlaps the week-nav chevrons (the previous absolute-positioned
+   version painted directly on top of the next-week chevron). */
 .mobile-week-today-btn {
   flex-shrink: 0;
   padding: 2px var(--space-2);
