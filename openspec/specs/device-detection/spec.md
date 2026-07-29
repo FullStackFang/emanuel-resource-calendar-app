@@ -1,4 +1,17 @@
-## MODIFIED Requirements
+# device-detection Specification
+
+## Purpose
+
+Defines which layout the app renders for a given viewport, and the boundary
+between them: phones (<= 480px) get `MobileApp`, tablets and desktops keep the
+existing desktop layout unchanged. Fixes the provider tree the mobile layout is
+mounted inside — SSEProvider, TimezoneProvider, RoomProvider, and the
+authentication providers — so that mobile views have the same hooks and contexts
+available as desktop and login/logout works identically. The mobile views
+themselves are specified by `mobile-app-shell`, `mobile-agenda`,
+`mobile-three-day`, and `mobile-event-detail`.
+
+## Requirements
 
 ### Requirement: Phone users see mobile layout placeholder
 The system SHALL render a `MobileApp` component when the device type is `'phone'`, instead of the existing desktop layout. The mobile app SHALL be wrapped inside the same context providers (SSEProvider, TimezoneProvider, RoomProvider) as the desktop layout so that all existing hooks and contexts are available to mobile views.

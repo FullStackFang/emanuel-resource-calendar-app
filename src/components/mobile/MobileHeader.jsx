@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { setLayoutPreference } from '../../utils/layoutPreference';
 import { logger } from '../../utils/logger';
 import './MobileHeader.css';
 
@@ -59,6 +60,15 @@ function MobileHeader() {
               <span className="mobile-header-menu-email">{account?.username}</span>
             </div>
             <div className="mobile-header-menu-divider" />
+            <button
+              className="mobile-header-menu-item"
+              onClick={() => {
+                setMenuOpen(false);
+                setLayoutPreference('desktop');
+              }}
+            >
+              Switch to Desktop View
+            </button>
             <button className="mobile-header-menu-item" onClick={handleSignOut}>
               Sign Out
             </button>

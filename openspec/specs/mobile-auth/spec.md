@@ -1,4 +1,16 @@
-## ADDED Requirements
+# mobile-auth Specification
+
+## Purpose
+
+Defines how MSAL authentication survives mobile browsers, where popup windows
+are commonly blocked by default. Both login and logout attempt the popup flow
+first and fall back to the redirect flow on failure; the redirect flow then
+requires `handleRedirectPromise()` to run before the React tree renders, and
+requires deep-link parameters to be parked in sessionStorage across the
+navigation away and back. Explicitly holds the existing 45-minute silent token
+refresh unchanged — this capability covers the interactive flows only.
+
+## Requirements
 
 ### Requirement: Login works on mobile browsers
 The system SHALL authenticate users on mobile browsers (iOS Safari, Android Chrome, Samsung Internet) where popup windows may be blocked by default. The login flow SHALL attempt popup-based authentication first, and fall back to redirect-based authentication if the popup fails or is blocked.

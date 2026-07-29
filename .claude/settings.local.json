@@ -132,7 +132,9 @@
       "Bash(/mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app)",
       "Bash(sed -i 's|logger\\\\.info\\(`\\\\[exceptionEnrichment\\\\]|logger.debug\\(`[exceptionEnrichment]|g' api-server.js)",
       "Bash(sed -i 's|logger\\\\.warn\\(`\\\\[exceptionEnrichment\\\\]|logger.debug\\(`[exceptionEnrichment]|g' api-server.js)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "PowerShell(npm run *)",
+      "PowerShell(npx eslint src/utils/layoutPreference.js src/hooks/useDeviceType.js src/components/mobile/MobileHeader.jsx src/components/MySettings.jsx src/__tests__/unit/hooks/useDeviceType.test.jsx src/__tests__/unit/components/mobile/MobileHeader.test.jsx)"
     ],
     "deny": []
   },

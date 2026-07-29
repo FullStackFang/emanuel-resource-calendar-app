@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { usePermissions } from '../hooks/usePermissions';
+import { getLayoutPreference, setLayoutPreference } from '../utils/layoutPreference';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
 
@@ -49,29 +50,33 @@ export default function MySettings({ apiToken }) {
         email: '',
         preferences: { ...defaultPreferences }
     });
+    const [layoutPref, setLayoutPref] = useState(getLayoutPreference);
+
+    // Device-local, applies immediately — not part of the server-saved form.
+    const handleLayoutPrefChange = useCallback((e) => {
+        const value = e.target.value;
+        setLayoutPref(value);
+        setLayoutPreference(value);
+    }, []);
 
   // Separate function for creating a new user
   const createNewUser = useCallback(async (userData) => {
     if (!apiToken) return null;
     
-    try {
-      const response = await fetch(`${API_BASE_URL}/users/current`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiToken}`
-        },
-        body: JSON.stringify(userData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create user profile: ${response.statusText}`);
-      }
-      
-      return await response.json();
-    } catch (error) {
-      throw error;
+    const response = await fetch(`${API_BASE_URL}/users/current`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiToken}`
+      },
+      body: JSON.stringify(userData)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create user profile: ${response.statusText}`);
     }
+
+    return await response.json();
   }, [apiToken]);
 
   // Fetch user profile
@@ -122,7 +127,7 @@ export default function MySettings({ apiToken }) {
               ...createdUser.preferences
             }
           });
-        } catch (createErr) {
+        } catch {
           setError('Error creating your profile. Please try again later.');
         }
         
@@ -151,7 +156,7 @@ export default function MySettings({ apiToken }) {
           ...data.preferences
         }
       });
-    } catch (err) {
+    } catch {
       setError('Error loading your settings. Please try again later.');
     } finally {
       setLoading(false);
@@ -203,7 +208,7 @@ export default function MySettings({ apiToken }) {
         setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
         throw new Error('Failed to update notification preference');
       }
-    } catch (err) {
+    } catch {
       setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
       setError('Failed to update notification preference. Please try again.');
       setTimeout(() => setError(null), 3000);
@@ -250,7 +255,7 @@ export default function MySettings({ apiToken }) {
       setUserProfile(updatedUser);
       setSuccessMessage('Settings saved successfully!');
       setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err) {
+    } catch {
       setError('Failed to save settings. Please try again.');
     } finally {
       setLoading(false);
@@ -357,6 +362,25 @@ export default function MySettings({ apiToken }) {
           </select>
         </div>
         
+        <div className="form-group">
+          <label htmlFor="layoutPreference">Layout on This Device:</label>
+          <select
+            id="layoutPreference"
+            name="layoutPreference"
+            value={layoutPref}
+            onChange={handleLayoutPrefChange}
+          >
+            <option value="auto">Automatic (based on screen size)</option>
+            <option value="desktop">Always desktop</option>
+            <option value="mobile">Always mobile</option>
+          </select>
+          <small>
+            Applies immediately and only to this device. Choose &quot;Always desktop&quot; if
+            the phone layout ever appears on your computer (this can happen with browser
+            zoom or a narrow app window).
+          </small>
+        </div>
+
         <div className="form-group">
           <label htmlFor="preferences.preferredZoomLevel">Zoom Level:</label>
           <input

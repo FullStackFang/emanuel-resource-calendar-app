@@ -1,4 +1,15 @@
-## ADDED Requirements
+# mobile-event-detail Specification
+
+## Purpose
+
+Defines the bottom sheet that opens when a mobile event card is tapped: its
+slide-up presentation and the two ways to dismiss it, which event fields it
+shows and which it omits when absent, and the status badge colors it shares with
+the desktop application. The sheet is the mobile counterpart to the desktop
+`EventReviewExperience` modal, but read-only by default — mutating actions are
+added per entry point rather than assumed here.
+
+## Requirements
 
 ### Requirement: Event detail bottom sheet
 The system SHALL display event details in a bottom sheet overlay that slides up from the bottom of the screen when an event card is tapped.

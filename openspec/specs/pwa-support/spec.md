@@ -1,4 +1,16 @@
-## ADDED Requirements
+# pwa-support Specification
+
+## Purpose
+
+Defines what makes the app installable to a device home screen and how it
+behaves once installed: the manifest's identity, icons, and display metadata,
+standalone launch, and the service worker that precaches the Vite build output
+for faster repeat loads. Equally important is what the service worker must NOT
+touch — API requests, MSAL authentication redirects, and SSE connections all go
+straight to the network, since caching any of them would break flows this
+capability is not responsible for.
+
+## Requirements
 
 ### Requirement: App is installable to home screen
 The system SHALL provide a valid PWA manifest that allows users to install the app to their device's home screen on both Android and iOS.

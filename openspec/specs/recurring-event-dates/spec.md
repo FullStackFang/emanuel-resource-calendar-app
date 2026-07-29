@@ -1,4 +1,20 @@
-## ADDED Requirements
+# recurring-event-dates Specification
+
+## Purpose
+
+Defines which date a recurring event shows in the review UI, and which dates may
+be changed there. A series master displays its `recurrence.range` — the series
+span — while continuing to persist `startDate`/`endDate` as the first-occurrence
+date that Microsoft Graph requires; the transform is display-layer only, so save
+paths, Graph sync, and conflict detection keep operating on first-occurrence
+dates. A single occurrence displays its own resolved date, including any
+exception-document override.
+
+Also fixes that occurrence dates are immutable: enforced both in the UI
+(disabled inputs) and structurally on the server, so a client that bypasses the
+UI is still refused.
+
+## Requirements
 
 ### Requirement: Series master review displays the series range in read-only date inputs
 

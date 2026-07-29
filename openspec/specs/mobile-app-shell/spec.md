@@ -1,4 +1,16 @@
-## ADDED Requirements
+# mobile-app-shell Specification
+
+## Purpose
+
+Defines the frame every mobile view renders inside: the compact header with its
+user avatar menu, the active view area, and the fixed bottom tab bar. Owns
+tab-switching semantics (state-based, deliberately not router-based, so the URL
+never changes), the tab bar's fixed positioning and safe-area handling, and the
+44px minimum touch target that applies to every interactive element in the
+shell. What goes *inside* the view area is specified per tab — see
+`mobile-agenda` and `mobile-day-navigation` for the Calendar tab.
+
+## Requirements
 
 ### Requirement: Mobile app shell with bottom tab navigation
 The system SHALL render a mobile app shell on phone viewports (<=480px) consisting of a compact header, an active view area, and a fixed bottom tab bar with three tabs: Calendar, My Events, and Chat.
