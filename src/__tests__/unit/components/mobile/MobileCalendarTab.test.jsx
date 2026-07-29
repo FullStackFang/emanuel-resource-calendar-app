@@ -98,9 +98,20 @@ const boxAt = (top) => ({
   left: 0, right: 400, width: 400, x: 0, y: top,
 });
 
+const VIEWPORT_HEIGHT = 300;
+/** Stands in for the list's bottom padding and extend slot, so that scrolling
+ *  to a mid-list section is unambiguously far from either end. */
+const TRAILING_SLACK = 800;
+
 /**
  * jsdom has no layout, so the agenda's scroll spy needs its geometry supplied:
  * day section N starts at N * SECTION_HEIGHT in the list's content space.
+ *
+ * `scrollHeight`/`clientHeight` are modelled too, because range extension keys
+ * off proximity to an end. They track the live section count, so a list that
+ * grows really does put its bottom further away.
+ *
+ * @returns {{scrollToSection: Function, scrollToBottom: Function, scrollToTop: Function, scrollTop: Function}}
  */
 function stubAgendaGeometry(container) {
   const list = container.querySelector('.mobile-agenda-list');
@@ -109,6 +120,16 @@ function stubAgendaGeometry(container) {
     configurable: true,
     get: () => scrollTop,
     set: (v) => { scrollTop = v; },
+  });
+  const contentHeight = () =>
+    container.querySelectorAll('.mobile-agenda-day').length * SECTION_HEIGHT + TRAILING_SLACK;
+  Object.defineProperty(list, 'scrollHeight', {
+    configurable: true,
+    get: contentHeight,
+  });
+  Object.defineProperty(list, 'clientHeight', {
+    configurable: true,
+    get: () => VIEWPORT_HEIGHT,
   });
   list.getBoundingClientRect = () => boxAt(0);
 
@@ -119,11 +140,19 @@ function stubAgendaGeometry(container) {
   };
   measure();
 
-  return (index) => {
-    scrollTop = index * SECTION_HEIGHT;
+  const scrollTo = (top) => {
+    scrollTop = top;
     measure();
     fireEvent.scroll(list);
   };
+
+  const api = (index) => scrollTo(index * SECTION_HEIGHT);
+  api.scrollToSection = api;
+  api.scrollTo = scrollTo;
+  api.scrollToBottom = () => scrollTo(contentHeight() - VIEWPORT_HEIGHT);
+  api.scrollToTop = () => scrollTo(0);
+  api.currentScrollTop = () => scrollTop;
+  return api;
 }
 
 describe('MobileCalendarTab', () => {
@@ -333,18 +362,21 @@ describe('MobileCalendarTab', () => {
       vi.unstubAllGlobals();
     });
 
-    it('highlights the day scrolled to the top, without moving the fetch window', async () => {
+    it('highlights the day scrolled to the top, without moving the focused day', async () => {
       const { container } = await renderTab();
       const scrollToSection = stubAgendaGeometry(container);
       const callsBefore = globalThis.fetch.mock.calls.length;
       const sectionsBefore = container.querySelectorAll('.mobile-agenda-day').length;
 
-      // Section 5 of the Jul 12-25 window is Friday Jul 17.
+      // Section 5 of the Jul 12-25 window is Friday Jul 17 — mid-list, so far
+      // enough from either end that no extension is triggered.
       scrollToSection(5);
       await act(async () => {});
 
       expect(screen.getByRole('button', { name: /Friday July 17/i }).getAttribute('aria-pressed')).toBe('true');
-      // Observation is not intent: same fetch window, same rendered days.
+      // Observation is not intent. Scrolling may grow the rendered range (see
+      // the extension tests below) but must never move the focused day, which
+      // is what would drive the agenda's own scroll-into-view.
       expect(globalThis.fetch).toHaveBeenCalledTimes(callsBefore);
       expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(sectionsBefore);
       expect(container.querySelector('.mobile-agenda-day-header').textContent).toMatch(/Sunday, Jul 12/);
@@ -376,6 +408,164 @@ describe('MobileCalendarTab', () => {
       await act(async () => {});
 
       expect(screen.getByRole('button', { name: /Saturday July 18/i }).getAttribute('aria-pressed')).toBe('true');
+    });
+  });
+
+  describe('scrolling extends the rendered range', () => {
+    beforeEach(() => {
+      vi.stubGlobal('requestAnimationFrame', (cb) => { cb(); return 1; });
+      vi.stubGlobal('cancelAnimationFrame', () => {});
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Day keys of the rendered sections, in order. */
+    function renderedDays(container) {
+      return [...container.querySelectorAll('.mobile-agenda-day-header')]
+        .map(el => el.textContent);
+    }
+
+    it('appends two more weeks when scrolled to the bottom', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(14);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+
+      // Jul 12-25 becomes Jul 12 - Aug 8.
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+      const days = renderedDays(container);
+      expect(days[0]).toMatch(/Sunday, Jul 12/);
+      expect(days[days.length - 1]).toMatch(/Saturday, Aug 8/);
+    });
+
+    it('keeps extending forward as the reader keeps scrolling', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+      geo.scrollToBottom();
+      await act(async () => {});
+
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(42);
+      expect(renderedDays(container).at(-1)).toMatch(/Saturday, Aug 22/);
+    });
+
+    it('prepends two weeks when scrolled back to the top', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      // Down first, because extension follows the direction of travel.
+      geo.scrollToSection(6);
+      await act(async () => {});
+      geo.scrollToTop();
+      await act(async () => {});
+
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+      expect(renderedDays(container)[0]).toMatch(/Sunday, Jun 28/);
+    });
+
+    it('does not fetch history on the first downward scroll', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+      const callsBefore = globalThis.fetch.mock.calls.length;
+
+      // The list opens at scrollTop 0, so a proximity-only rule would treat
+      // the very first flick as "near the top" and prefetch a fortnight back.
+      geo.scrollToSection(3);
+      await act(async () => {});
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(callsBefore);
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(14);
+      expect(renderedDays(container)[0]).toMatch(/Sunday, Jul 12/);
+    });
+
+    it('does not repeat a request while parked at the bottom', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+      const callsAfterFirst = globalThis.fetch.mock.calls.length;
+
+      // Same offset, so the reader has not moved: re-arming on this would
+      // chain fetches for as long as the list stayed near an end.
+      fireEvent.scroll(container.querySelector('.mobile-agenda-list'));
+      await act(async () => {});
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(callsAfterFirst);
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+    });
+
+    it('requests only the days it does not already hold', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+
+      const body = JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body);
+      // Starts the instant after the loaded end (Jul 25), not at Jul 12.
+      expect(body.startTime).toBe(new Date(2026, 6, 26).toISOString());
+      expect(body.endTime).toBe(new Date(2026, 7, 8, 23, 59, 59, 999).toISOString());
+    });
+
+    it('keeps the list and offers a retry when an extension fails', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+      globalThis.fetch.mockRejectedValueOnce(new Error('offline'));
+
+      geo.scrollToBottom();
+      await act(async () => {});
+
+      // The reader keeps what they had — no full-screen error swap.
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(14);
+      expect(screen.queryByRole('button', { name: /^Retry$/ })).toBeNull();
+      const retry = screen.getByRole('button', { name: /Couldn't load more events/i });
+
+      globalThis.fetch.mockClear();
+      fireEvent.click(retry);
+      await act(async () => {});
+
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+      expect(screen.queryByRole('button', { name: /Couldn't load more events/i })).toBeNull();
+    });
+
+    it('does not move the focused day when the range grows', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+
+      // Extension is not navigation: the strip still reflects where the reader
+      // is, and the agenda has not been told to scroll anywhere.
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('replaces rather than extends when a distant date is picked', async () => {
+      const { container } = await renderTab();
+      const geo = stubAgendaGeometry(container);
+
+      geo.scrollToBottom();
+      await act(async () => {});
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(28);
+
+      // November is months away; rendering every intervening day would be absurd.
+      fireEvent.click(screen.getByRole('button', { name: /choose date/i }));
+      for (let i = 0; i < 4; i++) {
+        fireEvent.click(screen.getByRole('button', { name: /Next month/i }));
+      }
+      fireEvent.click(screen.getByRole('button', { name: /Wednesday November 4, 2026/i }));
+      await act(async () => {});
+
+      expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(14);
+      expect(renderedDays(container)[0]).toMatch(/Sunday, Nov 1/);
     });
   });
 

@@ -586,6 +586,67 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Mobile agenda infinite scroll (implemented 2026-07-29)
+
+Spec: `openspec/changes/mobile-agenda-infinite-scroll/`. Frontend-only; no
+endpoint, schema, or query-key change. `POST /events/load` is called with the
+same body shape, only narrower ranges.
+
+**The bug:** `getWeekRange(selectedDate)` was doing two jobs — the fetch window
+AND the rendered day list — so the agenda rendered exactly 14 days and
+dead-ended. Scrolling could never extend it, because scroll observation writes
+`visibleDate`, never `selectedDate`, by design.
+
+**Shipped:**
+- **`renderedRange` is now its own state in `MobileCalendarTab`**, and
+  `datesToShow` derives from it. Scrolling within one viewport (600px) of either
+  end appends/prepends two weeks, without bound. `getWeekRange` survives
+  unchanged but is no longer the rendered list.
+- **Three states, not two.** `selectedDate` (intent) / `visibleDate`
+  (observation) / `renderedRange` (extent). Loop-freedom holds for the same
+  structural reason as before: nothing that reads `renderedRange` causes a
+  scroll, and the scroll-into-view effect is keyed on the selected day, which
+  extension never writes.
+- **Scroll extension commits on success; selection jumps render optimistically.**
+  Deliberate asymmetry — a tap is stated intent, a scroll is not, so the list
+  never shows days labelled 'No events' that it has no data for. Consequence:
+  in the scroll path the rendered range never exceeds the loaded range, so
+  there is no optimistic state to roll back.
+- **`coverRange` fetches only uncovered spans.** Necessary (whole-window
+  refetch is quadratic once the range grows) and it also removes the old
+  whole-window refetch on every Sunday crossing. `ensureRange` returns
+  `'covered' | 'suppressed' | 'error'` — suppressed retries on the next scroll,
+  error gets an affordance.
+- **Fixed a latent bug in passing:** `loadedRangeRef` was a single min/max
+  interval, so a distant jump made it claim to cover the skipped gap and
+  navigating back fetched nothing. Disjoint targets now re-anchor it. **Exact
+  adjacency is not disjoint** — ranges are whole-day aligned, so a 1ms tolerance
+  is required or two windows anchored two Sundays apart get discarded.
+- **Extension follows direction of travel, not just proximity.** The list opens
+  at scrollTop 0, so a proximity-only rule prefetches a fortnight of history on
+  every session's first downward flick.
+- **Scroll anchoring is node-based**, not `scrollHeight`-delta based, so the
+  spinner and retry rows above the reader are corrected by the same rule.
+  Requires `overflow-anchor: none` on `.mobile-agenda-list` — Chrome and Firefox
+  would otherwise correct it too and double the shift; Safari would not at all.
+- Pull-to-refresh now reloads the **entire** loaded range. Refreshing only the
+  selected week would leave a grown list showing pre-refresh data.
+
+**Tests:** mobile suites 254/254 (baseline was 231/231). 10 new in
+`useMobileEvents.test.jsx` (19 total), 9 new in `MobileCalendarTab.test.jsx`
+(28 total), 8 new in `MobileAgenda.test.jsx` (19 total). Full frontend suite
+unchanged at 10 failures / 3 files. The prepend-anchoring test was
+mutation-checked — disabling the correction fails it.
+
+**Outstanding:** tasks 6.3 / 6.4 — on-device verification. Needs a real phone:
+scroll a month each way and confirm no dead end, no viewport jump on backward
+extension, that the week strip still tracks the top day throughout, and that
+pull-to-refresh after extending updates every rendered day.
+
+**Note:** one pre-existing lint warning in `MobileCalendarTab.test.jsx` (an
+unused `no-await-in-loop` disable directive, present on HEAD before this change)
+was left alone.
+
 ### Mobile 3-day elastic axis (implemented 2026-07-28)
 
 Spec: `openspec/changes/mobile-three-day-elastic-axis/`. Frontend-only; no

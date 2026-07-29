@@ -15,6 +15,25 @@ import './MobileCalendarTab.css';
 export const VIEW_STORAGE_KEY = 'mobile-calendar-view';
 const VALID_VIEWS = ['agenda', 'threeDay'];
 
+/** Days added to the rendered range per scroll extension. */
+export const EXTEND_DAYS = 14;
+
+function addDays(date, delta) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + delta);
+  return next;
+}
+
+/**
+ * Whether `target` skips days the rendered range does not already reach.
+ * Exact adjacency is contiguous — the ranges are whole-day aligned, so a target
+ * beginning 1ms after the rendered end leaves no day unaccounted for.
+ */
+function isDisjoint(target, range) {
+  return target.end.getTime() < range.start.getTime() - 1
+    || target.start.getTime() > range.end.getTime() + 1;
+}
+
 /** Agenda for anyone who has never chosen; localStorage may be unavailable. */
 function readStoredView() {
   try {
@@ -33,25 +52,31 @@ function readStoredView() {
  * pure presentation: no refetch, no date reset. The child views are rendered
  * from the same in-memory window.
  *
- * Selection INTENT and scroll OBSERVATION are two different pieces of state:
+ * Selection INTENT, scroll OBSERVATION, and rendered EXTENT are three different
+ * pieces of state:
  *
- *   selectedDate  written by strip tap, date picker, Today, swipe
- *                 read by the fetch window, `datesToShow`, the 3-day columns,
- *                 and the agenda's scroll-into-view
- *   visibleDate   written by the agenda's scroll observation; forced to follow
- *                 `selectedDate` on every intent change
- *                 read by the week strip only
+ *   selectedDate   written by strip tap, date picker, Today, swipe
+ *                  read by the fetch window, the 3-day columns, the agenda's
+ *                  scroll-into-view, and `renderedRange`
+ *   visibleDate    written by the agenda's scroll observation; forced to follow
+ *                  `selectedDate` on every intent change
+ *                  read by the week strip only
+ *   renderedRange  written by `selectedDate` changes and by scroll extension
+ *                  read by `datesToShow` only
  *
  * `MobileAgenda` scrolls to `selectedDate` whenever it changes, so a
- * scroll-driven write to that same state would drive itself. Splitting the two
+ * scroll-driven write to that same state would drive itself. Splitting them
  * makes the loop unrepresentable rather than suppressed by a flag: nothing
- * `visibleDate` feeds can cause a scroll.
+ * `visibleDate` or `renderedRange` feeds can cause a scroll. `datesToShow` only
+ * ever adds sections, and the scroll-into-view effect is keyed on the selected
+ * day, which extension never writes.
  */
 function MobileCalendarTab() {
   const { apiToken } = useAuth();
 
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [visibleDate, setVisibleDate] = useState(() => new Date());
+  const [renderedRange, setRenderedRange] = useState(() => getWeekRange(new Date()));
   const [activeView, setActiveView] = useState(readStoredView);
   const [selectedEvent, setSelectedEvent] = useState(null);
 
@@ -63,6 +88,7 @@ function MobileCalendarTab() {
     error,
     refresh,
     retry,
+    ensureRange,
   } = useMobileEvents(selectedDate);
 
   // Shares Calendar.jsx's query key and 30-minute staleTime, so this is
@@ -86,17 +112,18 @@ function MobileCalendarTab() {
     }
   }, [activeView]);
 
-  // The 14 days the agenda lists — the same window the fetch covers.
+  // The days the agenda lists. Two weeks to begin with, then whatever the
+  // reader has scrolled into — no longer tied to a single window around the
+  // selected date, which is what used to dead-end the list.
   const datesToShow = useMemo(() => {
-    const { start, end } = getWeekRange(selectedDate);
     const dates = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
+    const cursor = new Date(renderedRange.start);
+    while (cursor <= renderedRange.end) {
       dates.push(new Date(cursor));
       cursor.setDate(cursor.getDate() + 1);
     }
     return dates;
-  }, [selectedDate.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [renderedRange]);
 
   // Intent wins: a tapped day highlights immediately instead of waiting for the
   // smooth scroll to land and be observed. The functional form bails out when
@@ -104,6 +131,26 @@ function MobileCalendarTab() {
   const selectedKey = formatDateKey(selectedDate);
   useEffect(() => {
     setVisibleDate(prev => (formatDateKey(prev) === selectedKey ? prev : selectedDate));
+  }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Navigation grows the rendered range when it stays contiguous, and replaces
+  // it when it does not. Without the replace branch, picking a date months out
+  // would render every intervening day; ordinary stepping, swiping and week
+  // chevrons always overlap, so only a real jump resets.
+  //
+  // Unlike a scroll extension (below) this renders immediately rather than
+  // waiting on the fetch: the reader asked to be here, so the days appear and
+  // events fill in behind them.
+  useEffect(() => {
+    setRenderedRange(prev => {
+      const target = getWeekRange(selectedDate);
+      if (isDisjoint(target, prev)) return target;
+      if (target.start >= prev.start && target.end <= prev.end) return prev;
+      return {
+        start: target.start < prev.start ? target.start : prev.start,
+        end: target.end > prev.end ? target.end : prev.end,
+      };
+    });
   }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Observation only — deliberately does NOT touch `selectedDate`, so scrolling
@@ -128,6 +175,25 @@ function MobileCalendarTab() {
     onSwipeLeft: handleSwipeLeft,
     onSwipeRight: handleSwipeRight,
   });
+
+  /**
+   * Grow the rendered range by two weeks at one end, but only once the data is
+   * actually held. Committing optimistically would show fourteen days
+   * confidently labelled "No events" that may well have events, and scrolling
+   * — unlike tapping a date — is not a request to be anywhere in particular.
+   *
+   * @returns {Promise<'covered'|'suppressed'|'error'>} passed back so the
+   *   agenda can tell "retry offered" from "try again on the next scroll".
+   */
+  const handleExtendRange = useCallback(async (direction) => {
+    const target = direction === 'past'
+      ? { start: addDays(renderedRange.start, -EXTEND_DAYS), end: renderedRange.end }
+      : { start: renderedRange.start, end: addDays(renderedRange.end, EXTEND_DAYS) };
+
+    const status = await ensureRange(target.start, target.end);
+    if (status === 'covered') setRenderedRange(target);
+    return status;
+  }, [renderedRange, ensureRange]);
 
   const handleEventTap = useCallback((event) => setSelectedEvent(event), []);
   const handleDetailClose = useCallback(() => setSelectedEvent(null), []);
@@ -166,6 +232,7 @@ function MobileCalendarTab() {
             onRefresh={refresh}
             onRetry={retry}
             onVisibleDateChange={handleVisibleDateChange}
+            onExtendRange={handleExtendRange}
             axisRef={axisRef}
           />
         )}

@@ -10,10 +10,18 @@
 // rather than an IntersectionObserver.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import MobileAgenda from '../../../../components/mobile/MobileAgenda';
 
 const SECTION_HEIGHT = 100;
+
+// `stubGeometry` patches the prototype so that sections rendered later are
+// covered; restore it unconditionally so a failing test cannot leak layout
+// stubs into the next one.
+const PRISTINE_RECT = Element.prototype.getBoundingClientRect;
+afterEach(() => {
+  Element.prototype.getBoundingClientRect = PRISTINE_RECT;
+});
 
 /** Jul 12 (Sun) .. Jul 18 2026 — one week of sections is enough to scroll. */
 const DATES = Array.from({ length: 7 }, (_, i) => new Date(2026, 6, 12 + i));
@@ -26,6 +34,8 @@ function rect(top) {
  * Give the list a fake layout: section N starts at N * SECTION_HEIGHT in
  * content space, and the list's own box sits at viewport top 0.
  */
+const VIEWPORT_HEIGHT = 200;
+
 function stubGeometry(container) {
   const list = container.querySelector('.mobile-agenda-list');
   let scrollTop = 0;
@@ -34,21 +44,39 @@ function stubGeometry(container) {
     get: () => scrollTop,
     set: (v) => { scrollTop = v; },
   });
+  const sectionCount = () => container.querySelectorAll('.mobile-agenda-day').length;
+  Object.defineProperty(list, 'scrollHeight', {
+    configurable: true,
+    get: () => sectionCount() * SECTION_HEIGHT,
+  });
+  Object.defineProperty(list, 'clientHeight', {
+    configurable: true,
+    get: () => VIEWPORT_HEIGHT,
+  });
   list.getBoundingClientRect = () => rect(0);
 
-  const measure = () => {
-    container.querySelectorAll('.mobile-agenda-day').forEach((el, i) => {
-      el.getBoundingClientRect = () => rect(i * SECTION_HEIGHT - scrollTop);
-    });
+  // Resolved at call time, on the prototype, so that sections rendered LATER
+  // are covered too — a layout effect reads geometry during the same commit
+  // that adds them, long before a test could stub the new nodes. It also means
+  // a prepend genuinely moves every pre-existing section down, which is the
+  // condition the scroll anchor exists to cancel.
+  const originalRect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function stubbedRect() {
+    if (this === list) return rect(0);
+    if (this.classList?.contains('mobile-agenda-day')) {
+      const index = [...container.querySelectorAll('.mobile-agenda-day')].indexOf(this);
+      return rect(index * SECTION_HEIGHT - scrollTop);
+    }
+    return originalRect.call(this);
   };
-  measure();
 
   return {
     list,
+    restore: () => { Element.prototype.getBoundingClientRect = originalRect; },
+    scrollTopValue: () => scrollTop,
     /** Scroll so that section `index` sits exactly at the top of the viewport. */
     scrollToSection(index) {
       scrollTop = index * SECTION_HEIGHT;
-      measure();
       fireEvent.scroll(list);
     },
   };
@@ -247,5 +275,174 @@ describe('MobileAgenda pull-to-refresh', () => {
     pull(geo.list, 120);
 
     expect(onRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe('MobileAgenda range extension', () => {
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb) => { cb(); return 1; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Jul 5 .. Jul 18 — the same week as DATES, with a week prepended. */
+  const EARLIER_DATES = [
+    ...Array.from({ length: 7 }, (_, i) => new Date(2026, 6, 5 + i)),
+    ...DATES,
+  ];
+  /** Jul 12 .. Jul 25 — the same week as DATES, with a week appended. */
+  const LATER_DATES = [
+    ...DATES,
+    ...Array.from({ length: 7 }, (_, i) => new Date(2026, 6, 19 + i)),
+  ];
+
+  it('asks to extend forward when scrolled down toward the bottom', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('covered');
+    const { geo } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(5);
+    await act(async () => {});
+
+    expect(onExtendRange).toHaveBeenCalledWith('future');
+
+  });
+
+  it('asks to extend backward when scrolled up toward the top', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('covered');
+    const { geo } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(4);
+    await act(async () => {});
+    onExtendRange.mockClear();
+    geo.scrollToSection(0);
+    await act(async () => {});
+
+    expect(onExtendRange).toHaveBeenCalledWith('past');
+
+  });
+
+  it('does not ask again from the same offset', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('covered');
+    const { geo } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(5);
+    await act(async () => {});
+    expect(onExtendRange).toHaveBeenCalledTimes(1);
+
+    // Parked: the reader has not moved, so re-arming here would chain requests.
+    fireEvent.scroll(geo.list);
+    await act(async () => {});
+
+    expect(onExtendRange).toHaveBeenCalledTimes(1);
+
+  });
+
+  it('holds the reader in place when days are prepended', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('covered');
+    const { geo, rerender } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(3);
+    await act(async () => {});
+    expect(geo.scrollTopValue()).toBe(300);
+
+    // Seven sections arrive above the reader — 700px of content.
+    await act(async () => {
+      rerender(
+        <MobileAgenda
+          selectedDate={DATES[0]}
+          datesToShow={EARLIER_DATES}
+          groupedEvents={{}}
+          loading={false}
+          refreshing={false}
+          error={null}
+          onEventTap={vi.fn()}
+          onRefresh={vi.fn()}
+          onRetry={vi.fn()}
+          onVisibleDateChange={vi.fn()}
+          onExtendRange={onExtendRange}
+        />
+      );
+    });
+
+    // Same day still under the reader's eye, so scrollTop absorbs the growth.
+    expect(geo.scrollTopValue()).toBe(1000);
+
+  });
+
+  it('leaves scroll position alone when days are appended', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('covered');
+    const { geo, rerender } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(3);
+    await act(async () => {});
+
+    await act(async () => {
+      rerender(
+        <MobileAgenda
+          selectedDate={DATES[0]}
+          datesToShow={LATER_DATES}
+          groupedEvents={{}}
+          loading={false}
+          refreshing={false}
+          error={null}
+          onEventTap={vi.fn()}
+          onRefresh={vi.fn()}
+          onRetry={vi.fn()}
+          onVisibleDateChange={vi.fn()}
+          onExtendRange={onExtendRange}
+        />
+      );
+    });
+
+    // Content added below the anchor moves it by zero.
+    expect(geo.scrollTopValue()).toBe(300);
+
+  });
+
+  it('offers a retry at the failed end and re-requests on tap', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('error');
+    const { geo, getByRole, container } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(5);
+    await act(async () => {});
+
+    // The list the reader already had is untouched.
+    expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(7);
+    const retry = getByRole('button', { name: /Couldn't load more events/i });
+
+    onExtendRange.mockResolvedValue('covered');
+    await act(async () => { fireEvent.click(retry); });
+
+    expect(onExtendRange).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.mobile-agenda-extend-retry')).toBeNull();
+
+  });
+
+  it('leaves the retry alone when a request is merely suppressed', async () => {
+    const onExtendRange = vi.fn().mockResolvedValue('suppressed');
+    const { geo, container } = renderAgenda({ onExtendRange });
+
+    geo.scrollToSection(5);
+    await act(async () => {});
+
+    // Neither success nor failure: nothing to retry, nothing to celebrate.
+    expect(container.querySelector('.mobile-agenda-extend-retry')).toBeNull();
+    expect(container.querySelectorAll('.mobile-agenda-day').length).toBe(7);
+
+  });
+
+  it('does nothing when the shell provides no extend handler', async () => {
+    const { geo, container } = renderAgenda();
+
+    expect(() => geo.scrollToSection(5)).not.toThrow();
+    await act(async () => {});
+
+    expect(container.querySelector('.mobile-agenda-extend')).toBeNull();
+
   });
 });

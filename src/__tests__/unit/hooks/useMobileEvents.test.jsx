@@ -9,6 +9,11 @@
 //   - refresh/retry discard the loaded range and refetch it
 //   - a concurrent fetch is suppressed (the single-flight ref)
 //   - only published/pending events survive
+//
+// The infinite-scroll change added `ensureRange` and made coverage gap-only.
+// The second describe block below pins that: what is already held is never
+// re-requested, a jump re-anchors the loaded range instead of bridging the gap
+// it skipped, and an extension failure stays out of the full-screen `error`.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -218,6 +223,218 @@ describe('useMobileEvents', () => {
 
     await act(async () => { release(); });
     await waitFor(() => expect(result.current.initialLoading).toBe(false));
+  });
+});
+
+describe('useMobileEvents range coverage', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 6, 15, 12, 0, 0)); // Wed Jul 15 2026
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** Mounts with Jul 12 00:00 - Jul 25 23:59:59.999 already loaded. */
+  async function mountLoaded() {
+    mockFetchReturning([]);
+    const hook = renderHook(() => useMobileEvents(new Date(2026, 6, 15)));
+    await waitFor(() => expect(hook.result.current.initialLoading).toBe(false));
+    globalThis.fetch.mockClear();
+    return hook;
+  }
+
+  it('fetches only the days past the loaded end when extending forward', async () => {
+    const { result } = await mountLoaded();
+
+    let status;
+    await act(async () => {
+      status = await result.current.ensureRange(
+        new Date(2026, 6, 12),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+
+    expect(status).toBe('covered');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const body = bodyOf(globalThis.fetch.mock.calls[0]);
+    // Starts 1ms after the loaded end — Jul 26, not Jul 12.
+    expect(body.startTime).toBe(new Date(2026, 6, 26).toISOString());
+    expect(body.endTime).toBe(new Date(2026, 7, 8, 23, 59, 59, 999).toISOString());
+  });
+
+  it('fetches only the days before the loaded start when extending backward', async () => {
+    const { result } = await mountLoaded();
+
+    await act(async () => {
+      await result.current.ensureRange(
+        new Date(2026, 5, 28),
+        new Date(2026, 6, 25, 23, 59, 59, 999)
+      );
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const body = bodyOf(globalThis.fetch.mock.calls[0]);
+    expect(body.startTime).toBe(new Date(2026, 5, 28).toISOString());
+    // Ends 1ms before the loaded start.
+    expect(body.endTime).toBe(new Date(2026, 6, 11, 23, 59, 59, 999).toISOString());
+  });
+
+  it('fetches both gaps in sequence when a target straddles the loaded range', async () => {
+    const { result } = await mountLoaded();
+
+    await act(async () => {
+      await result.current.ensureRange(
+        new Date(2026, 5, 28),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+
+    // The single-flight guard sits above coverRange precisely so the second
+    // gap is not dropped.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(bodyOf(globalThis.fetch.mock.calls[0]).startTime)
+      .toBe(new Date(2026, 5, 28).toISOString());
+    expect(bodyOf(globalThis.fetch.mock.calls[1]).startTime)
+      .toBe(new Date(2026, 6, 26).toISOString());
+  });
+
+  it('reports covered without fetching when the range is already held', async () => {
+    const { result } = await mountLoaded();
+
+    let status;
+    await act(async () => {
+      status = await result.current.ensureRange(
+        new Date(2026, 6, 14),
+        new Date(2026, 6, 20, 23, 59, 59, 999)
+      );
+    });
+
+    expect(status).toBe('covered');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('treats an exactly adjacent target as contiguous, not a jump', async () => {
+    const { result } = await mountLoaded();
+
+    // Jul 26 00:00 begins 1ms after the loaded end. No day is skipped, so this
+    // must fetch the 14 new days rather than re-anchor and refetch all 28.
+    await act(async () => {
+      await result.current.ensureRange(
+        new Date(2026, 6, 26),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(bodyOf(globalThis.fetch.mock.calls[0]).startTime)
+      .toBe(new Date(2026, 6, 26).toISOString());
+
+    // The loaded range is now the union, so the original days are still held.
+    await act(async () => {
+      const status = await result.current.ensureRange(
+        new Date(2026, 6, 12),
+        new Date(2026, 6, 25, 23, 59, 59, 999)
+      );
+      expect(status).toBe('covered');
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-anchors the loaded range on a disjoint jump instead of bridging the gap', async () => {
+    mockFetchReturning([]);
+    const { result, rerender } = renderHook(
+      ({ date }) => useMobileEvents(date),
+      { initialProps: { date: new Date(2026, 6, 15) } }
+    );
+    await waitFor(() => expect(result.current.initialLoading).toBe(false));
+
+    // Nov 4 2026 — months past Jul 12-25, so the intervening weeks are skipped.
+    rerender({ date: new Date(2026, 10, 4) });
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    globalThis.fetch.mockClear();
+
+    // Coming back must refetch. A min/max loaded range would have claimed to
+    // span Jul through Nov and fetched nothing here.
+    rerender({ date: new Date(2026, 6, 15) });
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    const body = bodyOf(globalThis.fetch.mock.calls[0]);
+    expect(body.startTime).toBe(new Date(2026, 6, 12).toISOString());
+  });
+
+  it('reports suppressed, not error, when a fetch is already in flight', async () => {
+    let release;
+    globalThis.fetch = vi.fn(() => new Promise(resolve => {
+      release = () => resolve({ ok: true, json: async () => ({ events: [] }) });
+    }));
+
+    const { result } = renderHook(() => useMobileEvents(new Date(2026, 6, 15)));
+
+    let status;
+    await act(async () => {
+      status = await result.current.ensureRange(
+        new Date(2026, 6, 26),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+
+    expect(status).toBe('suppressed');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => { release(); });
+    await waitFor(() => expect(result.current.initialLoading).toBe(false));
+  });
+
+  it('keeps an extension failure out of the full-screen error state', async () => {
+    const { result } = await mountLoaded();
+    globalThis.fetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    let status;
+    await act(async () => {
+      status = await result.current.ensureRange(
+        new Date(2026, 6, 26),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+
+    expect(status).toBe('error');
+    // The reader still has their list; only the extending end may show a retry.
+    expect(result.current.error).toBeNull();
+  });
+
+  it('refreshes the whole grown range, not just the selected week', async () => {
+    const { result } = await mountLoaded();
+
+    await act(async () => {
+      await result.current.ensureRange(
+        new Date(2026, 6, 12),
+        new Date(2026, 7, 8, 23, 59, 59, 999)
+      );
+    });
+    globalThis.fetch.mockClear();
+
+    await act(async () => { result.current.refresh(); });
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+
+    const body = bodyOf(globalThis.fetch.mock.calls[0]);
+    expect(body.startTime).toBe(new Date(2026, 6, 12).toISOString());
+    expect(body.endTime).toBe(new Date(2026, 7, 8, 23, 59, 59, 999).toISOString());
+  });
+
+  it('replaces events on refresh so stale days cannot survive', async () => {
+    mockFetchReturning([evt('stale', '2026-07-15T10:00:00')]);
+    const { result } = renderHook(() => useMobileEvents(new Date(2026, 6, 15)));
+    await waitFor(() => expect(result.current.initialLoading).toBe(false));
+    expect(result.current.events.map(e => e.id)).toEqual(['stale']);
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ events: [evt('fresh', '2026-07-16T10:00:00')] }),
+    }));
+    await act(async () => { result.current.refresh(); });
+    await waitFor(() => expect(result.current.events.map(e => e.id)).toEqual(['fresh']));
   });
 });
 
