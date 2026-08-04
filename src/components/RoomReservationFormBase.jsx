@@ -31,6 +31,7 @@ import {
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import ClergySelectorModal from './ClergySelectorModal';
+import ReassignOwnerControl from './shared/ReassignOwnerControl';
 import MecEventPreviewPanel from './preview/MecEventPreviewPanel';
 import './RoomReservationForm.css';
 
@@ -140,6 +141,10 @@ export default function RoomReservationFormBase({
 
   // Pre-fetched series events data from parent (for non-blocking modal open)
   prefetchedSeriesEvents = null,
+
+  // Ownership reassignment (Submitter Information, approver-only)
+  eventVersion = null,           // Authoritative OCC version, tracked by RoomReservationReview
+  onOwnershipChanged = null,     // (result|null) => void — result on success, null on 409 (reload)
 }) {
   // Resolve the calendar this form is booking against. ReservationRequests
   // (Approval Queue) passes an explicit `defaultCalendar` prop — that wins.
@@ -397,6 +402,22 @@ export default function RoomReservationFormBase({
 
   // Clergy modal state
   const [showClergyModal, setShowClergyModal] = useState(false);
+
+  // Ownership reassignment. The Submitter Information grid reads
+  // formData.requesterName/Email, so reflect the new owner locally as well as
+  // telling the parent to reload — otherwise the cell keeps naming the previous
+  // owner until the modal is reopened. On a 409 (result === null) nothing moved,
+  // so only the reload is forwarded.
+  const handleOwnershipReassigned = useCallback((result) => {
+    if (result?.requestedBy) {
+      setFormData(prev => ({
+        ...prev,
+        requesterName: result.requestedBy.name || prev.requesterName,
+        requesterEmail: result.requestedBy.email || prev.requesterEmail,
+      }));
+    }
+    onOwnershipChanged?.(result);
+  }, [onOwnershipChanged]);
 
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
@@ -2484,6 +2505,17 @@ export default function RoomReservationFormBase({
                   {formData.requesterEmail && (
                     <span className="info-cell-sub">{formData.requesterEmail}</span>
                   )}
+                  {/* Ownership transfer — approver-only, and only once the event
+                      exists (there is nothing to reassign on an unsaved form). */}
+                  {canApproveReservations && currentReservationId && (
+                    <ReassignOwnerControl
+                      eventId={currentReservationId}
+                      apiToken={apiToken}
+                      currentOwnerEmail={formData.requesterEmail}
+                      expectedVersion={eventVersion}
+                      onReassigned={handleOwnershipReassigned}
+                    />
+                  )}
                 </div>
 
                 {formData.isOnBehalfOf && formData.contactName && (
@@ -2526,6 +2558,58 @@ export default function RoomReservationFormBase({
 
             <section className="form-section">
             <h2>Additional Information</h2>
+
+            {/* Clergy — deliberately redundant with the Event Details tab.
+                Approvers do this housekeeping while reading this tab, and both
+                controls drive the same single ClergySelectorModal instance and
+                the same assignedRabbi/assignedCantor state, so they cannot
+                disagree. Saves through the normal form flow. */}
+            <div className="form-group">
+              <button
+                type="button"
+                data-testid="clergy-button-additional"
+                className={`all-day-toggle ${(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) ? 'active' : ''}`}
+                onClick={() => setShowClergyModal(true)}
+                disabled={fieldsDisabled}
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                {'⛪'} Clergy
+              </button>
+            </div>
+
+            {(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) && (
+              <div
+                className="category-summary-display"
+                data-testid="clergy-summary-additional"
+                style={{ marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)' }}
+              >
+                <div className="category-summary-content">
+                  <span className="category-summary-icon">{'⛪'}</span>
+                  <span className="category-summary-text">
+                    {[
+                      formData.assignedRabbi?.length > 0 && `Rabbi: ${formData.assignedRabbi.map(r => r.displayName).join(', ')}`,
+                      formData.assignedCantor?.length > 0 && `Cantor: ${formData.assignedCantor.map(c => c.displayName).join(', ')}`
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                {!fieldsDisabled && (
+                  <div className="category-summary-actions">
+                    <button
+                      type="button"
+                      data-testid="clergy-clear-additional"
+                      className="category-clear-btn"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, assignedRabbi: [], assignedCantor: [] }));
+                        setHasChanges(true);
+                        setTimeout(() => notifyDataChange({ ...formData, assignedRabbi: [], assignedCantor: [] }), 0);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Internal Notes Section (Staff Use Only) */}
             <div className="internal-notes-section">

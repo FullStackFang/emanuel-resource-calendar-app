@@ -43,6 +43,8 @@ const TEMPLATE_IDS = {
   EVENT_UPDATED: 'event-updated',
   // Event deletion notification
   DELETION: 'event-deleted',
+  // Ownership reassignment notification
+  OWNERSHIP_REASSIGNED: 'ownership-reassigned',
   // Error notification templates
   ERROR_NOTIFICATION: 'error-notification',
   USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
@@ -324,6 +326,52 @@ const DEFAULT_TEMPLATES = {
   Thank you for your understanding.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'deletedByName', 'deletionReason', 'eventUrl']
+  },
+
+  [TEMPLATE_IDS.OWNERSHIP_REASSIGNED]: {
+    id: TEMPLATE_IDS.OWNERSHIP_REASSIGNED,
+    name: 'Ownership Reassignment Notification',
+    description: 'Sent to the new owner when an approver transfers an event to them',
+    subject: 'Event Assigned to You: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">ASSIGNED</span>
+  An Event Has Been Assigned to You
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  You are now the contact of record for the following event{{#reassignedByName}}, reassigned to you by {{reassignedByName}}{{/reassignedByName}}. It now appears in your My Reservations list.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  If you believe this was assigned to you in error, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'reassignedByName', 'eventUrl']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -1408,7 +1456,8 @@ const CTA_CONFIG = {
   [TEMPLATE_IDS.CANCELLATION_REQUEST_APPROVED]: { label: 'View Reservation', color: '#2b6cb0' },
   [TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED]: { label: 'View Reservation', color: '#2b6cb0' },
   [TEMPLATE_IDS.EVENT_UPDATED]: { label: 'View Reservation', color: '#2b6cb0' },
-  [TEMPLATE_IDS.DELETION]: { label: 'View Reservation', color: '#2b6cb0' }
+  [TEMPLATE_IDS.DELETION]: { label: 'View Reservation', color: '#2b6cb0' },
+  [TEMPLATE_IDS.OWNERSHIP_REASSIGNED]: { label: 'View Reservation', color: '#2b6cb0' }
 };
 
 /**
@@ -1546,6 +1595,17 @@ async function generateDeletionNotification(reservation, deletionReason = '', de
   if (deletedByName) extras.deletedByName = escapeHtml(deletedByName);
   const variables = extractVariables(reservation, extras);
   return generateFromTemplate(TEMPLATE_IDS.DELETION, variables);
+}
+
+/**
+ * Generate ownership reassignment notification email
+ * Sent to the NEW owner when an approver transfers an event to them
+ */
+async function generateReassignmentNotification(reservation, reassignedByName = '') {
+  const extras = {};
+  if (reassignedByName) extras.reassignedByName = escapeHtml(reassignedByName);
+  const variables = extractVariables(reservation, extras);
+  return generateFromTemplate(TEMPLATE_IDS.OWNERSHIP_REASSIGNED, variables);
 }
 
 /**
@@ -1858,6 +1918,7 @@ module.exports = {
   generateApprovalNotification,
   generateRejectionNotification,
   generateDeletionNotification,
+  generateReassignmentNotification,
   generateResubmissionConfirmation,
   generateReviewStartedNotification,
   generateEventUpdatedNotification,

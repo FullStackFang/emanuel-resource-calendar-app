@@ -22916,6 +22916,203 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
 });
 
 
+/**
+ * Reassign event ownership to another registered user (Approver+)
+ * PUT /api/admin/events/:id/reassign
+ *
+ * Body: { targetUserId, expectedVersion }
+ *
+ * Replaces roomReservationData.requestedBy — the canonical ownership field that
+ * drives My Reservations scoping, withdraw permission, and notification routing.
+ * The identity block is built from the target's templeEvents__Users record, never
+ * from client-supplied identity fields, because email is the join key for every
+ * ownership query.
+ */
+app.put('/api/admin/events/:id/reassign', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const id = req.params.id;
+    const { targetUserId, expectedVersion } = req.body;
+
+    // Permission check: approver+ (respects X-Simulated-Role)
+    const caller = await findUserByIdentity(usersCollection, userId, userEmail);
+    const effectiveRole = resolveEffectiveRole(req, caller, userEmail);
+    if (ROLE_HIERARCHY[effectiveRole] < ROLE_HIERARCHY['approver']) {
+      return res.status(403).json({ error: 'Approver access required' });
+    }
+
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'targetUserId is required' });
+    }
+
+    let event;
+    try {
+      event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (_) {
+      event = await unifiedEventsCollection.findOne({ eventId: id });
+    }
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Children snapshot the master's roomReservationData at creation, so they are
+    // not independently reassignable — same rule as publish/reject.
+    if ([EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION].includes(event.eventType)) {
+      return res.status(400).json({
+        error: `Cannot reassign a ${event.eventType} document independently. Reassign the series master instead.`,
+        code: 'INVALID_TARGET_EVENT_TYPE',
+        eventType: event.eventType,
+        seriesMasterEventId: event.seriesMasterEventId || null
+      });
+    }
+
+    if (event.status === 'deleted' || event.isDeleted === true) {
+      return res.status(400).json({
+        error: 'Deleted events cannot be reassigned',
+        code: 'EVENT_DELETED'
+      });
+    }
+
+    // Resolve the target from the users collection (D2: server-resolved identity)
+    let targetUser = null;
+    if (ObjectId.isValid(targetUserId) && String(targetUserId).length === 24) {
+      targetUser = await usersCollection.findOne({ _id: new ObjectId(targetUserId) });
+    }
+    if (!targetUser) {
+      targetUser = await usersCollection.findOne({
+        $or: [{ userId: targetUserId }, { odataId: targetUserId }]
+      });
+    }
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Target user not found' });
+    }
+
+    if (!targetUser.email) {
+      return res.status(400).json({
+        error: 'Target user record has no email address',
+        code: 'TARGET_USER_INCOMPLETE'
+      });
+    }
+
+    const previousOwner = event.roomReservationData?.requestedBy || {};
+    const newOwnerEmail = targetUser.email.toLowerCase();
+    if ((previousOwner.email || '').toLowerCase() === newOwnerEmail) {
+      return res.status(400).json({
+        error: 'That user already owns this event',
+        code: 'ALREADY_OWNER'
+      });
+    }
+
+    const newOwner = {
+      userId: targetUser.userId || targetUser.odataId || null,
+      name: targetUser.displayName || targetUser.email,
+      email: newOwnerEmail,
+      department: targetUser.department || '',
+      phone: targetUser.phone || '',
+    };
+
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: event._id },
+        { $set: { 'roomReservationData.requestedBy': newOwner } },
+        {
+          expectedVersion: expectedVersion != null ? expectedVersion : null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Cascade to non-deleted children — they carry a snapshot of the master's
+    // roomReservationData and would otherwise keep the stale owner.
+    if (event.eventType === 'seriesMaster') {
+      await unifiedEventsCollection.updateMany(
+        {
+          seriesMasterEventId: event.eventId,
+          eventType: { $in: [EVENT_TYPE.EXCEPTION, EVENT_TYPE.ADDITION] },
+          isDeleted: { $ne: true },
+        },
+        {
+          $set: {
+            'roomReservationData.requestedBy': newOwner,
+            lastModifiedDateTime: new Date(),
+            lastModifiedBy: userEmail,
+          },
+          $inc: { _version: 1 },
+        }
+      );
+    }
+
+    // Audit trail (best effort — the transfer already committed)
+    try {
+      await eventAuditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: event._id,
+        action: 'ownership-reassigned',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: new Date(),
+        metadata: {
+          from: { name: previousOwner.name || null, email: previousOwner.email || null },
+          to: { name: newOwner.name, email: newOwner.email },
+        }
+      });
+    } catch (auditErr) {
+      logger.warn('Failed to create audit log for ownership reassignment:', auditErr.message);
+    }
+
+    // Notify the new owner only — the previous owner has rotated off and the
+    // handoff is coordinated offline.
+    try {
+      await emailService.sendReassignmentNotification(
+        updatedEvent,
+        newOwner,
+        caller?.displayName || userEmail
+      );
+    } catch (emailErr) {
+      logger.warn('Failed to send reassignment notification:', emailErr.message);
+    }
+
+    logger.info('Event ownership reassigned:', {
+      eventId: event.eventId,
+      mongoId: String(event._id),
+      from: previousOwner.email,
+      to: newOwner.email,
+      by: userEmail
+    });
+
+    res.json({
+      success: true,
+      _version: updatedEvent._version,
+      requestedBy: newOwner,
+      message: 'Event reassigned successfully'
+    });
+
+    broadcastEventChange({
+      eventId: event._id,
+      action: 'updated',
+      actorEmail: userEmail,
+      requesterEmail: newOwner.email,
+      event: updatedEvent,
+      oldStatus: event.status,
+      newStatus: event.status
+    });
+
+  } catch (error) {
+    logger.error('Error reassigning event:', error);
+    res.status(500).json({ error: 'Failed to reassign event' });
+  }
+});
+
+
 // ============================================================================
 // EDIT REQUESTS — First-Class Collection Endpoints
 // ============================================================================

@@ -28,8 +28,10 @@ vi.mock('../../../components/OffsiteLocationModal', () => ({
 vi.mock('../../../components/CategorySelectorModal', () => ({
   default: () => null,
 }));
+// Probe rather than null — the clergy tests assert that both tabs drive the
+// SAME single mounted modal instance, which needs its open state observable.
 vi.mock('../../../components/ClergySelectorModal', () => ({
-  default: () => null,
+  default: ({ isOpen }) => <div data-testid="clergy-modal-probe" data-open={String(!!isOpen)} />,
 }));
 vi.mock('../../../components/preview/MecEventPreviewPanel', () => ({
   default: () => null,
@@ -395,6 +397,316 @@ describe('RoomReservationFormBase', () => {
       expect(screen.getByText(/Floor plan editing is locked/i)).toBeTruthy();
       // The misleading upbeat prompt must not appear while locked.
       expect(screen.queryByText(/Click to upload or drag & drop/i)).toBeNull();
+    });
+  });
+
+  // ─── Reassign Owner (Additional Info tab, Submitter Information) ───────────
+  // roomReservationData.requestedBy is the canonical ownership field. Approvers
+  // transfer it via PUT /admin/events/:id/reassign; nobody else sees the control.
+
+  describe('reassign owner control', () => {
+    const OWNER = { name: 'Emily Assistant', email: 'emily@emanuelnyc.org' };
+    const USERS = [
+      { _id: 'u-emily', displayName: 'Emily Assistant', email: 'emily@emanuelnyc.org', effectiveRole: 'requester' },
+      { _id: 'u-jeannette', displayName: 'Jeannette Assistant', email: 'jeannette@emanuelnyc.org', effectiveRole: 'requester' },
+      { _id: 'u-rachel', displayName: 'Rachel Klein', email: 'rachel@emanuelnyc.org', effectiveRole: 'approver' },
+    ];
+
+    const reassignProps = {
+      showAllTabs: false,
+      activeTab: 'additional',
+      apiToken: 'test-token',
+      currentReservationId: 'evt-mongo-1',
+      eventVersion: 4,
+      initialData: {
+        eventId: 'evt-1',
+        eventTitle: 'Gala',
+        startDate: '2026-05-01',
+        endDate: '2026-05-01',
+        requesterName: OWNER.name,
+        requesterEmail: OWNER.email,
+      },
+    };
+
+    /** Route the form base's attachment load, the user list, and the PUT. */
+    function mockApi({ reassignResponse } = {}) {
+      return vi.fn(async (url, opts) => {
+        if (opts?.method === 'PUT' && String(url).includes('/reassign')) {
+          return reassignResponse ?? {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              success: true,
+              _version: 5,
+              requestedBy: { name: 'Jeannette Assistant', email: 'jeannette@emanuelnyc.org' },
+            }),
+          };
+        }
+        if (String(url).endsWith('/users')) {
+          return { ok: true, status: 200, json: async () => USERS };
+        }
+        return { ok: true, status: 200, json: async () => ({ attachments: [] }) };
+      });
+    }
+
+    beforeEach(() => {
+      mockPermissions = mockAdminPermissions;
+      global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+      global.URL.revokeObjectURL = vi.fn();
+      global.fetch = mockApi();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const usersCalls = () =>
+      global.fetch.mock.calls.filter(([u]) => String(u).endsWith('/users'));
+    const reassignCalls = () =>
+      global.fetch.mock.calls.filter(([u, o]) => o?.method === 'PUT' && String(u).includes('/reassign'));
+
+    it('RA-1: renders the Reassign affordance for an approver', () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      expect(screen.getByTestId('reassign-owner-trigger')).toBeTruthy();
+    });
+
+    it('RA-2: does not render for a user without canApproveReservations', () => {
+      mockPermissions = mockViewerPermissions;
+      render(<RoomReservationFormBase {...reassignProps} />);
+      expect(screen.queryByTestId('reassign-owner-trigger')).toBeNull();
+    });
+
+    it('RA-3: does not render before the reservation has been saved', () => {
+      render(<RoomReservationFormBase {...reassignProps} currentReservationId={null} />);
+      expect(screen.queryByTestId('reassign-owner-trigger')).toBeNull();
+    });
+
+    it('RA-4: fetches the user list lazily on first open, and only once', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+
+      // Nothing approver-gated fires just because the tab rendered.
+      expect(usersCalls()).toHaveLength(0);
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(usersCalls()).toHaveLength(1));
+
+      // Close and reopen — the list is already loaded.
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-picker')).toBeTruthy());
+      expect(usersCalls()).toHaveLength(1);
+    });
+
+    it('RA-5: excludes the current owner from the selectable list', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+      expect(screen.getByTestId('reassign-owner-option-u-rachel')).toBeTruthy();
+      expect(screen.queryByTestId('reassign-owner-option-u-emily')).toBeNull();
+    });
+
+    it('RA-6: filters the list by name and email', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+
+      fireEvent.change(screen.getByTestId('reassign-owner-search'), { target: { value: 'rachel@' } });
+      expect(screen.getByTestId('reassign-owner-option-u-rachel')).toBeTruthy();
+      expect(screen.queryByTestId('reassign-owner-option-u-jeannette')).toBeNull();
+
+      fireEvent.change(screen.getByTestId('reassign-owner-search'), { target: { value: 'Jeannette' } });
+      expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy();
+      expect(screen.queryByTestId('reassign-owner-option-u-rachel')).toBeNull();
+    });
+
+    it('RA-7: first click confirms, second click sends the request', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+
+      const commit = screen.getByTestId('reassign-owner-commit');
+      expect(commit.textContent).toMatch(/Reassign/i);
+
+      // First click arms the confirmation — no request yet.
+      fireEvent.click(commit);
+      expect(screen.getByTestId('reassign-owner-commit').textContent).toMatch(/Confirm\?/i);
+      expect(reassignCalls()).toHaveLength(0);
+
+      // Second click commits.
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+
+      await waitFor(() => expect(reassignCalls()).toHaveLength(1));
+      const [url, opts] = reassignCalls()[0];
+      expect(url).toBe('http://localhost:3001/api/admin/events/evt-mongo-1/reassign');
+      expect(JSON.parse(opts.body)).toEqual({ targetUserId: 'u-jeannette', expectedVersion: 4 });
+    });
+
+    it('RA-8: success shows a toast, updates the requester cell, and reports the new version', async () => {
+      const onOwnershipChanged = vi.fn();
+      render(<RoomReservationFormBase {...reassignProps} onOwnershipChanged={onOwnershipChanged} />);
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+
+      await waitFor(() => expect(mockShowSuccess).toHaveBeenCalled());
+
+      // The Submitter Information grid now names the new owner.
+      await waitFor(() => expect(screen.getByText('Jeannette Assistant')).toBeTruthy());
+      expect(screen.queryByText(OWNER.name)).toBeNull();
+
+      expect(onOwnershipChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ _version: 5 })
+      );
+      // Picker closes on success.
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
+    });
+
+    it('RA-9: a 409 shows a one-line error and asks the parent to refresh — no ConflictDialog', async () => {
+      const onOwnershipChanged = vi.fn();
+      global.fetch = mockApi({
+        reassignResponse: {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: 'This event was modified by another user. Please refresh and try again.',
+            code: 'CONFLICT',
+            details: { code: 'VERSION_CONFLICT', currentVersion: 7 },
+          }),
+        },
+      });
+
+      render(<RoomReservationFormBase {...reassignProps} onOwnershipChanged={onOwnershipChanged} />);
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-error')).toBeTruthy());
+      expect(screen.getByTestId('reassign-owner-error').textContent).toMatch(/changed/i);
+
+      // Parent is asked to reload; ownership did not move locally.
+      await waitFor(() => expect(onOwnershipChanged).toHaveBeenCalledWith(null));
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+      expect(screen.getByText(OWNER.name)).toBeTruthy();
+    });
+
+    it('RA-10: a non-409 failure surfaces an error and leaves ownership unchanged', async () => {
+      global.fetch = mockApi({
+        reassignResponse: {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: 'That user already owns this event', code: 'ALREADY_OWNER' }),
+        },
+      });
+
+      render(<RoomReservationFormBase {...reassignProps} />);
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+      fireEvent.click(screen.getByTestId('reassign-owner-commit'));
+
+      await waitFor(() => expect(mockShowError).toHaveBeenCalled());
+      expect(mockShowSuccess).not.toHaveBeenCalled();
+      expect(screen.getByText(OWNER.name)).toBeTruthy();
+    });
+  });
+
+  // ─── Clergy on the Additional Information tab ──────────────────────────────
+  // Redundant by design: the same button and summary as the Event Details tab,
+  // sharing one modal instance and one piece of state so they cannot disagree.
+
+  describe('clergy control on the additional tab', () => {
+    const clergyProps = {
+      showAllTabs: false,
+      apiToken: 'test-token',
+      initialData: {
+        eventId: 'evt-1',
+        eventTitle: 'Gala',
+        startDate: '2026-05-01',
+        endDate: '2026-05-01',
+      },
+    };
+
+    beforeEach(() => {
+      mockPermissions = mockAdminPermissions;
+      global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+      global.URL.revokeObjectURL = vi.fn();
+      global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ attachments: [] }) }));
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('CL-1: renders a Clergy button on the Additional Information tab', () => {
+      render(<RoomReservationFormBase {...clergyProps} activeTab="additional" />);
+      expect(screen.getByTestId('clergy-button-additional')).toBeTruthy();
+    });
+
+    it('CL-2: the button opens the same shared modal the details tab uses', () => {
+      render(<RoomReservationFormBase {...clergyProps} activeTab="additional" />);
+      // The modal is mounted once at the component root and is closed initially.
+      expect(screen.getByTestId('clergy-modal-probe').dataset.open).toBe('false');
+      fireEvent.click(screen.getByTestId('clergy-button-additional'));
+      expect(screen.getByTestId('clergy-modal-probe').dataset.open).toBe('true');
+    });
+
+    it('CL-3: an assignment made from either tab is reflected on the other', () => {
+      const withRabbi = {
+        ...clergyProps.initialData,
+        assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+      };
+
+      const { unmount } = render(
+        <RoomReservationFormBase {...clergyProps} initialData={withRabbi} activeTab="additional" />
+      );
+      expect(screen.getByTestId('clergy-summary-additional').textContent).toContain('Rabbi Cohen');
+      unmount();
+
+      // Same state object drives the details tab summary.
+      render(<RoomReservationFormBase {...clergyProps} initialData={withRabbi} activeTab="details" />);
+      expect(screen.getByText(/Rabbi: Rabbi Cohen/)).toBeTruthy();
+    });
+
+    it('CL-4: Clear on the additional tab empties both clergy arrays', () => {
+      const onDataChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          {...clergyProps}
+          initialData={{
+            ...clergyProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+            assignedCantor: [{ id: 'c1', displayName: 'Cantor Levy' }],
+          }}
+          activeTab="additional"
+          onDataChange={onDataChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('clergy-clear-additional'));
+      expect(screen.queryByTestId('clergy-summary-additional')).toBeNull();
+    });
+
+    it('CL-5: the button is disabled when the form fields are disabled', () => {
+      render(
+        <RoomReservationFormBase
+          {...clergyProps}
+          activeTab="additional"
+          readOnly
+          reservationStatus="published"
+        />
+      );
+      expect(screen.getByTestId('clergy-button-additional').disabled).toBe(true);
     });
   });
 });

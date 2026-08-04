@@ -586,6 +586,63 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Approver event reassignment + clergy on Additional Info (implemented 2026-08-04)
+
+Spec: `openspec/changes/approver-event-reassignment/`.
+
+**Shipped:**
+- **`PUT /api/admin/events/:id/reassign`** (approver+) replaces
+  `roomReservationData.requestedBy` — the canonical ownership field — with an
+  identity block built from the target's `templeEvents__Users` record. The
+  client sends only `{ targetUserId, expectedVersion }`; client-supplied
+  identity is ignored, because `requestedBy.email` is the join key for every
+  ownership query and a spoofed/typo'd address would orphan the event.
+- **Email is lowercased on write.** `view=my-events` matches a lowercased token
+  email, so a mixed-case write would hide the event from both users' lists.
+- Guards per design D3: 403 non-approver, 404 unknown event/target, 400
+  `EVENT_DELETED` / `ALREADY_OWNER` (case-insensitive) / `TARGET_USER_INCOMPLETE`
+  / `INVALID_TARGET_EVENT_TYPE`, 409 `VERSION_CONFLICT` via `conditionalUpdate`.
+- **Series masters cascade to non-deleted children** via a plain `updateMany` —
+  NOT `cascadeStatusUpdate`, which hardcodes a `status` `$set` and a
+  `statusHistory` `$push` that reassignment must not perform. The shared concept
+  is the child-selection query, not the update.
+- Audit entry `action: 'ownership-reassigned'` with `{from, to}` metadata;
+  **new owner only** is emailed (new `ownership-reassigned` template + CTA_CONFIG
+  entry — `TEMPLATE_IDS` additions are locked by EU-14); SSE `action: 'updated'`.
+  Audit and email failures never fail the transfer.
+- `PUT /api/admin/events/:id` never writes `requestedBy`, so a stale open form
+  cannot revert a transfer — verified, no extra guard needed.
+- **Frontend**: `src/components/shared/ReassignOwnerControl.jsx` in the Requester
+  cell of Submitter Information. Lazy `GET /api/users` on first open (the call is
+  approver-gated, so it must never fire for other sessions), current owner
+  excluded, two-step in-button confirmation, warning-color confirm state.
+  A 409 gets one line of text plus a parent reload — deliberately not the full
+  `ConflictDialog`, same simplification as the mobile withdraw flow.
+- **The gate reads `canApproveReservations` from `usePermissions()` directly**,
+  not a threaded prop. It is a raw permission, not a derived flag; the form base
+  already consumes the hook, and two sources for one gate can silently disagree.
+  The `EventReviewExperience` contract governs *derived* flags, and there is no
+  derivation here. What IS threaded is `eventVersion` + `onOwnershipChanged`
+  (EventReviewExperience → RoomReservationReview → form base), because
+  `RoomReservationReview` holds the authoritative post-save `_version` that
+  `initialData` goes stale against.
+- **Clergy on the Additional Information tab** — a second `⛪ Clergy` button and
+  summary row, redundant by design, driving the same single-mounted
+  `ClergySelectorModal` and the same `assignedRabbi`/`assignedCantor` state.
+  Zero backend surface.
+
+**Tests:** new `backend/__tests__/integration/eventReassignment.test.js` 19/19;
+`RoomReservationFormBase.test.jsx` 28/28 (was 13) — RA-2 (permission gate) and
+RA-7 (two-step confirm) were mutation-checked. Baseline measured by stash:
+`integration/events/` is identical before and after (34 failed suites / 195
+failed / 661 passed), so this change adds no regressions to the red main.
+
+**Outstanding:** task 4.2 — manual end-to-end on dev. Needs a live MSAL session
+and writes to real reservations: browser round-trip of the picker, the toast,
+the SSE refresh of both users' My Reservations lists, and the real outbound
+email. The list move, audit entry, and new-owner-only email are already covered
+in-process by ER-3 / ER-16 / ER-17.
+
 ### Mobile agenda infinite scroll (implemented 2026-07-29)
 
 Spec: `openspec/changes/mobile-agenda-infinite-scroll/`. Frontend-only; no

@@ -538,6 +538,42 @@ async function sendDeletionNotification(reservation, deletionReason = '', delete
 }
 
 /**
+ * Send ownership reassignment notification to the NEW owner only.
+ * The previous owner is deliberately not notified — they have rotated off the
+ * assignment and the handoff is coordinated offline.
+ *
+ * @param {Object} event - templeEvents__Events document (post-update)
+ * @param {Object} newOwner - Resolved identity block { name, email, ... }
+ * @param {string} reassignedByName - Display name of the approver who reassigned
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendReassignmentNotification(event, newOwner = {}, reassignedByName = '') {
+  const recipientEmail = newOwner.email;
+
+  if (!recipientEmail) {
+    logger.warn('No new-owner email for reassignment notification', {
+      reservationId: event?._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
+  const reservation = await buildReservationFromEvent(event);
+  if (!reservation) return { success: false, error: 'No event provided' };
+
+  const { subject, html } = await emailTemplates.generateReassignmentNotification(
+    { ...reservation, requesterName: newOwner.name || recipientEmail, requesterEmail: recipientEmail },
+    reassignedByName
+  );
+
+  return sendEmail(recipientEmail, subject, html, {
+    reservationId: event?._id?.toString()
+  });
+}
+
+/**
  * Send resubmission confirmation to requester
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
@@ -932,6 +968,7 @@ module.exports = {
   sendPublishNotification,
   sendRejectionNotification,
   sendDeletionNotification,
+  sendReassignmentNotification,
   sendResubmissionConfirmation,
   sendReviewStartedNotification,
   sendEventUpdatedNotification,

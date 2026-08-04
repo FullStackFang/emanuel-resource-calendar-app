@@ -1,0 +1,134 @@
+/* src/components/shared/ReassignOwnerControl.css
+   All selectors are scoped under .reassign-owner so nothing leaks into the
+   surrounding form or the admin stylesheets. */
+
+.reassign-owner {
+  position: relative;
+  margin-top: 6px;
+}
+
+.reassign-owner-trigger {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-info-600);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reassign-owner-trigger:hover {
+  color: var(--color-info-700);
+}
+
+.reassign-owner-picker {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised, #fff);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reassign-owner-search {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm);
+}
+
+.reassign-owner-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm);
+}
+
+.reassign-owner-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+  cursor: pointer;
+  text-align: left;
+}
+
+.reassign-owner-option:hover {
+  background: var(--color-info-50, #ebf8ff);
+}
+
+.reassign-owner-option.is-selected {
+  background: var(--color-info-50, #ebf8ff);
+  box-shadow: inset 3px 0 0 var(--color-info-500, #4299e1);
+}
+
+.reassign-owner-option-name {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.reassign-owner-option-email {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.reassign-owner-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 6px 2px;
+}
+
+.reassign-owner-error {
+  font-size: 0.78rem;
+  color: var(--color-error-600, #c53030);
+  line-height: 1.35;
+}
+
+.reassign-owner-commit {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-info-500, #4299e1);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.reassign-owner-commit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Neutral warning color per the in-button confirmation standard — this is a
+   significant but non-destructive state change. */
+.reassign-owner-commit.confirm {
+  background: var(--color-warning-500, #dd6b20);
+  animation: reassign-owner-pulse 1s ease-in-out infinite;
+}
+
+@keyframes reassign-owner-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reassign-owner-commit.confirm {
+    animation: none;
+  }
+}

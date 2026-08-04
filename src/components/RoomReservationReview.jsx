@@ -62,7 +62,8 @@ export default function RoomReservationReview({
   onRecurrenceExists = null, // Callback when recurrence pattern exists/changes: (hasRecurrence) => void (injected by ReviewModal via cloneElement)
   onServicesExist = null, // Callback when services exist/change: (hasServices) => void (injected by ReviewModal via cloneElement)
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
-  createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
+  createRecurrenceRef = null, // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
+  onOwnershipRefresh = null // Called after an ownership reassignment so the caller reloads its event list
 }) {
   const { showError, showSuccess } = useNotification();
   const { isAdmin } = usePermissions();
@@ -247,6 +248,16 @@ export default function RoomReservationReview({
       prevReservationIdRef.current = currentId;
     }
   }, [reservation]);
+
+  // Ownership reassignment committed (or lost a version race). Either way the
+  // caller reloads. On success adopt the server's new _version so the next save
+  // from this still-open modal doesn't immediately 409 on its own change.
+  const handleOwnershipChanged = useCallback((result) => {
+    if (result?._version != null) {
+      setEventVersion(result._version);
+    }
+    onOwnershipRefresh?.();
+  }, [onOwnershipRefresh]);
 
   // Notify parent when isSaving changes
   useEffect(() => {
@@ -596,6 +607,8 @@ export default function RoomReservationReview({
           onNavigateToSeriesEvent={onNavigateToSeriesEvent}
           defaultCalendar={defaultCalendar}
           apiToken={apiToken}
+          eventVersion={eventVersion}
+          onOwnershipChanged={handleOwnershipChanged}
           activeTab={activeTab}
           showAllTabs={false}
           editScope={editScope}

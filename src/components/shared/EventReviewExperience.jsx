@@ -219,6 +219,11 @@ export default function EventReviewExperience({
             createCalendarEvent={createCalendarEvent}
             onCreateCalendarEventChange={onCreateCalendarEventChange}
             onLockedEventClick={onLockedEventClick}
+            // Ownership reassignment reuses the caller's plain data-reload —
+            // it moves the event between users' lists, so every list view the
+            // caller owns needs to refetch. Deliberately does NOT close the
+            // modal: the approver stays where they were.
+            onOwnershipRefresh={onConflictRefresh}
           />
         )}
       </ReviewModal>
