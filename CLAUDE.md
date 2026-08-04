@@ -586,6 +586,166 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Reassign modal + clergy grid row (implemented 2026-08-04)
+
+Spec: `openspec/changes/reassign-modal-clergy-grid/`. Frontend-only UI rework;
+no backend surface. Supersedes the presentation half of D8
+(conflict-resolution-workflow) and D7's display cell:
+
+- **ReassignOwnerControl opens a centered modal** (reuses the
+  `category-modal-*` base like ClergySelectorModal, scoped
+  `.reassign-owner-modal`) instead of expanding inline — the full-span
+  `.reassign-owner-cell` is gone and the trigger link now lives inside the
+  Requester info-cell. Internals unchanged (lazy user fetch, 5-match cap +
+  overflow count, pending transfer, two-step confirm, one-line 409). ESC /
+  overlay / X / Cancel all close and reset; `useScrollLock` while open.
+- **Clergy is a full-width row in the Submitter Information grid**
+  (`clergy-cell-submitter` kept) with Rabbis | Cantors sub-columns (em-dash
+  per empty role — both headers always render). The Additional Information
+  `⛪ Clergy` button/summary/Clear block is REMOVED (Clear All lives in the
+  modal); the Event Details tab button is untouched.
+- **Cell headers ARE the action (D4)**: 'Requester' and 'Clergy' render as
+  `.info-cell-action-header` chips (label typography + 1px border + shared
+  pencil glyph `InfoCellEditIcon`) opening the reassign/clergy modals;
+  testids `reassign-owner-trigger` / `clergy-edit-submitter` live on the
+  headers. Plain `.info-cell-label` fallback when non-approver / unsaved /
+  `fieldsDisabled`. `ReassignOwnerControl` takes `triggerClassName` /
+  `triggerContent` / `triggerAriaLabel`; its wrapper is `display: contents`.
+
+**Tests:** `RoomReservationFormBase.test.jsx` 47/47 (was 45: -5 CL block,
++3 RA-14..16 modal presentation, +4 CG grid clergy; CLS series rewritten for
+two columns; ClergySelectorModal probe mock gained an onSave clear hook).
+
+**Outstanding:** manual dev check — Reassign modal round-trip, clergy Edit
+from the grid, mobile single-column collapse of `.clergy-cell-columns`.
+
+### Conflict resolution workflow (implemented 2026-08-04)
+
+Spec: `openspec/changes/conflict-resolution-workflow/`. Builds on
+`recurring-publish-conflict-blocking`: the block now has ways out instead of
+being a dead end. 31/32 tasks complete; only 8.4 (manual e2e) outstanding.
+
+**Shipped:**
+- **Conflict records carry `requestedBy`** (name only, null for Outlook-synced
+  events — D6): both push sites in `checkRecurringRoomConflicts()` plus
+  `'roomReservationData.requestedBy.name'` added to `CONFLICT_PROJECTION` —
+  without the projection line the field would silently always be null.
+  `flattenRecurringConflicts()` carries it via spread. RCC-15..18.
+- **`navigateToEvent` fallback (D4)**: primary stays
+  `/api/room-reservations/:id`; a 404 falls back to `GET /api/events/:id`
+  adapted by exported `adaptEventToReservationShape()` (mirrors the server
+  transform at api-server.js ~17756; key-parity locked by NAV-4b). Mandatory
+  because conflict targets include Outlook-synced events with no
+  `roomReservationData`.
+- **Single-entry `navigationOrigin` (D3)** + guard: `requestModalNavigation`
+  parks a dirty-form navigation in `pendingModalNav` and resolves it through
+  ReviewModal's previously-dead `showDiscardDialog` prop chain (it had no
+  producer — the hook now owns it via `getReviewModalProps`). `returnToOrigin`
+  cold-fetches the origin by id. Ordinary navigation CLEARS the origin slot
+  (the disappearing return bar is the honest signal). Cleared on close.
+- **Return bar** at the top of `ReviewModal` (`navigationOrigin` +
+  `onReturnToOrigin` props): names the origin, the occurrence being resolved,
+  and the outstanding count.
+- **`RecurringConflictSummary` rebuilt as a resolution surface**: verdict
+  header ('publishing is blocked', kept the 'N of M occurrences have room
+  conflicts' fragment so the locked RCS-1/2/4 assertions still pass),
+  occurrence strip (one square per occurrence; conflicted/clear/skipped;
+  dense >60, compact summary >150 per D9), single-open drawer (D2) with
+  per-blocker detail, requester name or 'Synced from Outlook' badge, 'Open
+  blocking event' and 'Skip this date instead'. Fetch machinery untouched.
+- **Skip is a form-state mutation (D1), no endpoint**: `handleSkipOccurrence`
+  in `RoomReservationFormBase` appends to `recurrence.exclusions` via
+  `setRecurrencePattern` + `setHasChanges` + `notifyDataChange`; the panel's
+  signature-keyed fetch re-runs itself. `pendingSkippedDates` derives from
+  current-vs-`initialData` exclusions (skipped dates leave `allOccurrences`
+  after refetch, so the strip merges them back in as skipped-unsaved). Skip
+  handler is null when `fieldsDisabled`; last remaining occurrence refused.
+  Threading: EventReviewExperience builds `onOpenBlockingEvent` from
+  `exp.requestModalNavigation` → RoomReservationReview → form base → panel.
+- **Reassign picker rebuilt (D8)**: own full-span cell
+  (`.reassign-owner-cell`, `grid-column: 1 / -1`) below the Requester cell;
+  at most 5 matches with an honest overflow count ('N more — keep typing'),
+  no max-height/overflow; selection collapses to the pending transfer
+  (current → chosen + Change link); commit renders only after selection.
+  Inset side-stripe removed. Two-step confirm + 409 behavior unchanged
+  (RA-1..10 pass; RA-9/10 selectors tightened to the info-cell because the
+  pending-transfer view also names the current owner).
+- **Clergy cell in Submitter Information (D7)**: display-only, ALWAYS
+  rendered (N/A distinguishes 'nobody assigned' from a load failure), reads
+  the same `assignedRabbi`/`assignedCantor` arrays; deliberately not a third
+  editable control.
+
+**Tests:** backend `recurringConflict.test.js` 23/23 (+RCC-15..18),
+`publishRecurringConflict.test.js` 5/5, `eventReassignment.test.js` 19/19.
+Frontend: new `useReviewModal.navigation.test.jsx` (14), new
+`ReviewModal.returnBar.test.jsx` (4), `RecurringConflictSummary.test.jsx` 22
+(5 locked + 17 new), `RoomReservationFormBase.test.jsx` 45 (was 32: +4 skip,
++3 reassign presentation, +6 clergy cell). Full frontend suite identical to
+baseline (10 failures / 3 files, all pre-existing). Mutation-checked: breaking
+the 404 fallback fails NAV-2/NAV-4; removing the skip state write fails
+SKP-1/SKP-2.
+
+**Outstanding:** task 8.4 — manual end-to-end on dev (live MSAL session):
+conflicted series strip marks the right weeks, drawer round-trip to a blocking
+event and back via the return bar, skip persists through save and clears the
+block, fallback verified against a real Outlook-synced blocker.
+
+### Recurring publish conflict blocking (implemented 2026-08-04)
+
+Spec: `openspec/changes/recurring-publish-conflict-blocking/`.
+
+**The incident:** an approved recurring class series silently double-booked a
+room. `PUT /api/admin/events/:id/publish` was deliberately non-blocking for
+recurring events, the admin-save recurring gate checked phantom fields
+(`totalHardConflicts` — never existed), `RecurringConflictSummary.jsx` was
+dead code, and the `canForce` 409 path had no frontend consumer.
+
+**Shipped:**
+- **Recurring publish now blocks**: 409 (`conflictTier: 'hard'`, grouped
+  `recurringConflicts` + flattened `hardConflicts` with `occurrenceDate`,
+  `canForce: true`, `forceField: 'forcePublish'`, `_version`) when
+  `conflictingOccurrences > 0` and not forcing. The check runs **even under
+  `forcePublish`** (D3) so forced publishes still record
+  `recurringConflictSnapshot` and the post-publish warning toasts fire.
+  Fail-open on check errors stamps `recurringConflictCheckError: true` (D2) —
+  queryable, not silent. Shared `flattenRecurringConflicts()` helper next to
+  `checkRecurringRoomConflicts()`.
+- **Admin-save gate fixed**: phantom fields → `conflictingOccurrences`, plus
+  the same flattened parity arrays (`forceField: 'forceUpdate'`).
+- **`RecurringConflictSummary` revived**: mounted in `RoomReservationFormBase`
+  below the SchedulingAssistant when a recurrence with `pattern`+`range` and
+  ≥1 room is active. **Passes `recurrence={recurrencePattern}` (the resolved
+  variable, line ~262) — `formData.recurrence` is undefined and would
+  silently no-op.** Component hardened first: fetch effect keyed on a
+  serialized request signature (not callback identity — unstable parent refs
+  refetched forever in readOnly mode), new `calendarOwner` prop in the
+  request body (multi-mailbox scoping).
+- **Force-publish affordance (revives the dead `canForce` path)**: after a
+  hard 409 with `canForce`, `useReviewModal` arms `pendingForcePublish`
+  (**admin-gated in the hook**; `ReviewModal` adds a defense-in-depth
+  `isAdmin` gate on display). Button shows warning-color pulsing
+  'Publish Anyway?'; the armed click IS the confirmation (skips the two-step
+  cycle) and resends with `[forceField]: true`. Covers both the publish-step
+  409 (`forcePublish`) and the save-step 409 (`forceUpdate`) — one mechanism,
+  singles included. Hard-409 toasts now prefer the server `message`
+  (occurrence counts). Disarmed on cancel-X and modal close.
+
+**Tests:** `publishRecurringConflict.test.js` REWRITTEN (it previously
+asserted the non-blocking bug as intended behavior) — PRC-1/2 assert the 409,
+PRC-3 asserts forced-publish snapshot, PRC-4/5 unchanged regression guards.
+`recurringConflict.test.js` +RCC-12 (approver force → 403), RCC-13 (admin
+save into conflict → 409), RCC-14 (check failure → 200 + error marker,
+induced via `Collection.prototype.find` spy per publishRollback precedent).
+New frontend: `RecurringConflictSummary.test.jsx` (5),
+`useReviewModal.forcePublish.test.jsx` (4), `ReviewModal.forcePublish.test.jsx`
+(4), +4 mount tests in `RoomReservationFormBase.test.jsx` (32 total).
+Baselines identical before/after: `recurringPublish.test.js` 18F/27P
+(pre-existing red), publishRollback 8/8, frontend review-chain suites green.
+
+**Outstanding:** task 4.2 — manual end-to-end on dev (live MSAL session):
+panel visible in the review modal for a conflicted series, blocking toast,
+'Publish Anyway?' round-trip as admin, SSE refresh after forced publish.
+
 ### Approver event reassignment + clergy on Additional Info (implemented 2026-08-04)
 
 Spec: `openspec/changes/approver-event-reassignment/`.

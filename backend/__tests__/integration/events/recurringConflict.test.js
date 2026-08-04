@@ -1,17 +1,21 @@
 /**
- * Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)
+ * Recurring Event Conflict Detection Tests (RCC-1 to RCC-18)
  *
  * Tests that checkRoomConflicts() detects conflicts against recurring
- * series master occurrences, not just stored start/end times.
+ * series master occurrences, not just stored start/end times, plus the
+ * recurring-publish blocking gates (force 403, admin-save 409, fail-open
+ * marker) and the requester identity carried on conflict records
+ * (RCC-15 to RCC-18).
  */
 
 const request = require('supertest');
-const { ObjectId } = require('mongodb');
+const { ObjectId, Collection } = require('mongodb');
 
 const { setupTestApp } = require('../../__helpers__/createAppForTest');
 const { connectToGlobalServer, disconnectFromGlobalServer } = require('../../__helpers__/testSetup');
 const {
   createRequester,
+  createApprover,
   createAdmin,
   insertUsers,
 } = require('../../__helpers__/userFactory');
@@ -20,16 +24,17 @@ const {
   createPublishedEvent,
   createRecurringSeriesMaster,
   createExceptionDocument,
+  createOwnerlessPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)', () => {
+describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-18)', () => {
   let mongoClient, db, app;
-  let requesterUser, adminUser;
-  let requesterToken, adminToken;
+  let requesterUser, approverUser, adminUser;
+  let requesterToken, approverToken, adminToken;
 
   // Room ID shared between events
   const sharedRoomId = new ObjectId();
@@ -93,10 +98,12 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)', () => {
     graphApiMock.resetMocks();
 
     requesterUser = createRequester();
+    approverUser = createApprover();
     adminUser = createAdmin();
-    await insertUsers(db, [requesterUser, adminUser]);
+    await insertUsers(db, [requesterUser, approverUser, adminUser]);
 
     requesterToken = await createMockToken(requesterUser);
+    approverToken = await createMockToken(approverUser);
     adminToken = await createMockToken(adminUser);
   });
 
@@ -500,6 +507,269 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-9)', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('SchedulingConflict');
+    });
+  });
+
+  // ─── RCC-12: Non-admin approvers cannot force-publish (pre-check gate) ───
+  describe('RCC-12: Approver forcePublish is rejected with 403', () => {
+    it('should return 403 when a non-admin approver sends forcePublish', async () => {
+      const master = createWeeklySeriesMaster();
+      await insertEvents(db, [master]);
+
+      const conflicting = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Approver Force Attempt',
+        startDateTime: new Date('2026-04-07T10:30:00'),
+        endDateTime: new Date('2026-04-07T11:30:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const [saved] = await insertEvents(db, [conflicting]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({ _version: saved._version, forcePublish: true });
+
+      expect(res.status).toBe(403);
+
+      const stored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(stored.status).toBe(STATUS.PENDING);
+    });
+  });
+
+  // ─── RCC-13: Admin save moving a published series onto a conflict → 409 ───
+  // Locks the field-name fix (conflictingOccurrences, not the phantom
+  // totalHardConflicts) in PUT /api/admin/events/:id.
+  describe('RCC-13: Admin save of a published series into a conflict is blocked', () => {
+    it('should return 409 when a save moves a published series onto conflicting times', async () => {
+      // Master A: Tuesdays 10:00-11:00 (the series being collided with)
+      const masterA = createWeeklySeriesMaster();
+      // Master B: Tuesdays 14:00-15:00, same room — clean as stored
+      const masterB = createWeeklySeriesMaster({
+        eventTitle: 'Afternoon Series',
+        startDateTime: new Date('2026-03-10T14:00:00'),
+        endDateTime: new Date('2026-03-10T15:00:00'),
+        calendarData: {
+          eventTitle: 'Afternoon Series',
+          startDateTime: '2026-03-10T14:00:00',
+          endDateTime: '2026-03-10T15:00:00',
+          locations: [sharedRoomId],
+          locationDisplayNames: ['Conference Room B'],
+          categories: ['Meeting'],
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+        },
+      });
+      await insertEvents(db, [masterA, masterB]);
+
+      // Move B onto A's slot (10:30-11:30 Tuesdays)
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(masterB._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDateTime: '2026-03-10T10:30:00',
+          endDateTime: '2026-03-10T11:30:00',
+          _version: masterB._version,
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('SchedulingConflict');
+      expect(res.body.conflictTier).toBe('hard');
+      expect(res.body.forceField).toBe('forceUpdate');
+      expect(res.body.recurringConflicts).toBeDefined();
+      expect(res.body.recurringConflicts.conflictingOccurrences).toBeGreaterThan(0);
+      expect(res.body.message).toContain(
+        `${res.body.recurringConflicts.conflictingOccurrences} of ${res.body.recurringConflicts.totalOccurrences}`
+      );
+      expect(res.body.hardConflicts.length).toBeGreaterThan(0);
+      expect(res.body.hardConflicts[0].occurrenceDate).toBeDefined();
+
+      // Series unchanged
+      const stored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: masterB._id });
+      expect(stored.calendarData.startDateTime).toBe('2026-03-10T14:00:00');
+    });
+  });
+
+  // ─── RCC-14: Conflict-check failure during publish fails open, observably ───
+  // checkRecurringRoomConflicts is an unexported internal, so induce the
+  // failure at the Mongo-driver level (publishRollback.test.js precedent).
+  describe('RCC-14: Check failure during recurring publish fails open with marker', () => {
+    it('should publish (200) and stamp recurringConflictCheckError when the check throws', async () => {
+      const master = createWeeklySeriesMaster();
+      await insertEvents(db, [master]);
+
+      const recurringPending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Unchecked Series',
+        startDateTime: new Date('2026-04-07T10:30:00'),
+        endDateTime: new Date('2026-04-07T11:30:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-04-07', endDate: '2026-05-26' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+      const [saved] = await insertEvents(db, [recurringPending]);
+
+      // Selective throw: only the conflict check queries on calendarData.locations
+      const origFind = Collection.prototype.find;
+      const findSpy = jest.spyOn(Collection.prototype, 'find').mockImplementation(function (filter, opts) {
+        if (filter && filter['calendarData.locations']) {
+          const err = new Error('Conflict check failed (test injection)');
+          err.code = 'NO_RETRY_TEST_ERROR';
+          throw err;
+        }
+        return origFind.call(this, filter, opts);
+      });
+
+      try {
+        const res = await request(app)
+          .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.recurringConflicts).toBeUndefined();
+
+        const stored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+        expect(stored.status).toBe(STATUS.PUBLISHED);
+        expect(stored.recurringConflictCheckError).toBe(true);
+        expect(stored.recurringConflictSnapshot).toBeUndefined();
+      } finally {
+        findSpy.mockRestore();
+      }
+    });
+  });
+
+  // ─── RCC-15 to RCC-18: Conflict records identify the requester (name only) ───
+  // The resolution drawer needs "whose booking is this" to decide whether the
+  // blocking event can be moved. Exercised through POST /api/rooms/recurring-conflicts,
+  // which returns checkRecurringRoomConflicts() output verbatim.
+  const RECURRING_CONFLICTS_URL = '/api/rooms/recurring-conflicts';
+
+  // Proposed weekly Tuesday series 10:30-11:30 for April 2026, in the shared room
+  function proposedAprilSeriesBody(overrides = {}) {
+    return {
+      startDateTime: '2026-04-07T10:30:00',
+      endDateTime: '2026-04-07T11:30:00',
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-07', endDate: '2026-04-28' },
+        additions: [],
+        exclusions: [],
+      },
+      roomIds: [sharedRoomId.toString()],
+      ...overrides,
+    };
+  }
+
+  describe('RCC-15: Single-instance conflict carries the requester name', () => {
+    it('should include requestedBy from roomReservationData.requestedBy.name', async () => {
+      const blocking = createPublishedEvent({
+        eventTitle: 'Sisterhood Luncheon',
+        requesterName: 'Alice Levine',
+        startDateTime: new Date('2026-04-07T10:00:00'),
+        endDateTime: new Date('2026-04-07T11:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      await insertEvents(db, [blocking]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send(proposedAprilSeriesBody())
+        .expect(200);
+
+      expect(res.body.conflictingOccurrences).toBeGreaterThan(0);
+      const apr7 = res.body.conflicts.find(c => c.occurrenceDate === '2026-04-07');
+      expect(apr7).toBeDefined();
+      const record = apr7.hardConflicts.find(c => c.eventTitle === 'Sisterhood Luncheon');
+      expect(record).toBeDefined();
+      expect(record.requestedBy).toBe('Alice Levine');
+    });
+  });
+
+  describe('RCC-16: Series-master conflict carries the requester name', () => {
+    it('should include requestedBy on conflicts sourced from existing series masters', async () => {
+      const master = createWeeklySeriesMaster({ requesterName: 'Bob Marcus' });
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send(proposedAprilSeriesBody())
+        .expect(200);
+
+      expect(res.body.conflictingOccurrences).toBeGreaterThan(0);
+      const apr7 = res.body.conflicts.find(c => c.occurrenceDate === '2026-04-07');
+      expect(apr7).toBeDefined();
+      const record = apr7.hardConflicts.find(c => c.eventTitle === 'Weekly Team Sync');
+      expect(record).toBeDefined();
+      expect(record.requestedBy).toBe('Bob Marcus');
+    });
+  });
+
+  describe('RCC-17: Conflict with no reservation data yields a null requester', () => {
+    it('should carry requestedBy: null rather than omitting the field', async () => {
+      const outlookSynced = createOwnerlessPublishedEvent({
+        eventTitle: 'Outlook Synced Event',
+        startDateTime: new Date('2026-04-07T10:00:00'),
+        endDateTime: new Date('2026-04-07T11:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      await insertEvents(db, [outlookSynced]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send(proposedAprilSeriesBody())
+        .expect(200);
+
+      const apr7 = res.body.conflicts.find(c => c.occurrenceDate === '2026-04-07');
+      expect(apr7).toBeDefined();
+      const record = apr7.hardConflicts.find(c => c.eventTitle === 'Outlook Synced Event');
+      expect(record).toBeDefined();
+      expect(record).toHaveProperty('requestedBy');
+      expect(record.requestedBy).toBeNull();
+    });
+  });
+
+  describe('RCC-18: Conflict records expose no contact details', () => {
+    it('should carry no requester email, phone, or user id on any record', async () => {
+      const single = createPublishedEvent({
+        eventTitle: 'Single Blocker',
+        requesterName: 'Alice Levine',
+        startDateTime: new Date('2026-04-07T10:00:00'),
+        endDateTime: new Date('2026-04-07T11:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const master = createWeeklySeriesMaster({ requesterName: 'Bob Marcus' });
+      await insertEvents(db, [single, master]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send(proposedAprilSeriesBody())
+        .expect(200);
+
+      const allRecords = res.body.conflicts.flatMap(c => c.hardConflicts);
+      expect(allRecords.length).toBeGreaterThan(1);
+      for (const record of allRecords) {
+        expect(record).not.toHaveProperty('email');
+        expect(record).not.toHaveProperty('phone');
+        expect(record).not.toHaveProperty('userId');
+        expect(record).not.toHaveProperty('requestedByEmail');
+      }
     });
   });
 });

@@ -1044,6 +1044,63 @@
   gap: var(--space-4) var(--space-5);
 }
 
+/* Clergy row: spans the grid, with Rabbis and Cantors as two sub-columns
+   that line up with the grid's own two columns. */
+.submitter-info-grid .clergy-cell {
+  grid-column: 1 / -1;
+}
+
+.clergy-cell-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4) var(--space-5);
+}
+
+.clergy-cell-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Header-as-button: the cell label doubles as the action that opens the
+   matching editor (Requester -> reassign modal, Clergy -> clergy modal).
+   Label typography is identical to .info-cell-label so the grid reads as one
+   system; the border chip + pencil glyph are what mark it as pressable. The
+   negative margins cancel the chip's padding+border so the label text stays
+   flush with the static labels in sibling cells. */
+.info-cell-action-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  margin: -3px 0 0 -8px;
+  padding: 2px 7px;
+  background: var(--color-info-50);
+  border: 1px solid var(--color-info-100);
+  border-radius: var(--radius-md);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-info-600);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.info-cell-action-header:hover {
+  background: var(--color-info-100);
+  color: var(--color-info-700);
+}
+
+.info-cell-action-header:focus-visible {
+  outline: 2px solid var(--color-info-500);
+  outline-offset: 2px;
+}
+
+.info-cell-action-header svg {
+  flex-shrink: 0;
+}
+
 .info-cell {
   display: flex;
   flex-direction: column;
@@ -2889,7 +2946,8 @@ select.input-changed:focus {
   }
 
   .form-grid,
-  .submitter-info-grid {
+  .submitter-info-grid,
+  .clergy-cell-columns {
     grid-template-columns: 1fr;
   }
 

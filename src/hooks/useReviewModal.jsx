@@ -1,5 +1,5 @@
 // src/hooks/useReviewModal.jsx
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { logger } from '../utils/logger';
 import { extractOccurrenceOverrideFields } from '../utils/recurrenceUtils';
 import {
@@ -53,6 +53,54 @@ export function buildPrefetchAvailabilityParams(item, gates) {
   return params;
 }
 
+// Pure helper: adapts a raw GET /api/events/:id document to the flat
+// reservation shape GET /api/room-reservations/:id returns (api-server.js
+// ~17756), so navigateToEvent's fallback hands consumers the exact shape the
+// primary source would have. Exported for the shape-parity test — if the
+// server transform gains a field, this adapter (and its key-parity test) is
+// the one place that must follow.
+export function adaptEventToReservationShape(event) {
+  const cd = event.calendarData || {};
+  return {
+    _id: event._id,
+    eventId: event.eventId,
+    eventTitle: cd.eventTitle || event.graphData?.subject || 'Untitled',
+    eventDescription: cd.eventDescription || event.graphData?.bodyPreview || '',
+    startDateTime: cd.startDateTime || event.graphData?.start?.dateTime,
+    endDateTime: cd.endDateTime || event.graphData?.end?.dateTime,
+    status: event.status === 'room-reservation-request' ? 'pending' : event.status,
+    requestedRooms: cd.locations || [],
+    attendeeCount: cd.attendeeCount || null,
+    requesterId: event.roomReservationData?.requestedBy?.userId,
+    requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
+    requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
+    submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
+    roomReservationData: event.roomReservationData || null,
+    rejectionReason: event.roomReservationData?.rejectionReason,
+    cancelReason: event.roomReservationData?.cancelReason,
+    actionDate: event.roomReservationData?.reviewedAt,
+    specialRequirements: cd.specialRequirements,
+    setupTime: cd.setupTime,
+    teardownTime: cd.teardownTime,
+    doorOpenTime: cd.doorOpenTime,
+    doorCloseTime: cd.doorCloseTime,
+    startDate: cd.startDate || null,
+    startTime: cd.startTime || null,
+    endDate: cd.endDate || null,
+    endTime: cd.endTime || null,
+    categories: cd.categories || [],
+    services: cd.services || {},
+    occurrenceOverrides: event.occurrenceOverrides || [],
+    eventType: event.eventType || 'singleInstance',
+    recurrence: event.recurrence || cd.recurrence || null,
+    seriesMasterId: event.seriesMasterId || null,
+    seriesMasterEventId: event.seriesMasterEventId || null,
+    _version: event._version || null,
+    statusHistory: event.statusHistory || [],
+    calendarData: cd,
+  };
+}
+
 // Pure helper: extracts room/date gates from any event format (raw MongoDB,
 // flat, or Graph). Used by openModal and navigateToEvent to gate the content
 // reveal until availability prefetch completes.
@@ -95,7 +143,7 @@ function computeItemGates(item) {
  * @param {Function} onError - Callback after error
  */
 export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
-  const { canCreateEvents, canSubmitReservation } = usePermissions();
+  const { canCreateEvents, canSubmitReservation, isAdmin } = usePermissions();
   const authFetch = useAuthenticatedFetch();
   const [isOpen, setIsOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
@@ -134,9 +182,33 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [pendingApproveConfirmation, setPendingApproveConfirmation] = useState(false);
   const [pendingRejectConfirmation, setPendingRejectConfirmation] = useState(false);
 
+  // Admin force-override arm state: holds the 409's forceField string
+  // ('forcePublish' | 'forceUpdate') after a hard conflict with canForce.
+  // While armed, the Publish button reads 'Publish Anyway?' and the next
+  // handleApprove call resends with [forceField]: true. Admin-only — the
+  // backend 403s non-admin force attempts, so non-admins are never armed.
+  const [pendingForcePublish, setPendingForcePublish] = useState(null);
+
   // Rejection reason state (for inline rejection reason input)
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // Single-entry navigation origin (design D3): recorded when the modal
+  // navigates to a blocking event from the conflict panel, so the return bar
+  // can offer the way back. One slot, not a stack — a subsequent navigation
+  // replaces it (conflict-driven) or clears it (ordinary).
+  // Shape: { item, title, occurrenceDate, outstandingConflictCount } | null
+  const [navigationOrigin, setNavigationOrigin] = useState(null);
+
+  // Guarded navigation awaiting the discard-changes dialog. Set instead of
+  // navigating when the form is dirty; confirmed/cancelled via the dialog.
+  // Shape: { target, options } | null
+  const [pendingModalNav, setPendingModalNav] = useState(null);
+
+  // navigateToEvent snapshots the originating item without keying its
+  // callback on currentItem (which would recreate it on every swap).
+  const currentItemRef = useRef(null);
+  useEffect(() => { currentItemRef.current = currentItem; }, [currentItem]);
 
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
@@ -435,6 +507,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setHasUncommittedRecurrence(false); // Reset recurrence warning state
     setShowRecurrenceWarning(false);
     setSoftConflictConfirmation(null); // Drop any pending soft-conflict prompt; otherwise it would re-surface on next open.
+    setPendingForcePublish(null); // Disarm any force-override prompt
+    setNavigationOrigin(null); // No origin survives a close
+    setPendingModalNav(null); // Drop any navigation awaiting the discard guard
   }, [hasChanges, isDraft, currentItem]);
 
   /**
@@ -461,8 +536,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * reinitKey. This matches the prior close/reopen behavior, which also
    * dropped edits silently. Callers should ensure that's acceptable.
    */
-  const navigateToEvent = useCallback(async (target) => {
+  const navigateToEvent = useCallback(async (target, options = {}) => {
     if (!target) return;
+
+    // Snapshot the origin BEFORE the swap. Only a conflict-driven navigation
+    // (options.origin) records one; ordinary navigation clears the slot.
+    const originItem = currentItemRef.current;
+    const originContext = options.origin || null;
 
     let initialItem;
     // Cold path: the single-doc endpoint already returns enriched data
@@ -475,13 +555,31 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           `${APP_CONFIG.API_BASE_URL}/room-reservations/${target}`,
           { headers: { 'Content-Type': 'application/json' } }
         );
-        if (!response.ok) {
+        if (response.ok) {
+          initialItem = await response.json();
+          alreadyHydrated = true;
+        } else if (response.status === 404) {
+          // Fallback: conflict detection matches published events synced from
+          // Outlook, which carry no roomReservationData and are therefore
+          // absent from the reservations endpoint. Fetch the raw document and
+          // adapt it so every downstream consumer sees the primary shape.
+          const fallbackResponse = await authFetch(
+            `${APP_CONFIG.API_BASE_URL}/events/${target}`,
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+          if (!fallbackResponse.ok) {
+            logger.error('navigateToEvent: both sources failed', target, fallbackResponse.status);
+            if (onError) onError('Could not load the requested event');
+            return;
+          }
+          const data = await fallbackResponse.json();
+          initialItem = adaptEventToReservationShape(data.event);
+          alreadyHydrated = true;
+        } else {
           logger.error('navigateToEvent: failed to fetch event', target, response.status);
           if (onError) onError('Could not load the requested event');
           return;
         }
-        initialItem = await response.json();
-        alreadyHydrated = true;
       } catch (err) {
         logger.error('navigateToEvent fetch error:', err);
         if (onError) onError('Could not load the requested event');
@@ -520,8 +618,55 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setEditScope(null);
     setReinitKey(prev => prev + 1);
 
+    // One slot: a conflict-driven navigation records where it came from; any
+    // other navigation clears it (the return bar disappearing is the honest
+    // signal that the series origin was left behind — design D3).
+    setNavigationOrigin(originContext && originItem ? {
+      item: originItem,
+      title: originItem.eventTitle || 'Previous event',
+      occurrenceDate: originContext.occurrenceDate || null,
+      outstandingConflictCount: originContext.outstandingConflictCount ?? null,
+    } : null);
+
     await prefetchModalData(effectiveItem, gates);
   }, [authFetch, hydrateSeriesMaster, prefetchModalData, onError]);
+
+  /**
+   * Dirty-form guard for in-modal navigation. A clean form navigates
+   * immediately; a dirty one parks the target in pendingModalNav and lets the
+   * DiscardChangesDialog (rendered by ReviewModal) resolve it. This is what
+   * makes "skip this date, then open the blocker anyway" non-destructive —
+   * the unsaved exclusion is named before it is dropped (design D5).
+   */
+  const requestModalNavigation = useCallback((target, options = {}) => {
+    if (hasChanges) {
+      setPendingModalNav({ target, options });
+      return;
+    }
+    return navigateToEvent(target, options);
+  }, [hasChanges, navigateToEvent]);
+
+  const confirmPendingModalNav = useCallback(async () => {
+    const pending = pendingModalNav;
+    setPendingModalNav(null);
+    if (pending) await navigateToEvent(pending.target, pending.options);
+  }, [pendingModalNav, navigateToEvent]);
+
+  const cancelPendingModalNav = useCallback(() => {
+    setPendingModalNav(null);
+  }, []);
+
+  /**
+   * Navigate back to the recorded origin (return bar action). Cold-fetches by
+   * id so the origin re-opens with fresh server state (_version may have
+   * moved). Goes through the dirty guard; the ordinary navigation clears the
+   * origin slot as a side effect.
+   */
+  const returnToOrigin = useCallback(() => {
+    const originId = navigationOrigin?.item?._id;
+    if (!originId) return;
+    return requestModalNavigation(String(originId));
+  }, [navigationOrigin, requestModalNavigation]);
 
   /**
    * Update editable data
@@ -749,8 +894,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const handleApprove = useCallback(async (approvalData = {}) => {
     if (!currentItem) return;
 
-    // Two-step confirmation: First click shows confirmation
-    if (!pendingApproveConfirmation) {
+    // Armed force-override: this click IS the 'Publish Anyway?' confirmation —
+    // skip the normal two-step cycle and resend with the force field set.
+    const forceFieldArmed = pendingForcePublish;
+    if (forceFieldArmed) {
+      setPendingForcePublish(null);
+    } else if (!pendingApproveConfirmation) {
+      // Two-step confirmation: First click shows confirmation
       setPendingApproveConfirmation(true);
       setPendingRejectConfirmation(false); // Clear reject confirmation if any
       setPendingDeleteConfirmation(false); // Clear delete confirmation if any
@@ -772,8 +922,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Filter out React synthetic events (e.g., click events passed as first argument)
       // These have nativeEvent property and cause "Converting circular structure to JSON" errors
       const safeApprovalData = (approvalData && typeof approvalData === 'object' && !approvalData.nativeEvent)
-        ? approvalData
+        ? { ...approvalData }
         : {};
+      if (forceFieldArmed) {
+        safeApprovalData[forceFieldArmed] = true;
+      }
 
       // Get LIVE form data from the form component (same as save flow)
       // This ensures we get the exact data the user sees on the form
@@ -817,7 +970,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
               ...formData,
               graphToken, // Include for any Graph sync needed
               _version: latestVersion,
-              ...(safeApprovalData.acknowledgeSoftConflicts ? { acknowledgeSoftConflicts: true } : {})
+              ...(safeApprovalData.acknowledgeSoftConflicts ? { acknowledgeSoftConflicts: true } : {}),
+              ...(safeApprovalData.forceUpdate ? { forceUpdate: true } : {})
             })
           });
 
@@ -847,8 +1001,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                 setIsApproving(false);
                 return { success: false, error: 'SoftConflictPending' };
               } else {
-                // Hard conflicts
-                const msg = `Cannot publish: ${saveData.hardConflicts?.length || saveData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+                // Hard conflicts — prefer the server message (recurring 409s
+                // carry occurrence counts); arm the admin force-override.
+                const msg = saveData.message || `Cannot publish: ${saveData.hardConflicts?.length || saveData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+                if (isAdmin && saveData.canForce && saveData.forceField) {
+                  setPendingForcePublish(saveData.forceField);
+                }
                 if (onError) onError(msg, saveData.conflicts);
                 setIsApproving(false);
                 return { success: false, error: 'SchedulingConflict', conflicts: saveData.conflicts, canForce: saveData.canForce, forceField: saveData.forceField };
@@ -956,8 +1114,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             });
             return { success: false, error: 'SoftConflictPending' };
           }
-          // Hard conflicts
-          const message = `Cannot publish: ${data.hardConflicts?.length || data.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+          // Hard conflicts — prefer the server message (recurring 409s carry
+          // occurrence counts); arm the admin force-override.
+          const message = data.message || `Cannot publish: ${data.hardConflicts?.length || data.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+          if (isAdmin && data.canForce && data.forceField) {
+            setPendingForcePublish(data.forceField);
+          }
           if (onError) onError(message, data.conflicts);
           return { success: false, error: message, conflicts: data.conflicts, canForce: data.canForce, forceField: data.forceField };
         }
@@ -982,7 +1144,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, editableData, eventVersion, authFetch, graphToken, selectedCalendarId, notifySuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
+  }, [currentItem, editableData, eventVersion, authFetch, graphToken, selectedCalendarId, notifySuccess, onError, closeModal, pendingApproveConfirmation, pendingForcePublish, isAdmin, checkVersionFreshness]);
 
   /**
    * Reject the reservation/event
@@ -1168,6 +1330,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   const cancelApproveConfirmation = useCallback(() => {
     setPendingApproveConfirmation(false);
+    setPendingForcePublish(null); // Disarm the force-override prompt too
   }, []);
 
   // Note: cancelRejectConfirmation is defined earlier (after handleReject)
@@ -2202,6 +2365,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     savingDraft,
     pendingDraftConfirmation,
 
+    // Navigation origin (conflict resolution round trip)
+    navigationOrigin, // { item, title, occurrenceDate, outstandingConflictCount } | null
+    requestModalNavigation, // Dirty-guard-aware navigation (conflict drawer's open action)
+    returnToOrigin, // Return-bar action: navigate back to the recorded origin
+
     // Actions
     openModal,
     closeModal,
@@ -2324,6 +2492,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // Confirmation states
       isApproveConfirming: pendingApproveConfirmation,
+      isApproveForceConfirming: !!pendingForcePublish,
       onCancelApprove: cancelApproveConfirmation,
       isRejectConfirming: pendingRejectConfirmation,
       onCancelReject: cancelRejectConfirmation,
@@ -2393,6 +2562,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       reservation: currentItem,
       // Recurring edit scope (for disabling recurrence tab on single-occurrence edits)
       editScope,
+
+      // Conflict-resolution return bar + guarded in-modal navigation
+      navigationOrigin,
+      onReturnToOrigin: returnToOrigin,
+      showDiscardDialog: !!pendingModalNav,
+      onDiscardDialogDiscard: confirmPendingModalNav,
+      onDiscardDialogCancel: cancelPendingModalNav,
 
       // Duplicate (available for pending/published non-recurring events, requires create or submit permission)
       onDuplicate: (

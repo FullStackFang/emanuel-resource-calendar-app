@@ -63,7 +63,8 @@ export default function RoomReservationReview({
   onServicesExist = null, // Callback when services exist/change: (hasServices) => void (injected by ReviewModal via cloneElement)
   onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
   createRecurrenceRef = null, // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
-  onOwnershipRefresh = null // Called after an ownership reassignment so the caller reloads its event list
+  onOwnershipRefresh = null, // Called after an ownership reassignment so the caller reloads its event list
+  onOpenBlockingEvent = null // Conflict-panel navigation to a blocking event (guard-aware, from EventReviewExperience)
 }) {
   const { showError, showSuccess } = useNotification();
   const { isAdmin } = usePermissions();
@@ -605,6 +606,7 @@ export default function RoomReservationReview({
           currentReservationId={reservation?._id}
           onLockedEventClick={onLockedEventClick}
           onNavigateToSeriesEvent={onNavigateToSeriesEvent}
+          onOpenBlockingEvent={onOpenBlockingEvent}
           defaultCalendar={defaultCalendar}
           apiToken={apiToken}
           eventVersion={eventVersion}

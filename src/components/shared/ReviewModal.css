@@ -615,6 +615,20 @@
   background: var(--color-success-500);
 }
 
+/* 'Publish Anyway?' — admin force-override through a hard scheduling
+   conflict. Warning color (not success) because the action knowingly
+   double-books; same pulse as every other in-button confirmation. */
+.publish-btn.confirming.force-confirming {
+  background: var(--color-warning-500);
+  color: var(--text-inverse);
+  box-shadow: 0 0 0 2px var(--color-warning-100), 0 2px 8px rgba(217, 119, 6, 0.4);
+  animation: pulse-confirm 1.2s ease-in-out infinite;
+}
+
+.publish-btn.confirming.force-confirming:hover:not(:disabled) {
+  background: var(--color-warning-600);
+}
+
 /* Reject Button */
 .reject-btn {
   background: linear-gradient(135deg, var(--color-error-500) 0%, var(--color-error-600) 100%);
@@ -1345,4 +1359,43 @@
 @keyframes tooltip-appear {
   from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ==========================================================================
+   RETURN BAR — the way back after opening a blocking event from the
+   conflict panel. Full-width, sits above the sticky action bar.
+   ========================================================================== */
+.review-return-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-info-50);
+  border: none;
+  border-bottom: 1px solid var(--color-info-100);
+  color: var(--color-info-700);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-return-bar:hover {
+  background: var(--color-info-100);
+}
+
+.return-bar-arrow {
+  font-size: var(--text-base);
+  line-height: 1;
+}
+
+.return-bar-label strong {
+  font-weight: var(--font-semibold);
+}
+
+.return-bar-context {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--color-info-600);
 }

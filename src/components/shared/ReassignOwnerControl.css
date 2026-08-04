@@ -2,9 +2,11 @@
    All selectors are scoped under .reassign-owner so nothing leaks into the
    surrounding form or the admin stylesheets. */
 
+/* The wrapper takes no layout of its own: the trigger participates directly
+   in the caller's flex column (it doubles as the cell header there), and the
+   modal overlay is position: fixed. */
 .reassign-owner {
-  position: relative;
-  margin-top: 6px;
+  display: contents;
 }
 
 .reassign-owner-trigger {
@@ -23,16 +25,22 @@
   color: var(--color-info-700);
 }
 
+/* The picker lives inside a centered .category-modal (same base pattern as
+   ClergySelectorModal) — the modal frame supplies border/shadow/padding, so
+   the picker itself is just a stacked column. */
+.reassign-owner-modal {
+  max-width: 440px;
+}
+
 .reassign-owner-picker {
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid var(--border-color, #e2e8f0);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised, #fff);
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.reassign-owner-current {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
 }
 
 .reassign-owner-search {
@@ -43,12 +51,12 @@
   border-radius: var(--radius-sm);
 }
 
+/* Capped, not scrolled (design D8): at most five options render, with any
+   overflow counted in .reassign-owner-overflow. No max-height, no overflow. */
 .reassign-owner-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 190px;
-  overflow-y: auto;
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: var(--radius-sm);
 }
@@ -71,9 +79,42 @@
   background: var(--color-info-50, #ebf8ff);
 }
 
-.reassign-owner-option.is-selected {
-  background: var(--color-info-50, #ebf8ff);
-  box-shadow: inset 3px 0 0 var(--color-info-500, #4299e1);
+.reassign-owner-overflow {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 2px 2px 0;
+}
+
+/* Pending transfer: current owner → chosen owner, shown once a selection
+   collapses the search. */
+.reassign-owner-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reassign-owner-pending-party {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.reassign-owner-pending-arrow {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.reassign-owner-change {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--color-info-600);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .reassign-owner-option-name {

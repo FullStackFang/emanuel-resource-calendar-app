@@ -2508,6 +2508,7 @@ const CONFLICT_PROJECTION = {
   'calendarData.reservationStartMinutes': 1, 'calendarData.reservationEndMinutes': 1,
   recurrence: 1, isAllowedConcurrent: 1, allowedConcurrentCategories: 1,
   categories: 1,
+  'roomReservationData.requestedBy.name': 1, // name only — conflict records must not carry contact details
 };
 
 // Projection for availability endpoint — only fields used by response builders (lines 13283-13481)
@@ -3237,6 +3238,7 @@ async function checkRecurringRoomConflicts(params) {
             endDateTime: cEnd,
             roomNames: Array.isArray(conflict.calendarData?.locationDisplayNames) ? conflict.calendarData.locationDisplayNames : (conflict.calendarData?.locationDisplayNames ? [conflict.calendarData.locationDisplayNames] : []),
             status: conflict.status,
+            requestedBy: conflict.roomReservationData?.requestedBy?.name || null,
           });
         }
       }
@@ -3257,6 +3259,7 @@ async function checkRecurringRoomConflicts(params) {
             endDateTime: mOcc.endDateTime,
             roomNames: Array.isArray(master.calendarData?.locationDisplayNames) ? master.calendarData.locationDisplayNames : (master.calendarData?.locationDisplayNames ? [master.calendarData.locationDisplayNames] : []),
             status: master.status,
+            requestedBy: master.roomReservationData?.requestedBy?.name || null,
           });
           break; // one overlap per master per occurrence is enough
         }
@@ -3285,6 +3288,23 @@ async function checkRecurringRoomConflicts(params) {
     conflicts,
     allOccurrences,
   };
+}
+
+/**
+ * Flatten a checkRecurringRoomConflicts() result into the single-event 409
+ * entry shape ({ id, eventTitle, startDateTime, endDateTime, roomNames,
+ * status, requestedBy }) with an added occurrenceDate, so recurring and
+ * single hard 409s share one response contract for the toast/force flow.
+ */
+function flattenRecurringConflicts(recurringConflicts) {
+  if (!recurringConflicts?.conflicts?.length) return [];
+  const flattened = [];
+  for (const occ of recurringConflicts.conflicts) {
+    for (const conflict of (occ.hardConflicts || [])) {
+      flattened.push({ ...conflict, occurrenceDate: occ.occurrenceDate });
+    }
+  }
+  return flattened;
 }
 
 /**
@@ -21944,18 +21964,21 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       });
     }
 
-    // Check for scheduling conflicts (unless forcePublish)
-    // For recurring events: non-blocking (conflicts reported in response, not 409)
-    // For non-recurring events: blocking (409 on hard conflicts)
+    // Check for scheduling conflicts
+    // Recurring and non-recurring events both block (409 on hard conflicts,
+    // canForce for admins). The recurring check runs even under forcePublish
+    // so a forced publish still records recurringConflictSnapshot and the
+    // post-publish warning toasts fire; only the 409 decision is force-gated.
     let recurringConflicts = null;
+    let recurringConflictCheckFailed = false;
     const publishRecurrence = event.recurrence;
     const isRecurringPublish = publishRecurrence?.pattern && publishRecurrence?.range;
 
-    if (!forcePublish) {
+    {
       const roomIds = event.calendarData?.locations || event.locations || [];
       if (roomIds.length > 0) {
         if (isRecurringPublish) {
-          // Non-blocking recurring conflict check
+          // Fail-open on check errors, but observably (recurringConflictCheckError)
           try {
             recurringConflicts = await checkRecurringRoomConflicts({
               startDateTime: event.calendarData?.startDateTime || event.startDateTime,
@@ -21970,9 +21993,25 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
               calendarOwner: event.calendarOwner || null,
             });
           } catch (err) {
+            recurringConflictCheckFailed = true;
             logger.warn('Non-fatal: recurring conflict check failed during publish:', err.message);
           }
-        } else {
+          if (!forcePublish && recurringConflicts && recurringConflicts.conflictingOccurrences > 0) {
+            const flattened = flattenRecurringConflicts(recurringConflicts);
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'hard',
+              message: `Cannot publish: ${recurringConflicts.conflictingOccurrences} of ${recurringConflicts.totalOccurrences} occurrence(s) have scheduling conflicts`,
+              recurringConflicts,
+              hardConflicts: flattened,
+              softConflicts: [],
+              conflicts: flattened,
+              canForce: true,
+              forceField: 'forcePublish',
+              _version: event._version
+            });
+          }
+        } else if (!forcePublish) {
           // Blocking single-event conflict check (existing behavior)
           const reservationForConflict = {
             calendarOwner: event.calendarOwner || null,
@@ -22160,6 +22199,12 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         conflictCount: recurringConflicts.conflictingOccurrences,
         totalOccurrences: recurringConflicts.totalOccurrences,
       };
+    }
+
+    // A series published without a completed conflict check must be
+    // distinguishable from one verified clean (fail-open marker, queryable)
+    if (recurringConflictCheckFailed) {
+      publishUpdate.$set.recurringConflictCheckError = true;
     }
 
     let publishedEvent;
@@ -25380,12 +25425,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               categories: updates.categories || cd.categories || [],
               calendarOwner: event.calendarOwner || null,
             });
-            if (recurringConflicts && recurringConflicts.totalHardConflicts > 0) {
+            if (recurringConflicts && recurringConflicts.conflictingOccurrences > 0) {
+              const flattened = flattenRecurringConflicts(recurringConflicts);
               return res.status(409).json({
                 error: 'SchedulingConflict',
                 conflictTier: 'hard',
-                message: `Cannot save: ${recurringConflicts.totalHardConflicts} scheduling conflict(s) across ${recurringConflicts.occurrencesWithConflicts} occurrence(s)`,
+                message: `Cannot save: ${recurringConflicts.conflictingOccurrences} of ${recurringConflicts.totalOccurrences} occurrence(s) have scheduling conflicts`,
                 recurringConflicts,
+                hardConflicts: flattened,
+                softConflicts: [],
+                conflicts: flattened,
                 canForce: true,
                 forceField: 'forceUpdate',
                 _version: event._version

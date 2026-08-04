@@ -28,10 +28,24 @@ vi.mock('../../../components/OffsiteLocationModal', () => ({
 vi.mock('../../../components/CategorySelectorModal', () => ({
   default: () => null,
 }));
-// Probe rather than null — the clergy tests assert that both tabs drive the
-// SAME single mounted modal instance, which needs its open state observable.
+// Probe rather than null — the clergy tests assert that both entry points
+// drive the SAME single mounted modal instance, which needs its open state
+// observable. The clear button lets tests save an empty assignment through
+// the modal contract (the only clear path since the Additional Information
+// clergy block was removed).
 vi.mock('../../../components/ClergySelectorModal', () => ({
-  default: ({ isOpen }) => <div data-testid="clergy-modal-probe" data-open={String(!!isOpen)} />,
+  default: ({ isOpen, onSave, onClose }) => (
+    <div data-testid="clergy-modal-probe" data-open={String(!!isOpen)}>
+      <button
+        type="button"
+        data-testid="clergy-modal-probe-clear"
+        onClick={() => {
+          onSave({ assignedRabbi: [], assignedCantor: [] });
+          onClose();
+        }}
+      />
+    </div>
+  ),
 }));
 vi.mock('../../../components/preview/MecEventPreviewPanel', () => ({
   default: () => null,
@@ -98,6 +112,42 @@ vi.mock('../../../components/RoomReservationForm.css', () => ({}));
 vi.mock('../../../components/shared/ReservationMarkerAdvisory', () => ({
   default: ({ apiToken, date }) => (
     <div data-testid="marker-advisory-probe" data-api-token={apiToken || ''} data-date={date || ''} />
+  ),
+}));
+// Probe the per-occurrence conflict panel. The wiring under test: it must
+// receive the RESOLVED recurrencePattern (formData.recurrence is undefined in
+// the form base), the selected room ids, the effective calendar owner, and
+// the conflict-resolution callbacks (skip handler, blocking-event navigation,
+// pending skipped dates). The probe buttons let tests invoke the callbacks.
+vi.mock('../../../components/RecurringConflictSummary', () => ({
+  default: (props) => (
+    <div
+      data-testid="rcs-probe"
+      data-has-recurrence={String(!!(props.recurrence?.pattern && props.recurrence?.range))}
+      data-room-ids={JSON.stringify(props.roomIds || [])}
+      data-calendar-owner={props.calendarOwner || ''}
+      data-read-only={String(!!props.readOnly)}
+      data-start={props.startDateTime || ''}
+      data-end={props.endDateTime || ''}
+      data-exclusions={JSON.stringify(props.recurrence?.exclusions || [])}
+      data-pending-skipped={JSON.stringify(props.pendingSkippedDates || [])}
+      data-has-skip={String(!!props.onSkipOccurrence)}
+      data-has-open={String(!!props.onOpenBlockingEvent)}
+    >
+      <button
+        type="button"
+        data-testid="rcs-probe-skip"
+        onClick={() => props.onSkipOccurrence && props.onSkipOccurrence('2026-03-17')}
+      />
+      <button
+        type="button"
+        data-testid="rcs-probe-open"
+        onClick={() => props.onOpenBlockingEvent && props.onOpenBlockingEvent(
+          { id: 'c1', eventTitle: 'Existing Meeting' },
+          { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
+        )}
+      />
+    </div>
   ),
 }));
 
@@ -474,11 +524,14 @@ describe('RoomReservationFormBase', () => {
       mockPermissions = mockViewerPermissions;
       render(<RoomReservationFormBase {...reassignProps} />);
       expect(screen.queryByTestId('reassign-owner-trigger')).toBeNull();
+      // The cell header falls back to the plain static label.
+      expect(screen.getByText('Requester')).toBeTruthy();
     });
 
     it('RA-3: does not render before the reservation has been saved', () => {
       render(<RoomReservationFormBase {...reassignProps} currentReservationId={null} />);
       expect(screen.queryByTestId('reassign-owner-trigger')).toBeNull();
+      expect(screen.getByText('Requester')).toBeTruthy();
     });
 
     it('RA-4: fetches the user list lazily on first open, and only once', async () => {
@@ -592,10 +645,13 @@ describe('RoomReservationFormBase', () => {
       await waitFor(() => expect(screen.getByTestId('reassign-owner-error')).toBeTruthy());
       expect(screen.getByTestId('reassign-owner-error').textContent).toMatch(/changed/i);
 
-      // Parent is asked to reload; ownership did not move locally.
+      // Parent is asked to reload; ownership did not move locally. The name
+      // also appears in the pending-transfer summary, so target the cell.
       await waitFor(() => expect(onOwnershipChanged).toHaveBeenCalledWith(null));
       expect(mockShowSuccess).not.toHaveBeenCalled();
-      expect(screen.getByText(OWNER.name)).toBeTruthy();
+      expect(
+        screen.getAllByText(OWNER.name).some(el => el.className.includes('info-cell-value'))
+      ).toBe(true);
     });
 
     it('RA-10: a non-409 failure surfaces an error and leaves ownership unchanged', async () => {
@@ -617,15 +673,145 @@ describe('RoomReservationFormBase', () => {
 
       await waitFor(() => expect(mockShowError).toHaveBeenCalled());
       expect(mockShowSuccess).not.toHaveBeenCalled();
-      expect(screen.getByText(OWNER.name)).toBeTruthy();
+      expect(
+        screen.getAllByText(OWNER.name).some(el => el.className.includes('info-cell-value'))
+      ).toBe(true);
+    });
+
+    // ── Collapsed trigger, centered modal ──
+    // At rest: one line, nothing but the trigger. Open: a centered modal
+    // (category-modal pattern), at most five matches with the overflow
+    // counted, never scrolled. Selecting collapses the search to the
+    // pending transfer.
+
+    it('RA-11: nothing but the trigger renders at rest; opening renders the search', () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+
+      expect(screen.queryByTestId('reassign-owner-search')).toBeNull();
+      expect(screen.queryByTestId('reassign-owner-commit')).toBeNull();
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      expect(screen.getByTestId('reassign-owner-search')).toBeTruthy();
+    });
+
+    it('RA-12: matches are capped at five and the overflow count is stated; typing narrows', async () => {
+      const MANY_USERS = [
+        { _id: 'u-emily', displayName: 'Emily Assistant', email: 'emily@emanuelnyc.org' },
+        ...Array.from({ length: 8 }, (_, i) => ({
+          _id: `u-extra-${i}`,
+          displayName: `Extra Person ${i}`,
+          email: `extra${i}@emanuelnyc.org`,
+        })),
+      ];
+      global.fetch = vi.fn(async (url) => {
+        if (String(url).endsWith('/users')) {
+          return { ok: true, status: 200, json: async () => MANY_USERS };
+        }
+        return { ok: true, status: 200, json: async () => ({ attachments: [] }) };
+      });
+
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-extra-0')).toBeTruthy());
+
+      // 8 non-owner users match, 5 shown, 3 counted — and no scroll container
+      expect(screen.getAllByTestId(/^reassign-owner-option-/)).toHaveLength(5);
+      const overflow = screen.getByTestId('reassign-owner-overflow');
+      expect(overflow.textContent).toMatch(/3 more/i);
+      expect(overflow.textContent).toMatch(/typ/i);
+
+      // Typing narrows below the cap; the overflow line disappears
+      fireEvent.change(screen.getByTestId('reassign-owner-search'), { target: { value: 'Extra Person 7' } });
+      expect(screen.getAllByTestId(/^reassign-owner-option-/)).toHaveLength(1);
+      expect(screen.queryByTestId('reassign-owner-overflow')).toBeNull();
+    });
+
+    it('RA-13: selecting a user collapses the search to the pending transfer', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+
+      // The result list and search give way to the pending transfer
+      expect(screen.queryByTestId('reassign-owner-search')).toBeNull();
+      expect(screen.queryByTestId('reassign-owner-option-u-rachel')).toBeNull();
+      const pending = screen.getByTestId('reassign-owner-pending');
+      expect(pending.textContent).toContain('Emily Assistant');
+      expect(pending.textContent).toContain('Jeannette Assistant');
+      expect(screen.getByTestId('reassign-owner-commit')).toBeTruthy();
+
+      // The way back to the search
+      fireEvent.click(screen.getByTestId('reassign-owner-change'));
+      expect(screen.getByTestId('reassign-owner-search')).toBeTruthy();
+      expect(screen.queryByTestId('reassign-owner-pending')).toBeNull();
+    });
+
+    // ── Centered modal presentation ──
+    // The picker opens in a category-modal overlay so it never reflows the
+    // Submitter Information grid. Every close route (Cancel, X, ESC, overlay)
+    // resets picker state.
+
+    it('RA-14: opening renders a centered modal; Cancel closes it and resets the selection', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-option-u-jeannette')).toBeTruthy());
+
+      // The picker lives inside the shared modal chrome, not the grid cell.
+      const picker = screen.getByTestId('reassign-owner-picker');
+      expect(picker.closest('.category-modal-overlay')).toBeTruthy();
+      expect(picker.closest('.reassign-owner-modal')).toBeTruthy();
+      expect(screen.getByText('Reassign Owner')).toBeTruthy();
+
+      // Select someone, then Cancel — reopening must show a fresh search,
+      // not the stale pending transfer.
+      fireEvent.click(screen.getByTestId('reassign-owner-option-u-jeannette'));
+      expect(screen.getByTestId('reassign-owner-pending')).toBeTruthy();
+      fireEvent.click(screen.getByTestId('reassign-owner-cancel'));
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-search')).toBeTruthy());
+      expect(screen.queryByTestId('reassign-owner-pending')).toBeNull();
+    });
+
+    it('RA-15: the X button and ESC both close the modal', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-picker')).toBeTruthy());
+      fireEvent.click(screen.getByTestId('reassign-owner-close'));
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-picker')).toBeTruthy());
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
+    });
+
+    it('RA-16: clicking the overlay closes; clicking inside the modal does not', async () => {
+      render(<RoomReservationFormBase {...reassignProps} />);
+      fireEvent.click(screen.getByTestId('reassign-owner-trigger'));
+      await waitFor(() => expect(screen.getByTestId('reassign-owner-picker')).toBeTruthy());
+
+      // A click inside the dialog is not a dismissal.
+      fireEvent.click(screen.getByTestId('reassign-owner-picker'));
+      expect(screen.getByTestId('reassign-owner-picker')).toBeTruthy();
+
+      const overlay = screen.getByTestId('reassign-owner-picker').closest('.category-modal-overlay');
+      fireEvent.click(overlay);
+      expect(screen.queryByTestId('reassign-owner-picker')).toBeNull();
     });
   });
 
-  // ─── Clergy on the Additional Information tab ──────────────────────────────
-  // Redundant by design: the same button and summary as the Event Details tab,
-  // sharing one modal instance and one piece of state so they cannot disagree.
+  // ─── Clergy edit from the Submitter Information grid ───────────────────────
+  // The Additional Information clergy button/summary block is gone; on this
+  // tab the grid's Edit link is the entry point. It drives the same single
+  // mounted ClergySelectorModal and the same state as the Event Details
+  // button, so the two cannot disagree.
 
-  describe('clergy control on the additional tab', () => {
+  describe('clergy edit from the submitter grid', () => {
     const clergyProps = {
       showAllTabs: false,
       apiToken: 'test-token',
@@ -648,20 +834,50 @@ describe('RoomReservationFormBase', () => {
       vi.restoreAllMocks();
     });
 
-    it('CL-1: renders a Clergy button on the Additional Information tab', () => {
-      render(<RoomReservationFormBase {...clergyProps} activeTab="additional" />);
-      expect(screen.getByTestId('clergy-button-additional')).toBeTruthy();
-    });
-
-    it('CL-2: the button opens the same shared modal the details tab uses', () => {
+    it('CG-1: the Edit link opens the shared clergy modal', () => {
       render(<RoomReservationFormBase {...clergyProps} activeTab="additional" />);
       // The modal is mounted once at the component root and is closed initially.
       expect(screen.getByTestId('clergy-modal-probe').dataset.open).toBe('false');
-      fireEvent.click(screen.getByTestId('clergy-button-additional'));
+      fireEvent.click(screen.getByTestId('clergy-edit-submitter'));
       expect(screen.getByTestId('clergy-modal-probe').dataset.open).toBe('true');
     });
 
-    it('CL-3: an assignment made from either tab is reflected on the other', () => {
+    it('CG-2: the old Additional Information clergy block is gone', () => {
+      render(
+        <RoomReservationFormBase
+          {...clergyProps}
+          activeTab="additional"
+          initialData={{
+            ...clergyProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+          }}
+        />
+      );
+      expect(screen.queryByTestId('clergy-button-additional')).toBeNull();
+      expect(screen.queryByTestId('clergy-summary-additional')).toBeNull();
+    });
+
+    it('CG-3: the Edit link is absent when the form fields are disabled, but the display remains', () => {
+      render(
+        <RoomReservationFormBase
+          {...clergyProps}
+          activeTab="additional"
+          readOnly
+          reservationStatus="published"
+          initialData={{
+            ...clergyProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+          }}
+        />
+      );
+      expect(screen.queryByTestId('clergy-edit-submitter')).toBeNull();
+      // The header falls back to the plain static label; the display stays.
+      const cell = screen.getByTestId('clergy-cell-submitter');
+      expect(cell.textContent).toContain('Clergy');
+      expect(cell.textContent).toContain('Rabbi Cohen');
+    });
+
+    it('CG-4: an assignment shows in the grid here and in the details tab summary', () => {
       const withRabbi = {
         ...clergyProps.initialData,
         assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
@@ -670,43 +886,352 @@ describe('RoomReservationFormBase', () => {
       const { unmount } = render(
         <RoomReservationFormBase {...clergyProps} initialData={withRabbi} activeTab="additional" />
       );
-      expect(screen.getByTestId('clergy-summary-additional').textContent).toContain('Rabbi Cohen');
+      expect(screen.getByTestId('clergy-cell-submitter').textContent).toContain('Rabbi Cohen');
       unmount();
 
       // Same state object drives the details tab summary.
       render(<RoomReservationFormBase {...clergyProps} initialData={withRabbi} activeTab="details" />);
       expect(screen.getByText(/Rabbi: Rabbi Cohen/)).toBeTruthy();
     });
+  });
 
-    it('CL-4: Clear on the additional tab empties both clergy arrays', () => {
-      const onDataChange = vi.fn();
+  // ─── Clergy row in Submitter Information ──────────────────────────────────
+  // Always rendered as a full-width row with Rabbis | Cantors sub-columns, so
+  // "nobody assigned" (an em-dash per column) is distinguishable from a load
+  // failure. The display itself is inert; only the Edit link opens the modal.
+
+  describe('clergy cell in submitter information', () => {
+    const cellProps = {
+      showAllTabs: false,
+      activeTab: 'additional',
+      apiToken: 'test-token',
+      initialData: {
+        eventId: 'evt-1',
+        eventTitle: 'Gala',
+        startDate: '2026-05-01',
+        endDate: '2026-05-01',
+      },
+    };
+
+    beforeEach(() => {
+      mockPermissions = mockAdminPermissions;
+      global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ attachments: [] }) }));
+    });
+
+    it('CLS-1: renders unconditionally with both columns dashed when nobody is assigned', () => {
+      render(<RoomReservationFormBase {...cellProps} />);
+
+      const cell = screen.getByTestId('clergy-cell-submitter');
+      expect(cell.textContent).toContain('Clergy');
+      expect(screen.getByTestId('clergy-col-rabbi').textContent).toContain('—');
+      expect(screen.getByTestId('clergy-col-cantor').textContent).toContain('—');
+    });
+
+    it('CLS-2: each person renders in their role column', () => {
       render(
         <RoomReservationFormBase
-          {...clergyProps}
+          {...cellProps}
           initialData={{
-            ...clergyProps.initialData,
+            ...cellProps.initialData,
             assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
             assignedCantor: [{ id: 'c1', displayName: 'Cantor Levy' }],
           }}
-          activeTab="additional"
-          onDataChange={onDataChange}
         />
       );
 
-      fireEvent.click(screen.getByTestId('clergy-clear-additional'));
-      expect(screen.queryByTestId('clergy-summary-additional')).toBeNull();
+      const rabbiCol = screen.getByTestId('clergy-col-rabbi');
+      const cantorCol = screen.getByTestId('clergy-col-cantor');
+      expect(rabbiCol.textContent).toContain('Rabbis');
+      expect(rabbiCol.textContent).toContain('Rabbi Cohen');
+      expect(cantorCol.textContent).toContain('Cantors');
+      expect(cantorCol.textContent).toContain('Cantor Levy');
+      expect(screen.getByTestId('clergy-cell-submitter').textContent).not.toContain('—');
     });
 
-    it('CL-5: the button is disabled when the form fields are disabled', () => {
+    it('CLS-3: multiple people in one role render as separate entries', () => {
       render(
         <RoomReservationFormBase
-          {...clergyProps}
-          activeTab="additional"
-          readOnly
-          reservationStatus="published"
+          {...cellProps}
+          initialData={{
+            ...cellProps.initialData,
+            assignedRabbi: [
+              { id: 'r1', displayName: 'Rabbi Cohen' },
+              { id: 'r2', displayName: 'Rabbi Stein' },
+            ],
+          }}
         />
       );
-      expect(screen.getByTestId('clergy-button-additional').disabled).toBe(true);
+
+      const entries = screen.getAllByTestId(/^clergy-cell-entry-/);
+      expect(entries).toHaveLength(2);
+      expect(entries[0].textContent).toContain('Rabbi Cohen');
+      expect(entries[1].textContent).toContain('Rabbi Stein');
+    });
+
+    it('CLS-4: an unassigned role keeps its column, dashed and empty', () => {
+      render(
+        <RoomReservationFormBase
+          {...cellProps}
+          initialData={{
+            ...cellProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+          }}
+        />
+      );
+
+      expect(screen.getByTestId('clergy-col-rabbi').textContent).toContain('Rabbi Cohen');
+      const cantorCol = screen.getByTestId('clergy-col-cantor');
+      expect(cantorCol.textContent).toContain('—');
+      expect(screen.queryAllByTestId(/^clergy-cell-entry-cantor-/)).toHaveLength(0);
+    });
+
+    it('CLS-5: clicking the display area opens no selector and changes no form state', () => {
+      const onDataChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          {...cellProps}
+          onDataChange={onDataChange}
+          initialData={{
+            ...cellProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+          }}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('clergy-col-rabbi'));
+      fireEvent.click(screen.getByTestId('clergy-cell-entry-rabbi-r1'));
+
+      expect(screen.getByTestId('clergy-modal-probe').getAttribute('data-open')).toBe('false');
+      expect(onDataChange).not.toHaveBeenCalled();
+    });
+
+    it('CLS-6: follows the shared form state with no separate synchronization', async () => {
+      render(
+        <RoomReservationFormBase
+          {...cellProps}
+          initialData={{
+            ...cellProps.initialData,
+            assignedRabbi: [{ id: 'r1', displayName: 'Rabbi Cohen' }],
+          }}
+        />
+      );
+      expect(screen.getByTestId('clergy-cell-submitter').textContent).toContain('Rabbi Cohen');
+
+      // Saving an empty assignment through the shared modal updates the same
+      // arrays the columns read — no bridge code involved.
+      fireEvent.click(screen.getByTestId('clergy-edit-submitter'));
+      fireEvent.click(screen.getByTestId('clergy-modal-probe-clear'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('clergy-col-rabbi').textContent).toContain('—');
+      });
+      expect(screen.queryAllByTestId(/^clergy-cell-entry-/)).toHaveLength(0);
+    });
+  });
+
+  // ─── Recurring Conflict Panel Mount (details tab) ──────────
+  // The approver must see WHICH occurrences conflict before deciding. The
+  // panel mounts below the SchedulingAssistant whenever a recurrence with
+  // pattern + range is active and at least one room is selected, in both
+  // readOnly (review modal) and editable (form) modes.
+
+  describe('RecurringConflictSummary mount', () => {
+    const weeklyRecurrence = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
+      range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-05-26' },
+    };
+    const recurringInitialData = {
+      eventTitle: 'Weekly Class',
+      startDate: '2026-03-10',
+      endDate: '2026-03-10',
+      startTime: '14:00',
+      endTime: '15:00',
+      requestedRooms: ['room-1'],
+      recurrence: weeklyRecurrence,
+    };
+
+    it('RCP-1: mounts with the resolved recurrence, room ids, and calendar owner', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          defaultCalendar="templeeventssandbox@emanuelnyc.org"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      await waitFor(() => {
+        const probe = screen.getByTestId('rcs-probe');
+        expect(probe.getAttribute('data-has-recurrence')).toBe('true');
+        expect(JSON.parse(probe.getAttribute('data-room-ids'))).toEqual(['room-1']);
+        expect(probe.getAttribute('data-calendar-owner')).toBe('templeeventssandbox@emanuelnyc.org');
+        expect(probe.getAttribute('data-start')).toBe('2026-03-10T14:00:00');
+        expect(probe.getAttribute('data-end')).toBe('2026-03-10T15:00:00');
+      });
+    });
+
+    it('RCP-2: absent for a non-recurring event', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={{ ...recurringInitialData, recurrence: undefined }}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      // Rooms resolve via effect; give it a tick, the probe must never appear
+      await waitFor(() => expect(screen.queryByTestId('rcs-probe')).toBeNull());
+    });
+
+    it('RCP-3: absent when no room is selected', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={{ ...recurringInitialData, requestedRooms: [] }}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      await waitFor(() => expect(screen.queryByTestId('rcs-probe')).toBeNull());
+    });
+
+    it('RCP-4: readOnly mode follows the disabled-fields state of the form', async () => {
+      mockPermissions = mockViewerPermissions;
+      try {
+        render(
+          <RoomReservationFormBase
+            initialData={recurringInitialData}
+            apiToken="tok-123"
+            readOnly
+            showAllTabs={false}
+            activeTab="details"
+          />
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId('rcs-probe').getAttribute('data-read-only')).toBe('true');
+        });
+      } finally {
+        mockPermissions = mockAdminPermissions;
+      }
+    });
+  });
+
+  // ─── Conflict skip handler (design D1: form-state mutation, no endpoint) ──
+  // Skipping a date adds it to recurrence.exclusions through the same
+  // notify sequence every other control uses. The changed recurrence prop is
+  // what re-runs the panel's signature-keyed conflict check — no explicit
+  // refetch call exists anywhere in this path.
+
+  describe('conflict skip handler', () => {
+    const weeklyRecurrence = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
+      range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-05-26' },
+    };
+    const recurringInitialData = {
+      eventTitle: 'Weekly Class',
+      startDate: '2026-03-10',
+      endDate: '2026-03-10',
+      startTime: '14:00',
+      endTime: '15:00',
+      requestedRooms: ['room-1'],
+      recurrence: weeklyRecurrence,
+    };
+
+    it('SKP-1: skip adds the date to recurrence.exclusions, marks the form dirty, and the panel sees the change', async () => {
+      const onDataChange = vi.fn();
+      const onHasChangesChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onDataChange={onDataChange}
+          onHasChangesChange={onHasChangesChange}
+        />
+      );
+      await waitFor(() => screen.getByTestId('rcs-probe'));
+
+      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
+
+      // The panel's recurrence prop (part of its fetch signature) now carries
+      // the exclusion — that IS the re-check trigger, no refetch call needed.
+      await waitFor(() => {
+        const probe = screen.getByTestId('rcs-probe');
+        expect(JSON.parse(probe.getAttribute('data-exclusions'))).toContain('2026-03-17');
+        expect(JSON.parse(probe.getAttribute('data-pending-skipped'))).toEqual(['2026-03-17']);
+      });
+      expect(onDataChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recurrence: expect.objectContaining({ exclusions: ['2026-03-17'] }),
+        })
+      );
+      expect(onHasChangesChange).toHaveBeenCalledWith(true);
+    });
+
+    it('SKP-2: skipping the same date twice adds it once', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+      await waitFor(() => screen.getByTestId('rcs-probe'));
+
+      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
+      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
+
+      await waitFor(() => {
+        expect(JSON.parse(screen.getByTestId('rcs-probe').getAttribute('data-exclusions'))).toEqual(['2026-03-17']);
+      });
+    });
+
+    it('SKP-3: no skip handler is offered when the form fields are disabled', async () => {
+      mockPermissions = mockViewerPermissions;
+      try {
+        render(
+          <RoomReservationFormBase
+            initialData={recurringInitialData}
+            apiToken="tok-123"
+            readOnly
+            showAllTabs={false}
+            activeTab="details"
+          />
+        );
+
+        await waitFor(() => {
+          expect(screen.getByTestId('rcs-probe').getAttribute('data-has-skip')).toBe('false');
+        });
+      } finally {
+        mockPermissions = mockAdminPermissions;
+      }
+    });
+
+    it('SKP-4: the blocking-event navigation callback threads through to the panel', async () => {
+      const onOpenBlockingEvent = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onOpenBlockingEvent={onOpenBlockingEvent}
+        />
+      );
+      await waitFor(() => screen.getByTestId('rcs-probe'));
+
+      fireEvent.click(screen.getByTestId('rcs-probe-open'));
+
+      expect(onOpenBlockingEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'c1' }),
+        { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
+      );
     });
   });
 });

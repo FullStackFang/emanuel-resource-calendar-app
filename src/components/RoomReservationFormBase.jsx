@@ -5,6 +5,7 @@ import { isAbortError } from '../utils/errorUtils';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
+import RecurringConflictSummary from './RecurringConflictSummary';
 import TimePickerInput from './TimePickerInput';
 import DatePickerInput from './DatePickerInput';
 import LocationListSelect from './LocationListSelect';
@@ -38,6 +39,15 @@ import './RoomReservationForm.css';
 // Time field groups for bidirectional enforcement logic
 const OPERATIONAL_TIME_FIELDS = ['setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'startTime', 'endTime'];
 const RESERVATION_TIME_FIELDS = ['reservationStartTime', 'reservationEndTime'];
+
+// Pencil glyph for the Submitter Information header-buttons (Requester,
+// Clergy) — the icon is what marks the header as an action, so both headers
+// must share the exact same one.
+const InfoCellEditIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+  </svg>
+);
 
 /**
  * Virtual Event Detection Utilities
@@ -145,6 +155,10 @@ export default function RoomReservationFormBase({
   // Ownership reassignment (Submitter Information, approver-only)
   eventVersion = null,           // Authoritative OCC version, tracked by RoomReservationReview
   onOwnershipChanged = null,     // (result|null) => void — result on success, null on 409 (reload)
+
+  // Conflict-panel navigation: opens a blocking event in the review modal.
+  // Threaded from EventReviewExperience (guard-aware requestModalNavigation).
+  onOpenBlockingEvent = null,    // (conflictRecord, { occurrenceDate, outstandingConflictCount }) => void
 }) {
   // Resolve the calendar this form is booking against. ReservationRequests
   // (Approval Queue) passes an explicit `defaultCalendar` prop — that wins.
@@ -691,6 +705,25 @@ export default function RoomReservationFormBase({
       formData.requestedRooms.includes(room._id)
     );
   }, [formData.requestedRooms, rooms]);
+
+  // Exclusions added this session but not yet saved (skip-this-date and
+  // recurrence-editor edits alike). Drives the conflict strip's
+  // skipped-but-pending state; resets when initialData refreshes after save.
+  const savedRecurrenceExclusions = useMemo(
+    () => getEventRecurrence(initialData)?.exclusions || [],
+    [initialData]
+  );
+  const pendingSkippedDates = useMemo(
+    () => (recurrencePattern?.exclusions || []).filter(d => !savedRecurrenceExclusions.includes(d)),
+    [recurrencePattern, savedRecurrenceExclusions]
+  );
+
+  // Stable categories array for RecurringConflictSummary (a fresh [] literal
+  // per render would defeat its debounce; mirrors the assistantRooms pattern)
+  const recurringConflictCategories = useMemo(
+    () => formData.categories || [],
+    [formData.categories]
+  );
 
   // Expose formData, timeErrors, and validation function to parent
   // Include recurrencePattern, selectedCategories, and services in the returned data so they're available for saving
@@ -1358,6 +1391,23 @@ export default function RoomReservationFormBase({
     // Notify parent component
     notifyDataChange({ ...formData, recurrence: null });
   };
+
+  // Conflict-panel skip (design D1): a form-state mutation, not an endpoint.
+  // Adds the date to recurrence.exclusions through the same
+  // setRecurrencePattern + setHasChanges + notifyDataChange sequence the
+  // recurrence editor uses. Persisted only by the normal form save; the
+  // panel's signature-keyed fetch re-runs the conflict check on its own.
+  const handleSkipOccurrence = useCallback((occurrenceDate) => {
+    const current = recurrencePatternRef.current;
+    if (!current || !occurrenceDate) return;
+    const exclusions = current.exclusions || [];
+    if (exclusions.includes(occurrenceDate)) return;
+    const updated = { ...current, exclusions: [...exclusions, occurrenceDate] };
+    setRecurrencePattern(updated);
+    setHasChanges(true);
+    notifyDataChange({ ...formData, recurrence: updated });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, notifyDataChange]);
 
   // Handle virtual meeting URL inline change
   const handleVirtualUrlChange = (e) => {
@@ -2472,6 +2522,30 @@ export default function RoomReservationFormBase({
                   />
                 </div>
               )}
+              {/* Per-occurrence conflict panel for recurring events. The
+                  SchedulingAssistant above only visualizes the first
+                  occurrence's day; a conflict on occurrence #7 is invisible
+                  without this. recurrence MUST be the resolved
+                  recurrencePattern — formData.recurrence is undefined here. */}
+              {recurrencePattern?.pattern && recurrencePattern?.range && formData.requestedRooms.length > 0 && (
+                <RecurringConflictSummary
+                  recurrence={recurrencePattern}
+                  roomIds={formData.requestedRooms}
+                  startDateTime={formData.startDate && formData.startTime ? `${formData.startDate}T${formData.startTime}:00` : null}
+                  endDateTime={formData.endDate && formData.endTime ? `${formData.endDate}T${formData.endTime}:00` : null}
+                  reservationStartMinutes={formData.reservationStartMinutes || 0}
+                  reservationEndMinutes={formData.reservationEndMinutes || 0}
+                  excludeEventId={currentReservationId}
+                  readOnly={fieldsDisabled}
+                  apiToken={apiToken}
+                  isAllowedConcurrent={formData.isAllowedConcurrent || false}
+                  categories={recurringConflictCategories}
+                  calendarOwner={effectiveDefaultCalendar}
+                  onOpenBlockingEvent={onOpenBlockingEvent}
+                  onSkipOccurrence={fieldsDisabled ? null : handleSkipOccurrence}
+                  pendingSkippedDates={pendingSkippedDates}
+                />
+              )}
             </div>
             </>
             )}
@@ -2500,21 +2574,35 @@ export default function RoomReservationFormBase({
               <div className="submitter-info-grid">
 
                 <div className="info-cell">
-                  <span className="info-cell-label">Requester</span>
-                  <span className="info-cell-value">{formData.requesterName || '—'}</span>
-                  {formData.requesterEmail && (
-                    <span className="info-cell-sub">{formData.requesterEmail}</span>
-                  )}
-                  {/* Ownership transfer — approver-only, and only once the event
-                      exists (there is nothing to reassign on an unsaved form). */}
-                  {canApproveReservations && currentReservationId && (
+                  {/* Ownership transfer — approver-only, and only once the
+                      event exists (there is nothing to reassign on an unsaved
+                      form). The cell header itself is the trigger: label and
+                      action are one affordance. The picker opens in a
+                      centered modal, so it never reflows the grid. Everyone
+                      else gets the plain static label. */}
+                  {canApproveReservations && currentReservationId ? (
                     <ReassignOwnerControl
                       eventId={currentReservationId}
                       apiToken={apiToken}
+                      currentOwnerName={formData.requesterName}
                       currentOwnerEmail={formData.requesterEmail}
                       expectedVersion={eventVersion}
                       onReassigned={handleOwnershipReassigned}
+                      triggerClassName="info-cell-action-header"
+                      triggerAriaLabel="Reassign requester"
+                      triggerContent={(
+                        <>
+                          Requester
+                          <InfoCellEditIcon />
+                        </>
+                      )}
                     />
+                  ) : (
+                    <span className="info-cell-label">Requester</span>
+                  )}
+                  <span className="info-cell-value">{formData.requesterName || '—'}</span>
+                  {formData.requesterEmail && (
+                    <span className="info-cell-sub">{formData.requesterEmail}</span>
                   )}
                 </div>
 
@@ -2553,63 +2641,68 @@ export default function RoomReservationFormBase({
                   </div>
                 )}
 
+                {/* Clergy — a full-width row, ALWAYS rendered so "nobody
+                    assigned" is distinguishable from a load failure. Reads the
+                    same assignedRabbi/assignedCantor arrays the Event Details
+                    control writes; the Edit link is the editable entry point
+                    here, driving the same single ClergySelectorModal. */}
+                <div className="info-cell clergy-cell" data-testid="clergy-cell-submitter">
+                  {!fieldsDisabled ? (
+                    <button
+                      type="button"
+                      className="info-cell-action-header"
+                      data-testid="clergy-edit-submitter"
+                      onClick={() => setShowClergyModal(true)}
+                      aria-haspopup="dialog"
+                      aria-label="Edit clergy assignments"
+                    >
+                      Clergy
+                      <InfoCellEditIcon />
+                    </button>
+                  ) : (
+                    <span className="info-cell-label">Clergy</span>
+                  )}
+                  <div className="clergy-cell-columns">
+                    <div className="clergy-cell-col" data-testid="clergy-col-rabbi">
+                      <span className="info-cell-sub">Rabbis</span>
+                      {(formData.assignedRabbi?.length > 0) ? (
+                        (formData.assignedRabbi || []).map((person, i) => (
+                          <span
+                            key={`rabbi-${person.id || i}`}
+                            className="info-cell-value"
+                            data-testid={`clergy-cell-entry-rabbi-${person.id || i}`}
+                          >
+                            {person.displayName}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="info-cell-value">—</span>
+                      )}
+                    </div>
+                    <div className="clergy-cell-col" data-testid="clergy-col-cantor">
+                      <span className="info-cell-sub">Cantors</span>
+                      {(formData.assignedCantor?.length > 0) ? (
+                        (formData.assignedCantor || []).map((person, i) => (
+                          <span
+                            key={`cantor-${person.id || i}`}
+                            className="info-cell-value"
+                            data-testid={`clergy-cell-entry-cantor-${person.id || i}`}
+                          >
+                            {person.displayName}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="info-cell-value">—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </section>
 
             <section className="form-section">
             <h2>Additional Information</h2>
-
-            {/* Clergy — deliberately redundant with the Event Details tab.
-                Approvers do this housekeeping while reading this tab, and both
-                controls drive the same single ClergySelectorModal instance and
-                the same assignedRabbi/assignedCantor state, so they cannot
-                disagree. Saves through the normal form flow. */}
-            <div className="form-group">
-              <button
-                type="button"
-                data-testid="clergy-button-additional"
-                className={`all-day-toggle ${(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) ? 'active' : ''}`}
-                onClick={() => setShowClergyModal(true)}
-                disabled={fieldsDisabled}
-                style={{ width: '100%', justifyContent: 'center' }}
-              >
-                {'⛪'} Clergy
-              </button>
-            </div>
-
-            {(formData.assignedRabbi?.length > 0 || formData.assignedCantor?.length > 0) && (
-              <div
-                className="category-summary-display"
-                data-testid="clergy-summary-additional"
-                style={{ marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)' }}
-              >
-                <div className="category-summary-content">
-                  <span className="category-summary-icon">{'⛪'}</span>
-                  <span className="category-summary-text">
-                    {[
-                      formData.assignedRabbi?.length > 0 && `Rabbi: ${formData.assignedRabbi.map(r => r.displayName).join(', ')}`,
-                      formData.assignedCantor?.length > 0 && `Cantor: ${formData.assignedCantor.map(c => c.displayName).join(', ')}`
-                    ].filter(Boolean).join(' · ')}
-                  </span>
-                </div>
-                {!fieldsDisabled && (
-                  <div className="category-summary-actions">
-                    <button
-                      type="button"
-                      data-testid="clergy-clear-additional"
-                      className="category-clear-btn"
-                      onClick={() => {
-                        setFormData(prev => ({ ...prev, assignedRabbi: [], assignedCantor: [] }));
-                        setHasChanges(true);
-                        setTimeout(() => notifyDataChange({ ...formData, assignedRabbi: [], assignedCantor: [] }), 0);
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Internal Notes Section (Staff Use Only) */}
             <div className="internal-notes-section">

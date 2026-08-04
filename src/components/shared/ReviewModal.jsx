@@ -12,6 +12,21 @@ import { getEventRecurrence } from '../../utils/eventTransformers';
 import { buildEditRequestTooltip } from '../../utils/editRequestUtils';
 import './ReviewModal.css';
 
+// Context line for the return bar: what is being resolved, how many remain.
+// Degrades field-by-field so a bare origin still renders a usable bar.
+function formatReturnBarContext(origin) {
+  const parts = [];
+  if (origin.occurrenceDate) {
+    const d = new Date(origin.occurrenceDate + 'T12:00:00');
+    parts.push(`resolving ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`);
+  }
+  if (origin.outstandingConflictCount != null) {
+    const n = origin.outstandingConflictCount;
+    parts.push(`${n} conflict${n === 1 ? '' : 's'} remaining`);
+  }
+  return parts.join(' · ');
+}
+
 /**
  * ReviewModal - Reusable modal wrapper for reviewing/editing events and reservations
  *
@@ -66,6 +81,7 @@ export default function ReviewModal({
   isSaveConfirming = false,
   onCancelSave = null,
   isApproveConfirming = false,
+  isApproveForceConfirming = false, // Armed 'Publish Anyway?' after a hard 409 with canForce (admin only)
   onCancelApprove = null,
   isRejectConfirming = false,
   onCancelReject = null,
@@ -201,7 +217,12 @@ export default function ReviewModal({
   // (onApprove et al. arrive as null). This banner explains why, and gives a
   // one-click "Open Series Master" action when the master is reachable.
   // Shape: { visible: boolean, onOpenMaster: (() => void) | null }
-  seriesMasterBanner = null
+  seriesMasterBanner = null,
+  // Conflict-resolution return bar: recorded by useReviewModal when a
+  // navigation came from the conflict panel. Shape:
+  // { item, title, occurrenceDate, outstandingConflictCount } | null
+  navigationOrigin = null,
+  onReturnToOrigin = null
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -210,6 +231,11 @@ export default function ReviewModal({
   // Hard conflicts: block non-admins, allow admin override
   // Soft conflicts: show warning but don't disable buttons (handled by useReviewModal confirmation)
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
+
+  // 'Publish Anyway?' force-override state. The hook only arms this for
+  // admins, but the isAdmin gate here is defense in depth: a non-admin must
+  // never be shown an override the backend would 403.
+  const showForceConfirm = isApproveForceConfirming && isAdmin;
 
   // Generic disabled-reason tooltips so users understand why an action is unavailable.
   // Reasons are ordered by severity: an unresolved conflict beats an invalid form,
@@ -294,17 +320,17 @@ export default function ReviewModal({
   const [localConfirming, setLocalConfirming] = useState(null);
 
   // When ANY button is in confirming state, all OTHER buttons should be disabled
-  const anyConfirming = isApproveConfirming || isRejectConfirming || isDeleteConfirming ||
+  const anyConfirming = isApproveConfirming || showForceConfirm || isRejectConfirming || isDeleteConfirming ||
     isSaveConfirming || isDraftConfirming || isEditRequestConfirming ||
     isEditRequestApproveConfirming || isEditRequestRejectConfirming ||
     isCancelEditRequestConfirming || localConfirming !== null;
 
   // Clear local confirmation when external confirmations activate
   useEffect(() => {
-    if (isApproveConfirming || isRejectConfirming || isDeleteConfirming || isDraftConfirming || isSaveConfirming) {
+    if (isApproveConfirming || showForceConfirm || isRejectConfirming || isDeleteConfirming || isDraftConfirming || isSaveConfirming) {
       setLocalConfirming(null);
     }
-  }, [isApproveConfirming, isRejectConfirming, isDeleteConfirming, isDraftConfirming, isSaveConfirming]);
+  }, [isApproveConfirming, showForceConfirm, isRejectConfirming, isDeleteConfirming, isDraftConfirming, isSaveConfirming]);
 
   // Generic local confirmation handler: first click shows "Confirm?", second click fires action
   const handleLocalConfirmClick = useCallback((key, action) => {
@@ -362,6 +388,25 @@ export default function ReviewModal({
         <LoadingSpinner size={48} text="Loading..." />
       ) : (
       <div className={modalClassName} style={inlineStyles}>
+        {/* Return bar — the way back after opening a blocking event from the
+            conflict panel. Activation goes through the guard-aware handler,
+            so unsaved changes hit the discard dialog first. */}
+        {navigationOrigin && onReturnToOrigin && (
+          <button
+            type="button"
+            className="review-return-bar"
+            data-testid="review-return-bar"
+            onClick={onReturnToOrigin}
+          >
+            <span className="return-bar-arrow" aria-hidden="true">&larr;</span>
+            <span className="return-bar-label">
+              Back to <strong>{navigationOrigin.title}</strong>
+            </span>
+            <span className="return-bar-context">
+              {formatReturnBarContext(navigationOrigin)}
+            </span>
+          </button>
+        )}
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
           <div className="action-bar-left">
@@ -522,14 +567,18 @@ export default function ReviewModal({
                     <div className="confirm-button-group">
                       <button
                         type="button"
-                        className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
+                        className={`action-btn publish-btn ${isApproveConfirming || showForceConfirm ? 'confirming' : ''} ${showForceConfirm ? 'force-confirming' : ''}`}
                         onClick={onApprove}
-                        disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
+                        disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming && !showForceConfirm)}
                         data-tooltip={getDisabledReason({ blockOnConflict: true })}
                       >
-                        {isApproving ? 'Publishing...' : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
+                        {isApproving
+                          ? 'Publishing...'
+                          : showForceConfirm
+                            ? 'Publish Anyway?'
+                            : (isApproveConfirming ? (isHold ? 'Publish as [Hold]?' : 'Confirm Publish?') : 'Publish')}
                       </button>
-                      {isApproveConfirming && onCancelApprove && (
+                      {(isApproveConfirming || showForceConfirm) && onCancelApprove && (
                         <button type="button" className="confirm-cancel-x publish-cancel-x" onClick={onCancelApprove}>✕</button>
                       )}
                     </div>

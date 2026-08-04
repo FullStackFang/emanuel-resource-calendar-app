@@ -211,6 +211,11 @@ export default function EventReviewExperience({
             // Calendar-specific
             onNavigateToSeriesEvent={onNavigateToSeriesEvent}
             onIsNavigatingChange={onIsNavigatingChange}
+            // Conflict-panel navigation to a blocking event. Routed through the
+            // hook's dirty-form guard, recording the origin for the return bar.
+            onOpenBlockingEvent={(conflict, context) => {
+              if (conflict?.id) exp.requestModalNavigation(String(conflict.id), { origin: context });
+            }}
             // ReservationRequests-specific
             availableCalendars={availableCalendars}
             defaultCalendar={defaultCalendar}
