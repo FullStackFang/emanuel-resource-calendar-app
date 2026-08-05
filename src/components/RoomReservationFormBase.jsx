@@ -5,7 +5,6 @@ import { isAbortError } from '../utils/errorUtils';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
-import RecurringConflictSummary from './RecurringConflictSummary';
 import TimePickerInput from './TimePickerInput';
 import DatePickerInput from './DatePickerInput';
 import LocationListSelect from './LocationListSelect';
@@ -17,6 +16,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import ReservationMarkerAdvisory from './shared/ReservationMarkerAdvisory';
 import { RecurringIcon } from './shared/CalendarIcons';
 import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
+import { useRecurringConflicts } from '../hooks/useRecurringConflicts';
 
 import { extractTextFromHtml } from '../utils/textUtils';
 import { formatTimeString } from '../utils/appTimeUtils';
@@ -718,6 +718,22 @@ export default function RoomReservationFormBase({
     [recurrencePattern, savedRecurrenceExclusions]
   );
 
+  // Series view date (scheduling-assistant-series-mode, design D1): which
+  // occurrence day the assistant is SHOWING — intent to browse, never intent
+  // to reschedule. null = follow the form's start date. Browsing occurrences
+  // must not write formData.startDate (that would move the series) and must
+  // not dirty the form. Reset rule lives in an effect below the conflicts
+  // hook (it validates against the current occurrence set).
+  const [seriesViewDate, setSeriesViewDate] = useState(null);
+  const assistantViewDate = seriesViewDate || formData.startDate;
+  // Suppress the assistant's day-conflict report while browsing a non-start
+  // date (design D9): occurrence #7's conflicts must not flip the
+  // first-occurrence gating that non-recurring save paths read.
+  const isBrowsingSeries = !!(seriesViewDate && seriesViewDate !== formData.startDate);
+  const handleSelectSeriesDate = useCallback((date) => {
+    setSeriesViewDate(date || null);
+  }, []);
+
   // Stable categories array for RecurringConflictSummary (a fresh [] literal
   // per render would defeat its debounce; mirrors the assistantRooms pattern)
   const recurringConflictCategories = useMemo(
@@ -1077,7 +1093,9 @@ export default function RoomReservationFormBase({
         const day = String(today.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
       };
-      const dateToCheck = formData.startDate || getTodayDate();
+      // Series mode: the assistant follows the browsed occurrence day, not
+      // only the form's start date (scheduling-assistant-series-mode).
+      const dateToCheck = assistantViewDate || getTodayDate();
 
       // Skip if params haven't changed (prevents race condition from duplicate fetches)
       const roomIdsStr = roomIds.sort().join(',');
@@ -1095,7 +1113,7 @@ export default function RoomReservationFormBase({
       setAvailabilityLoading(true);
       checkDayAvailability(roomIds, dateToCheck);
     }
-  }, [assistantRooms, formData.startDate, currentReservationId]);
+  }, [assistantRooms, assistantViewDate, currentReservationId]);
 
   // Cleanup: abort any in-flight availability requests on unmount
   useEffect(() => {
@@ -1123,7 +1141,7 @@ export default function RoomReservationFormBase({
       if (assistantRoomsRef.current.length > 0) {
         // Re-check day availability for scheduling assistant rooms
         const roomIds = assistantRoomsRef.current.map(room => room._id);
-        const dateToCheck = formData.startDate;
+        const dateToCheck = assistantViewDate;
         lastFetchParamsRef.current = { roomIds: '', date: null, excludeEventId: null }; // Reset to force re-fetch
         setAvailabilityLoading(true);
         checkDayAvailability(roomIds, dateToCheck);
@@ -1134,7 +1152,7 @@ export default function RoomReservationFormBase({
     }, 60_000);
 
     return () => clearInterval(interval);
-  }, [readOnly, formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
+  }, [readOnly, assistantViewDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
 
   // Keep assistantRoomsRef in sync for reliable access in async functions (prevents stale closures)
   useEffect(() => {
@@ -1409,6 +1427,23 @@ export default function RoomReservationFormBase({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData, notifyDataChange]);
 
+  // Restore is the mirror of skip: remove the date from recurrence.exclusions
+  // through the same dirty-marking path, whether the exclusion is
+  // session-pending or previously saved. The signature-keyed conflict fetch
+  // then re-expands the date and re-checks it — a restored date gets no free
+  // pass, because the server never knew it was special.
+  const handleRestoreOccurrence = useCallback((occurrenceDate) => {
+    const current = recurrencePatternRef.current;
+    if (!current || !occurrenceDate) return;
+    const exclusions = current.exclusions || [];
+    if (!exclusions.includes(occurrenceDate)) return;
+    const updated = { ...current, exclusions: exclusions.filter(d => d !== occurrenceDate) };
+    setRecurrencePattern(updated);
+    setHasChanges(true);
+    notifyDataChange({ ...formData, recurrence: updated });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, notifyDataChange]);
+
   // Handle virtual meeting URL inline change
   const handleVirtualUrlChange = (e) => {
     const url = e.target.value;
@@ -1481,6 +1516,43 @@ export default function RoomReservationFormBase({
 
   // Recurring series masters: lock date pickers (dates are controlled by the Recurrence tab)
   const isRecurringDateLocked = !!recurrencePattern;
+
+  // ─── Series mode (scheduling-assistant-series-mode) ───────────────────
+  // One recurring-conflicts request drives the assistant's occurrence band;
+  // the hook self-guards (null data, no fetch) when the recurrence or rooms
+  // are incomplete. Same inputs the retired standalone panel received.
+  const seriesActive = !!(recurrencePattern?.pattern && recurrencePattern?.range) && formData.requestedRooms.length > 0;
+  const recurringConflicts = useRecurringConflicts({
+    recurrence: recurrencePattern,
+    roomIds: formData.requestedRooms,
+    startDateTime: formData.startDate && formData.startTime ? `${formData.startDate}T${formData.startTime}:00` : null,
+    endDateTime: formData.endDate && formData.endTime ? `${formData.endDate}T${formData.endTime}:00` : null,
+    reservationStartMinutes: formData.reservationStartMinutes || 0,
+    reservationEndMinutes: formData.reservationEndMinutes || 0,
+    excludeEventId: currentReservationId,
+    readOnly: fieldsDisabled,
+    apiToken,
+    isAllowedConcurrent: formData.isAllowedConcurrent || false,
+    categories: recurringConflictCategories,
+    calendarOwner: effectiveDefaultCalendar,
+    pendingSkippedDates,
+  });
+
+  // View-date reset rule (design D1): structural, not event-based. Whenever
+  // the browsed date stops being an occurrence or exclusion of the current
+  // recurrence (pattern/range edit, rooms emptied, recurrence removed), fall
+  // back to the form's start date. No stale view date survives a rewrite.
+  const seriesOccurrences = recurringConflicts.occurrences;
+  useEffect(() => {
+    if (!seriesViewDate) return;
+    if (!seriesActive) {
+      setSeriesViewDate(null);
+      return;
+    }
+    if (seriesOccurrences.length > 0 && !seriesOccurrences.some(o => o.date === seriesViewDate)) {
+      setSeriesViewDate(null);
+    }
+  }, [seriesViewDate, seriesActive, seriesOccurrences]);
 
   // The instant a recurrence becomes active, collapse a lingering multi-day end
   // date down to the start date. A recurring event spans a single day (the series
@@ -2488,7 +2560,7 @@ export default function RoomReservationFormBase({
                   )}
                   <SchedulingAssistant
                     selectedRooms={assistantRooms}
-                    selectedDate={formData.startDate}
+                    selectedDate={assistantViewDate}
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
                     setupTime={formData.reservationStartTime}
@@ -2518,34 +2590,34 @@ export default function RoomReservationFormBase({
                     categoryConcurrentRules={categoryConcurrentRules}
                     categoryLookup={categoryLookup}
                     disabled={fieldsDisabled}
-                    onConflictChange={onConflictChange}
+                    onConflictChange={isBrowsingSeries ? null : onConflictChange}
+                    series={seriesActive ? {
+                      viewDate: assistantViewDate,
+                      formStartDate: formData.startDate,
+                      occurrences: recurringConflicts.occurrences,
+                      conflictedDates: recurringConflicts.conflictedDates,
+                      conflicts: recurringConflicts.conflicts,
+                      totalOccurrences: recurringConflicts.totalOccurrences,
+                      conflictingOccurrences: recurringConflicts.conflictingOccurrences,
+                      skipRefused: recurringConflicts.skipRefused,
+                      loading: recurringConflicts.loading,
+                      error: recurringConflicts.error,
+                      retry: recurringConflicts.retry,
+                      lastKnownBlockers: recurringConflicts.lastKnownBlockers,
+                      recurrencePattern,
+                      readOnly: fieldsDisabled,
+                      onSelectDate: handleSelectSeriesDate,
+                      onSkipOccurrence: fieldsDisabled ? null : handleSkipOccurrence,
+                      onRestoreOccurrence: fieldsDisabled ? null : handleRestoreOccurrence,
+                      onOpenBlockingEvent,
+                    } : null}
                   />
                 </div>
               )}
-              {/* Per-occurrence conflict panel for recurring events. The
-                  SchedulingAssistant above only visualizes the first
-                  occurrence's day; a conflict on occurrence #7 is invisible
-                  without this. recurrence MUST be the resolved
-                  recurrencePattern — formData.recurrence is undefined here. */}
-              {recurrencePattern?.pattern && recurrencePattern?.range && formData.requestedRooms.length > 0 && (
-                <RecurringConflictSummary
-                  recurrence={recurrencePattern}
-                  roomIds={formData.requestedRooms}
-                  startDateTime={formData.startDate && formData.startTime ? `${formData.startDate}T${formData.startTime}:00` : null}
-                  endDateTime={formData.endDate && formData.endTime ? `${formData.endDate}T${formData.endTime}:00` : null}
-                  reservationStartMinutes={formData.reservationStartMinutes || 0}
-                  reservationEndMinutes={formData.reservationEndMinutes || 0}
-                  excludeEventId={currentReservationId}
-                  readOnly={fieldsDisabled}
-                  apiToken={apiToken}
-                  isAllowedConcurrent={formData.isAllowedConcurrent || false}
-                  categories={recurringConflictCategories}
-                  calendarOwner={effectiveDefaultCalendar}
-                  onOpenBlockingEvent={onOpenBlockingEvent}
-                  onSkipOccurrence={fieldsDisabled ? null : handleSkipOccurrence}
-                  pendingSkippedDates={pendingSkippedDates}
-                />
-              )}
+              {/* The per-occurrence conflict surface now lives INSIDE the
+                  SchedulingAssistant as the series occurrence band
+                  (scheduling-assistant-series-mode) — the standalone
+                  RecurringConflictSummary panel is retired. */}
             </div>
             </>
             )}

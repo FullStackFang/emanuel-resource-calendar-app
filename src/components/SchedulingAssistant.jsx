@@ -8,6 +8,9 @@ import {
   formatTimeString,
   normalizeDateTimeSeconds,
 } from '../utils/appTimeUtils';
+import SeriesOccurrenceBand from './SeriesOccurrenceBand';
+import SeriesVerdictBand from './SeriesVerdictBand';
+import { formatRecurrenceSummaryCompact } from '../utils/recurrenceUtils';
 import './SchedulingAssistant.css';
 
 function SchedulingAssistant({
@@ -42,6 +45,7 @@ function SchedulingAssistant({
   rawDoorCloseTime, // Original doorCloseTime from form (for drag sync)
   reservationStartTime, // Raw reservation start (for corner check)
   reservationEndTime, // Raw reservation end (for corner check)
+  series = null, // Series mode (scheduling-assistant-series-mode): occurrence data + handlers from the form base; null for single events
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -1987,6 +1991,15 @@ function SchedulingAssistant({
     );
   }
 
+  // Series mode: the band navigates occurrences; the verdict band below the
+  // timeline resolves the selected day. Both derive from the same series prop.
+  const selectedSeriesOccurrence = series
+    ? series.occurrences.find(o => o.date === series.viewDate) || null
+    : null;
+  const selectedSeriesConflict = series
+    ? series.conflicts.find(c => c.occurrenceDate === series.viewDate) || null
+    : null;
+
   return (
     <div className="scheduling-assistant">
       <div className="assistant-header">
@@ -2011,6 +2024,28 @@ function SchedulingAssistant({
           })}
         </div>
       </div>
+
+      {/* Series occurrence band (series mode only) */}
+      {series && (
+        <SeriesOccurrenceBand
+          occurrences={series.occurrences}
+          conflictedDates={series.conflictedDates}
+          conflicts={series.conflicts}
+          totalOccurrences={series.totalOccurrences}
+          conflictingOccurrences={series.conflictingOccurrences}
+          selectedDate={series.viewDate}
+          recurrenceSummary={series.recurrencePattern
+            ? formatRecurrenceSummaryCompact(
+                series.recurrencePattern.pattern,
+                series.recurrencePattern.range,
+                series.recurrencePattern.additions,
+                series.recurrencePattern.exclusions
+              )
+            : null}
+          loading={series.loading}
+          onSelectDate={series.onSelectDate}
+        />
+      )}
 
       {/* Room Tabs */}
       {selectedRooms.length > 0 && (
@@ -2212,6 +2247,22 @@ function SchedulingAssistant({
           </div>
         </div>
       </div>
+
+      {/* Series verdict for the selected occurrence day (series mode only) */}
+      {series && (
+        <SeriesVerdictBand
+          selectedDate={series.viewDate}
+          occurrence={selectedSeriesOccurrence}
+          conflict={selectedSeriesConflict}
+          lastKnownBlockers={series.lastKnownBlockers}
+          skipRefused={series.skipRefused}
+          readOnly={series.readOnly}
+          outstandingConflictCount={series.conflictingOccurrences}
+          onOpenBlockingEvent={series.onOpenBlockingEvent}
+          onSkipOccurrence={series.onSkipOccurrence}
+          onRestoreOccurrence={series.onRestoreOccurrence}
+        />
+      )}
 
       {/* Summary */}
       {activeRoomStats && activeRoomStats.eventCount > 0 && (

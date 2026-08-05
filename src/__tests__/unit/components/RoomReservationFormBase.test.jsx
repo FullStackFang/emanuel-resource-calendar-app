@@ -2,9 +2,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Mock all heavy child components to isolate the form base
+// Mock all heavy child components to isolate the form base.
+// The SchedulingAssistant probe exposes the series-mode contract
+// (scheduling-assistant-series-mode): the effective selectedDate and the
+// `series` prop's occurrences/handlers, with buttons to drive selection,
+// skip, restore, and the assistant's day-conflict report.
 vi.mock('../../../components/SchedulingAssistant', () => ({
-  default: () => <div data-testid="scheduling-assistant" />,
+  default: (props) => (
+    <div
+      data-testid="scheduling-assistant"
+      data-selected-date={props.selectedDate || ''}
+      data-series-present={String(!!props.series)}
+      data-series-view-date={props.series?.viewDate || ''}
+      data-series-occurrences={JSON.stringify(props.series?.occurrences || [])}
+      data-series-read-only={String(!!props.series?.readOnly)}
+      data-series-has-skip={String(!!props.series?.onSkipOccurrence)}
+      data-series-has-restore={String(!!props.series?.onRestoreOccurrence)}
+      data-series-has-open={String(!!props.series?.onOpenBlockingEvent)}
+      data-series-exclusions={JSON.stringify(props.series?.recurrencePattern?.exclusions || [])}
+    >
+      <button type="button" data-testid="sa-select-0317" onClick={() => props.series?.onSelectDate?.('2026-03-17')} />
+      <button type="button" data-testid="sa-select-0310" onClick={() => props.series?.onSelectDate?.('2026-03-10')} />
+      <button type="button" data-testid="sa-series-skip" onClick={() => props.series?.onSkipOccurrence?.('2026-03-17')} />
+      <button type="button" data-testid="sa-restore-0317" onClick={() => props.series?.onRestoreOccurrence?.('2026-03-17')} />
+      <button type="button" data-testid="sa-restore-0331" onClick={() => props.series?.onRestoreOccurrence?.('2026-03-31')} />
+      <button type="button" data-testid="sa-report-conflict" onClick={() => props.onConflictChange?.(true, 2)} />
+      <button
+        type="button"
+        data-testid="sa-series-open"
+        onClick={() => props.series?.onOpenBlockingEvent?.(
+          { id: 'c1', eventTitle: 'Existing Meeting' },
+          { occurrenceDate: '2026-03-17', outstandingConflictCount: props.series?.conflictingOccurrences }
+        )}
+      />
+    </div>
+  ),
 }));
 vi.mock('../../../components/TimePickerInput', () => ({
   default: ({ value, onChange, ...props }) => (
@@ -114,41 +146,41 @@ vi.mock('../../../components/shared/ReservationMarkerAdvisory', () => ({
     <div data-testid="marker-advisory-probe" data-api-token={apiToken || ''} data-date={date || ''} />
   ),
 }));
-// Probe the per-occurrence conflict panel. The wiring under test: it must
-// receive the RESOLVED recurrencePattern (formData.recurrence is undefined in
-// the form base), the selected room ids, the effective calendar owner, and
-// the conflict-resolution callbacks (skip handler, blocking-event navigation,
-// pending skipped dates). The probe buttons let tests invoke the callbacks.
-vi.mock('../../../components/RecurringConflictSummary', () => ({
-  default: (props) => (
-    <div
-      data-testid="rcs-probe"
-      data-has-recurrence={String(!!(props.recurrence?.pattern && props.recurrence?.range))}
-      data-room-ids={JSON.stringify(props.roomIds || [])}
-      data-calendar-owner={props.calendarOwner || ''}
-      data-read-only={String(!!props.readOnly)}
-      data-start={props.startDateTime || ''}
-      data-end={props.endDateTime || ''}
-      data-exclusions={JSON.stringify(props.recurrence?.exclusions || [])}
-      data-pending-skipped={JSON.stringify(props.pendingSkippedDates || [])}
-      data-has-skip={String(!!props.onSkipOccurrence)}
-      data-has-open={String(!!props.onOpenBlockingEvent)}
-    >
-      <button
-        type="button"
-        data-testid="rcs-probe-skip"
-        onClick={() => props.onSkipOccurrence && props.onSkipOccurrence('2026-03-17')}
-      />
-      <button
-        type="button"
-        data-testid="rcs-probe-open"
-        onClick={() => props.onOpenBlockingEvent && props.onOpenBlockingEvent(
-          { id: 'c1', eventTitle: 'Existing Meeting' },
-          { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
-        )}
-      />
-    </div>
-  ),
+// The standalone RecurringConflictSummary panel is retired
+// (scheduling-assistant-series-mode): its data flow now runs through the
+// useRecurringConflicts hook into the assistant's `series` prop, both probed
+// below.
+
+// Controllable useRecurringConflicts return — the form base consumes the hook
+// to build the assistant's `series` prop; the hook's own behavior is locked in
+// useRecurringConflicts.test.jsx. `mock` prefix for vitest hoisting.
+const mockDefaultConflictsReturn = () => ({
+  data: { totalOccurrences: 12, conflictingOccurrences: 2 },
+  occurrences: [
+    { date: '2026-03-10', state: 'clear', pending: false },
+    { date: '2026-03-17', state: 'conflicted', pending: false },
+    { date: '2026-03-24', state: 'conflicted', pending: false },
+    { date: '2026-03-31', state: 'clear', pending: false },
+  ],
+  conflictedDates: ['2026-03-17', '2026-03-24'],
+  conflicts: [],
+  totalOccurrences: 12,
+  conflictingOccurrences: 2,
+  skipRefused: false,
+  loading: false,
+  error: null,
+  retry: () => {},
+  lastKnownBlockers: {},
+});
+let mockConflictsReturn = mockDefaultConflictsReturn();
+// The hook's inputs ARE the request contract the retired panel used to
+// receive as props — captured here so threading tests can assert them.
+let mockConflictsInputs = null;
+vi.mock('../../../hooks/useRecurringConflicts', () => ({
+  useRecurringConflicts: (inputs) => {
+    mockConflictsInputs = inputs;
+    return mockConflictsReturn;
+  },
 }));
 
 import RoomReservationFormBase from '../../../components/RoomReservationFormBase';
@@ -156,6 +188,8 @@ import RoomReservationFormBase from '../../../components/RoomReservationFormBase
 describe('RoomReservationFormBase', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConflictsReturn = mockDefaultConflictsReturn();
+    mockConflictsInputs = null;
   });
 
   // ─── TDZ Regression (validateTimes) ────────────────────────
@@ -1035,7 +1069,7 @@ describe('RoomReservationFormBase', () => {
   // pattern + range is active and at least one room is selected, in both
   // readOnly (review modal) and editable (form) modes.
 
-  describe('RecurringConflictSummary mount', () => {
+  describe('series conflicts threading (hook inputs + assistant series prop)', () => {
     const weeklyRecurrence = {
       pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
       range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-05-26' },
@@ -1050,7 +1084,7 @@ describe('RoomReservationFormBase', () => {
       recurrence: weeklyRecurrence,
     };
 
-    it('RCP-1: mounts with the resolved recurrence, room ids, and calendar owner', async () => {
+    it('RCP-1: the hook receives the resolved recurrence, room ids, calendar owner, and datetimes; the assistant gets a series prop', async () => {
       render(
         <RoomReservationFormBase
           initialData={recurringInitialData}
@@ -1062,16 +1096,17 @@ describe('RoomReservationFormBase', () => {
       );
 
       await waitFor(() => {
-        const probe = screen.getByTestId('rcs-probe');
-        expect(probe.getAttribute('data-has-recurrence')).toBe('true');
-        expect(JSON.parse(probe.getAttribute('data-room-ids'))).toEqual(['room-1']);
-        expect(probe.getAttribute('data-calendar-owner')).toBe('templeeventssandbox@emanuelnyc.org');
-        expect(probe.getAttribute('data-start')).toBe('2026-03-10T14:00:00');
-        expect(probe.getAttribute('data-end')).toBe('2026-03-10T15:00:00');
+        expect(mockConflictsInputs).not.toBeNull();
+        expect(mockConflictsInputs.recurrence?.pattern?.type).toBe('weekly');
+        expect(mockConflictsInputs.roomIds).toEqual(['room-1']);
+        expect(mockConflictsInputs.calendarOwner).toBe('templeeventssandbox@emanuelnyc.org');
+        expect(mockConflictsInputs.startDateTime).toBe('2026-03-10T14:00:00');
+        expect(mockConflictsInputs.endDateTime).toBe('2026-03-10T15:00:00');
+        expect(screen.getByTestId('scheduling-assistant').getAttribute('data-series-present')).toBe('true');
       });
     });
 
-    it('RCP-2: absent for a non-recurring event', async () => {
+    it('RCP-2: no series prop for a non-recurring event', async () => {
       render(
         <RoomReservationFormBase
           initialData={{ ...recurringInitialData, recurrence: undefined }}
@@ -1081,11 +1116,12 @@ describe('RoomReservationFormBase', () => {
         />
       );
 
-      // Rooms resolve via effect; give it a tick, the probe must never appear
-      await waitFor(() => expect(screen.queryByTestId('rcs-probe')).toBeNull());
+      await waitFor(() => {
+        expect(screen.getByTestId('scheduling-assistant').getAttribute('data-series-present')).toBe('false');
+      });
     });
 
-    it('RCP-3: absent when no room is selected', async () => {
+    it('RCP-3: no series prop when no room is selected', async () => {
       render(
         <RoomReservationFormBase
           initialData={{ ...recurringInitialData, requestedRooms: [] }}
@@ -1095,7 +1131,9 @@ describe('RoomReservationFormBase', () => {
         />
       );
 
-      await waitFor(() => expect(screen.queryByTestId('rcs-probe')).toBeNull());
+      await waitFor(() => {
+        expect(screen.getByTestId('scheduling-assistant').getAttribute('data-series-present')).toBe('false');
+      });
     });
 
     it('RCP-4: readOnly mode follows the disabled-fields state of the form', async () => {
@@ -1112,7 +1150,8 @@ describe('RoomReservationFormBase', () => {
         );
 
         await waitFor(() => {
-          expect(screen.getByTestId('rcs-probe').getAttribute('data-read-only')).toBe('true');
+          expect(mockConflictsInputs?.readOnly).toBe(true);
+          expect(screen.getByTestId('scheduling-assistant').getAttribute('data-series-read-only')).toBe('true');
         });
       } finally {
         mockPermissions = mockAdminPermissions;
@@ -1141,7 +1180,13 @@ describe('RoomReservationFormBase', () => {
       recurrence: weeklyRecurrence,
     };
 
-    it('SKP-1: skip adds the date to recurrence.exclusions, marks the form dirty, and the panel sees the change', async () => {
+    const saSeriesReady = async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('scheduling-assistant').getAttribute('data-series-present')).toBe('true');
+      });
+    };
+
+    it('SKP-1: skip adds the date to recurrence.exclusions, marks the form dirty, and the conflicts hook sees the change', async () => {
       const onDataChange = vi.fn();
       const onHasChangesChange = vi.fn();
       render(
@@ -1154,16 +1199,15 @@ describe('RoomReservationFormBase', () => {
           onHasChangesChange={onHasChangesChange}
         />
       );
-      await waitFor(() => screen.getByTestId('rcs-probe'));
+      await saSeriesReady();
 
-      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
+      fireEvent.click(screen.getByTestId('sa-series-skip'));
 
-      // The panel's recurrence prop (part of its fetch signature) now carries
+      // The hook's recurrence input (part of its fetch signature) now carries
       // the exclusion — that IS the re-check trigger, no refetch call needed.
       await waitFor(() => {
-        const probe = screen.getByTestId('rcs-probe');
-        expect(JSON.parse(probe.getAttribute('data-exclusions'))).toContain('2026-03-17');
-        expect(JSON.parse(probe.getAttribute('data-pending-skipped'))).toEqual(['2026-03-17']);
+        expect(mockConflictsInputs.recurrence?.exclusions).toContain('2026-03-17');
+        expect(mockConflictsInputs.pendingSkippedDates).toEqual(['2026-03-17']);
       });
       expect(onDataChange).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1182,17 +1226,17 @@ describe('RoomReservationFormBase', () => {
           activeTab="details"
         />
       );
-      await waitFor(() => screen.getByTestId('rcs-probe'));
+      await saSeriesReady();
 
-      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
-      fireEvent.click(screen.getByTestId('rcs-probe-skip'));
+      fireEvent.click(screen.getByTestId('sa-series-skip'));
+      fireEvent.click(screen.getByTestId('sa-series-skip'));
 
       await waitFor(() => {
-        expect(JSON.parse(screen.getByTestId('rcs-probe').getAttribute('data-exclusions'))).toEqual(['2026-03-17']);
+        expect(mockConflictsInputs.recurrence?.exclusions).toEqual(['2026-03-17']);
       });
     });
 
-    it('SKP-3: no skip handler is offered when the form fields are disabled', async () => {
+    it('SKP-3: no skip or restore handler is offered when the form fields are disabled; navigation remains', async () => {
       mockPermissions = mockViewerPermissions;
       try {
         render(
@@ -1206,14 +1250,16 @@ describe('RoomReservationFormBase', () => {
         );
 
         await waitFor(() => {
-          expect(screen.getByTestId('rcs-probe').getAttribute('data-has-skip')).toBe('false');
+          const probe = screen.getByTestId('scheduling-assistant');
+          expect(probe.getAttribute('data-series-has-skip')).toBe('false');
+          expect(probe.getAttribute('data-series-has-restore')).toBe('false');
         });
       } finally {
         mockPermissions = mockAdminPermissions;
       }
     });
 
-    it('SKP-4: the blocking-event navigation callback threads through to the panel', async () => {
+    it('SKP-4: the blocking-event navigation callback threads through to the assistant series prop', async () => {
       const onOpenBlockingEvent = vi.fn();
       render(
         <RoomReservationFormBase
@@ -1224,14 +1270,188 @@ describe('RoomReservationFormBase', () => {
           onOpenBlockingEvent={onOpenBlockingEvent}
         />
       );
-      await waitFor(() => screen.getByTestId('rcs-probe'));
+      await saSeriesReady();
 
-      fireEvent.click(screen.getByTestId('rcs-probe-open'));
+      fireEvent.click(screen.getByTestId('sa-series-open'));
 
       expect(onOpenBlockingEvent).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'c1' }),
         { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
       );
+    });
+  });
+
+  // ─── Series view date + restore (scheduling-assistant-series-mode) ──────
+  // The occurrence band's selection drives a view date OWNED BY THE FORM BASE
+  // and distinct from formData.startDate — browsing occurrences retargets the
+  // assistant without rescheduling the series or dirtying the form. Restore
+  // is the mirror of skip: it removes a date from recurrence.exclusions
+  // (pending or saved) through the same dirty-marking path, and the
+  // signature-keyed conflict refetch is what re-checks it — no free pass.
+
+  describe('series view date and restore', () => {
+    const weeklyRecurrence = {
+      pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'] },
+      range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-05-26' },
+    };
+    const recurringInitialData = {
+      eventTitle: 'Weekly Class',
+      startDate: '2026-03-10',
+      endDate: '2026-03-10',
+      startTime: '14:00',
+      endTime: '15:00',
+      requestedRooms: ['room-1'],
+      recurrence: weeklyRecurrence,
+    };
+
+    beforeEach(() => {
+      mockConflictsReturn = mockDefaultConflictsReturn();
+    });
+
+    const saProbe = () => screen.getByTestId('scheduling-assistant');
+
+    it('SVD-1: selecting an occurrence retargets the assistant date without touching the form', async () => {
+      const onHasChangesChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onHasChangesChange={onHasChangesChange}
+        />
+      );
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-10'));
+      // Series masters display the series range in the (read-only) date
+      // pickers; the invariant is that browsing never changes what they show.
+      const dateFieldValuesBefore = screen.getAllByTestId('date-picker-input').map(i => i.value);
+
+      fireEvent.click(screen.getByTestId('sa-select-0317'));
+
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-17'));
+      expect(screen.getAllByTestId('date-picker-input').map(i => i.value)).toEqual(dateFieldValuesBefore);
+      expect(onHasChangesChange).not.toHaveBeenCalledWith(true);
+    });
+
+    it('SVD-2: the view date resets when the recurrence stops containing it', async () => {
+      const { rerender } = render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+      await waitFor(() => screen.getByTestId('sa-select-0317'));
+      fireEvent.click(screen.getByTestId('sa-select-0317'));
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-17'));
+
+      // The recurrence no longer expands 2026-03-17 (e.g. pattern edited)
+      mockConflictsReturn = {
+        ...mockDefaultConflictsReturn(),
+        occurrences: mockDefaultConflictsReturn().occurrences.filter(o => o.date !== '2026-03-17'),
+        conflictedDates: ['2026-03-24'],
+      };
+      rerender(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-10'));
+    });
+
+    it('SVD-3: the day-conflict report is suppressed while browsing a non-start date', async () => {
+      const onConflictChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onConflictChange={onConflictChange}
+        />
+      );
+      await waitFor(() => screen.getByTestId('sa-report-conflict'));
+
+      // On the form's own day the report passes through
+      fireEvent.click(screen.getByTestId('sa-report-conflict'));
+      expect(onConflictChange).toHaveBeenCalledTimes(1);
+
+      // Browsing another occurrence: the report must not reach the parent
+      fireEvent.click(screen.getByTestId('sa-select-0317'));
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-17'));
+      fireEvent.click(screen.getByTestId('sa-report-conflict'));
+      expect(onConflictChange).toHaveBeenCalledTimes(1);
+
+      // Back on the start date the report passes through again
+      fireEvent.click(screen.getByTestId('sa-select-0310'));
+      await waitFor(() => expect(saProbe().getAttribute('data-selected-date')).toBe('2026-03-10'));
+      fireEvent.click(screen.getByTestId('sa-report-conflict'));
+      expect(onConflictChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('RST-1: restore removes a pending exclusion and marks the form dirty', async () => {
+      const onDataChange = vi.fn();
+      const onHasChangesChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onDataChange={onDataChange}
+          onHasChangesChange={onHasChangesChange}
+        />
+      );
+      await waitFor(() => {
+        expect(saProbe().getAttribute('data-series-present')).toBe('true');
+      });
+
+      fireEvent.click(screen.getByTestId('sa-series-skip'));
+      await waitFor(() => {
+        expect(JSON.parse(saProbe().getAttribute('data-series-exclusions'))).toContain('2026-03-17');
+      });
+
+      fireEvent.click(screen.getByTestId('sa-restore-0317'));
+      await waitFor(() => {
+        expect(JSON.parse(saProbe().getAttribute('data-series-exclusions'))).toEqual([]);
+      });
+      expect(onDataChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recurrence: expect.objectContaining({ exclusions: [] }),
+        })
+      );
+      expect(onHasChangesChange).toHaveBeenCalledWith(true);
+    });
+
+    it('RST-2: restore also removes a previously saved exclusion', async () => {
+      const onHasChangesChange = vi.fn();
+      render(
+        <RoomReservationFormBase
+          initialData={{
+            ...recurringInitialData,
+            recurrence: { ...weeklyRecurrence, exclusions: ['2026-03-31'] },
+          }}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+          onHasChangesChange={onHasChangesChange}
+        />
+      );
+      await waitFor(() => {
+        expect(JSON.parse(saProbe().getAttribute('data-series-exclusions'))).toEqual(['2026-03-31']);
+      });
+
+      fireEvent.click(screen.getByTestId('sa-restore-0331'));
+
+      await waitFor(() => {
+        expect(JSON.parse(saProbe().getAttribute('data-series-exclusions'))).toEqual([]);
+      });
+      expect(onHasChangesChange).toHaveBeenCalledWith(true);
     });
   });
 });

@@ -586,6 +586,58 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Scheduling Assistant series mode (implemented 2026-08-05)
+
+Spec: `openspec/changes/scheduling-assistant-series-mode/`. Frontend-only;
+`POST /rooms/recurring-conflicts` consumed unchanged. Supersedes the
+presentation layer of conflict-resolution-workflow's panel: the standalone
+`RecurringConflictSummary` component is DELETED and its surface now lives
+inside the SchedulingAssistant.
+
+- **`useRecurringConflicts` hook** (`src/hooks/useRecurringConflicts.js`)
+  owns the fetch extracted from the retired panel (signature-keyed effect,
+  1200ms edit-mode debounce, readOnly single-shot, abort). New occurrence
+  model: merges server expansion with `recurrence.exclusions` (saved AND
+  session-pending, `pending` flag via `pendingSkippedDates`) in date order —
+  skipped wins over server state. `lastKnownBlockers` session map lets a
+  skipped date warn that restoring re-flags its conflict.
+- **`SchedulingAssistant` takes an optional `series` prop** and composes two
+  new presentational components: `SeriesOccurrenceBand` (date chips, series
+  verdict carrying the locked 'N of M occurrences have room conflicts'
+  phrasing, All/Conflicts focus toggle, conflict stepper; dense >60 drops
+  labels, compact >150 collapses to summary + conflict list) between header
+  and room tabs, and `SeriesVerdictBand` (per-day blocker detail with
+  open-blocker via the existing `onOpenBlockingEvent` threading, two-step
+  Skip, two-step Restore, last-occurrence skip refusal) below the timeline.
+  `series={null}` renders the assistant exactly as before.
+- **View date is form-base state** (`seriesViewDate`, null = follow
+  `formData.startDate`): chip clicks retarget `selectedDate`, the
+  day-availability fetch, and the 30s auto-refresh WITHOUT touching form
+  fields or dirty state (mobile's intent-vs-observation separation). A
+  structural reset effect clears it when the recurrence stops containing it.
+  `onConflictChange` is nulled while browsing a non-start date so occurrence
+  #7's conflicts can't flip first-occurrence gating.
+- **Restore = mirror of skip**: `handleRestoreOccurrence` removes the date
+  from `recurrence.exclusions` (pending or previously saved) through the same
+  dirty path; the signature-keyed refetch re-checks it — no free pass by
+  construction.
+
+**Tests:** new `useRecurringConflicts.test.jsx` (11),
+`SeriesOccurrenceBand.test.jsx` (14), `SeriesVerdictBand.test.jsx` (11),
+`SchedulingAssistant.seriesMode.test.jsx` (3);
+`RoomReservationFormBase.test.jsx` 52 (was 47: +5 SVD/RST, RCP/SKP rewritten
+to hook-input + series-prop threading); `RecurringConflictSummary.test.jsx`
+(22) deleted with its component. Mutation-checked: disabling confirm arming
+fails SVB-6/8, disabling restore's exclusion removal fails RST-1/2. Full
+frontend suite identical to baseline (10 failures / 3 files, pre-existing);
+lint counts on touched legacy files identical to HEAD.
+
+**Outstanding:** task 6.3 — manual end-to-end on dev (live MSAL session):
+band chip states vs a real conflicted series, chip click retargeting timeline
++ badges, conflicts focus + stepper, skip and restore round-trips (including
+re-flag of a still-booked date and a saved-exclusion restore), readOnly
+review modal, single events unchanged.
+
 ### Reassign modal + clergy grid row (implemented 2026-08-04)
 
 Spec: `openspec/changes/reassign-modal-clergy-grid/`. Frontend-only UI rework;
