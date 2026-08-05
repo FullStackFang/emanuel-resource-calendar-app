@@ -12237,12 +12237,20 @@ app.get('/api/admin/reports/conflicts', verifyToken, async (req, res) => {
       logger.warn('[conflictReport] location name lookup failed (non-fatal):', locErr.message);
     }
 
+    // "All calendars" means every calendar this app DISPLAYS, not every
+    // calendarOwner that happens to exist in the collection. Sandbox and other
+    // non-display mailboxes share the collection, and reporting conflicts in a
+    // calendar the picker does not even offer is noise nobody can act on.
+    // Same allowlist the calendar view and the Sync Health picker use.
+    const allowedCalendarOwners = (getCalendarConfig().allowedDisplayCalendars) || [];
+
     const report = await conflictReportService.runConflictReport({
       eventsCollection: unifiedEventsCollection,
       categoryMap: await getCachedCategories(),
       windowStart,
       windowEnd,
       calendarOwner: req.query.calendarOwner || null,
+      allowedCalendarOwners,
       retry: withCosmosRetry,
       roomNamesById,
     });

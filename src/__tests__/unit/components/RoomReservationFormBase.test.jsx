@@ -1,6 +1,6 @@
 // src/__tests__/unit/components/RoomReservationFormBase.test.jsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // Mock all heavy child components to isolate the form base.
 // The SchedulingAssistant probe exposes the series-mode contract
@@ -1136,6 +1136,37 @@ describe('RoomReservationFormBase', () => {
       });
     });
 
+    it('RCP-5: the hook receives the master eventId as excludeMasterEventId (skips the server-side lookup)', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={{ ...recurringInitialData, eventId: 'AAMkMasterSeries' }}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockConflictsInputs?.excludeMasterEventId).toBe('AAMkMasterSeries');
+      });
+    });
+
+    it('RCP-6: excludeMasterEventId is null when the event has no eventId (new reservation)', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockConflictsInputs).not.toBeNull();
+        expect(mockConflictsInputs.excludeMasterEventId).toBeNull();
+      });
+    });
+
     it('RCP-4: readOnly mode follows the disabled-fields state of the form', async () => {
       mockPermissions = mockViewerPermissions;
       try {
@@ -1461,6 +1492,33 @@ describe('RoomReservationFormBase', () => {
       expect(mockConflictsReturn.retry).not.toHaveBeenCalled();
     });
 
+    it('FRS-3: rapid focus flips inside the cooldown re-run the check only once', async () => {
+      const nowSpy = vi.spyOn(Date, 'now');
+      try {
+        render(
+          <RoomReservationFormBase
+            initialData={recurringInitialData}
+            apiToken="tok-123"
+            showAllTabs={false}
+            activeTab="details"
+          />
+        );
+        await waitFor(() => expect(saProbe().getAttribute('data-series-present')).toBe('true'));
+
+        nowSpy.mockReturnValue(1_000_000);
+        fireEvent(document, new Event('visibilitychange'));
+        fireEvent(document, new Event('visibilitychange'));
+        expect(mockConflictsReturn.retry).toHaveBeenCalledTimes(1);
+
+        // Past the 15s cooldown the guarantee returns
+        nowSpy.mockReturnValue(1_016_000);
+        fireEvent(document, new Event('visibilitychange'));
+        expect(mockConflictsReturn.retry).toHaveBeenCalledTimes(2);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
     it('RST-2: restore also removes a previously saved exclusion', async () => {
       const onHasChangesChange = vi.fn();
       render(
@@ -1485,6 +1543,58 @@ describe('RoomReservationFormBase', () => {
         expect(JSON.parse(saProbe().getAttribute('data-series-exclusions'))).toEqual([]);
       });
       expect(onHasChangesChange).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // ─── Availability auto-refresh poll (Cosmos hygiene) ────────────────────
+  // The 60s poll exists to keep conflict data fresh during long form
+  // sessions. A hidden tab has nobody looking at it, and the focus-refresh
+  // handler (FRS-1) re-checks on return — so hidden ticks are pure Cosmos
+  // spend and must be skipped.
+
+  describe('availability auto-refresh poll', () => {
+    const timedInitialData = {
+      eventTitle: 'Board Meeting',
+      startDate: '2026-03-10',
+      endDate: '2026-03-10',
+      startTime: '14:00',
+      endTime: '15:00',
+    };
+
+    it('APR-1: the 60s poll skips ticks while the tab is hidden and resumes when visible', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => [] }));
+      globalThis.fetch = fetchSpy;
+      let hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      try {
+        render(
+          <RoomReservationFormBase
+            initialData={timedInitialData}
+            apiToken="tok-123"
+            showAllTabs={false}
+            activeTab="details"
+          />
+        );
+        await waitFor(() => screen.getByTestId('scheduling-assistant'));
+
+        // Flush the initial debounced fetch so the baseline is stable
+        await act(async () => { vi.advanceTimersByTime(1_000); });
+        const availabilityCalls = () =>
+          fetchSpy.mock.calls.filter(([u]) => String(u).includes('/rooms/availability')).length;
+        const baseline = availabilityCalls();
+
+        hidden = true;
+        await act(async () => { vi.advanceTimersByTime(60_000); });
+        expect(availabilityCalls()).toBe(baseline);
+
+        hidden = false;
+        await act(async () => { vi.advanceTimersByTime(60_000); });
+        expect(availabilityCalls()).toBe(baseline + 1);
+      } finally {
+        delete document.hidden;
+        vi.useRealTimers();
+      }
     });
   });
 });

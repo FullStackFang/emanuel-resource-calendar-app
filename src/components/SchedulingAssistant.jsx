@@ -10,6 +10,7 @@ import {
 } from '../utils/appTimeUtils';
 import SeriesOccurrenceBand from './SeriesOccurrenceBand';
 import SeriesVerdictBand from './SeriesVerdictBand';
+import LoadingSpinner from './shared/LoadingSpinner';
 import { formatRecurrenceSummaryCompact } from '../utils/recurrenceUtils';
 import './SchedulingAssistant.css';
 
@@ -1991,6 +1992,15 @@ function SchedulingAssistant({
     );
   }
 
+  // Availability loading honesty: before the FIRST response for this form,
+  // an empty timeline would read as "the room is free all day" — a verdict
+  // nobody checked. Cover it with the app spinner until data exists; once it
+  // does, refreshes (60s poll, focus re-check, occurrence browsing) keep the
+  // stale blocks painted and show only a subtle tag.
+  const hasAvailabilityData = Array.isArray(availability) && availability.length > 0;
+  const isFirstAvailabilityLoad = availabilityLoading && !hasAvailabilityData;
+  const isSilentAvailabilityRefresh = availabilityLoading && hasAvailabilityData;
+
   // Series mode: the band navigates occurrences; the verdict band below the
   // timeline resolves the selected day. Both derive from the same series prop.
   const selectedSeriesOccurrence = series
@@ -2022,33 +2032,50 @@ function SchedulingAssistant({
             month: 'long',
             day: 'numeric'
           })}
+          {isSilentAvailabilityRefresh && (
+            <span className="sa-refreshing" data-testid="sa-refreshing">Refreshing&hellip;</span>
+          )}
         </div>
       </div>
 
-      {/* Series occurrence band (series mode only) */}
+      {/* Series region (series mode only): occurrence chips with the selected
+          day's verdict directly beneath them, so picking a chip shows its
+          consequence adjacent to the selection instead of below the timeline. */}
       {series && (
-        <SeriesOccurrenceBand
-          occurrences={series.occurrences}
-          conflictedDates={series.conflictedDates}
-          conflicts={series.conflicts}
-          totalOccurrences={series.totalOccurrences}
-          conflictingOccurrences={series.conflictingOccurrences}
-          selectedDate={series.viewDate}
-          recurrenceSummary={series.recurrencePattern
-            ? formatRecurrenceSummaryCompact(
-                series.recurrencePattern.pattern,
-                series.recurrencePattern.range,
-                series.recurrencePattern.additions,
-                series.recurrencePattern.exclusions
-              )
-            : null}
-          loading={series.loading}
-          hasData={series.hasData}
-          inputsIncomplete={series.inputsIncomplete}
-          error={series.error}
-          onRetry={series.retry}
-          onSelectDate={series.onSelectDate}
-        />
+        <div className="sa-series-region" data-testid="sa-series-region">
+          <SeriesOccurrenceBand
+            occurrences={series.occurrences}
+            conflictedDates={series.conflictedDates}
+            conflicts={series.conflicts}
+            totalOccurrences={series.totalOccurrences}
+            conflictingOccurrences={series.conflictingOccurrences}
+            selectedDate={series.viewDate}
+            recurrenceSummary={series.recurrencePattern
+              ? formatRecurrenceSummaryCompact(
+                  series.recurrencePattern.pattern,
+                  series.recurrencePattern.range,
+                  series.recurrencePattern.additions,
+                  series.recurrencePattern.exclusions
+                )
+              : null}
+            loading={series.loading}
+            hasData={series.hasData}
+            inputsIncomplete={series.inputsIncomplete}
+            error={series.error}
+            onRetry={series.retry}
+            onSelectDate={series.onSelectDate}
+          />
+          <SeriesVerdictBand
+            selectedDate={series.viewDate}
+            occurrence={selectedSeriesOccurrence}
+            conflict={selectedSeriesConflict}
+            lastKnownBlockers={series.lastKnownBlockers}
+            skipRefused={series.skipRefused}
+            readOnly={series.readOnly}
+            onSkipOccurrence={series.onSkipOccurrence}
+            onRestoreOccurrence={series.onRestoreOccurrence}
+          />
+        </div>
       )}
 
       {/* Room Tabs */}
@@ -2147,6 +2174,14 @@ function SchedulingAssistant({
 
       {/* Timeline Container */}
       <div className="timeline-wrapper">
+        {isFirstAvailabilityLoad && (
+          <LoadingSpinner
+            variant="overlay"
+            size={40}
+            text="Checking availability..."
+            className="sa-availability-loading"
+          />
+        )}
 
         {/* Scrollable timeline */}
         <div ref={timelineRef} className={`timeline-container ${draggingEventId ? 'dragging-active' : ''}`}>
@@ -2251,22 +2286,6 @@ function SchedulingAssistant({
           </div>
         </div>
       </div>
-
-      {/* Series verdict for the selected occurrence day (series mode only) */}
-      {series && (
-        <SeriesVerdictBand
-          selectedDate={series.viewDate}
-          occurrence={selectedSeriesOccurrence}
-          conflict={selectedSeriesConflict}
-          lastKnownBlockers={series.lastKnownBlockers}
-          skipRefused={series.skipRefused}
-          readOnly={series.readOnly}
-          outstandingConflictCount={series.conflictingOccurrences}
-          onOpenBlockingEvent={series.onOpenBlockingEvent}
-          onSkipOccurrence={series.onSkipOccurrence}
-          onRestoreOccurrence={series.onRestoreOccurrence}
-        />
-      )}
 
       {/* Summary */}
       {activeRoomStats && activeRoomStats.eventCount > 0 && (

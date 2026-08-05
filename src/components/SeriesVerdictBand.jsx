@@ -5,11 +5,14 @@ import './SeriesVerdictBand.css';
 /**
  * SeriesVerdictBand
  *
- * The selected occurrence day's verdict, rendered below the
- * SchedulingAssistant's timeline (scheduling-assistant-series-mode). Three
- * states, bound to the selected day rather than opened per row:
+ * The selected occurrence day's verdict, rendered directly beneath the
+ * SeriesOccurrenceBand's chip row inside the assistant's series region
+ * (scheduling-assistant-series-mode) — selecting a chip shows its
+ * consequence adjacent to it. Three states, bound to the selected day
+ * rather than opened per row:
  * - conflicted: every blocking event's detail (title, status, time, rooms,
- *   requester or synced-from-Outlook badge) with a per-blocker open action
+ *   requester or synced-from-Outlook badge) with a per-blocker open link
+ *   (always a new tab; the focus re-check refreshes this form on return)
  *   and a skip action;
  * - clear: a quiet all-clear line, no actions;
  * - skipped: a pending-removal note with a restore action, warning when the
@@ -19,6 +22,12 @@ import './SeriesVerdictBand.css';
  * in-button confirmation. Arming clears on selection change or data refresh
  * — never by timeout (app button standard).
  */
+function formatDayLabel(dateStr) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  });
+}
+
 export default function SeriesVerdictBand({
   selectedDate,
   occurrence = null,
@@ -26,8 +35,6 @@ export default function SeriesVerdictBand({
   lastKnownBlockers = {},
   skipRefused = false,
   readOnly = false,
-  outstandingConflictCount = 0,
-  onOpenBlockingEvent = null,
   onSkipOccurrence = null,
   onRestoreOccurrence = null,
 }) {
@@ -99,6 +106,9 @@ export default function SeriesVerdictBand({
 
   return (
     <div className="series-verdict-band v-conflict" data-testid="series-verdict-band">
+      {/* Day anchor: the band renders under the chip row, where several chips
+          can be conflicted — the detail must say which day it resolves. */}
+      <span className="svb-day" data-testid="svb-day">{formatDayLabel(occurrence.date)}</span>
       <div className="svb-blockers">
         {conflict.hardConflicts.map((c, i) => {
           const rooms = Array.isArray(c.roomNames) ? c.roomNames : (c.roomNames ? [c.roomNames] : []);
@@ -117,28 +127,19 @@ export default function SeriesVerdictBand({
                   <span className="svb-outlook-badge">Synced from Outlook</span>
                 )}
               </span>
-              {onOpenBlockingEvent && (
-                // A real link: plain click keeps the in-modal navigation
-                // (whose return leg refreshes this form), while ctrl/meta/
-                // shift/middle-click get the browser's native new-tab
-                // behavior via the ?eventId= deep link (matched by Mongo _id
-                // in Calendar's deep-link effect).
-                <a
-                  href={`/?eventId=${c.id}`}
-                  className="svb-btn open"
-                  data-testid={`svb-open-${c.id}`}
-                  onClick={(e) => {
-                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
-                    e.preventDefault();
-                    onOpenBlockingEvent(c, {
-                      occurrenceDate: occurrence.date,
-                      outstandingConflictCount,
-                    });
-                  }}
-                >
-                  Open blocking event
-                </a>
-              )}
+              {/* Always a new tab: the form under review stays open, and the
+                  focus re-check refreshes its conflicts when the user returns.
+                  The ?eventId= deep link is matched by Mongo _id in Calendar's
+                  deep-link effect. */}
+              <a
+                href={`/?eventId=${c.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="svb-btn open"
+                data-testid={`svb-open-${c.id}`}
+              >
+                Open blocking event
+              </a>
             </div>
           );
         })}

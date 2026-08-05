@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Series verdict adjacent to chips — implemented layout</title>
+<style>
+  :root {
+    --color-primary-300: #a9c4ef;
+    --color-primary-500: #3b6eb8;
+    --color-primary-600: #2d5aa3;
+    --color-error-50: #fef2f2;
+    --color-error-300: #fca5a5;
+    --color-error-500: #ef4444;
+    --color-error-600: #dc2626;
+    --color-error-700: #b91c1c;
+    --color-error-800: #991b1b;
+    --color-warning-400: #fbbf24;
+    --color-warning-700: #b45309;
+    --color-success-600: #047857;
+    --bg-page: #f7f6f4;
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafaf9;
+    --bg-tertiary: #f5f5f4;
+    --text-primary: #1c1917;
+    --text-secondary: #57534e;
+    --text-tertiary: #78716c;
+    --border-default: #e7e5e4;
+    --border-strong: #d6d3d1;
+    --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-page); color: var(--text-primary);
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px; padding: 32px;
+  }
+  .page-label {
+    max-width: 560px; margin: 0 auto 12px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .assistant {
+    max-width: 560px; margin: 0 auto 40px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  /* Header */
+  .assistant-header { margin-bottom: 16px; }
+  .assistant-header h3 { margin: 0 0 2px; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .calendar-badge { font-size: 11px; font-weight: 400; color: var(--text-tertiary); }
+  .selected-date { font-size: 12px; color: var(--text-secondary); }
+
+  /* Series region: chips + verdict as one module, single divider after */
+  .sa-series-region {
+    margin-bottom: 16px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .sob-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .sob-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); }
+  .sob-pattern { color: var(--text-secondary); text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+  .sob-verdict { font-size: 12px; font-weight: 500; color: var(--color-error-700); display: inline-flex; align-items: center; gap: 6px; }
+  .sob-verdict-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-error-500); }
+
+  .sob-chips { display: flex; align-items: flex-end; gap: 5px; flex-wrap: wrap; }
+  .sob-chip {
+    width: 35px; height: 42px; border-radius: 8px; border: 1px solid var(--border-default);
+    background: var(--bg-primary); display: flex; flex-direction: column; align-items: center;
+    justify-content: center; cursor: pointer; font-family: inherit; padding: 0;
+  }
+  .sob-chip .m { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); line-height: 1.2; }
+  .sob-chip .d { font-size: 13px; font-weight: 600; color: var(--text-secondary); line-height: 1.2; }
+  /* Conflicts focus: clear chips keep their footprint, drop labels, take a
+     quiet wash — the row never reflows when focus toggles. */
+  .sob-chip.compressed { opacity: 0.55; background: #d1fae5; border-color: #6ee7b7; cursor: default; }
+  .sob-chip.conflicted { background: var(--color-error-50); border-color: var(--color-error-300); }
+  .sob-chip.conflicted .m { color: var(--color-error-600); }
+  .sob-chip.conflicted .d { color: var(--color-error-700); }
+  .sob-chip.selected.conflicted { border-color: var(--color-error-500); box-shadow: 0 0 0 1px var(--color-error-500); }
+
+  .sob-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .sob-focus-toggle { display: inline-flex; background: var(--bg-tertiary); border-radius: 8px; padding: 2px; gap: 2px; }
+  .sob-focus-toggle button {
+    font-family: inherit; font-size: 12px; font-weight: 500; border: none; background: transparent;
+    color: var(--text-secondary); padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .sob-focus-toggle button.active { background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .sob-focus-count { font-size: 10px; font-weight: 600; color: #fff; background: var(--color-error-500); border-radius: 999px; min-width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .sob-stepper { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-tertiary); }
+  .sob-stepper button { width: 26px; height: 26px; background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-secondary); cursor: pointer; }
+
+  /* Verdict band — directly beneath the chips */
+  .series-verdict-band {
+    margin-top: 12px; border-radius: 8px; font-size: 12px;
+    display: flex; flex-direction: column; gap: 8px; padding: 8px 12px;
+    background: var(--color-error-50); border: 1px solid var(--color-error-300);
+  }
+  .svb-day { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-error-700); }
+  .svb-blocker { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .svb-blocker-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+  .svb-blocker-title { font-weight: 600; color: var(--color-error-800); }
+  .svb-blocker-status { color: var(--text-secondary); text-transform: capitalize; }
+  .svb-blocker-time { font-family: var(--mono); font-size: 10px; color: var(--color-error-700); }
+  .svb-blocker-rooms { color: var(--text-secondary); font-style: italic; }
+  .svb-blocker-requester { color: var(--color-error-700); }
+  .svb-btn {
+    font-family: inherit; font-size: 12px; font-weight: 500; border-radius: 8px; padding: 4px 10px;
+    cursor: pointer; background: var(--bg-primary); text-decoration: none; flex-shrink: 0;
+  }
+  .svb-btn.open { border: 1px solid var(--color-primary-300); color: var(--color-primary-600); }
+  .svb-btn.skip { border: 1px solid var(--color-warning-400); color: var(--color-warning-700); align-self: flex-start; }
+
+  /* Room tabs + timeline stub */
+  .room-tabs { display: flex; border-bottom: 2px solid var(--border-default); margin-bottom: 0; }
+  .room-tab { font-size: 12.5px; font-weight: 500; padding: 8px 14px; color: var(--color-primary-500); border-bottom: 2px solid var(--color-primary-500); margin-bottom: -2px; display: inline-flex; gap: 8px; align-items: center; }
+  .room-tab-badge { background: var(--color-error-600); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
+  .timeline-stub {
+    border: 1px solid var(--border-default); border-top: none; border-radius: 0 0 12px 12px;
+    height: 210px; position: relative; overflow: hidden;
+    background: repeating-linear-gradient(to bottom, var(--bg-primary) 0 34px, var(--bg-secondary) 34px 35px);
+  }
+  .timeline-stub .hour { position: absolute; left: 8px; font-size: 9px; color: var(--text-tertiary); }
+  .stub-block {
+    position: absolute; left: 56px; right: 16px; border-radius: 6px; padding: 4px 8px; font-size: 11px;
+  }
+  .stub-block.locked { top: 34px; height: 68px; background: rgba(220, 38, 38, 0.10); border: 1px solid var(--color-error-300); color: var(--color-error-800); }
+  .stub-block.user { top: 62px; height: 52px; left: 120px; background: rgba(59, 110, 184, 0.12); border: 1px solid var(--color-primary-300); color: var(--color-primary-600); font-weight: 600; }
+  .caption { max-width: 560px; margin: 8px auto 0; font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div class="page-label">Scheduling assistant &middot; series verdict now adjacent to the chips</div>
+
+<div class="assistant">
+  <div class="assistant-header">
+    <h3>Scheduling Assistant <span class="calendar-badge">(templeeventssandbox)</span></h3>
+    <div class="selected-date">Tuesday, August 11, 2026</div>
+  </div>
+
+  <!-- ONE series module: meta, chips, controls, then the selected day's verdict.
+       The single divider falls after the verdict, before the room tabs. -->
+  <div class="sa-series-region">
+    <div class="sob-meta">
+      <span class="sob-title">Series <span class="sob-pattern">&middot; Weekly on Tuesday</span></span>
+      <span class="sob-verdict"><span class="sob-verdict-dot"></span><strong>1</strong>&nbsp;of 5 occurrences have room conflicts &middot; publishing blocked</span>
+    </div>
+    <div class="sob-chips">
+      <button class="sob-chip compressed" title="Mon, Aug 10 — clear"></button>
+      <button class="sob-chip conflicted selected"><span class="m">Aug</span><span class="d">11</span></button>
+      <button class="sob-chip compressed" title="Wed, Aug 12 — clear"></button>
+      <button class="sob-chip compressed" title="Thu, Aug 13 — clear"></button>
+      <button class="sob-chip compressed" title="Fri, Aug 14 — clear"></button>
+    </div>
+    <div class="sob-controls">
+      <div class="sob-focus-toggle">
+        <button>All dates</button>
+        <button class="active">Conflicts <span class="sob-focus-count">1</span></button>
+      </div>
+      <div class="sob-stepper">
+        <span>conflict 1 of 1</span>
+        <button>&lsaquo;</button>
+        <button>&rsaquo;</button>
+      </div>
+    </div>
+
+    <div class="series-verdict-band">
+      <span class="svb-day">Tue, Aug 11</span>
+      <div class="svb-blocker">
+        <span class="svb-blocker-info">
+          <span class="svb-blocker-title">RS Staff meeting.</span>
+          <span class="svb-blocker-status">published</span>
+          <span class="svb-blocker-time">11:00 AM &ndash; 1:00 PM</span>
+          <span class="svb-blocker-rooms">66th St., 4th Floor Conference Room.</span>
+          <span class="svb-blocker-requester">Requested by John O'Hara</span>
+        </span>
+        <a href="#" target="_blank" class="svb-btn open">Open blocking event</a>
+      </div>
+      <a href="#" class="svb-btn skip">Skip this date</a>
+    </div>
+  </div>
+
+  <div class="room-tabs">
+    <span class="room-tab">4th Floor Conference Room <span class="room-tab-badge">1</span></span>
+  </div>
+  <div class="timeline-stub">
+    <span class="hour" style="top: 4px">10 AM</span>
+    <span class="hour" style="top: 38px">11 AM</span>
+    <span class="hour" style="top: 72px">12 PM</span>
+    <span class="hour" style="top: 106px">1 PM</span>
+    <span class="hour" style="top: 140px">2 PM</span>
+    <span class="hour" style="top: 174px">3 PM</span>
+    <div class="stub-block locked">RS Staff meeting.</div>
+    <div class="stub-block user">Your event</div>
+  </div>
+</div>
+
+<p class="caption">
+  Selecting a conflicted chip now shows who is blocking, when, where, and the
+  skip action immediately beneath the selection. The verdict band names its day
+  (several chips can be red) and the timeline below keeps the visual context.
+  Previously this detail rendered under the full-height timeline, off-screen.
+</p>
+
+</body>
+</html>

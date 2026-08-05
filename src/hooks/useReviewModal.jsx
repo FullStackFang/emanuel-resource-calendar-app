@@ -535,6 +535,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Discards any unsaved edits in the source modal — the form remounts via
    * reinitKey. This matches the prior close/reopen behavior, which also
    * dropped edits silently. Callers should ensure that's acceptable.
+   *
+   * `options.open` — opt in to OPENING the modal, for callers reaching this
+   * from a closed surface. Every original caller navigates from inside an
+   * already-open modal, so this function deliberately leaves `isOpen` alone
+   * (see the comment at the state block below). A caller with no modal up gets
+   * a fully staged event and nothing on screen, which is precisely the bug the
+   * conflict report shipped with. Defaults false so no existing caller changes.
    */
   const navigateToEvent = useCallback(async (target, options = {}) => {
     if (!target) return;
@@ -604,6 +611,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
     // Reset the same state openModal resets — but DO NOT toggle isOpen, so the
     // modal portal stays mounted and the overlay does not flicker.
+    //
+    // EXCEPT when the caller asks (options.open): a caller navigating from a
+    // closed surface — the conflict report's per-side Open button — has no
+    // portal mounted, so leaving isOpen false stages the event and shows
+    // nothing at all.
+    if (options.open) setIsOpen(true);
     setSchedulingConflictInfo(null);
     setPrefetchedAvailability(null);
     setPrefetchedSeriesEvents(null);

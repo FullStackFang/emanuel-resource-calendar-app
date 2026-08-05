@@ -22,7 +22,7 @@
 // the scan resolves, or while the scan is degraded, tells an approver the
 // calendar is clean when nobody has actually checked.
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { keys } from '../queries/keys';
 import { deriveListLoadingState } from '../utils/listLoadingState';
@@ -60,6 +60,21 @@ function formatTime(value) {
   return `${h12}:${m} ${suffix}`;
 }
 
+/**
+ * A time range that stays honest across a day boundary. Two bare clock times
+ * hide the rollover — a booking running to midnight the next day renders as
+ * "12:00 AM – 12:00 AM" and reads as zero-length, which is precisely how a
+ * whole-day span looked like it could not possibly be conflicting.
+ */
+function formatRange(start, end) {
+  const startDay = String(start || '').split('T')[0];
+  const endDay = String(end || '').split('T')[0];
+  if (startDay && endDay && startDay !== endDay) {
+    return `${formatTime(start)} – ${formatTime(end)} (${endDay})`;
+  }
+  return `${formatTime(start)} – ${formatTime(end)}`;
+}
+
 function formatDateHeading(dateKey) {
   if (!dateKey) return '';
   const d = new Date(`${dateKey}T00:00:00`);
@@ -70,6 +85,26 @@ function formatDateHeading(dateKey) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+/**
+ * What kind of document this side actually is. Load-bearing rather than
+ * decorative: the identifying fields are the only thing that differs when a
+ * duplicate, a series occurrence, and an override all land on one row.
+ */
+function describeType(side) {
+  // A Hold is a room block with no event scheduled inside it. Naming it matters
+  // because its times come from its reservation bounds rather than from event
+  // times, so a reader comparing it against the calendar will not find a
+  // matching entry.
+  const kind = side.isHold ? 'room hold' : null;
+  if (side.eventType === 'exception') return kind ? `${kind} · series override` : 'series override';
+  if (side.eventType === 'addition') return kind ? `${kind} · added date` : 'added date';
+  if (side.isOccurrence) {
+    const base = `series occurrence${side.occurrenceDate ? ` · ${side.occurrenceDate}` : ''}`;
+    return kind ? `${kind} · ${base}` : base;
+  }
+  return kind || 'single event';
 }
 
 /**
@@ -89,14 +124,24 @@ function ConflictSide({ side, onOpen }) {
         <span className={`conflict-side-status status-${side.status}`}>{side.status}</span>
       </div>
       <div className="conflict-side-meta">
-        <span className="conflict-side-times">
-          {formatTime(side.startDateTime)} – {formatTime(side.endDateTime)}
-        </span>
+        {/* formatRange, not two bare times: a span that crosses midnight
+            renders as "12:00 AM – 12:00 AM" when the date is dropped, which
+            reads as a zero-length event rather than a full day. */}
+        <span className="conflict-side-times">{formatRange(side.startDateTime, side.endDateTime)}</span>
         {/* A blank requester would read as missing data. Outlook-synced events
             genuinely have none, and they are expected to be a large share of
             these rows, so say so. */}
         <span className="conflict-side-requester">
           {side.requesterName || 'Synced from Outlook'}
+        </span>
+        {/* Identity, because everything above can be IDENTICAL on both sides —
+            a duplicated document, a series occurrence next to its own override,
+            and two children on one date all render the same title, time and
+            requester. Without the id and the type there is no way to tell which
+            of those you are looking at. */}
+        <span className="conflict-side-identity" data-testid="conflict-side-identity">
+          <code title={side.id}>{String(side.id).slice(-6)}</code>
+          <span className="conflict-side-type">{describeType(side)}</span>
         </span>
       </div>
       <button
@@ -118,8 +163,50 @@ export default function ConflictReport() {
   const { showError } = useNotification();
 
   const [days, setDays] = useState(DEFAULT_DAYS);
-  const [calendarOwner, setCalendarOwner] = useState('');
+  // null = "not chosen yet". Distinct from '' ("All calendars"), which is a
+  // deliberate user choice. The scan does not run while this is null, so the
+  // first result the user sees is already correctly scoped — rather than a
+  // full-collection scan that then re-runs under them.
+  const [calendarOwner, setCalendarOwner] = useState(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  // The reportable mailboxes are the admin-managed allowlist from
+  // calendar-config.json, the same list that governs the main calendar view and
+  // the Sync Health picker. Shares Sync Health's query key deliberately: it is
+  // the same request against the same endpoint, so one cache entry serves both.
+  const calendarsQuery = useQuery({
+    queryKey: keys.syncHealth.calendars(),
+    enabled: !!apiToken,
+    queryFn: async () => {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/calendar-display-config`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error('Could not load the calendar list');
+      const body = await response.json();
+      return body.allowedDisplayCalendars || [];
+    },
+  });
+  // Memoized because `data || []` mints a new array every render, which would
+  // make the selection effect below re-run on every render.
+  const allowedCalendars = useMemo(() => calendarsQuery.data || [], [calendarsQuery.data]);
+
+  // Settle on a selection as soon as the list arrives — scanning one real
+  // calendar rather than every mailbox that exists. Selecting here rather than
+  // defaulting in render keeps the submitted value and the visible value the
+  // same thing, the same way SyncHealthReport does it.
+  //
+  // The `!calendarsQuery.isPending` arm matters: with no configured calendars
+  // the selection would never settle and the view would spin forever. Falling
+  // back to "all" lets the scan run and lets the server explain the empty
+  // allowlist instead.
+  useEffect(() => {
+    if (calendarOwner !== null) return;
+    if (allowedCalendars.length > 0) {
+      setCalendarOwner(allowedCalendars[0]);
+    } else if (!calendarsQuery.isPending) {
+      setCalendarOwner('');
+    }
+  }, [allowedCalendars, calendarOwner, calendarsQuery.isPending]);
 
   const queryKey = useMemo(
     () => keys.conflictReport.report({ days, calendarOwner: calendarOwner || null }),
@@ -143,7 +230,11 @@ export default function ConflictReport() {
     },
     // Gated on the token like every other auto-firing list view: a cold scan
     // fired before MSAL resolves is a guaranteed 401-then-refresh round trip.
-    enabled: !!apiToken,
+    //
+    // ALSO gated on the calendar selection having settled. Firing first and
+    // re-firing when the list arrives makes the user watch a full-collection
+    // scan get thrown away and replaced.
+    enabled: !!apiToken && calendarOwner !== null,
   });
 
   // `enabled` is deliberately NOT passed to the helper. Per the list-view
@@ -179,7 +270,12 @@ export default function ConflictReport() {
     // 404 fallback. That is MANDATORY here, not defensive: Outlook-synced sides
     // have no roomReservationData and are absent from the reservations
     // endpoint entirely.
-    Promise.resolve(experience.navigateToEvent(side.id)).catch((err) => {
+    //
+    // `open: true` is REQUIRED from this surface. navigateToEvent's other
+    // callers are already inside an open modal, so by default it stages the
+    // event without touching isOpen — from the report that means the button
+    // does nothing visible at all.
+    Promise.resolve(experience.navigateToEvent(side.id, { open: true })).catch((err) => {
       logger.error('ConflictReport: failed to open side', err);
     });
   }, [experience]);
@@ -224,13 +320,21 @@ export default function ConflictReport() {
 
           <label className="conflict-report-control">
             <span>Calendar</span>
-            <input
+            {/* "All calendars" is a real option, not a missing filter: the scan
+                only ever compares events within one mailbox, so scanning all of
+                them finds each calendar's own conflicts without inventing
+                cross-mailbox ones. */}
+            <select
               data-testid="conflict-report-calendar"
-              type="text"
-              placeholder="All calendars"
-              value={calendarOwner}
+              value={calendarOwner ?? ''}
+              disabled={calendarOwner === null}
               onChange={(e) => setCalendarOwner(e.target.value)}
-            />
+            >
+              <option value="">All calendars</option>
+              {allowedCalendars.map((owner) => (
+                <option key={owner} value={owner}>{owner}</option>
+              ))}
+            </select>
           </label>
 
           <button
@@ -311,7 +415,17 @@ export default function ConflictReport() {
                   className="conflict-room-group"
                   data-testid="conflict-room-group"
                 >
-                  <h3 className="conflict-room-heading">{roomGroup.roomName}</h3>
+                  <h3 className="conflict-room-heading">
+                    {roomGroup.roomName}
+                    {/* Both sides always share this — the scan only compares
+                        within one mailbox — so it belongs on the room, not
+                        repeated on each side. */}
+                    {roomGroup.conflicts[0]?.calendarOwner && (
+                      <span className="conflict-room-calendar">
+                        {roomGroup.conflicts[0].calendarOwner}
+                      </span>
+                    )}
+                  </h3>
 
                   {roomGroup.conflicts.map((c) => (
                     <article key={c.key} className="conflict-row" data-testid="conflict-row">
@@ -323,7 +437,7 @@ export default function ConflictReport() {
                       <div className="conflict-contested" data-testid="contested-interval">
                         <span className="conflict-contested-label">Room contested</span>
                         <span className="conflict-contested-times">
-                          {formatTime(c.overlapStart)} – {formatTime(c.overlapEnd)}
+                          {formatRange(c.overlapStart, c.overlapEnd)}
                         </span>
                       </div>
 

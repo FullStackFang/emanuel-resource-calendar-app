@@ -1,8 +1,10 @@
 // SchedulingAssistant series-mode composition
 // (scheduling-assistant-series-mode): with a `series` prop the assistant
-// mounts the occurrence band between its header and the room tabs and the
-// per-day verdict band below the timeline; without it (single events) the
-// assistant renders exactly as before — no band elements at all.
+// mounts ONE series region between its header and the room tabs — the
+// occurrence band (chips) immediately followed by the per-day verdict band,
+// so selecting a chip shows its consequence adjacent to it instead of below
+// ~500px of timeline. Without a series prop (single events) the assistant
+// renders exactly as before — no band elements at all.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -74,17 +76,21 @@ describe('SchedulingAssistant — series mode composition', () => {
     vi.clearAllMocks();
   });
 
-  it('SAM-1: with a series prop, both bands mount in their places', () => {
+  it('SAM-1: with a series prop, both bands mount as one region above the room tabs', () => {
     const { container } = renderAssistant(SERIES);
 
+    const region = screen.getByTestId('sa-series-region');
     const band = screen.getByTestId('series-occurrence-band');
     const verdict = screen.getByTestId('series-verdict-band');
-    expect(band).toBeTruthy();
-    expect(verdict).toBeTruthy();
 
-    // Band sits between the assistant header and the room tabs
-    expect(band.previousElementSibling.className).toContain('assistant-header');
-    expect(band.nextElementSibling.className).toContain('room-tabs-carousel');
+    // The region sits between the assistant header and the room tabs
+    expect(region.previousElementSibling.className).toContain('assistant-header');
+    expect(region.nextElementSibling.className).toContain('room-tabs-carousel');
+
+    // Chips first, the selected day's verdict directly beneath them —
+    // selection and consequence stay adjacent (not below the timeline)
+    expect(band.parentElement).toBe(region);
+    expect(band.nextElementSibling).toBe(verdict);
 
     // The verdict band resolves the viewed day's blocker
     expect(verdict).toHaveTextContent('Existing Meeting');
@@ -102,6 +108,7 @@ describe('SchedulingAssistant — series mode composition', () => {
   it('SAM-3: without a series prop the assistant renders no band elements', () => {
     const { container } = renderAssistant(null);
 
+    expect(screen.queryByTestId('sa-series-region')).toBeNull();
     expect(screen.queryByTestId('series-occurrence-band')).toBeNull();
     expect(screen.queryByTestId('series-verdict-band')).toBeNull();
     expect(container.querySelectorAll('[data-testid^="sob-"]')).toHaveLength(0);

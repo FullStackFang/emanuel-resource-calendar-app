@@ -581,6 +581,133 @@ describe('Room Conflict Report (CR-1 to CR-16)', () => {
   // Pairs, permitted overlaps, scoping, caps, degradation
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Hold events
+  // -------------------------------------------------------------------------
+
+  describe('CR-17: a Hold occupies its reservation window, not the whole day', () => {
+    /**
+     * A Hold is a room block with no scheduled event inside it — the system
+     * identifies one as `!startTime && !endTime && (reservationStartTime ||
+     * reservationEndTime)`. Because it has no event times, its stored
+     * startDateTime/endDateTime are a WHOLE-DAY placeholder (00:00-23:59); the
+     * real occupancy lives in reservationStartTime/reservationEndTime.
+     * api-server.js does this same substitution when building the Graph event
+     * (~6176), for exactly the same reason.
+     *
+     * Reading the stored datetimes instead makes every Hold block its room for
+     * 24 hours and collide with everything in it — and the row renders
+     * "12:00 AM - 12:00 AM", so the reader cannot even see why.
+     */
+    function hold(overrides = {}) {
+      const { date = '2027-05-15', resStart = '13:00', resEnd = '16:00', ...rest } = overrides;
+      return createPublishedEvent({
+        eventTitle: 'Hold',
+        startDateTime: new Date(`${date}T00:00:00`),
+        endDateTime: new Date(`${date}T23:59:00`),
+        locations: [roomA._id],
+        locationDisplayNames: ['Sanctuary'],
+        categories: ['Meeting'],
+        calendarData: {
+          eventTitle: 'Hold',
+          startDateTime: `${date}T00:00:00`,
+          endDateTime: `${date}T23:59:00`,
+          startDate: date,
+          endDate: date,
+          startTime: '',
+          endTime: '',
+          reservationStartTime: resStart,
+          reservationEndTime: resEnd,
+          locations: [roomA._id],
+          locationDisplayNames: ['Sanctuary'],
+          categories: ['Meeting'],
+        },
+        ...rest,
+      });
+    }
+
+    test('does not conflict with an event outside its reservation window', async () => {
+      await insertEvents(db, [
+        hold(),
+        published({ title: 'Morning Class', start: '2027-05-15T08:30:00', end: '2027-05-15T11:15:00' }),
+      ]);
+
+      expect((await scan()).conflicts).toHaveLength(0);
+    });
+
+    test('does conflict with an event inside its reservation window', async () => {
+      // The control for the case above: if the Hold were simply being dropped,
+      // this would also report zero and the fix would be a silencer.
+      await insertEvents(db, [
+        hold(),
+        published({ title: 'Afternoon Class', start: '2027-05-15T14:00:00', end: '2027-05-15T15:00:00' }),
+      ]);
+
+      const report = await scan();
+      expect(report.conflicts).toHaveLength(1);
+      expect(report.conflicts[0].overlapStart).toBe('2027-05-15T14:00:00');
+      expect(report.conflicts[0].overlapEnd).toBe('2027-05-15T15:00:00');
+    });
+
+    test('reports its reservation times as its own times, not midnight to midnight', async () => {
+      await insertEvents(db, [
+        hold(),
+        published({ title: 'Afternoon Class', start: '2027-05-15T14:00:00', end: '2027-05-15T15:00:00' }),
+      ]);
+
+      const report = await scan();
+      const holdSide = report.conflicts[0].sides.find((s) => s.title === 'Hold');
+      expect(holdSide.startDateTime).toBe('2027-05-15T13:00:00');
+      expect(holdSide.endDateTime).toBe('2027-05-15T16:00:00');
+      expect(holdSide.isHold).toBe(true);
+    });
+
+    test('an occurrence of a recurring Hold uses the reservation window on its own date', async () => {
+      // Expansion builds occurrence times from the master's stored datetimes,
+      // which for a Hold are the whole-day placeholder. Without the same
+      // substitution, every occurrence of a recurring Hold blocks its room all
+      // day, on every date in the series.
+      const master = createRecurringSeriesMaster({
+        status: STATUS.PUBLISHED,
+        eventTitle: 'Weekly Hold',
+        locations: [roomA._id],
+        locationDisplayNames: ['Sanctuary'],
+        startDateTime: new Date('2027-05-05T00:00:00'),
+        endDateTime: new Date('2027-05-05T23:59:00'),
+        calendarData: {
+          eventTitle: 'Weekly Hold',
+          startDateTime: '2027-05-05T00:00:00',
+          endDateTime: '2027-05-05T23:59:00',
+          startDate: '2027-05-05',
+          endDate: '2027-05-05',
+          startTime: '',
+          endTime: '',
+          reservationStartTime: '13:00',
+          reservationEndTime: '16:00',
+          locations: [roomA._id],
+          locationDisplayNames: ['Sanctuary'],
+          categories: ['Meeting'],
+        },
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2027-05-05', endDate: '2027-05-26' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+
+      await insertEvents(db, [
+        master,
+        published({ title: 'Morning Class', start: '2027-05-12T08:30:00', end: '2027-05-12T11:15:00' }),
+        published({ title: 'Afternoon Class', start: '2027-05-19T14:00:00', end: '2027-05-19T15:00:00' }),
+      ]);
+
+      const report = await scan();
+      expect(report.conflicts).toHaveLength(1);
+      expect(report.conflicts[0].date).toBe('2027-05-19');
+    });
+  });
+
   describe('CR-14: three or more overlapping events report as pairs (D10)', () => {
     test('reports A/B and B/C with their own intervals, and nothing between A and C', async () => {
       // A merged "3-way conflict" row cannot state a truthful contested
@@ -712,6 +839,102 @@ describe('Room Conflict Report (CR-1 to CR-16)', () => {
       expect(scoped.conflicts).toHaveLength(1);
       expect(scoped.conflicts[0].date).toBe('2027-04-21');
       expect(scoped.calendarOwner).toBe(otherOwner);
+    });
+
+    test('CR-12b: two events in DIFFERENT calendars never conflict, even unfiltered', async () => {
+      // The scan compares within one calendar owner. Cross-mailbox room
+      // collisions are a known, accepted blind spot (D6) — a room is a physical
+      // object, so this IS a real double-booking, but no check in the system
+      // can see it and this report does not change that.
+      //
+      // The failure this pins is not theoretical: the same event synced into
+      // two mailboxes produces two documents with identical title, time, room
+      // and requester. Comparing across owners reports every one of them as a
+      // conflict with itself, which buries the genuine findings in noise and
+      // makes the report read as broken on first contact.
+      await insertEvents(db, [
+        published({ title: 'Summer Torah Study', start: '2027-04-22T09:00:00', end: '2027-04-22T10:00:00' }),
+        published({
+          title: 'Summer Torah Study',
+          start: '2027-04-22T09:00:00',
+          end: '2027-04-22T10:00:00',
+          calendarOwner: otherOwner,
+        }),
+      ]);
+
+      expect((await scan()).conflicts).toHaveLength(0);
+    });
+
+    test('CR-12c: calendar owner comparison is case-insensitive', async () => {
+      // calendarOwner is lowercased on write in some paths and not others.
+      // Bucketing on the raw string would split one mailbox into two and hide
+      // a genuine same-calendar conflict.
+      await insertEvents(db, [
+        published({
+          title: 'A',
+          start: '2027-04-23T09:00:00',
+          end: '2027-04-23T11:00:00',
+          calendarOwner: 'Mixed@Emanuelnyc.org',
+        }),
+        published({
+          title: 'B',
+          start: '2027-04-23T10:00:00',
+          end: '2027-04-23T12:00:00',
+          calendarOwner: 'mixed@emanuelnyc.org',
+        }),
+      ]);
+
+      expect((await scan()).conflicts).toHaveLength(1);
+    });
+
+    test('CR-12d: each side reports which calendar it belongs to', async () => {
+      // Without this the view cannot tell a genuine duplicate from two copies
+      // of one event living in different mailboxes — every other field on the
+      // two rows is identical.
+      await insertEvents(db, [
+        published({ title: 'A', start: '2027-04-24T09:00:00', end: '2027-04-24T11:00:00' }),
+        published({ title: 'B', start: '2027-04-24T10:00:00', end: '2027-04-24T12:00:00' }),
+      ]);
+
+      const report = await scan();
+      expect(report.conflicts).toHaveLength(1);
+      for (const s of report.conflicts[0].sides) {
+        expect(typeof s.calendarOwner).toBe('string');
+        expect(s.calendarOwner.length).toBeGreaterThan(0);
+      }
+    });
+
+    test('CR-12e: with no filter, only the allowed display calendars are scanned', async () => {
+      // "All calendars" must mean "every calendar this app shows", not "every
+      // calendarOwner that happens to exist in the collection". Sandbox and
+      // other non-display mailboxes live in the same collection; scanning them
+      // reports conflicts in calendars nobody can open, from a picker that does
+      // not even offer them.
+      await insertEvents(db, [
+        published({ title: 'Sandbox A', start: '2027-04-26T09:00:00', end: '2027-04-26T11:00:00', calendarOwner: 'sandbox@emanuelnyc.org' }),
+        published({ title: 'Sandbox B', start: '2027-04-26T10:00:00', end: '2027-04-26T12:00:00', calendarOwner: 'sandbox@emanuelnyc.org' }),
+        published({ title: 'Allowed A', start: '2027-04-27T09:00:00', end: '2027-04-27T11:00:00', calendarOwner: 'allowed@emanuelnyc.org' }),
+        published({ title: 'Allowed B', start: '2027-04-27T10:00:00', end: '2027-04-27T12:00:00', calendarOwner: 'allowed@emanuelnyc.org' }),
+      ]);
+
+      const report = await scan({ allowedCalendarOwners: ['Allowed@Emanuelnyc.org'] });
+
+      expect(report.conflicts).toHaveLength(1);
+      expect(report.conflicts[0].date).toBe('2027-04-27');
+    });
+
+    test('CR-12f: an empty allowlist is disclosed, not reported as a clean calendar', async () => {
+      // No configured calendars means nothing was scanned. Rendering that as
+      // "no conflicts found" is the false all-clear D9 exists to prevent.
+      await insertEvents(db, [
+        published({ title: 'A', start: '2027-04-28T09:00:00', end: '2027-04-28T11:00:00' }),
+        published({ title: 'B', start: '2027-04-28T10:00:00', end: '2027-04-28T12:00:00' }),
+      ]);
+
+      const report = await scan({ allowedCalendarOwners: [] });
+
+      expect(report.conflicts).toHaveLength(0);
+      expect(report.degraded).toEqual([expect.objectContaining({ stage: 'calendars' })]);
     });
 
     test('an unknown calendar returns an empty result rather than an error', async () => {

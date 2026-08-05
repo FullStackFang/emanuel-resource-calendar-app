@@ -142,6 +142,19 @@ describe('useRecurringConflicts', () => {
     expect(body.recurrence.pattern.type).toBe('weekly');
   });
 
+  it('RCH-11: passes excludeMasterEventId through to the request body so the server skips its lookup', async () => {
+    const fetchSpy = mockConflictFetch();
+    const { result } = renderConflicts(freshInputs({
+      excludeEventId: '507f1f77bcf86cd799439011',
+      excludeMasterEventId: 'AAMkMasterSeries',
+    }));
+
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.excludeEventId).toBe('507f1f77bcf86cd799439011');
+    expect(body.excludeMasterEventId).toBe('AAMkMasterSeries');
+  });
+
   it('RCH-4: form-mode debounce (1200ms) is not reset by reference-fresh re-renders', async () => {
     vi.useFakeTimers();
     const fetchSpy = mockConflictFetch();

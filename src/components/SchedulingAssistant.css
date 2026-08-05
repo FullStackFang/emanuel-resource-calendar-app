@@ -301,7 +301,28 @@
    TIMELINE WRAPPER & CONTAINER
    ========================================================================== */
 
+/* ==========================================================================
+   SERIES REGION (scheduling-assistant-series-mode)
+   Occurrence chips + the selected day's verdict as ONE module between the
+   header and the room tabs. The region owns the divider the occurrence band
+   used to carry, so the verdict detail sits inside the module and the single
+   rule falls after it.
+   ========================================================================== */
+.sa-series-region {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.sa-series-region .series-occurrence-band {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 .timeline-wrapper {
+  /* Positioning context for .sa-availability-loading (first-load overlay) */
+  position: relative;
   margin-bottom: var(--space-4);
   border: 1px solid var(--color-neutral-300);
   border-top: none;
@@ -309,6 +330,22 @@
   background: var(--bg-primary);
   box-shadow: var(--shadow-xs);
   overflow: hidden;
+}
+
+/* First-load cover: scoped inside the timeline so the rest of the form stays
+   interactive; sits below modal chrome (the shared overlay defaults to a
+   modal-level z-index meant for full-page gates). */
+.loading-spinner-overlay.sa-availability-loading {
+  z-index: 5;
+}
+
+/* Silent-refresh tag beside the date — mirrors .sob-refreshing on the series
+   band so the two surfaces speak the same language. */
+.sa-refreshing {
+  font-size: var(--text-2xs);
+  font-style: italic;
+  color: var(--text-tertiary);
+  margin-left: var(--space-2);
 }
 
 .timeline-container {

@@ -23,6 +23,13 @@ import './RoseSpinner.css';
 /** Below this, render the conic ring instead of the window. */
 export const ROSE_MIN_SIZE = 32;
 
+/**
+ * The size every page-level loading state uses. Lives here rather than in
+ * LoadingSpinner because Calendar renders the mark directly, and a second
+ * hardcoded copy is how the two silently drifted apart once already.
+ */
+export const ROSE_DEFAULT_SIZE = 64;
+
 /** Petal angle (deg clockwise from 12 o'clock) and hue index into the six. */
 const PETALS = [
   { a: 15, h: 1 }, { a: 45, h: 2 }, { a: 75, h: 3 },
@@ -56,7 +63,7 @@ const STAR = [0, 1].map((t) =>
     .join(' ')
 );
 
-const RoseSpinner = ({ size = 48, className = '', label = 'Loading' }) => {
+const RoseSpinner = ({ size = ROSE_DEFAULT_SIZE, className = '', label = 'Loading' }) => {
   // useId keeps the gradient ids unique when several spinners mount at once;
   // duplicate ids would make every instance resolve to the first one's stops.
   const uid = useId().replace(/:/g, '');

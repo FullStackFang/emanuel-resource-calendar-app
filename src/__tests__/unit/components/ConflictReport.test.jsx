@@ -55,22 +55,41 @@ vi.mock('../../../components/shared/EventReviewExperience', () => ({
   },
 }));
 
+// A faithful-enough stand-in for the real hook: navigateToEvent opens the modal
+// ONLY when passed `{ open: true }`. The real useReviewModal.navigateToEvent
+// leaves isOpen alone by default ("so the modal portal stays mounted and the
+// overlay does not flicker") because its other callers are already inside an
+// open modal. A mock that opened unconditionally would let a report that never
+// opens anything pass its own test — which is exactly what happened the first
+// time this was written.
+//
+// isOpen is real React state so flipping it re-renders, the way the real hook
+// behaves. A plain module variable would change without repainting and the
+// assertion would fail for the wrong reason.
 const navigateToEvent = vi.fn();
 const closeModal = vi.fn();
-let experienceIsOpen = false;
-vi.mock('../../../hooks/useEventReviewExperience', () => ({
-  useEventReviewExperience: (opts) => {
-    // Capture the caller's onRefresh so CRV-14 can fire it.
-    experienceProbe.hookOptions = opts;
-    return {
-      get isOpen() { return experienceIsOpen; },
-      currentItem: null,
-      editableData: null,
-      navigateToEvent,
-      closeModal,
-    };
-  },
-}));
+let experienceOpensAtMount = false;
+
+vi.mock('../../../hooks/useEventReviewExperience', async () => {
+  const React = await import('react');
+  return {
+    useEventReviewExperience: (opts) => {
+      // Capture the caller's onRefresh so CRV-16 can fire it.
+      experienceProbe.hookOptions = opts;
+      const [isOpen, setIsOpen] = React.useState(experienceOpensAtMount);
+      return {
+        isOpen,
+        currentItem: null,
+        editableData: null,
+        navigateToEvent: async (target, options = {}) => {
+          navigateToEvent(target, options);
+          if (options.open) setIsOpen(true);
+        },
+        closeModal,
+      };
+    },
+  };
+});
 
 let currentAuthFetch = vi.fn();
 vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
@@ -155,7 +174,7 @@ async function renderWith(body, { ok = true } = {}) {
 describe('ConflictReport — presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    experienceIsOpen = false;
+    experienceOpensAtMount = false;
     experienceProbe.props = null;
   });
 
@@ -290,6 +309,177 @@ describe('ConflictReport — presentation', () => {
     expect(screen.getByTestId('conflict-report-generated-at')).toBeInTheDocument();
   });
 
+  it('CRV-17: the calendar filter is a dropdown of the allowed mailboxes, defaulting to the first', async () => {
+    currentAuthFetch = vi.fn().mockImplementation((url) => {
+      if (url.includes('/calendar-display-config')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ allowedDisplayCalendars: ['templeevents@emanuelnyc.org', 'sandbox@emanuelnyc.org'] }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => report({ conflicts: [] }) });
+    });
+
+    render(<ConflictReport />, { wrapper: withQueryClient() });
+    await waitFor(() => expect(currentAuthFetch).toHaveBeenCalled());
+    await act(async () => {});
+
+    const picker = await screen.findByTestId('conflict-report-calendar');
+    expect(picker.tagName).toBe('SELECT');
+
+    // Defaults to a REAL calendar, not "All". Scanning every mailbox on open is
+    // slower and surfaces rows in calendars the user cannot act on.
+    expect(picker).toHaveValue('templeevents@emanuelnyc.org');
+
+    // "All calendars" stays available as a deliberate choice.
+    const options = within(picker).getAllByRole('option').map((o) => o.textContent);
+    expect(options).toEqual(['All calendars', 'templeevents@emanuelnyc.org', 'sandbox@emanuelnyc.org']);
+  });
+
+  it('CRV-18: each side shows its document id and type, so identical rows can be told apart', async () => {
+    // The row that prompted this: two sides with the same title, time and
+    // requester. Everything a reader could use to distinguish them lives in
+    // these two fields.
+    await renderWith(
+      report({
+        conflicts: [
+          conflict({
+            sides: [
+              side({ key: 'a:-', id: 'aaaaaaaaaaaaaaaaaa111111', title: 'Summer Torah Study', requesterName: 'Grace Guterman' }),
+              side({
+                key: 'b:2026-09-01',
+                id: 'bbbbbbbbbbbbbbbbbb222222',
+                title: 'Summer Torah Study',
+                requesterName: 'Grace Guterman',
+                isOccurrence: true,
+                occurrenceDate: '2026-09-01',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+
+    const identities = await screen.findAllByTestId('conflict-side-identity');
+    expect(identities).toHaveLength(2);
+    expect(identities[0]).toHaveTextContent('111111');
+    expect(identities[0]).toHaveTextContent('single event');
+    expect(identities[1]).toHaveTextContent('222222');
+    expect(identities[1]).toHaveTextContent('series occurrence');
+  });
+
+  it('CRV-20: a span crossing midnight shows the end date instead of a bare clock time', async () => {
+    // "12:00 AM – 12:00 AM" reads as a zero-length event. It was a full day.
+    await renderWith(
+      report({
+        conflicts: [
+          conflict({
+            sides: [
+              side({ startDateTime: '2026-09-22T00:00:00', endDateTime: '2026-09-23T00:00:00' }),
+              side({ key: 'b:-', id: 'b', title: 'Beta' }),
+            ],
+          }),
+        ],
+      })
+    );
+
+    const sides = await screen.findAllByTestId('conflict-side');
+    expect(sides[0]).toHaveTextContent('2026-09-23');
+  });
+
+  it('CRV-21: a room hold is labelled as one', async () => {
+    // A hold has no event times — its window comes from its reservation
+    // bounds — so a reader checking it against the calendar will not find a
+    // matching entry unless the row says what it is.
+    await renderWith(
+      report({
+        conflicts: [
+          conflict({
+            sides: [
+              side({ title: 'Hold', isHold: true }),
+              side({ key: 'b:-', id: 'b', title: 'Beta' }),
+            ],
+          }),
+        ],
+      })
+    );
+
+    const sides = await screen.findAllByTestId('conflict-side');
+    expect(sides[0]).toHaveTextContent(/room hold/i);
+    expect(sides[1]).toHaveTextContent('single event');
+  });
+
+  it('CRV-19: the room heading names the calendar the conflict belongs to', async () => {
+    await renderWith(
+      report({
+        conflicts: [conflict({ calendarOwner: 'templeevents@emanuelnyc.org' })],
+      })
+    );
+
+    const roomGroup = await screen.findByTestId('conflict-room-group');
+    expect(roomGroup).toHaveTextContent('templeevents@emanuelnyc.org');
+  });
+
+  it('CRV-22: the scan waits for the calendar list, then runs ONCE scoped to a real calendar', async () => {
+    // Two problems this pins, both reported from the running app:
+    //   1. Defaulting to "All calendars" scanned every mailbox in the
+    //      collection — slower, and it surfaced rows in calendars the user
+    //      cannot act on.
+    //   2. Firing before the calendar list resolved meant the visible result
+    //      changed under the user: a full scan, then a re-run.
+    // Settling the selection BEFORE the first fetch fixes both at once.
+    let releaseCalendars;
+    const calendarsPromise = new Promise((resolve) => { releaseCalendars = resolve; });
+
+    const authFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/calendar-display-config')) {
+        await calendarsPromise;
+        return { ok: true, status: 200, json: async () => ({ allowedDisplayCalendars: ['TempleEvents@emanuelnyc.org'] }) };
+      }
+      return { ok: true, status: 200, json: async () => report({ conflicts: [] }) };
+    });
+    currentAuthFetch = authFetch;
+
+    render(<ConflictReport />, { wrapper: withQueryClient() });
+    await act(async () => {});
+
+    // Nothing scanned yet, and no empty state while we wait.
+    expect(authFetch.mock.calls.filter(([u]) => u.includes('/reports/conflicts'))).toHaveLength(0);
+    expect(screen.queryByTestId('conflict-report-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('loading-spinner')).toBeInTheDocument();
+
+    await act(async () => { releaseCalendars(); });
+    await waitFor(() => {
+      expect(authFetch.mock.calls.some(([u]) => u.includes('/reports/conflicts'))).toBe(true);
+    });
+    await act(async () => {});
+
+    // Exactly one — the selection settled BEFORE the first fetch, so there is
+    // no throwaway full-collection scan to replace.
+    const scans = authFetch.mock.calls.filter(([u]) => u.includes('/reports/conflicts'));
+    expect(scans).toHaveLength(1);
+    expect(scans[0][0]).toContain('calendarOwner=TempleEvents%40emanuelnyc.org');
+    expect(screen.getByTestId('conflict-report-calendar')).toHaveValue('TempleEvents@emanuelnyc.org');
+  });
+
+  it('CRV-23: an empty calendar list still runs a scan rather than spinning forever', async () => {
+    // Without this the selection never settles and the view hangs on the
+    // spinner. Running unscoped lets the server explain the empty allowlist.
+    const authFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/calendar-display-config')) {
+        return { ok: true, status: 200, json: async () => ({ allowedDisplayCalendars: [] }) };
+      }
+      return { ok: true, status: 200, json: async () => report({ conflicts: [] }) };
+    });
+    currentAuthFetch = authFetch;
+
+    render(<ConflictReport />, { wrapper: withQueryClient() });
+    await waitFor(() => {
+      expect(authFetch.mock.calls.some(([u]) => u.includes('/reports/conflicts'))).toBe(true);
+    });
+  });
+
   it('CRV-11: changing the window re-scans with the new value', async () => {
     const authFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -317,22 +507,33 @@ describe('ConflictReport — presentation', () => {
 describe('ConflictReport — drill-in', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    experienceIsOpen = false;
+    experienceOpensAtMount = false;
     experienceProbe.props = null;
   });
 
-  it('CRV-12: selecting a side opens it through the shared review experience', async () => {
+  it('CRV-12: selecting a side actually OPENS the review experience', async () => {
     await renderWith(report({ conflicts: [conflict()] }));
+    expect(screen.queryByTestId('review-experience')).not.toBeInTheDocument();
 
     const sides = await screen.findAllByTestId('conflict-side');
     await act(async () => {
       within(sides[1]).getByRole('button', { name: /open/i }).click();
     });
 
-    // Resolution goes through navigateToEvent, which already carries the
+    // Assert the MODAL IS ON SCREEN, not merely that a function was called.
+    // The first version of this test asserted the call and passed while the
+    // button did nothing at all: navigateToEvent resolves and stages the event
+    // but deliberately leaves isOpen alone, because its other callers are
+    // already inside an open modal.
+    expect(await screen.findByTestId('review-experience')).toBeInTheDocument();
+
+    // Resolution still goes through navigateToEvent, which carries the
     // /room-reservations -> /events 404 fallback. That fallback is MANDATORY
     // here: Outlook-synced sides carry no roomReservationData at all.
-    expect(navigateToEvent).toHaveBeenCalledWith('bbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(navigateToEvent).toHaveBeenCalledWith(
+      'bbbbbbbbbbbbbbbbbbbbbbbb',
+      expect.objectContaining({ open: true })
+    );
   });
 
   it('CRV-13: a side with no reservation data is opened the same way', async () => {
@@ -351,11 +552,15 @@ describe('ConflictReport — drill-in', () => {
       within(sides[1]).getByRole('button', { name: /open/i }).click();
     });
 
-    expect(navigateToEvent).toHaveBeenCalledWith('outlookid00000000000000x');
+    expect(await screen.findByTestId('review-experience')).toBeInTheDocument();
+    expect(navigateToEvent).toHaveBeenCalledWith(
+      'outlookid00000000000000x',
+      expect.objectContaining({ open: true })
+    );
   });
 
   it('CRV-14: the report stays mounted beneath the modal', async () => {
-    experienceIsOpen = true;
+    experienceOpensAtMount = true;
     await renderWith(report({ conflicts: [conflict()] }));
 
     expect(await screen.findByTestId('review-experience')).toBeInTheDocument();

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading mark — how big?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --color-primary-500:#3b6eb8; --color-primary-600:#2d5a9e;
+  --n0:#ffffff; --n50:#fafaf9; --n100:#f5f5f4; --n200:#e7e5e4;
+  --n300:#d6d3d1; --n500:#78716c; --n600:#57534e; --n900:#1c1917;
+  --font-display:'DM Sans',-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --rose-gold:#b18c52;
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-display); color:var(--n900); background:var(--n50); -webkit-font-smoothing:antialiased; }
+.page { max-width:1120px; margin:0 auto; padding:56px 40px 120px; }
+
+header { border-bottom:1px solid var(--n200); padding-bottom:32px; margin-bottom:48px; }
+.eyebrow { font-size:12px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--color-primary-600); margin:0 0 12px; }
+h1 { font-size:40px; font-weight:600; letter-spacing:-.025em; line-height:1.1; margin:0 0 16px; }
+.lede { font-size:16.5px; line-height:1.6; color:var(--n600); max-width:66ch; margin:0; }
+section { margin-bottom:72px; }
+h2 { font-size:13px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--n500); margin:0 0 6px; padding-bottom:12px; border-bottom:1px solid var(--n200); }
+.section-note { font-size:15px; line-height:1.65; color:var(--n600); max-width:68ch; margin:20px 0 30px; }
+.section-note strong { color:var(--n900); font-weight:600; }
+code { font-family:var(--mono); font-size:.88em; background:var(--n100); padding:2px 5px; border-radius:3px; }
+
+/* ═══ THE MARK — copied verbatim from RoseSpinner.css (fused variant) ═══ */
+.rose { display:block; overflow:visible; --dur:1.6s; --rest:.4; }
+.rose .unit { transform-origin:50px 50px; opacity:var(--rest);
+  animation:rose-illuminate var(--dur) linear infinite;
+  animation-delay:calc(var(--i) * var(--dur) / -12); }
+.rose .band { fill:none; opacity:.5; }
+.rose .arc { fill:none; stroke-linecap:round; transform-origin:50px 50px;
+  animation:rose-lead var(--dur) linear infinite; }
+.rose .star { fill:var(--rose-gold); }
+@keyframes rose-illuminate { 0%{opacity:var(--rest)} 6%{opacity:1} 34%{opacity:var(--rest)} 100%{opacity:var(--rest)} }
+@keyframes rose-lead { from{transform:rotate(-183deg)} to{transform:rotate(177deg)} }
+
+/* ═══ SIZE RAIL ═══ */
+.rail { display:flex; border:1px solid var(--n200); background:var(--n0); border-radius:10px; overflow:hidden; }
+.rail-cell { flex:1; padding:30px 16px 22px; display:flex; flex-direction:column; align-items:center; gap:20px; }
+.rail-cell + .rail-cell { border-left:1px solid var(--n200); }
+.rail-cell.pick { background:#f7fbff; box-shadow:inset 0 0 0 1px var(--color-primary-500); }
+.rail-stage { height:96px; display:flex; align-items:center; }
+.rail-label { font-family:var(--mono); font-size:11px; color:var(--n500); text-align:center; line-height:1.55; }
+.rail-label b { display:block; font-family:var(--font-display); font-size:14px; color:var(--n900); font-weight:600; margin-bottom:3px; }
+.tag { display:inline-block; margin-top:7px; font-family:var(--font-display); font-size:10px; font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; padding:2.5px 7px; border-radius:20px; }
+.tag.was { background:var(--n100); color:var(--n600); }
+.tag.now { background:var(--color-primary-500); color:#fff; }
+
+/* ═══ IN CONTEXT ═══ */
+.ctx-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.ctx { background:var(--n0); border:1px solid var(--n200); border-radius:12px; overflow:hidden; position:relative; }
+.ctx-head { padding:11px 18px; border-bottom:1px solid var(--n200); background:var(--n50);
+  font-family:var(--mono); font-size:11px; color:var(--n500); display:flex; justify-content:space-between; }
+.ctx-head b { font-family:var(--font-display); color:var(--n900); font-weight:600; }
+.ctx-body { min-height:240px; display:flex; align-items:center; justify-content:center; padding:32px; background:var(--n50); }
+.ctx-card-inner { display:flex; flex-direction:column; align-items:center; gap:14px; padding:32px 42px; min-width:200px;
+  border-radius:16px; background:var(--n0); box-shadow:0 10px 40px rgba(0,0,0,.10),0 2px 10px rgba(0,0,0,.06);
+  border:1px solid rgba(0,0,0,.05); }
+.ctx-text { font-size:16px; color:var(--n600); font-weight:500; }
+.ctx-fake-rows { width:100%; }
+.ctx-fake-rows div { height:13px; background:var(--n100); border-radius:3px; margin-bottom:11px; }
+.ctx-overlay { position:absolute; inset:41px 0 0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:14px; background:rgba(248,250,252,.92); backdrop-filter:blur(4px); }
+.footnote { font-size:13.5px; line-height:1.65; color:var(--n500); margin-top:22px; max-width:72ch; }
+.footnote b { color:var(--n900); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <p class="eyebrow">Emanuel Resource Calendar &middot; Loading mark &middot; sizing</p>
+  <h1>How big should it be?</h1>
+  <p class="lede">
+    The shared default was <code>48</code>. It is now <code>64</code>. Below is the same mark at five sizes,
+    then the two sizes side by side in the real <code>variant="card"</code> and <code>variant="overlay"</code>
+    shells &mdash; same padding, same shadow, same copy as the app renders.
+  </p>
+</header>
+
+<section>
+  <h2>The size rail</h2>
+  <p class="section-note">
+    Detail is not uniform across this rail. <strong>Keystones only render at 48 and above</strong>, so the mark
+    gains ornament as it grows rather than merely scaling &mdash; which is why 64 reads as noticeably more
+    finished than 48, not just larger.
+  </p>
+  <div class="rail">
+    <div class="rail-cell"><div class="rail-stage"><div id="s-40"></div></div>
+      <p class="rail-label"><b>40px</b>no keystones<br><span class="tag was">modals pass this</span></p></div>
+    <div class="rail-cell"><div class="rail-stage"><div id="s-48"></div></div>
+      <p class="rail-label"><b>48px</b>full detail<br><span class="tag was">was the default</span></p></div>
+    <div class="rail-cell pick"><div class="rail-stage"><div id="s-64"></div></div>
+      <p class="rail-label"><b>64px</b>full detail<br><span class="tag now">new default</span></p></div>
+    <div class="rail-cell"><div class="rail-stage"><div id="s-72"></div></div>
+      <p class="rail-label"><b>72px</b>full detail<br><span class="tag was">one notch up</span></p></div>
+    <div class="rail-cell"><div class="rail-stage"><div id="s-88"></div></div>
+      <p class="rail-label"><b>88px</b>full detail<br><span class="tag was">page gates only</span></p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Card gate &mdash; before and after</h2>
+  <p class="section-note">
+    <code>variant="card"</code> is the busiest shape in the app: My&nbsp;Reservations, Event&nbsp;Management,
+    Approval&nbsp;Queue, every admin screen. All of them call <code>&lt;LoadingSpinner variant="card" /&gt;</code>
+    with no size, so all of them move together.
+  </p>
+  <div class="ctx-grid">
+    <div class="ctx">
+      <div class="ctx-head"><span>variant="card"</span><b>48px &middot; before</b></div>
+      <div class="ctx-body"><div class="ctx-card-inner">
+        <div id="c-48"></div><span class="ctx-text">Loading&hellip;</span>
+      </div></div>
+    </div>
+    <div class="ctx">
+      <div class="ctx-head"><span>variant="card"</span><b>64px &middot; after</b></div>
+      <div class="ctx-body"><div class="ctx-card-inner">
+        <div id="c-64"></div><span class="ctx-text">Loading&hellip;</span>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Default variant, over content</h2>
+  <p class="section-note">
+    No card, just the mark centred in a panel &mdash; the shape the Conflict&nbsp;Report and the audit
+    histories use. This is where 48 disappeared most: nothing frames it, so it has to hold the space itself.
+  </p>
+  <div class="ctx-grid">
+    <div class="ctx">
+      <div class="ctx-head"><span>variant="default"</span><b>48px &middot; before</b></div>
+      <div class="ctx-body" style="align-items:stretch; background:var(--n0)">
+        <div class="ctx-fake-rows">
+          <div style="width:62%"></div><div style="width:88%"></div><div style="width:74%"></div>
+          <div style="width:91%"></div><div style="width:55%"></div><div style="width:80%"></div>
+        </div>
+        <div class="ctx-overlay"><div id="o-48"></div><span class="ctx-text">Loading August 2026&hellip;</span></div>
+      </div>
+    </div>
+    <div class="ctx">
+      <div class="ctx-head"><span>variant="default"</span><b>64px &middot; after</b></div>
+      <div class="ctx-body" style="align-items:stretch; background:var(--n0)">
+        <div class="ctx-fake-rows">
+          <div style="width:62%"></div><div style="width:88%"></div><div style="width:74%"></div>
+          <div style="width:91%"></div><div style="width:55%"></div><div style="width:80%"></div>
+        </div>
+        <div class="ctx-overlay"><div id="o-64"></div><span class="ctx-text">Loading August 2026&hellip;</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="footnote">
+    <b>Not changed:</b> the ten call sites that pass an explicit size &mdash; the Clergy and Category pickers and
+    the Scheduling Assistant overlay at <code>40</code>, the Approval&nbsp;Queue inline gate at <code>32</code>,
+    and the attachment upload rows at <code>16</code> (which fall through to the conic ring). Those numbers were
+    chosen to fit tight containers, so the default bump deliberately leaves them where they are. Say the word
+    and I will raise them too.
+  </p>
+</section>
+
+</div>
+
+<script>
+/* Geometry copied from src/components/shared/RoseSpinner.jsx — keep in sync. */
+const PETALS = [
+  { a:  15, c:'#91226d' }, { a:  45, c:'#991b39' }, { a:  75, c:'#408796' },
+  { a: 105, c:'#0085ab' }, { a: 135, c:'#016395' }, { a: 165, c:'#615c9b' },
+  { a: 195, c:'#91226d' }, { a: 225, c:'#991b39' }, { a: 255, c:'#408796' },
+  { a: 285, c:'#0085ab' }, { a: 315, c:'#016395' }, { a: 345, c:'#615c9b' },
+];
+const PETAL_D = [
+  'M50 15.4','A5.2 5.2 0 0 1 55.2 20.6','Q55.0 22.3 53.4 23.2',
+  'L53.4 23.9 L55.6 24.1 L52.9 35.0 L52.5 35.9 L50 37.9',
+  'L47.5 35.9 L47.1 35.0 L44.4 24.1 L46.6 23.9 L46.6 23.2',
+  'Q45.0 22.3 44.8 20.6','A5.2 5.2 0 0 1 50 15.4 Z',
+].join(' ');
+const STAR = [0,1].map(t => [0,1,2].map(k => {
+  const ang = (k*120 + t*60 - 90) * Math.PI/180;
+  return `${(50 + 10.2*Math.cos(ang)).toFixed(2)},${(50 + 10.2*Math.sin(ang)).toFixed(2)}`;
+}).join(' '));
+
+let uid = 0;
+function rose(size) {
+  const id = 'r' + (++uid);
+  const showKeystones = size >= 48;   // matches RoseSpinner.jsx
+  const showStar = size >= 40;
+  const bandW = size < 40 ? 2.8 : 3.65;
+  const units = PETALS.map((p, i) => {
+    const keys = showKeystones ? `
+      <circle cx="50" cy="12.1" r="1.9" fill="${p.c}"/>
+      <rect x="48.1" y="10.2" width="3.8" height="4.6" rx="1.3" fill="${p.c}" transform="rotate(-8 50 50)"/>
+      <rect x="48.1" y="10.2" width="3.8" height="4.6" rx="1.3" fill="${p.c}" transform="rotate(8 50 50)"/>` : '';
+    return `<g class="unit" style="--i:${(12-i)%12}; transform:rotate(${p.a}deg)">
+      <path d="${PETAL_D}" fill="${p.c}"/>${keys}</g>`;
+  }).join('');
+  return `<svg class="rose" width="${size}" height="${size}" viewBox="0 0 100 100" role="img" aria-label="Loading">
+    <defs>
+      <linearGradient id="bg${id}" x1="0.15" y1="0" x2="0.75" y2="1">
+        <stop offset="0" stop-color="#3b96b7"/><stop offset=".5" stop-color="#008baf"/>
+        <stop offset="1" stop-color="#01709e"/></linearGradient>
+      <linearGradient id="ag${id}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#016395"/><stop offset="1" stop-color="#0085ab"/></linearGradient>
+    </defs>
+    <circle class="band" cx="50" cy="50" r="46.4" stroke-width="${bandW}" stroke="url(#bg${id})"/>
+    <circle class="arc" cx="50" cy="50" r="46.4" stroke-width="${bandW + 1.5}"
+            stroke-dasharray="70 222" stroke="url(#ag${id})"/>
+    ${units}
+    ${showStar
+      ? STAR.map(p => `<polygon class="star" points="${p}"/>`).join('')
+      : `<circle class="star" cx="50" cy="50" r="6.4"/>`}
+  </svg>`;
+}
+
+[['s-40',40],['s-48',48],['s-64',64],['s-72',72],['s-88',88],
+ ['c-48',48],['c-64',64],['o-48',48],['o-64',64]].forEach(([id, size]) => {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = rose(size);
+});
+</script>
+</body>
+</html>

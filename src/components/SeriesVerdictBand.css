@@ -1,9 +1,10 @@
 /* ==========================================================================
    SERIES VERDICT BAND (scheduling-assistant-series-mode)
-   The selected occurrence day's verdict below the assistant's timeline:
-   conflicted (blocker detail + open/skip), clear (quiet line), skipped
-   (pending-removal note + restore). Two-step confirm colors follow the app
-   button standard: warning for skip, success for restore.
+   The selected occurrence day's verdict, directly beneath the chip row in
+   the assistant's series region: conflicted (day anchor + blocker detail +
+   open/skip), clear (quiet line), skipped (pending-removal note + restore).
+   Two-step confirm colors follow the app button standard: warning for skip,
+   success for restore.
    ========================================================================== */
 
 .series-verdict-band {
@@ -54,6 +55,16 @@
 .svb-skip-warn {
   font-style: normal;
   color: var(--color-warning-700);
+}
+
+/* Day anchor above the blocker rows — same quiet label voice as .sob-title,
+   toned to the conflict surface. */
+.svb-day {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-error-700);
 }
 
 /* --- Blocker rows --- */

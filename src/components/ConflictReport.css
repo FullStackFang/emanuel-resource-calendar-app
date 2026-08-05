@@ -168,10 +168,38 @@
 }
 
 .conflict-room-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 0.875rem;
   font-weight: var(--font-semibold, 600);
   color: var(--color-neutral-700, #555);
   margin: 0 0 8px 0;
+}
+
+.conflict-room-calendar {
+  font-size: 0.75rem;
+  font-weight: var(--font-medium, 500);
+  color: var(--color-neutral-500, #888);
+}
+
+/* The only fields that differ when a duplicate document, a series occurrence,
+   and its override all render on one row. */
+.conflict-side-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--color-neutral-500, #888);
+}
+
+.conflict-side-identity code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  background: var(--color-neutral-100, #f0f0f0);
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .conflict-row {

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Occurrence chips at 20+ — three overflow strategies</title>
+<style>
+  :root {
+    --color-primary-300: #a9c4ef;
+    --color-primary-500: #3b6eb8;
+    --color-primary-600: #2d5aa3;
+    --color-error-50: #fef2f2;
+    --color-error-300: #fca5a5;
+    --color-error-500: #ef4444;
+    --color-error-600: #dc2626;
+    --color-error-700: #b91c1c;
+    --color-success-100: #d1fae5;
+    --color-success-300: #6ee7b7;
+    --color-success-600: #047857;
+    --bg-page: #f7f6f4;
+    --bg-primary: #ffffff;
+    --bg-tertiary: #f5f5f4;
+    --text-primary: #1c1917;
+    --text-secondary: #57534e;
+    --text-tertiary: #78716c;
+    --border-default: #e7e5e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-page); color: var(--text-primary);
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px; padding: 32px;
+  }
+  .variant-label {
+    max-width: 560px; margin: 0 auto 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .variant-label strong { color: var(--color-primary-600); }
+  .panel {
+    max-width: 560px; margin: 0 auto 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 16px 20px;
+  }
+  .note { max-width: 560px; margin: 0 auto 36px; font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
+
+  .sob-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .sob-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); }
+  .sob-pattern { color: var(--text-secondary); text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+  .sob-verdict { font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+  .sob-verdict.blocked { color: var(--color-error-700); }
+  .sob-verdict.blocked .dot { background: var(--color-error-500); }
+  .sob-verdict .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  .sob-chip {
+    width: 35px; height: 42px; border-radius: 8px; border: 1px solid var(--border-default);
+    background: var(--bg-primary); display: flex; flex-direction: column; align-items: center;
+    justify-content: center; cursor: pointer; font-family: inherit; padding: 0; flex-shrink: 0;
+  }
+  .sob-chip .m { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); line-height: 1.2; }
+  .sob-chip .d { font-size: 13px; font-weight: 600; color: var(--text-secondary); line-height: 1.2; }
+  .sob-chip.conflicted { background: var(--color-error-50); border-color: var(--color-error-300); }
+  .sob-chip.conflicted .m { color: var(--color-error-600); }
+  .sob-chip.conflicted .d { color: var(--color-error-700); }
+  .sob-chip.selected { border-color: var(--color-primary-500); box-shadow: 0 0 0 1px var(--color-primary-500); }
+  .sob-chip.selected .d { color: var(--color-primary-600); }
+  .sob-chip.selected.conflicted { border-color: var(--color-error-500); box-shadow: 0 0 0 1px var(--color-error-500); }
+  .sob-chip.selected.conflicted .d { color: var(--color-error-700); }
+
+  .sob-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .sob-focus-toggle { display: inline-flex; background: var(--bg-tertiary); border-radius: 8px; padding: 2px; gap: 2px; }
+  .sob-focus-toggle button {
+    font-family: inherit; font-size: 12px; font-weight: 500; border: none; background: transparent;
+    color: var(--text-secondary); padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .sob-focus-toggle button.active { background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .count { font-size: 10px; font-weight: 600; color: #fff; background: var(--color-error-500); border-radius: 999px; min-width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .sob-stepper { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-tertiary); }
+  .sob-stepper button { width: 26px; height: 26px; background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: 8px; color: var(--text-secondary); cursor: pointer; }
+
+  /* ── Variant A: single-row horizontal scroll strip ── */
+  .strip-wrap { position: relative; }
+  .strip {
+    display: flex; gap: 5px; overflow-x: auto; padding-bottom: 6px;
+    scrollbar-width: thin;
+  }
+  .strip-wrap::after {
+    content: ''; position: absolute; top: 0; right: 0; bottom: 6px; width: 36px;
+    background: linear-gradient(to right, transparent, var(--bg-primary));
+    pointer-events: none;
+  }
+  .strip-wrap::before {
+    content: ''; position: absolute; top: 0; left: 0; bottom: 6px; width: 36px;
+    background: linear-gradient(to left, transparent, var(--bg-primary));
+    pointer-events: none; z-index: 1;
+  }
+
+  /* ── Variant B: two-week window + pager ── */
+  .window-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .window-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: var(--text-tertiary); }
+  .window-nav .range { font-weight: 600; color: var(--text-secondary); }
+  .window-nav button { width: 24px; height: 24px; background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-secondary); cursor: pointer; }
+  .offscreen-hint { font-size: 11px; color: var(--color-error-700); margin-top: 6px; }
+
+  /* ── Variant C: conflicts-only default ── */
+  .conflict-only-row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  .show-all {
+    font-family: inherit; font-size: 12px; background: none; border: none; cursor: pointer;
+    color: var(--color-primary-600); text-decoration: underline; padding: 0; margin-left: 6px;
+  }
+  .clear-collapsed { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+  .clear-collapsed .check { color: var(--color-success-600); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="variant-label"><strong>A</strong> &middot; single-row scroll strip (recommended)</div>
+<div class="panel">
+  <div class="sob-meta">
+    <span class="sob-title">Series <span class="sob-pattern">&middot; Weekly on Mon, Wed, Fri &middot; 8/10 &ndash; 9/23</span></span>
+    <span class="sob-verdict blocked"><span class="dot"></span><strong>2</strong>&nbsp;of 20 have conflicts</span>
+  </div>
+  <div class="strip-wrap">
+    <div class="strip">
+      <button class="sob-chip"><span class="m">Aug</span><span class="d">21</span></button>
+      <button class="sob-chip"><span class="m">Aug</span><span class="d">24</span></button>
+      <button class="sob-chip"><span class="m">Aug</span><span class="d">26</span></button>
+      <button class="sob-chip"><span class="m">Aug</span><span class="d">28</span></button>
+      <button class="sob-chip"><span class="m">Aug</span><span class="d">31</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">2</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">4</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">7</span></button>
+      <button class="sob-chip conflicted"><span class="m">Sep</span><span class="d">9</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">11</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">14</span></button>
+      <button class="sob-chip conflicted selected"><span class="m">Sep</span><span class="d">16</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">18</span></button>
+      <button class="sob-chip"><span class="m">Sep</span><span class="d">21</span></button>
+    </div>
+  </div>
+  <div class="sob-controls">
+    <div class="sob-focus-toggle">
+      <button class="active">All dates</button>
+      <button>Conflicts <span class="count">2</span></button>
+    </div>
+    <div class="sob-stepper"><span>conflict 2 of 2</span><button>&lsaquo;</button><button>&rsaquo;</button></div>
+  </div>
+</div>
+<p class="note">
+  One row, always. Full-size chips scroll horizontally; the selected chip is auto-scrolled
+  into view, so the conflict stepper doubles as the navigator (each step scrolls the strip).
+  Edge fades signal overflow. 20 or 200 occurrences take the same vertical space, and the
+  temporal shape survives as a scrollable timeline. No new state, no pagination logic.
+</p>
+
+<div class="variant-label"><strong>B</strong> &middot; two-week window with pager</div>
+<div class="panel">
+  <div class="sob-meta">
+    <span class="sob-title">Series <span class="sob-pattern">&middot; Weekly on Mon, Wed, Fri &middot; 8/10 &ndash; 9/23</span></span>
+    <span class="sob-verdict blocked"><span class="dot"></span><strong>2</strong>&nbsp;of 20 have conflicts</span>
+  </div>
+  <div class="window-nav">
+    <button>&lsaquo;</button>
+    <span class="range">Sep 7 &ndash; Sep 18 &middot; window 3 of 4</span>
+    <button>&rsaquo;</button>
+  </div>
+  <div class="window-chips">
+    <button class="sob-chip"><span class="m">Sep</span><span class="d">7</span></button>
+    <button class="sob-chip conflicted"><span class="m">Sep</span><span class="d">9</span></button>
+    <button class="sob-chip"><span class="m">Sep</span><span class="d">11</span></button>
+    <button class="sob-chip"><span class="m">Sep</span><span class="d">14</span></button>
+    <button class="sob-chip conflicted selected"><span class="m">Sep</span><span class="d">16</span></button>
+    <button class="sob-chip"><span class="m">Sep</span><span class="d">18</span></button>
+  </div>
+  <div class="sob-controls">
+    <div class="sob-focus-toggle">
+      <button class="active">All dates</button>
+      <button>Conflicts <span class="count">2</span></button>
+    </div>
+    <div class="sob-stepper"><span>conflict 2 of 2</span><button>&lsaquo;</button><button>&rsaquo;</button></div>
+  </div>
+</div>
+<p class="note">
+  Chips for the current two-week window only; arrows page through the series and the range
+  label says where you are. Compact, but it adds a second navigation axis (window pager +
+  conflict stepper), and conflicts outside the window are invisible until you page to them
+  or use the stepper, which must also jump windows.
+</p>
+
+<div class="variant-label"><strong>C</strong> &middot; conflicts only, clear dates collapsed</div>
+<div class="panel">
+  <div class="sob-meta">
+    <span class="sob-title">Series <span class="sob-pattern">&middot; Weekly on Mon, Wed, Fri &middot; 8/10 &ndash; 9/23</span></span>
+    <span class="sob-verdict blocked"><span class="dot"></span><strong>2</strong>&nbsp;of 20 have conflicts</span>
+  </div>
+  <div class="conflict-only-row">
+    <button class="sob-chip conflicted"><span class="m">Sep</span><span class="d">9</span></button>
+    <button class="sob-chip conflicted selected"><span class="m">Sep</span><span class="d">16</span></button>
+    <button class="show-all">Show all 20 dates</button>
+  </div>
+  <div class="sob-controls">
+    <div class="sob-stepper"><span>conflict 2 of 2</span><button>&lsaquo;</button><button>&rsaquo;</button></div>
+  </div>
+</div>
+<div class="panel" style="margin-top: 12px;">
+  <div class="sob-meta">
+    <span class="sob-title">Series <span class="sob-pattern">&middot; Weekly on Mon, Wed, Fri &middot; 8/10 &ndash; 9/23</span></span>
+    <span class="sob-verdict" style="color: var(--color-success-600)"><span class="dot" style="background: var(--color-success-600)"></span>All 20 occurrences are clear</span>
+  </div>
+  <div class="clear-collapsed">
+    <span class="check">&#10003;</span> Nothing to resolve.
+    <button class="show-all">Browse dates</button>
+  </div>
+</div>
+<p class="note">
+  Above a threshold (say 14 occurrences) only conflicted chips render; clear dates collapse
+  behind 'Show all'. An all-clear series (second panel) collapses to one line, since the
+  verdict already says everything. Minimal space, triage-first, but browsing a specific
+  clear date takes an extra click and the temporal shape of the series disappears.
+</p>
+
+</body>
+</html>

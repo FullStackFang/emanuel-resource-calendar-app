@@ -5238,7 +5238,7 @@ import ConflictDialog from './shared/ConflictDialog';
     return (
       <div className="calendar-container">
         <div className={overlayClass}>
-          <RoseSpinner size={48} />
+          <RoseSpinner />
           <p className="loading-spinner-card-text">{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
         </div>
 

@@ -1131,13 +1131,17 @@ export default function RoomReservationFormBase({
     }
   }, [assistantRooms.length]);
 
-  // Auto-refresh availability every 30s while form is open with valid time fields
-  // Ensures conflict detection stays current during long form sessions
+  // Auto-refresh availability every 60s while form is open with valid time fields
+  // Ensures conflict detection stays current during long form sessions.
+  // Hidden tabs skip ticks: nobody is looking, and the visibilitychange
+  // handler below re-checks on return — background polling would spend
+  // Cosmos RUs (each availability call is ~5 queries) for an unseen screen.
   useEffect(() => {
     if (readOnly) return;
     if (!formData.startDate || !(formData.startTime || formData.reservationStartTime) || !formData.endDate || !(formData.endTime || formData.reservationEndTime)) return;
 
     const interval = setInterval(() => {
+      if (document.hidden) return;
       if (assistantRoomsRef.current.length > 0) {
         // Re-check day availability for scheduling assistant rooms
         const roomIds = assistantRoomsRef.current.map(room => room._id);
@@ -1152,7 +1156,7 @@ export default function RoomReservationFormBase({
     }, 60_000);
 
     return () => clearInterval(interval);
-  }, [readOnly, assistantViewDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
+  }, [readOnly, assistantViewDate, formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.reservationStartTime, formData.reservationEndTime]);
 
   // Keep assistantRoomsRef in sync for reliable access in async functions (prevents stale closures)
   useEffect(() => {
@@ -1539,6 +1543,10 @@ export default function RoomReservationFormBase({
     reservationStartMinutes: formData.reservationStartMinutes || 0,
     reservationEndMinutes: formData.reservationEndMinutes || 0,
     excludeEventId: currentReservationId,
+    // The saved event's own series eventId — lets the server skip the findOne
+    // it otherwise runs to resolve excludeEventId into a series id. Null for
+    // new reservations; the server falls back to the lookup when absent.
+    excludeMasterEventId: initialData?.eventId || null,
     readOnly: fieldsDisabled,
     apiToken,
     isAllowedConcurrent: formData.isAllowedConcurrent || false,
@@ -1552,9 +1560,17 @@ export default function RoomReservationFormBase({
   // on THIS form's inputs and cannot see other events change. Re-check when
   // the tab regains focus; the availability timeline refreshes alongside so
   // the two surfaces never disagree.
+  // Cooldown: the open-blocker-in-new-tab flow encourages rapid tab flips,
+  // and every return fires ~8 Cosmos queries across both surfaces. Within
+  // 15s nothing meaningful can have changed that the next flip won't catch.
+  const focusRefreshLastRunRef = useRef(0);
   useEffect(() => {
+    const FOCUS_REFRESH_COOLDOWN_MS = 15_000;
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - focusRefreshLastRunRef.current < FOCUS_REFRESH_COOLDOWN_MS) return;
+      focusRefreshLastRunRef.current = now;
       if (seriesActive) {
         recurringConflicts.retry();
       }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import RoseSpinner, { ROSE_MIN_SIZE } from '../../../../components/shared/RoseSpinner';
+import RoseSpinner, { ROSE_MIN_SIZE, ROSE_DEFAULT_SIZE } from '../../../../components/shared/RoseSpinner';
+import LoadingSpinner from '../../../../components/shared/LoadingSpinner';
 
 /**
  * The rose-window loading mark. These lock the two things that break silently:
@@ -17,6 +18,18 @@ describe('RoseSpinner', () => {
     expect(petals(c)).toHaveLength(12);
     expect(c.container.querySelector('.rose-band')).toBeInTheDocument();
     expect(c.container.querySelector('.rose-arc')).toBeInTheDocument();
+  });
+
+  it('RS-1b sizes an unprompted mark from the shared default, in both consumers', () => {
+    // Calendar's overlay renders RoseSpinner directly and LoadingSpinner wraps
+    // it; they used to carry separate hardcoded numbers, so raising one left the
+    // main page untouched. Both must now read the same constant.
+    const direct = render(<RoseSpinner />).container.querySelector('svg');
+    expect(direct).toHaveAttribute('width', String(ROSE_DEFAULT_SIZE));
+    expect(direct).toHaveAttribute('height', String(ROSE_DEFAULT_SIZE));
+
+    const wrapped = render(<LoadingSpinner />).container.querySelector('svg');
+    expect(wrapped).toHaveAttribute('width', String(ROSE_DEFAULT_SIZE));
   });
 
   it('RS-2 gives way to the conic ring below the cutover, with no SVG at all', () => {

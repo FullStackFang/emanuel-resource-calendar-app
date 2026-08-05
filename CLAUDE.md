@@ -681,9 +681,16 @@ inside the SchedulingAssistant.
 - **`SchedulingAssistant` takes an optional `series` prop** and composes two
   new presentational components: `SeriesOccurrenceBand` (date chips, series
   verdict carrying the locked 'N of M occurrences have room conflicts'
-  phrasing, All/Conflicts focus toggle, conflict stepper; dense >60 drops
-  labels, compact >150 collapses to summary + conflict list) between header
-  and room tabs, and `SeriesVerdictBand` (per-day blocker detail with
+  phrasing, All/Conflicts focus toggle, conflict stepper; the all-dates row
+  is ALWAYS exactly one row — capacity is MEASURED from the row width
+  (ResizeObserver + pure computeChipCapacity, SOB-23; fallback 12 pre-
+  measurement/jsdom), with ellipsis chips ('+N', red-tinted when conflicts
+  hide behind them) that PAGE the window (click or horizontal swipe; there
+  is NO expanded state at all, SOB-19/20/22); selection changes re-anchor
+  the window to keep the selected chip visible; Conflicts focus lists ONLY
+  conflicted chips with one quiet placeholder pill per run of clear dates
+  (SOB-6/21) — never windowed; dense >60 drops labels, compact >150
+  collapses to summary + conflict list) between header and room tabs, and `SeriesVerdictBand` (per-day blocker detail with
   open-blocker via the existing `onOpenBlockingEvent` threading, two-step
   Skip, two-step Restore, last-occurrence skip refusal) below the timeline.
   `series={null}` renders the assistant exactly as before.
@@ -718,11 +725,13 @@ inside the SchedulingAssistant.
   `effectiveStartTime` fallback). INT-3 reproduces with a REAL saved draft
   document (`src/__tests__/__fixtures__/draft-series-repro.json`, sanitized):
   reservation-only draft → conflict request fires windowed 11:30-12:30.
-- **Open blocking event is a real link (post-review UX decision)**: plain
-  click keeps the in-modal navigation (its return leg cold-fetches the origin
-  and re-runs the conflict check — that IS the refresh); ctrl/meta/shift/
-  middle-click get the browser's native new tab via `/?eventId=<mongo _id>`
-  (Calendar's deep-link effect matches `String(e._id)`). Locked by SVB-12.
+- **Open blocking event ALWAYS opens a new tab (revised 2026-08-05)**: a
+  plain `target='_blank'` link to `/?eventId=<mongo _id>` (Calendar's
+  deep-link effect matches `String(e._id)`). The form under review stays
+  open; the visibilitychange re-check refreshes its conflicts on return.
+  The in-modal navigation path (requestModalNavigation / return bar) is no
+  longer driven from this surface — its wiring survives upstream but has no
+  caller; candidate for cleanup. Locked by SVB-12.
 - **Focus freshness**: a blocker edited in another tab or by another user is
   invisible to this form's signature-keyed conflict fetch, so on
   `visibilitychange → visible` the form base re-runs the conflicts check

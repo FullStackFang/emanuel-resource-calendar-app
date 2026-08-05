@@ -1,5 +1,6 @@
-// SeriesVerdictBand — the selected day's verdict below the assistant's
-// timeline (scheduling-assistant-series-mode): conflicted (blocker detail +
+// SeriesVerdictBand — the selected day's verdict beneath the chip row in the
+// assistant's series region (scheduling-assistant-series-mode): conflicted
+// (day anchor + blocker detail +
 // open/skip), clear (quiet line), skipped (pending-removal note + restore).
 // Skip and Restore both use the app's two-step in-button confirmation; arming
 // clears on selection change, never by timeout. Restore is offered for saved
@@ -57,9 +58,14 @@ const baseProps = (overrides = {}) => ({
 describe('SeriesVerdictBand', () => {
   // ─── Conflicted verdict ────────────────────────────────────────────────
 
-  it('SVB-1: lists every blocker with detail and a per-blocker open action', () => {
-    const onOpenBlockingEvent = vi.fn();
-    render(<SeriesVerdictBand {...baseProps({ onOpenBlockingEvent })} />);
+  it('SVB-13: the conflict verdict names its day — the band sits under the chip row, where several chips can be red', () => {
+    render(<SeriesVerdictBand {...baseProps()} />);
+
+    expect(screen.getByTestId('svb-day')).toHaveTextContent(/tue, mar 17/i);
+  });
+
+  it('SVB-1: lists every blocker with detail and a per-blocker open link', () => {
+    render(<SeriesVerdictBand {...baseProps()} />);
 
     const band = screen.getByTestId('series-verdict-band');
     expect(band).toHaveTextContent('Existing Meeting');
@@ -68,11 +74,9 @@ describe('SeriesVerdictBand', () => {
     expect(band).toHaveTextContent('Alice Levine');
     expect(band).toHaveTextContent('Outlook Sync Item');
 
-    fireEvent.click(screen.getByTestId('svb-open-c1'));
-    expect(onOpenBlockingEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'c1', eventTitle: 'Existing Meeting' }),
-      { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
-    );
+    // One open link per blocker, deep-linked by Mongo _id
+    expect(screen.getByTestId('svb-open-c1').getAttribute('href')).toBe('/?eventId=c1');
+    expect(screen.getByTestId('svb-open-c2').getAttribute('href')).toBe('/?eventId=c2');
   });
 
   it('SVB-2: a null requester is identified as synced from Outlook', () => {
@@ -213,27 +217,21 @@ describe('SeriesVerdictBand', () => {
     expect(screen.queryByTestId('svb-restore')).toBeNull();
   });
 
-  it('SVB-12: the open action is a real link — plain click stays in-modal, modified click goes to the browser', () => {
+  it('SVB-12: the open action is a real link that always opens the blocker in a new tab', () => {
     const onOpenBlockingEvent = vi.fn();
     render(<SeriesVerdictBand {...baseProps({ onOpenBlockingEvent })} />);
 
     const link = screen.getByTestId('svb-open-c1');
-    // Deep-link href lets ctrl/middle-click open the blocker in a new tab
     expect(link.tagName).toBe('A');
     expect(link.getAttribute('href')).toBe('/?eventId=c1');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
 
-    // Ctrl-click: the browser owns it (new tab); in-modal navigation must NOT fire
+    // The browser owns every click — the in-modal navigation path never fires.
+    // (The return-leg refresh is covered by the focus re-check instead.)
+    fireEvent.click(link);
     fireEvent.click(link, { ctrlKey: true });
     expect(onOpenBlockingEvent).not.toHaveBeenCalled();
-    fireEvent.click(link, { metaKey: true });
-    expect(onOpenBlockingEvent).not.toHaveBeenCalled();
-
-    // Plain click: in-modal navigation, default (page navigation) suppressed
-    fireEvent.click(link);
-    expect(onOpenBlockingEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'c1' }),
-      { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
-    );
   });
 
   it('SVB-11: renders nothing when the selected date is not an occurrence', () => {

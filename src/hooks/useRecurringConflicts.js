@@ -32,8 +32,13 @@ import { isAbortError } from '../utils/errorUtils';
  *
  * Inputs: { recurrence, roomIds, startDateTime, endDateTime,
  *   setupTimeMinutes, teardownTimeMinutes, reservationStartMinutes,
- *   reservationEndMinutes, excludeEventId, readOnly, apiToken,
- *   isAllowedConcurrent, categories, calendarOwner, pendingSkippedDates }
+ *   reservationEndMinutes, excludeEventId, excludeMasterEventId, readOnly,
+ *   apiToken, isAllowedConcurrent, categories, calendarOwner,
+ *   pendingSkippedDates }
+ *
+ * excludeMasterEventId is the source event's series eventId; passing it lets
+ * the server skip the findOne it otherwise runs to resolve excludeEventId to
+ * a series id (one Cosmos read per check on the hot path).
  */
 export function useRecurringConflicts({
   recurrence,
@@ -45,6 +50,7 @@ export function useRecurringConflicts({
   reservationStartMinutes = 0,
   reservationEndMinutes = 0,
   excludeEventId = null,
+  excludeMasterEventId = null,
   readOnly = false,
   apiToken = null,
   isAllowedConcurrent = false,
@@ -93,6 +99,7 @@ export function useRecurringConflicts({
           reservationStartMinutes,
           reservationEndMinutes,
           excludeEventId,
+          excludeMasterEventId,
           isAllowedConcurrent,
           categories,
           calendarOwner,
@@ -122,7 +129,7 @@ export function useRecurringConflicts({
     } finally {
       setLoading(false);
     }
-  }, [recurrence, roomIds, startDateTime, endDateTime, setupTimeMinutes, teardownTimeMinutes, reservationStartMinutes, reservationEndMinutes, excludeEventId, apiToken, isAllowedConcurrent, categories, calendarOwner]);
+  }, [recurrence, roomIds, startDateTime, endDateTime, setupTimeMinutes, teardownTimeMinutes, reservationStartMinutes, reservationEndMinutes, excludeEventId, excludeMasterEventId, apiToken, isAllowedConcurrent, categories, calendarOwner]);
 
   // Latest fetch reachable without keying the effect on callback identity.
   const fetchConflictsRef = useRef(fetchConflicts);
@@ -140,6 +147,7 @@ export function useRecurringConflicts({
     reservationStartMinutes,
     reservationEndMinutes,
     excludeEventId,
+    excludeMasterEventId,
     isAllowedConcurrent,
     categories,
     calendarOwner,

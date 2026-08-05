@@ -1,4 +1,4 @@
-import RoseSpinner from './RoseSpinner';
+import RoseSpinner, { ROSE_DEFAULT_SIZE } from './RoseSpinner';
 import './LoadingSpinner.css';
 
 /**
@@ -12,7 +12,7 @@ import './LoadingSpinner.css';
  * className modifiers: 'fullscreen', 'inline', 'compact'
  */
 const LoadingSpinner = ({
-  size = 48,
+  size = ROSE_DEFAULT_SIZE,
   minHeight = 200,
   className = '',
   text = '',

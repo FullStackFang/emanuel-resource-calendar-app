@@ -85,6 +85,30 @@ function findScanIdx(authFetch) {
   return authFetch.mock.calls.findIndex(([url]) => url.includes('/admin/reports/conflicts'));
 }
 
+/**
+ * The report settles its calendar selection before scanning, so the calendar
+ * list has to resolve or the scan never fires. Compose the controllable mock
+ * with an immediate answer for that one endpoint: these tests are about the
+ * SCAN's loading states, and leaving the list pending would make them assert a
+ * spinner that is up for an unrelated reason.
+ */
+function withCalendars(controllable, calendars = ['TempleEvents@emanuelnyc.org']) {
+  const authFetch = vi.fn((url, opts) => {
+    if (String(url).includes('/calendar-display-config')) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ allowedDisplayCalendars: calendars }) });
+    }
+    return controllable.authFetch(url, opts);
+  });
+  // Index helpers below read the wrapper's calls, but resolveCall* address the
+  // inner queue, which only ever receives non-calendar calls. Expose both.
+  return { authFetch, inner: controllable };
+}
+
+/** Resolve the pending scan on the inner queue (the calendar call never queues). */
+function resolveScan(wrapped, body) {
+  wrapped.inner.resolveCallWith(0, body);
+}
+
 describe('ConflictReport — first paint', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,13 +135,13 @@ describe('ConflictReport — first paint', () => {
   });
 
   it('CRFP-1b: no empty state appears at any point while the scan is in flight', async () => {
-    const { authFetch } = makeControllableAuthFetch();
-    currentAuthFetch = authFetch;
+    const wrapped = withCalendars(makeControllableAuthFetch());
+    currentAuthFetch = wrapped.authFetch;
 
     render(<ConflictReport />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
-      expect(findScanIdx(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findScanIdx(wrapped.authFetch)).toBeGreaterThanOrEqual(0);
     });
 
     expect(screen.queryByTestId('loading-spinner')).toBeInTheDocument();
@@ -125,26 +149,26 @@ describe('ConflictReport — first paint', () => {
   });
 
   it('CRFP-2: the scan runs on open with the default 90-day window, no user action', async () => {
-    const { authFetch } = makeControllableAuthFetch();
-    currentAuthFetch = authFetch;
+    const wrapped = withCalendars(makeControllableAuthFetch());
+    currentAuthFetch = wrapped.authFetch;
 
     render(<ConflictReport />, { wrapper: withQueryClient() });
 
     await waitFor(() => {
-      expect(findScanIdx(authFetch)).toBeGreaterThanOrEqual(0);
+      expect(findScanIdx(wrapped.authFetch)).toBeGreaterThanOrEqual(0);
     });
-    expect(authFetch.mock.calls[findScanIdx(authFetch)][0]).toContain('days=90');
+    expect(wrapped.authFetch.mock.calls[findScanIdx(wrapped.authFetch)][0]).toContain('days=90');
   });
 
   it('CRFP-3: once resolved with no conflicts, the empty state appears and reads as success', async () => {
-    const { authFetch, resolveCallWith } = makeControllableAuthFetch();
-    currentAuthFetch = authFetch;
+    const wrapped = withCalendars(makeControllableAuthFetch());
+    currentAuthFetch = wrapped.authFetch;
 
     render(<ConflictReport />, { wrapper: withQueryClient() });
-    await waitFor(() => expect(findScanIdx(authFetch)).toBeGreaterThanOrEqual(0));
+    await waitFor(() => expect(findScanIdx(wrapped.authFetch)).toBeGreaterThanOrEqual(0));
 
     await act(async () => {
-      resolveCallWith(findScanIdx(authFetch), EMPTY_REPORT);
+      resolveScan(wrapped, EMPTY_REPORT);
     });
 
     const empty = await screen.findByTestId('conflict-report-empty');
@@ -155,7 +179,8 @@ describe('ConflictReport — first paint', () => {
   });
 
   it('CRFP-4: a background re-scan keeps previous results and never blanks to the empty state', async () => {
-    const { authFetch, resolveCallWith } = makeControllableAuthFetch();
+    const wrapped = withCalendars(makeControllableAuthFetch());
+    const authFetch = wrapped.authFetch;
     currentAuthFetch = authFetch;
 
     const withOne = {
@@ -188,7 +213,7 @@ describe('ConflictReport — first paint', () => {
     await waitFor(() => expect(findScanIdx(authFetch)).toBeGreaterThanOrEqual(0));
 
     await act(async () => {
-      resolveCallWith(findScanIdx(authFetch), withOne);
+      resolveScan(wrapped, withOne);
     });
     expect(await screen.findByText('Alpha')).toBeInTheDocument();
 

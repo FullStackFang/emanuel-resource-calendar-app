@@ -86,6 +86,50 @@ function bufferMinutes(doc, reservationField, setupField) {
 }
 
 /**
+ * A "Hold" is a room block with no scheduled event inside it. The system
+ * identifies one by the absence of event times together with the presence of
+ * reservation bounds — the same predicate api-server.js uses at ~3601, ~6171
+ * and EventManagement.jsx ~345.
+ * @private
+ */
+function isHoldEvent(doc) {
+  const cd = doc?.calendarData || {};
+  return !cd.startTime && !cd.endTime && !!(cd.reservationStartTime || cd.reservationEndTime);
+}
+
+/**
+ * The times a Hold actually occupies.
+ *
+ * A Hold has no event times, so its stored startDateTime/endDateTime are a
+ * WHOLE-DAY placeholder (00:00-23:59) and its real occupancy lives in
+ * reservationStartTime/reservationEndTime. api-server.js performs this exact
+ * substitution when building the Graph event (~6176), with the comment
+ * "Without this, exception docs (and events with empty startTime) show
+ * 00:00-23:59".
+ *
+ * Reading the placeholder instead makes every Hold block its room for a full
+ * day and collide with everything in it — and the row then renders
+ * "12:00 AM - 12:00 AM", so the reader cannot see why it is being flagged.
+ *
+ * The DATE comes from the passed-in times, not from calendarData, so an
+ * occurrence of a recurring Hold resolves against its own occurrence date
+ * rather than the master's first date.
+ * @private
+ */
+function holdWindow(doc, startDateTime, endDateTime) {
+  const cd = doc?.calendarData || {};
+  const startDay = String(startDateTime || '').split('T')[0] || cd.startDate;
+  const endDay = String(endDateTime || '').split('T')[0] || cd.endDate || startDay;
+
+  return {
+    // Each edge falls back to the stored value independently: a Hold may carry
+    // only one of the two reservation bounds.
+    start: startDay && cd.reservationStartTime ? `${startDay}T${cd.reservationStartTime}:00` : startDateTime,
+    end: endDay && cd.reservationEndTime ? `${endDay}T${cd.reservationEndTime}:00` : endDateTime,
+  };
+}
+
+/**
  * The window a booking actually occupies: its visible times pushed out by the
  * setup/teardown (or reservation-bound) buffers.
  *
@@ -98,6 +142,12 @@ function effectiveWindow(doc, startDateTime, endDateTime) {
   const start = parseLocal(startDateTime);
   const end = parseLocal(endDateTime);
   if (!start || !end) return null;
+
+  // A Hold IS its reservation window — the buffers are already baked in, and
+  // adding them again would double-count the very fields that defined it.
+  if (isHoldEvent(doc)) {
+    return { effectiveStart: start, effectiveEnd: end, setupMinutes: 0, teardownMinutes: 0 };
+  }
 
   const setup = bufferMinutes(doc, 'reservationStartMinutes', 'setupTimeMinutes') || 0;
   const teardown = bufferMinutes(doc, 'reservationEndMinutes', 'teardownTimeMinutes') || 0;
@@ -128,6 +178,16 @@ function roomIdsOf(doc) {
  * @private
  */
 function normalizeSide(doc, { startDateTime, endDateTime, occurrenceDate = null, isOccurrence = false }) {
+  // Resolve a Hold to its real occupancy BEFORE anything else reads the times:
+  // the placeholder it stores would otherwise be measured, bucketed AND
+  // displayed, which is three wrong answers from one bad input.
+  const isHold = isHoldEvent(doc);
+  if (isHold) {
+    const resolved = holdWindow(doc, startDateTime, endDateTime);
+    startDateTime = resolved.start;
+    endDateTime = resolved.end;
+  }
+
   const eff = effectiveWindow(doc, startDateTime, endDateTime);
   if (!eff) return null;
 
@@ -144,6 +204,9 @@ function normalizeSide(doc, { startDateTime, endDateTime, occurrenceDate = null,
     eventType: doc.eventType || null,
     occurrenceDate,
     isOccurrence,
+    // Surfaced so the row can say WHY a booking with no event times occupies
+    // the room it does.
+    isHold,
 
     title: doc.eventTitle || doc.calendarData?.eventTitle || '(untitled)',
     calendarOwner: doc.calendarOwner || null,
@@ -202,6 +265,14 @@ const REPORT_PROJECTION = Object.freeze({
   'calendarData.eventTitle': 1,
   'calendarData.startDateTime': 1,
   'calendarData.endDateTime': 1,
+  // Hold detection + resolution. WITHOUT these five the isHold predicate is
+  // always false and every Hold silently occupies its room for a whole day.
+  'calendarData.startTime': 1,
+  'calendarData.endTime': 1,
+  'calendarData.reservationStartTime': 1,
+  'calendarData.reservationEndTime': 1,
+  'calendarData.startDate': 1,
+  'calendarData.endDate': 1,
   'calendarData.locations': 1,
   'calendarData.locationDisplayNames': 1,
   'calendarData.categories': 1,
@@ -222,6 +293,11 @@ const REPORT_PROJECTION = Object.freeze({
  * @param {string} params.windowStart - 'YYYY-MM-DD', inclusive
  * @param {string} params.windowEnd - 'YYYY-MM-DD', exclusive
  * @param {string|null} [params.calendarOwner] - narrow to one mailbox
+ * @param {string[]|null} [params.allowedCalendarOwners] - the mailboxes this
+ *   app displays. With no `calendarOwner`, the scan covers THESE, not every
+ *   calendarOwner in the collection — sandbox and other non-display mailboxes
+ *   share the collection, and reporting conflicts in a calendar the picker does
+ *   not even offer is noise the reader cannot act on.
  * @param {Function} [params.retry] - read wrapper (withCosmosRetry in production)
  * @param {Map<string,string>} [params.roomNamesById] - display names for grouping
  * @param {number} [params.maxOccurrences] - override the cap; exists so the cap
@@ -234,6 +310,7 @@ async function runConflictReport({
   windowStart,
   windowEnd,
   calendarOwner = null,
+  allowedCalendarOwners = null,
   retry = (fn) => fn(),
   roomNamesById = new Map(),
   maxOccurrences = MAX_OCCURRENCES,
@@ -244,12 +321,38 @@ async function runConflictReport({
   const endStr = toLocalISOString(endBound);
 
   const normalizedOwner = calendarOwner ? String(calendarOwner).toLowerCase() : null;
-  const ownerFilter = normalizedOwner ? { calendarOwner: normalizedOwner } : {};
 
   // A scan that could not complete must NEVER render as "no conflicts" — a
   // false all-clear on a defect list is strictly worse than an error, because
   // the approver leaves believing the calendar is clean.
   const degraded = [];
+
+  // Scope. One mailbox when asked for; otherwise the displayable set, NOT
+  // everything in the collection.
+  //
+  // Case-insensitivity is done by expanding the allowlist against the stored
+  // values via distinct(), NOT by $regex — Cosmos handles regex unreliably, and
+  // this is the same approach syncHealthService takes for the same reason.
+  // calendarOwner is lowercased on some write paths and not others, and
+  // calendar-config.json stores mixed case ("TempleEvents@..."), so a
+  // straight lowercased $in would silently match nothing at all.
+  let ownerFilter = {};
+  if (normalizedOwner) {
+    ownerFilter = await expandOwnerFilter(eventsCollection, [normalizedOwner], retry, degraded);
+  } else if (Array.isArray(allowedCalendarOwners)) {
+    if (allowedCalendarOwners.length === 0) {
+      // Nothing is configured for display, so nothing was scanned. Reporting
+      // "no conflicts found" here would be a false all-clear about a calendar
+      // nobody looked at (D9).
+      degraded.push({
+        stage: 'calendars',
+        message: 'No calendars are configured for display, so nothing was scanned',
+      });
+      ownerFilter = { calendarOwner: { $in: [] } };
+    } else {
+      ownerFilter = await expandOwnerFilter(eventsCollection, allowedCalendarOwners, retry, degraded);
+    }
+  }
 
   // --- Read 1: published non-master events overlapping the window ------------
   // Series masters are excluded by eventType and expanded separately. A
@@ -399,13 +502,30 @@ async function runConflictReport({
     }
   }
 
-  // --- Bucket by (room, day), then sweep -----------------------------------
+  // --- Bucket by (calendarOwner, room, day), then sweep ---------------------
+  //
+  // calendarOwner IS PART OF THE BUCKET KEY, and that is load-bearing (D6).
+  // Comparing across mailboxes is out of scope for this capability, and the
+  // failure mode when it leaks is not subtle: the same event synced into two
+  // calendars becomes two documents with identical title, time, room and
+  // requester, and every one of them reports as a conflict with itself. The
+  // genuine findings drown, and the report reads as broken on first contact.
+  //
+  // This leaves a real blind spot — a room is a physical object, so the same
+  // room booked at the same time from two mailboxes IS double-booked, and no
+  // check in this system can see it. Recorded as a decision, not a bug.
+  //
+  // Lowercased because calendarOwner is normalized on some write paths and not
+  // others; bucketing the raw string would split one mailbox in two and hide a
+  // genuine same-calendar conflict.
+  //
   // A side is inserted into EVERY day-bucket its effective window touches. An
   // event spanning midnight, or one whose setup buffer pushes its effective
   // start into the previous day, belongs to two buckets; bucketing on the
   // effective start-day alone silently drops those pairs.
   const buckets = new Map();
   for (const side of sides) {
+    const ownerKey = side.calendarOwner ? String(side.calendarOwner).toLowerCase() : '(none)';
     for (const roomId of side.rooms) {
       const cursor = new Date(
         side._effStart.getFullYear(),
@@ -418,8 +538,8 @@ async function runConflictReport({
         side._effEnd.getDate()
       );
       while (cursor <= lastDay) {
-        const bucketKey = `${roomId}|${toLocalDateKey(cursor)}`;
-        if (!buckets.has(bucketKey)) buckets.set(bucketKey, { roomId, sides: [] });
+        const bucketKey = `${ownerKey}|${roomId}|${toLocalDateKey(cursor)}`;
+        if (!buckets.has(bucketKey)) buckets.set(bucketKey, { roomId, ownerKey, sides: [] });
         buckets.get(bucketKey).sides.push(side);
         cursor.setDate(cursor.getDate() + 1);
       }
@@ -458,6 +578,8 @@ async function runConflictReport({
         byKey.set(conflictKey, {
           key: conflictKey,
           date,
+          // Both sides share this by construction — the bucket key includes it.
+          calendarOwner: first.calendarOwner || null,
           roomId: bucket.roomId,
           roomName: roomNamesById.get(bucket.roomId) || nameForRoom(bucket.roomId, [first, second]),
           overlapStart: toLocalISOString(overlapStart),
@@ -490,6 +612,35 @@ async function runConflictReport({
     degraded,
     truncated,
   };
+}
+
+/**
+ * Build a calendarOwner filter that matches the wanted mailboxes in whatever
+ * casing they are actually stored in.
+ *
+ * distinct() rather than $regex: Cosmos handles regex unreliably, and this
+ * mirrors what syncHealthService does for the same field. If the distinct read
+ * fails we fall back to the requested values verbatim plus their lowercase
+ * forms and say so — narrower than intended is acceptable, silently scanning
+ * every mailbox in the collection is not.
+ * @private
+ */
+async function expandOwnerFilter(eventsCollection, wanted, retry, degraded) {
+  const wantedLower = new Set(wanted.map((o) => String(o).toLowerCase()).filter(Boolean));
+
+  try {
+    const stored = await retry(() => eventsCollection.distinct('calendarOwner'));
+    const matches = stored.filter((o) => o && wantedLower.has(String(o).toLowerCase()));
+    return { calendarOwner: { $in: matches } };
+  } catch (err) {
+    degraded.push({
+      stage: 'calendars',
+      message: `Could not resolve calendar name casing (${err.message || 'read failed'}); scan may be narrower than requested`,
+    });
+    logger.warn('[conflictReport] calendarOwner distinct failed:', err.message);
+    const fallback = new Set([...wanted, ...wantedLower]);
+    return { calendarOwner: { $in: [...fallback] } };
+  }
 }
 
 /**
