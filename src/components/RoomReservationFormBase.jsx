@@ -1522,11 +1522,20 @@ export default function RoomReservationFormBase({
   // the hook self-guards (null data, no fetch) when the recurrence or rooms
   // are incomplete. Same inputs the retired standalone panel received.
   const seriesActive = !!(recurrencePattern?.pattern && recurrencePattern?.range) && formData.requestedRooms.length > 0;
+  // Conflict window falls back to the reservation times when event times are
+  // absent — drafts may carry only a reservation window (times are optional
+  // for drafts, and the transform deliberately never surfaces reservation
+  // times as event times). Room occupancy is the reservation window, and the
+  // backend's own effectiveStartTime uses the same fallback; without this a
+  // reservation-times-only draft silently never got its series checked.
+  const conflictStartTime = formData.startTime || formData.reservationStartTime;
+  const conflictEndTime = formData.endTime || formData.reservationEndTime;
+  const seriesTimesMissing = seriesActive && !(formData.startDate && conflictStartTime && formData.endDate && conflictEndTime);
   const recurringConflicts = useRecurringConflicts({
     recurrence: recurrencePattern,
     roomIds: formData.requestedRooms,
-    startDateTime: formData.startDate && formData.startTime ? `${formData.startDate}T${formData.startTime}:00` : null,
-    endDateTime: formData.endDate && formData.endTime ? `${formData.endDate}T${formData.endTime}:00` : null,
+    startDateTime: formData.startDate && conflictStartTime ? `${formData.startDate}T${conflictStartTime}:00` : null,
+    endDateTime: formData.endDate && conflictEndTime ? `${formData.endDate}T${conflictEndTime}:00` : null,
     reservationStartMinutes: formData.reservationStartMinutes || 0,
     reservationEndMinutes: formData.reservationEndMinutes || 0,
     excludeEventId: currentReservationId,
@@ -1537,6 +1546,28 @@ export default function RoomReservationFormBase({
     calendarOwner: effectiveDefaultCalendar,
     pendingSkippedDates,
   });
+
+  // Focus freshness: a blocker edited in another tab (or by another user)
+  // leaves this form's conflict verdict stale — the conflicts fetch is keyed
+  // on THIS form's inputs and cannot see other events change. Re-check when
+  // the tab regains focus; the availability timeline refreshes alongside so
+  // the two surfaces never disagree.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (seriesActive) {
+        recurringConflicts.retry();
+      }
+      if (assistantRoomsRef.current.length > 0 && assistantViewDate) {
+        lastFetchParamsRef.current = { roomIds: '', date: null, excludeEventId: null };
+        setAvailabilityLoading(true);
+        checkDayAvailability(assistantRoomsRef.current.map(room => room._id), assistantViewDate);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesActive, assistantViewDate, recurringConflicts.retry]);
 
   // View-date reset rule (design D1): structural, not event-based. Whenever
   // the browsed date stops being an occurrence or exclusion of the current
@@ -2600,6 +2631,8 @@ export default function RoomReservationFormBase({
                       totalOccurrences: recurringConflicts.totalOccurrences,
                       conflictingOccurrences: recurringConflicts.conflictingOccurrences,
                       skipRefused: recurringConflicts.skipRefused,
+                      hasData: !!recurringConflicts.data,
+                      inputsIncomplete: seriesTimesMissing,
                       loading: recurringConflicts.loading,
                       error: recurringConflicts.error,
                       retry: recurringConflicts.retry,

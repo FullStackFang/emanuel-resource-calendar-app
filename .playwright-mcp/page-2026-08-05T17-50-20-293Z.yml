@@ -1,0 +1,228 @@
+- generic [ref=f2e2]:
+  - banner [ref=f2e3]:
+    - paragraph [ref=f2e4]: Emanuel Resource Calendar · Loading mark · v2
+    - heading "Traced, not sketched" [level=1] [ref=f2e5]
+    - paragraph [ref=f2e6]:
+      - text: Version 1 guessed the petal shape and got it wrong. This version decodes
+      - code [ref=f2e7]: emanuel_logo.png
+      - text: and measures the real silhouette in polar coordinates, then rebuilds it as vector geometry. Direction is now clockwise, and adjustable below.
+    - generic [ref=f2e8]:
+      - text: What changed since v1
+      - list [ref=f2e9]:
+        - listitem [ref=f2e10]: Petal is geometric. Circular head, pinched neck, hard horizontal shoulder, straight‑sided tapering wedge, pointed foot. v1 had a soft paisley with curved sides.
+        - listitem [ref=f2e11]: The white "eye" is gone. I invented it; the trace shows the head is solid.
+        - listitem [ref=f2e12]: Ornament band is real. Three keystones per petal, one on‑axis and two flanking at ±8°, at radius 35–40 of 50. v1 had one dot in the wrong place.
+        - listitem [ref=f2e13]: Rotation is clockwise by default, and there is a toggle.
+        - listitem [ref=f2e14]: A and B are fused. The tracery arc and the petal beam run phase‑locked, so the band reads as the light source and the petals as what it falls on.
+        - listitem [ref=f2e15]: Resting opacity raised from .14 to .26. At .14 the window washed out to pastel between passes and looked sickly at 48px.
+  - generic [ref=f2e16]:
+    - generic [ref=f2e17]:
+      - generic [ref=f2e18]: Direction
+      - generic [ref=f2e19]:
+        - button "Clockwise" [pressed] [ref=f2e20] [cursor=pointer]
+        - button "Counter‑clockwise" [ref=f2e21] [cursor=pointer]
+    - generic [ref=f2e22]:
+      - generic [ref=f2e23]: Speed
+      - slider [ref=f2e24]: "1600"
+      - generic [ref=f2e25]: 1.60s
+    - generic [ref=f2e26]:
+      - generic [ref=f2e27]: Trace overlay
+      - slider [ref=f2e28]: "55"
+      - generic [ref=f2e29]: 55%
+  - generic [ref=f2e30]:
+    - heading "Fidelity check" [level=2] [ref=f2e31]
+    - paragraph [ref=f2e32]:
+      - text: The drawn mark sits directly on top of the source PNG. Drag
+      - strong [ref=f2e33]: Trace overlay
+      - text: above to cross‑fade between them. Every radius, angle and hex below is measured, not chosen.
+    - generic [ref=f2e34]:
+      - generic [ref=f2e35]:
+        - img "Temple Emanu-El rose window" [ref=f2e36]
+        - img "Loading" [ref=f2e37]
+      - list [ref=f2e103]:
+        - listitem [ref=f2e104]:
+          - generic [ref=f2e105]: Petals
+          - generic [ref=f2e106]:
+            - text: 12, at 15° + n·30°; head
+            - code [ref=f2e107]: r 5.2
+            - text: at radius
+            - code [ref=f2e108]: "29.4"
+            - text: ", foot at"
+            - code [ref=f2e109]: "12.1"
+        - listitem [ref=f2e110]:
+          - generic [ref=f2e111]: Neck / shoulder
+          - generic [ref=f2e112]:
+            - text: waist
+            - code [ref=f2e113]: hw 3.4
+            - text: at
+            - code [ref=f2e114]: r 26.8
+            - text: ", shoulder steps out to"
+            - code [ref=f2e115]: hw 5.6
+        - listitem [ref=f2e116]:
+          - generic [ref=f2e117]: Body
+          - generic [ref=f2e118]:
+            - text: straight taper,
+            - code [ref=f2e119]: hw 5.66 → 2.92
+            - text: over
+            - code [ref=f2e120]: r 25 → 15
+        - listitem [ref=f2e121]:
+          - generic [ref=f2e122]: Keystones
+          - generic [ref=f2e123]:
+            - text: 3 per petal at
+            - code [ref=f2e124]: 0°, ±8°
+            - text: ", radius"
+            - code [ref=f2e125]: 35.2 – 39.8
+        - listitem [ref=f2e126]:
+          - generic [ref=f2e127]: Outer band
+          - generic [ref=f2e128]:
+            - text: radius
+            - code [ref=f2e129]: "46.4"
+            - text: ", stroke"
+            - code [ref=f2e130]: "3.65"
+            - text: ", teal → sapphire"
+        - listitem [ref=f2e131]:
+          - generic [ref=f2e132]: Star
+          - generic [ref=f2e133]:
+            - text: hexagram, circumradius
+            - code [ref=f2e134]: "10.2"
+            - text: ","
+            - code [ref=f2e135]: "#b18c52"
+            - text: ", never rotates"
+    - generic [ref=f2e136]:
+      - generic [ref=f2e137]:
+        - emphasis [ref=f2e139]: Plum
+        - generic [ref=f2e140]: "#91226d"
+      - generic [ref=f2e141]:
+        - emphasis [ref=f2e143]: Crimson
+        - generic [ref=f2e144]: "#991b39"
+      - generic [ref=f2e145]:
+        - emphasis [ref=f2e147]: Teal
+        - generic [ref=f2e148]: "#408796"
+      - generic [ref=f2e149]:
+        - emphasis [ref=f2e151]: Cyan
+        - generic [ref=f2e152]: "#0085ab"
+      - generic [ref=f2e153]:
+        - emphasis [ref=f2e155]: Sapphire
+        - generic [ref=f2e156]: "#016395"
+      - generic [ref=f2e157]:
+        - emphasis [ref=f2e159]: Violet
+        - generic [ref=f2e160]: "#615c9b"
+      - generic [ref=f2e161]:
+        - emphasis [ref=f2e163]: Gold
+        - generic [ref=f2e164]: "#b18c52"
+  - generic [ref=f2e165]:
+    - heading "A + B, fused" [level=2] [ref=f2e166]
+    - paragraph [ref=f2e167]:
+      - text: The arc and the beam are
+      - strong [ref=f2e168]: phase‑locked
+      - text: ": same angular rate, with the dash's leading edge sitting exactly on the brightest petal. Without that lock they read as two unrelated things moving. The band carries the light in at the rim; the petals wash bright just behind it."
+    - generic [ref=f2e169]:
+      - img "Loading" [ref=f2e171]
+      - generic [ref=f2e237]:
+        - generic [ref=f2e238]: Illumination with tracery lead
+        - paragraph [ref=f2e239]: "Moves: an arc on the band, and the light it casts across the petals"
+        - paragraph [ref=f2e240]: The petal geometry never rotates — only its illumination travels, so the hexagram stays upright and still. The arc is the one genuinely rotating element, and it reads as the source of the sweep rather than as a separate spinner.
+        - paragraph [ref=f2e241]: "Cost: twelve opacity animations plus one transform. No layout properties animated, so it stays on the compositor."
+    - heading "The two ingredients, separately" [level=3] [ref=f2e242]
+    - generic [ref=f2e243]:
+      - generic [ref=f2e244]:
+        - img "Loading" [ref=f2e247]
+        - generic [ref=f2e312]: A · Illumination alone
+        - paragraph [ref=f2e313]: Beam only, band static. Quiet, but at small sizes it can read as flickering rather than turning.
+      - generic [ref=f2e314]:
+        - img "Loading" [ref=f2e317]
+        - generic [ref=f2e383]: B · Tracery arc alone
+        - paragraph [ref=f2e384]: Arc only, petals static and dim. Unambiguously a spinner, but the window is reduced to decoration behind it.
+      - generic [ref=f2e385]:
+        - img "Loading" [ref=f2e388]
+        - generic [ref=f2e453]: C · Cascade (not selected)
+        - paragraph [ref=f2e454]: Discrete twelve‑step tick. Kept here only for comparison.
+  - generic [ref=f2e455]:
+    - heading "Size tiers" [level=2] [ref=f2e456]
+    - paragraph [ref=f2e457]:
+      - text: Detail sheds as the mark shrinks, and below
+      - strong [ref=f2e458]: 32px the rose gives way entirely
+      - text: to a conic ring in the same six hues. Twelve petals plus a hexagram plus thirty‑six keystones do not resolve at 20px, and pretending otherwise just yields a coloured smudge.
+    - generic [ref=f2e459]:
+      - generic [ref=f2e460]:
+        - img "Loading" [ref=f2e463]
+        - paragraph [ref=f2e529]:
+          - generic [ref=f2e530]: Full — 48px+
+          - text: petals + keystones+ band + star
+      - generic [ref=f2e531]:
+        - img "Loading" [ref=f2e534]
+        - paragraph [ref=f2e564]:
+          - generic [ref=f2e565]: Default — 48px
+          - text: petals + band + starkeystones dropped
+      - generic [ref=f2e566]:
+        - img "Loading" [ref=f2e569]
+        - paragraph [ref=f2e598]:
+          - generic [ref=f2e599]: Compact — 32px
+          - text: petals + gold dothexagram dropped
+      - paragraph [ref=f2e603]:
+        - generic [ref=f2e604]: Ring — 24px
+        - text: below the 32px cutover,conic ring takes over
+      - paragraph [ref=f2e608]:
+        - generic [ref=f2e609]: Micro — 14px
+        - text: same ring, as usedinside buttons
+  - generic [ref=f2e610]:
+    - heading "In context — the three component variants" [level=2] [ref=f2e611]
+    - paragraph [ref=f2e612]:
+      - text: The real shapes
+      - code [ref=f2e613]: <LoadingSpinner />
+      - text: "renders today:"
+      - code [ref=f2e614]: default
+      - text: in a panel,
+      - code [ref=f2e615]: card
+      - text: for page gates,
+      - code [ref=f2e616]: overlay
+      - text: for calendar navigation. Only the mark changes; every wrapper, size and text prop stays as it is.
+    - generic [ref=f2e617]:
+      - generic [ref=f2e618]:
+        - generic [ref=f2e619]: variant="default" · size=48
+        - generic [ref=f2e621]:
+          - img "Loading" [ref=f2e623]
+          - generic [ref=f2e653]: Loading reservations…
+      - generic [ref=f2e654]:
+        - generic [ref=f2e655]: variant="card" · size=48
+        - generic [ref=f2e657]:
+          - img "Loading" [ref=f2e659]
+          - generic [ref=f2e689]: Loading event…
+      - generic [ref=f2e690]:
+        - generic [ref=f2e691]: variant="overlay" · over calendar content
+        - generic [ref=f2e700]:
+          - img "Loading" [ref=f2e702]
+          - generic [ref=f2e732]: Loading August 2026…
+      - generic [ref=f2e733]:
+        - generic [ref=f2e734]: buttons · .btn-spinner at 14px
+        - generic [ref=f2e736]:
+          - generic [ref=f2e737]: Publishing…
+          - generic [ref=f2e739]: Saving…
+  - generic [ref=f2e741]:
+    - heading "Reduced motion" [level=2] [ref=f2e742]
+    - paragraph [ref=f2e743]:
+      - text: Under
+      - code [ref=f2e744]: "prefers-reduced-motion: reduce"
+      - text: the sweep stops entirely. The window rests at a uniform 60% and the outer band breathes slowly instead — enough signal that work is happening, no rotation, no travelling highlight. Forced on here, independent of your OS setting.
+    - generic [ref=f2e745]:
+      - generic [ref=f2e746]:
+        - img "Loading" [ref=f2e749]
+        - paragraph [ref=f2e779]:
+          - generic [ref=f2e780]: 48px
+          - text: band breathes, 2.6s
+      - generic [ref=f2e781]:
+        - img "Loading" [ref=f2e784]
+        - paragraph [ref=f2e813]:
+          - generic [ref=f2e814]: 32px
+          - text: same rest state
+      - generic [ref=f2e815]:
+        - generic [ref=f2e816]: Saving…
+        - paragraph [ref=f2e819]:
+          - generic [ref=f2e820]: Buttons
+          - text: ring slows to 2.4s rather than stopping,so the button still reads as busy
+    - paragraph [ref=f2e821]:
+      - text: The logo's gold is
+      - code [ref=f2e822]: "#b18c52"
+      - text: ", an antique bronze — noticeably more muted than the app's"
+      - code [ref=f2e823]: "--color-accent-500: #eab308"
+      - text: . The mark keeps its own gold rather than being pulled onto the UI token, because here it reads as the logo, not as an accent.

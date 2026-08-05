@@ -195,6 +195,15 @@ export default function Navigation() {
           </li>
         )}
 
+        {/* Room Conflicts - same audience and same treatment as Sync Health. */}
+        {canApproveReservations && !isAdmin && (
+          <li>
+            <NavLink to="/admin/reports/conflicts" className={({ isActive }) => isActive ? 'active' : ''}>
+              Room Conflicts
+            </NavLink>
+          </li>
+        )}
+
         {/* Admin dropdown - Admins only. Holds all admin tools, including the
             (constrained) User Management entry. */}
         {isAdmin && (
@@ -262,6 +271,15 @@ export default function Navigation() {
                     onClick={handleDropdownLinkClick}
                   >
                     Sync Health
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/reports/conflicts"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Room Conflicts
                   </NavLink>
                 </li>
                 <li>

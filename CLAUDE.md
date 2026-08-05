@@ -586,6 +586,83 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Room conflict report (implemented 2026-08-05)
+
+Spec: `openspec/changes/room-conflict-report/`. 42/43 tasks; only 11.3
+(manual e2e) outstanding.
+
+**The gap it closes:** every conflict check in the system is *one-vs-many* —
+`checkRoomConflicts()` answers "given this candidate, what does it hit?" and
+runs at write time. Nothing answered "across the calendar, what is
+double-booked?". Graph delta sync writes Outlook events straight into
+`templeEvents__Events` with NO conflict check, forced publishes deliberately
+write into a known conflict, and approved events can be edited into one. All
+three leave a real double-booking invisible until two groups show up.
+
+**Shipped:**
+- **`backend/utils/concurrencyRules.js`** — `isRealConflict(sideA, sideB,
+  categoryMap)`, pure. The bilateral category grant + legacy per-event fallback
+  lifted verbatim out of `checkRoomConflicts()`. **THREE call sites converted,
+  not the two the design named**: the `actualConflicts` filter, the pending-edit
+  loop, and `isFilteredByConcurrency` inside `checkRecurringRoomConflicts()`
+  (the third is the exact complement — "filtered out" = "not a conflict").
+  The eager category id/allow-list precompute in `checkRoomConflicts` is gone;
+  it existed only to feed the inlined copies.
+- **The extraction preserves an ASYMMETRY, deliberately** (pinned by CRU-12):
+  the `aAllowsConcurrent` branch is reached only after the `bAllowsConcurrent`
+  branch declined, so side A's `allowedConcurrentCategories` restriction list
+  is never consulted. That is what publish does today. Changing it changes what
+  the system lets people book and belongs in its own change.
+- **`backend/services/conflictReportService.js`** — three bounded reads
+  (published non-masters in window / masters by `eventType` / exception+addition
+  children for suppression), then all comparison in memory: normalize → bucket
+  by `(roomId, dayKey)` → per-bucket sweep-line → dedup by canonical pair key.
+  Deps injected (collection, categoryMap, retry, roomNamesById), matching
+  syncHealthService — api-server assigns collection handles at connect time.
+- **A side is inserted into EVERY day-bucket its effective window touches.**
+  Bucketing on the effective start-day alone silently drops midnight-spanning
+  pairs. Cross-bucket dedup keys on the pair, so a pair meeting in two buckets
+  reports once, dated by its overlap start.
+- **`GET /api/admin/reports/conflicts`** — `verifyToken` + the same
+  `isAdmin || canApproveReservations` gate as sync-health. `days` ∈
+  {30,90,180,365}, default 90, **400 not clamped** (a clamped window misstates
+  its own coverage). No cache (D7). Zero writes, asserted by CR-13-writes.
+- **Frontend**: `ConflictReport.jsx` / `.css`, route `/admin/reports/conflicts`,
+  `RequireSyncHealth` renamed `RequireApproverReport` and shared by both report
+  routes. Nav mirrors Sync Health (top-level for non-admin approvers, Admin
+  dropdown for admins). Drill-in mounts ONE `EventReviewExperience` fed by
+  `exp.navigateToEvent(id)` — whose `/room-reservations/:id` → `/events/:id`
+  404 fallback is **mandatory** here, since Outlook-synced sides carry no
+  `roomReservationData`.
+- **Honest states**: `degraded[]` banners incompleteness ABOVE the list, a
+  total read failure throws (never an empty list), `truncated` banners the
+  20,000-occurrence cap, and the empty state is gated on
+  `!isFirstLoad && !isSilentRefreshing`. On a defect list the empty state reads
+  "no conflicts were found" — flashing it before the scan resolves tells an
+  approver the calendar is clean when nobody checked.
+
+**Tests:** new `concurrencyRules.test.js` (12, CRU-1..12), new
+`conflictReport.test.js` (53, CR-1..16 + endpoint), new
+`ConflictReport.test.jsx` (16), `ConflictReport.firstPaint.test.jsx` (5),
+`ConflictReport.route.test.jsx` (6). Extraction verified pure by baseline
+identity — same 5 failures with the same names in `architecturalBugs.test.js`
+before and after. Mutation-checked: removing the buffer extension fails CR-4
+(and 3 others), removing exception-date suppression fails both CR-9 variants,
+binding the loading gate to `query.isLoading` fails CRFP-1, reintroducing a
+second route guard fails CRR-6. Full frontend suite identical to baseline
+(10 failures / 3 files, pre-existing).
+
+**Gotcha for future fixtures:** the buffer chain uses `??`, not `||`, so an
+explicit `calendarData.reservationEndMinutes: 0` SHADOWS the
+`teardownTimeMinutes` fallback. A fixture that always writes 0 tests a shape no
+legacy event has. See the `published()` helper comment in `conflictReport.test.js`.
+
+**Outstanding:** task 11.3 — manual end-to-end on dev with a live MSAL session:
+open as approver and as admin, confirm a known Outlook-created collision
+appears, change window and calendar filter, open both sides of one conflict
+including an Outlook-synced side, resolve one and confirm it leaves the list on
+close, confirm a non-approver is redirected.
+
 ### Scheduling Assistant series mode (implemented 2026-08-05)
 
 Spec: `openspec/changes/scheduling-assistant-series-mode/`. Frontend-only;
@@ -621,6 +698,42 @@ inside the SchedulingAssistant.
   from `recurrence.exclusions` (pending or previously saved) through the same
   dirty path; the signature-keyed refetch re-checks it — no free pass by
   construction.
+- **Honest empty states (post-implementation bug fix)**: the band NEVER
+  claims a verdict without data — skeleton while `!hasData`, error box +
+  Retry on fetch failure (`/rooms/recurring-conflicts` is `verifyToken`-gated,
+  so an expired token 401s), and an explicit 'add times' instruction when the
+  form has no time window at all (`inputsIncomplete`). The first cut rendered
+  'All 0 occurrences are clear' in those states, which made a genuinely
+  conflicted series read as conflict-free. Locked by SOB-15..18 and the
+  integration-seam suite `RoomReservationFormBase.seriesIntegration.test.jsx`
+  (real hook, real form base, network mocked: INT-1 blocked round-trip, INT-2
+  401 → error not clear, INT-3 below).
+- **Conflict window falls back to reservation times (bug found live)**:
+  drafts may carry ONLY a reservation window (times optional for drafts), and
+  `transformEventToFlatStructure` deliberately never surfaces reservation
+  times as event times — so the hook's start/end were null and a
+  reservation-times-only draft silently never got its series checked (the old
+  panel had the same blind spot). The form base now windows the check on
+  `startTime || reservationStartTime` (mirrors the backend's
+  `effectiveStartTime` fallback). INT-3 reproduces with a REAL saved draft
+  document (`src/__tests__/__fixtures__/draft-series-repro.json`, sanitized):
+  reservation-only draft → conflict request fires windowed 11:30-12:30.
+- **Open blocking event is a real link (post-review UX decision)**: plain
+  click keeps the in-modal navigation (its return leg cold-fetches the origin
+  and re-runs the conflict check — that IS the refresh); ctrl/meta/shift/
+  middle-click get the browser's native new tab via `/?eventId=<mongo _id>`
+  (Calendar's deep-link effect matches `String(e._id)`). Locked by SVB-12.
+- **Focus freshness**: a blocker edited in another tab or by another user is
+  invisible to this form's signature-keyed conflict fetch, so on
+  `visibilitychange → visible` the form base re-runs the conflicts check
+  (series only) and the day-availability query. Locked by FRS-1/FRS-2.
+- **lazyWithRetry loop guard hardened (found while chasing the above)**: the
+  chunk-failure reload guard was a boolean CLEARED by any successful import,
+  so 'most chunks load, one persistently fails' rebooted the page forever
+  (~12s full-boot loop). Now a timestamp + 60s cooldown shared by
+  `loadWithReload` and main.jsx's `vite:preloadError` handler; a persistent
+  chunk failure surfaces one ErrorBoundary screen instead of looping. Locked
+  by the rewritten `lazyWithRetry.test.js` (LOOP GUARD case).
 
 **Tests:** new `useRecurringConflicts.test.jsx` (11),
 `SeriesOccurrenceBand.test.jsx` (14), `SeriesVerdictBand.test.jsx` (11),
@@ -1073,6 +1186,16 @@ link end-to-end). Not done: it needs live Graph credentials and writes to a real
 - `syncHealthService.REPORT_PROJECTION` (three `calendarData.*` entries)
 - `syncReconcileService.observe` (`calendarData.startTime/endTime` for subject derivation)
 - `graphEventBuilder.buildGraphEventDataFromRecord` (whole payload reads `event.calendarData`)
+- `conflictReportService.bufferMinutes` (the fallback chain reads
+  `calendarData.reservationStartMinutes` / `reservationEndMinutes` /
+  `setupTimeMinutes` / `teardownTimeMinutes` — **`??` not `||`**, so a
+  top-level `0` must keep shadowing the nested fallback exactly as it does now)
+- `conflictReportService.normalizeSide` / `roomIdsOf` (`calendarData.locations`,
+  `locationDisplayNames`, `categories`, `eventTitle`, `startDateTime`,
+  `endDateTime`)
+- `conflictReportService.REPORT_PROJECTION` (eleven `calendarData.*` entries)
+- `conflictReportService.runConflictReport` read 1 (the window `$or` matches on
+  `calendarData.startDateTime` / `calendarData.endDateTime`)
 The null-date guard above exists specifically so this refactor fails loudly here.
 
 ### Loading-Experience Standardization (Phases 1-2 done 2026-05-30; Phase 3 deferred)

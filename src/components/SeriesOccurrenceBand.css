@@ -60,6 +60,57 @@
   margin-left: var(--space-2);
 }
 
+/* --- Honest empty states: skeleton + error (never a verdict without data) --- */
+.sob-skeleton {
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: sob-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes sob-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sob-skeleton { animation: none; }
+}
+
+.sob-incomplete {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+  padding: var(--space-2) 0;
+}
+
+.sob-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-error-700);
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-300);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.sob-retry {
+  background: none;
+  border: none;
+  color: var(--color-error-600);
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  padding: 0;
+}
+
+.sob-retry:hover { color: var(--color-error-700); }
+
 /* --- Occurrence chips --- */
 .sob-chips {
   display: flex;

@@ -13,26 +13,11 @@
    ============================================================================ */
 
 /* --------------------------------------------------------------------------
-   SHARED ANIMATION (single source of truth for all spinners app-wide)
-   -------------------------------------------------------------------------- */
-
-@keyframes spinner-rotate {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* --------------------------------------------------------------------------
    SPINNER ELEMENT
+   --------------------------------------------------------------------------
+   The mark itself is the rose window - see RoseSpinner.jsx / RoseSpinner.css,
+   which own its geometry, colour and motion. Everything below is layout.
    -------------------------------------------------------------------------- */
-
-.loading-spinner-css {
-  border: 5px solid var(--border-default, #e5e7eb);
-  border-top-color: var(--color-primary-500, #007bff);
-  border-radius: 50%;
-  animation: spinner-rotate 0.75s linear infinite;
-  flex-shrink: 0;
-}
 
 /* --------------------------------------------------------------------------
    DEFAULT VARIANT — centered in container
@@ -134,24 +119,10 @@
 }
 
 /* --------------------------------------------------------------------------
-   BUTTON SPINNER — shared 14px inline spinner for action buttons
+   BUTTON SPINNER — moved
    --------------------------------------------------------------------------
-   Usage: <span className="btn-spinner" /> inside a button
+   `.btn-spinner` now lives in RoseSpinner.css alongside `.rose-ring`, because
+   they are the same mark at two sizes. Usage is unchanged:
+     <span className="btn-spinner" />        on a filled button
+     <span className="btn-spinner dark" />   on a light background
    -------------------------------------------------------------------------- */
-
-.btn-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spinner-rotate 0.75s linear infinite;
-  flex-shrink: 0;
-}
-
-/* Dark-on-light variant for non-filled buttons */
-.btn-spinner.dark {
-  border-color: var(--border-default, #e5e7eb);
-  border-top-color: var(--color-primary-500, #007bff);
-}

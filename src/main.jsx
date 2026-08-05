@@ -11,7 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
-import { CHUNK_RELOAD_FLAG } from './utils/lazyWithRetry';
+import { canAttemptChunkReload, markChunkReloadAttempt } from './utils/lazyWithRetry';
 import { bootstrapMsalAccount } from './utils/msalBootstrap';
 import { registerSW } from 'virtual:pwa-register';
 import { watchForServiceWorkerUpdates } from './utils/pwaUpdates';
@@ -33,11 +33,12 @@ import './index.css'; // optional
 // Recover from stale-chunk-after-deploy errors. When a deploy ships new chunk
 // hashes, users with an old index.html in memory hit 404s on dynamic imports
 // (e.g. lazy-loaded Calendar). Vite emits 'vite:preloadError' for these — we
-// reload once per session to pick up the fresh index.html. Guarded by a
-// sessionStorage flag so a genuinely broken chunk doesn't loop the page.
+// reload once per cooldown window to pick up the fresh index.html. The
+// timestamp guard (shared with lazyWithRetry) means a genuinely broken chunk
+// surfaces as an error instead of looping the page.
 window.addEventListener('vite:preloadError', (event) => {
-  if (sessionStorage.getItem(CHUNK_RELOAD_FLAG) === '1') return;
-  sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+  if (!canAttemptChunkReload()) return;
+  markChunkReloadAttempt();
   event.preventDefault();
   window.location.reload();
 });

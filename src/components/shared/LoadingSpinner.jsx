@@ -1,3 +1,4 @@
+import RoseSpinner from './RoseSpinner';
 import './LoadingSpinner.css';
 
 /**
@@ -17,16 +18,7 @@ const LoadingSpinner = ({
   text = '',
   variant = 'default'
 }) => {
-  const spinner = (
-    <div
-      className="loading-spinner-css"
-      style={{
-        width: size,
-        height: size,
-        borderWidth: Math.max(3, size / 16)
-      }}
-    />
-  );
+  const spinner = <RoseSpinner size={size} label={text || 'Loading'} />;
 
   // Overlay variant: absolute backdrop with spinner centered directly (no card)
   if (variant === 'overlay') {

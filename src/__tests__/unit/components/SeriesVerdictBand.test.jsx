@@ -213,6 +213,29 @@ describe('SeriesVerdictBand', () => {
     expect(screen.queryByTestId('svb-restore')).toBeNull();
   });
 
+  it('SVB-12: the open action is a real link — plain click stays in-modal, modified click goes to the browser', () => {
+    const onOpenBlockingEvent = vi.fn();
+    render(<SeriesVerdictBand {...baseProps({ onOpenBlockingEvent })} />);
+
+    const link = screen.getByTestId('svb-open-c1');
+    // Deep-link href lets ctrl/middle-click open the blocker in a new tab
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/?eventId=c1');
+
+    // Ctrl-click: the browser owns it (new tab); in-modal navigation must NOT fire
+    fireEvent.click(link, { ctrlKey: true });
+    expect(onOpenBlockingEvent).not.toHaveBeenCalled();
+    fireEvent.click(link, { metaKey: true });
+    expect(onOpenBlockingEvent).not.toHaveBeenCalled();
+
+    // Plain click: in-modal navigation, default (page navigation) suppressed
+    fireEvent.click(link);
+    expect(onOpenBlockingEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'c1' }),
+      { occurrenceDate: '2026-03-17', outstandingConflictCount: 2 }
+    );
+  });
+
   it('SVB-11: renders nothing when the selected date is not an occurrence', () => {
     const { container } = render(
       <SeriesVerdictBand {...baseProps({ occurrence: null, conflict: null })} />

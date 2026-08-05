@@ -1,0 +1,106 @@
+{
+ "_id": "6a734610c6468d1dfc46136c",
+ "eventId": "draft_6a734610c6468d1dfc46136b",
+ "userId": "test-user-id",
+ "isAllowedConcurrent": false,
+ "allowedConcurrentCategories": [],
+ "eventType": "seriesMaster",
+ "recurrence": {
+  "pattern": {
+   "type": "weekly",
+   "interval": 1,
+   "daysOfWeek": [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday"
+   ],
+   "firstDayOfWeek": "sunday"
+  },
+  "range": {
+   "type": "endDate",
+   "startDate": "2026-08-10",
+   "endDate": "2026-08-16"
+  },
+  "additions": [],
+  "exclusions": []
+ },
+ "publishToWebsite": false,
+ "webTitle": "",
+ "webDescription": "",
+ "webFeaturedImage": "",
+ "webRegisterUrl": "",
+ "roomReservationData": {
+  "requestedBy": {
+   "name": "Test Requester",
+   "email": "requester@example.org",
+   "department": "Test",
+   "phone": "",
+   "userId": "test-user-id"
+  },
+  "contactPerson": null,
+  "submittedAt": "2026-08-05T14:17:52.787Z"
+ },
+ "status": "draft",
+ "draftCreatedAt": "2026-08-05T14:17:52.787Z",
+ "lastDraftSaved": "2026-08-05T14:17:52.787Z",
+ "calendarOwner": "templeevents@emanuelnyc.org",
+ "createdByEmail": "requester@example.org",
+ "createdAt": "2026-08-05T14:17:52.787Z",
+ "lastModified": "2026-08-05T14:17:52.787Z",
+ "isDeleted": false,
+ "calendarData": {
+  "eventTitle": "Test Fang Recurrence 8/9 #1",
+  "eventDescription": "",
+  "startDateTime": "2026-08-09T11:30:00",
+  "endDateTime": "2026-08-09T12:30:00",
+  "startDate": "2026-08-09",
+  "startTime": null,
+  "endDate": "2026-08-09",
+  "endTime": null,
+  "isAllDayEvent": false,
+  "setupTime": null,
+  "teardownTime": null,
+  "doorOpenTime": null,
+  "doorCloseTime": null,
+  "setupTimeMinutes": 0,
+  "teardownTimeMinutes": 0,
+  "reservationStartTime": "11:30",
+  "reservationEndTime": "12:30",
+  "reservationStartMinutes": 0,
+  "reservationEndMinutes": 0,
+  "setupNotes": "",
+  "doorNotes": "",
+  "eventNotes": "",
+  "locations": [
+   "6912551f9a0bc143b144438b"
+  ],
+  "locationDisplayNames": "66th St., 4th Floor Conference Room.",
+  "isOffsite": false,
+  "offsiteName": "",
+  "offsiteAddress": "",
+  "offsiteLat": null,
+  "offsiteLon": null,
+  "attendeeCount": 5,
+  "specialRequirements": "",
+  "categories": [
+   "Adult B'nei Mitzvah"
+  ],
+  "services": {},
+  "assignedTo": "",
+  "virtualMeetingUrl": null,
+  "virtualPlatform": null,
+  "occurrenceOverrides": [],
+  "requiredFeatures": [],
+  "assignedRabbi": [],
+  "assignedCantor": [],
+  "isOnBehalfOf": false,
+  "contactName": "Test Contact",
+  "contactEmail": "contact@example.org",
+  "organizerName": "Test Contact",
+  "organizerPhone": "",
+  "organizerEmail": "contact@example.org"
+ },
+ "_version": 1
+}

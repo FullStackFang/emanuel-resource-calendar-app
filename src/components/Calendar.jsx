@@ -53,6 +53,7 @@
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
+  import RoseSpinner from './shared/RoseSpinner';
   import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
   import RoomReservationReview from './RoomReservationReview';
   import {
@@ -5237,7 +5238,7 @@ import ConflictDialog from './shared/ConflictDialog';
     return (
       <div className="calendar-container">
         <div className={overlayClass}>
-          <div className="loading-spinner-css" style={{ width: 48, height: 48, borderWidth: 3 }} />
+          <RoseSpinner size={48} />
           <p className="loading-spinner-card-text">{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
         </div>
 

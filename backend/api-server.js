@@ -30,6 +30,7 @@ const { findOrphanedOverrides } = require('./utils/recurrenceOrphanCleanup');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
+const { isRealConflict } = require('./utils/concurrencyRules');
 const { batchDelete } = require('./utils/batchDelete');
 const { buildEventDateRangeOverlapFilter, buildSeriesAwareDateRangeClause } = require('./utils/eventDateRangeFilter');
 const { expandSearchResults } = require('./utils/searchOccurrenceExpansion');
@@ -55,6 +56,7 @@ const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 const syncHealthService = require('./services/syncHealthService');
+const conflictReportService = require('./services/conflictReportService');
 const syncReconcileService = require('./services/syncReconcileService');
 const { republishEventCore } = require('./services/republishCore');
 let graphApiService = require('./services/graphApiService');
@@ -2831,88 +2833,27 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       }
     }
 
-    // Resolve request categories from cache (no DB query needed)
+    // Category resolution now happens inside isRealConflict(), which takes the
+    // cached name->document map directly. The eager id/allow-list precompute
+    // that used to sit here existed only to feed the two inlined rule copies.
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
-    let requestCategoryIds = [];
-    let requestCategoryAllowedIds = [];
-    const requestCategoryDocs = requestCategories.map(name => categoryMap.get(name)).filter(Boolean);
-    if (requestCategoryDocs.length > 0) {
-      requestCategoryIds = requestCategoryDocs.map(cat => cat._id.toString());
-      for (const doc of requestCategoryDocs) {
-        for (const allowedId of (doc.allowedConcurrentCategories || [])) {
-          const idStr = allowedId.toString();
-          if (!requestCategoryAllowedIds.includes(idStr)) {
-            requestCategoryAllowedIds.push(idStr);
-          }
-        }
-      }
-    }
 
-    // Resolve conflict + pending edit categories from cache (no DB query needed)
-    const conflictCategoryDocsMap = {};
-    for (const conflict of conflicts) {
-      for (const catName of (conflict.calendarData?.categories || conflict.categories || [])) {
-        const doc = categoryMap.get(catName);
-        if (doc) conflictCategoryDocsMap[catName] = doc;
-      }
-    }
-    for (const peEvent of pendingEditEvents) {
-      for (const catName of (peEvent.categories || peEvent.calendarData?.categories || [])) {
-        const doc = categoryMap.get(catName);
-        if (doc) conflictCategoryDocsMap[catName] = doc;
-      }
-    }
-
-    // Filter conflicts - considers category-level rules first, then per-event fallback
-    const actualConflicts = conflicts.filter(conflict => {
-      const conflictCategories = conflict.calendarData?.categories || conflict.categories || [];
-      const conflictCategoryIds = conflictCategories
-        .map(name => conflictCategoryDocsMap[name]?._id?.toString())
-        .filter(Boolean);
-
-      // --- Category-level bilateral check ---
-      const requestGrantsConflict = conflictCategoryIds.some(id =>
-        requestCategoryAllowedIds.includes(id)
-      );
-      if (requestGrantsConflict) return false; // NOT a conflict
-
-      const conflictCategoryAllowedIds = [];
-      for (const catName of conflictCategories) {
-        const doc = conflictCategoryDocsMap[catName];
-        for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
-          conflictCategoryAllowedIds.push(allowedId.toString());
-        }
-      }
-      const conflictGrantsRequest = requestCategoryIds.some(id =>
-        conflictCategoryAllowedIds.includes(id)
-      );
-      if (conflictGrantsRequest) return false; // NOT a conflict
-
-      // --- Per-event fallback (legacy) ---
-      const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
-
-      if (!requestAllowsConcurrent && !conflictAllowsConcurrent) {
-        return true; // IS a conflict
-      }
-
-      if (conflictAllowsConcurrent) {
-        const allowedCategories = conflict.allowedConcurrentCategories || [];
-        if (allowedCategories.length === 0) {
-          return false; // NOT a conflict (no restrictions)
-        }
-        const allowedCategoryStrings = allowedCategories.map(id => id.toString());
-        const hasMatchingCategory = requestCategoryIds.some(catId =>
-          allowedCategoryStrings.includes(catId)
-        );
-        return !hasMatchingCategory;
-      }
-
-      if (requestAllowsConcurrent) {
-        return false; // NOT a conflict
-      }
-
-      return false; // NOT a conflict
-    });
+    // Filter conflicts - considers category-level rules first, then per-event fallback.
+    // The rules themselves live in utils/concurrencyRules.js so the conflict
+    // report evaluates candidate pairs with exactly this definition and the two
+    // can never disagree about what publish permits.
+    const requestSide = {
+      categories: requestCategories,
+      isAllowedConcurrent: requestAllowsConcurrent,
+      allowedConcurrentCategories: reservation.allowedConcurrentCategories || [],
+    };
+    const actualConflicts = conflicts.filter(conflict =>
+      isRealConflict(requestSide, {
+        categories: conflict.calendarData?.categories || conflict.categories || [],
+        isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
+        allowedConcurrentCategories: conflict.allowedConcurrentCategories || [],
+      }, categoryMap)
+    );
 
     // In-memory filter: check effective (merged) rooms/times against candidate event
     const pendingEditConflicts = [];
@@ -2938,37 +2879,16 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         (peEffectiveStart < effectiveEnd && peEffectiveEnd > effectiveStart);
       if (!timeOverlap) continue;
 
-      // Apply category-level rules first, then per-event fallback
-      const peCategories = peEvent.categories || [];
-      const peCategoryIds = peCategories
-        .map(name => conflictCategoryDocsMap[name]?._id?.toString())
-        .filter(Boolean);
-
-      // Category-level bilateral check
-      const peRequestGrants = peCategoryIds.some(id => requestCategoryAllowedIds.includes(id));
-      if (peRequestGrants) continue; // NOT a conflict
-      const peCategoryAllowedIds = [];
-      for (const catName of peCategories) {
-        const doc = conflictCategoryDocsMap[catName];
-        for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
-          peCategoryAllowedIds.push(allowedId.toString());
-        }
-      }
-      const peConflictGrants = requestCategoryIds.some(id => peCategoryAllowedIds.includes(id));
-      if (peConflictGrants) continue; // NOT a conflict
-
-      // Per-event fallback
-      const peAllowsConcurrent = peEvent.isAllowedConcurrent ?? false;
-      if (!requestAllowsConcurrent && !peAllowsConcurrent) {
-        // Both disallow concurrent — IS a conflict
-      } else if (peAllowsConcurrent) {
-        const allowedCategories = (peEvent.allowedConcurrentCategories || []).map(id => id.toString());
-        if (allowedCategories.length === 0) continue; // No restrictions, NOT a conflict
-        const hasMatchingCategory = requestCategoryIds.some(catId => allowedCategories.includes(catId));
-        if (hasMatchingCategory) continue; // Category match, NOT a conflict
-      } else if (requestAllowsConcurrent) {
-        continue; // NOT a conflict
-      }
+      // Apply category-level rules first, then per-event fallback — the same
+      // shared predicate the published-conflict filter above uses. This block
+      // was previously a hand-copy of those rules; two copies of one decision
+      // is how they drift.
+      const peIsConflict = isRealConflict(requestSide, {
+        categories: peEvent.categories || [],
+        isAllowedConcurrent: peEvent.isAllowedConcurrent ?? false,
+        allowedConcurrentCategories: peEvent.allowedConcurrentCategories || [],
+      }, categoryMap);
+      if (!peIsConflict) continue;
 
       // Build conflict entry with isPendingEdit flag
       const cd = peEvent.calendarData || {};
@@ -3155,68 +3075,21 @@ async function checkRecurringRoomConflicts(params) {
 
   // Look up category docs from cache for concurrent filtering
   const categoryMap = await getCachedCategories();
-  let requestCategoryIds = [];
-  let requestCategoryAllowedIds = [];
-  if (categories.length > 0) {
-    const categoryDocs = categories.map(name => categoryMap.get(name)).filter(Boolean);
-    requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
-    for (const doc of categoryDocs) {
-      for (const allowedId of (doc.allowedConcurrentCategories || [])) {
-        const idStr = allowedId.toString();
-        if (!requestCategoryAllowedIds.includes(idStr)) {
-          requestCategoryAllowedIds.push(idStr);
-        }
-      }
-    }
-  }
 
-  // Resolve conflict event categories from cache (no DB query)
-  const recurConflictCatMap = {};
-  for (const c of potentialConflicts) {
-    for (const n of (c.calendarData?.categories || c.categories || [])) {
-      const doc = categoryMap.get(n);
-      if (doc) recurConflictCatMap[n] = doc;
-    }
-  }
-  for (const m of existingSeriesMasters) {
-    for (const n of (m.calendarData?.categories || m.categories || [])) {
-      const doc = categoryMap.get(n);
-      if (doc) recurConflictCatMap[n] = doc;
-    }
-  }
-
-  // Helper: check if a conflict is filtered out by concurrent permissions
-  const isFilteredByConcurrency = (conflict) => {
-    // --- Category-level bilateral check ---
-    const conflictCategories = conflict.calendarData?.categories || conflict.categories || [];
-    const conflictCategoryIds = conflictCategories
-      .map(name => recurConflictCatMap[name]?._id?.toString())
-      .filter(Boolean);
-
-    // Request's category rules grant the conflict
-    if (conflictCategoryIds.some(id => requestCategoryAllowedIds.includes(id))) return true;
-
-    // Conflict's category rules grant the request
-    const conflictCatAllowedIds = [];
-    for (const catName of conflictCategories) {
-      const doc = recurConflictCatMap[catName];
-      for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
-        conflictCatAllowedIds.push(allowedId.toString());
-      }
-    }
-    if (requestCategoryIds.some(id => conflictCatAllowedIds.includes(id))) return true;
-
-    // --- Per-event fallback ---
-    const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
-    if (!isAllowedConcurrent && !conflictAllowsConcurrent) return false; // IS a conflict
-    if (conflictAllowsConcurrent) {
-      const allowed = (conflict.allowedConcurrentCategories || []).map(id => id.toString());
-      if (allowed.length === 0) return true; // NOT a conflict
-      return requestCategoryIds.some(catId => allowed.includes(catId)); // match = not conflict
-    }
-    if (isAllowedConcurrent) return true; // NOT a conflict
-    return true;
-  };
+  // Helper: check if a conflict is filtered out by concurrent permissions.
+  // The polarity is inverted relative to isRealConflict — "filtered out" means
+  // "not a conflict" — so this is the exact complement, nothing more. The rules
+  // themselves live in utils/concurrencyRules.js alongside the two callers in
+  // checkRoomConflicts(); this was the third hand-copy.
+  // No request-side restriction list: checkRecurringRoomConflicts takes no such
+  // param, and the shared predicate never consults side A's list anyway (see
+  // the asymmetry note in concurrencyRules.js).
+  const recurringRequestSide = { categories, isAllowedConcurrent, allowedConcurrentCategories: [] };
+  const isFilteredByConcurrency = (conflict) => !isRealConflict(recurringRequestSide, {
+    categories: conflict.calendarData?.categories || conflict.categories || [],
+    isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
+    allowedConcurrentCategories: conflict.allowedConcurrentCategories || [],
+  }, categoryMap);
 
   // Map conflicts back to specific occurrences
   const conflictsByDate = {};
@@ -12297,6 +12170,87 @@ app.get('/api/admin/reports/sync-health', verifyToken, async (req, res) => {
   } catch (err) {
     logger.error('sync-health report error:', err);
     res.status(500).json({ error: err.message || 'Failed to run sync health check' });
+  }
+});
+
+/**
+ * GET /api/admin/reports/conflicts
+ *
+ * Every other conflict check in this system is one-vs-many: "given this
+ * candidate reservation, what does it hit?" Nothing answered "across the whole
+ * calendar, what is double-booked right now?" — which is how Graph delta sync
+ * (which runs no conflict check at all), forced publishes, and post-approval
+ * edits can leave a real double-booking sitting in the database, invisible
+ * until two groups show up at the same room.
+ *
+ * Read-only. Same audience and same gate as the sync health report.
+ *
+ * NO CACHE (D7): four indexed reads on a deliberate, approver-triggered action
+ * is cheap, and the worst failure mode for a defect list is an approver fixing
+ * a conflict, re-running, and still seeing it. Staleness here costs more than
+ * RU.
+ */
+const CONFLICT_REPORT_WINDOWS = [30, 90, 180, 365];
+
+app.get('/api/admin/reports/conflicts', verifyToken, async (req, res) => {
+  try {
+    const user = await getCachedUser(req.user.userId);
+    const userEmail = req.user.email;
+    if (!isAdmin(user, userEmail) && !canApproveReservations(user, userEmail)) {
+      return res.status(403).json({ error: 'Admin or Approver access required' });
+    }
+
+    // Presets only, rejected rather than clamped (D5). A silently clamped
+    // window would make the report misstate its own coverage.
+    const rawDays = req.query.days;
+    let days = 90;
+    if (rawDays !== undefined && rawDays !== '') {
+      days = Number(rawDays);
+      if (!CONFLICT_REPORT_WINDOWS.includes(days)) {
+        return res.status(400).json({
+          error: `days must be one of ${CONFLICT_REPORT_WINDOWS.join(', ')}`,
+          code: 'INVALID_WINDOW',
+        });
+      }
+    }
+
+    // Forward-only from today, in LOCAL time — stored datetimes are local-time
+    // strings with no Z, so a UTC-derived bound shifts the whole window.
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const toDateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const today = new Date();
+    const windowStart = toDateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+    const windowEnd = toDateKey(
+      new Date(today.getFullYear(), today.getMonth(), today.getDate() + days)
+    );
+
+    // Room display names come from the locations collection so the report can
+    // group by a name even when neither side carries a positional display name.
+    const roomNamesById = new Map();
+    try {
+      const locations = await withCosmosRetry(() =>
+        locationsCollection.find({}).project({ _id: 1, displayName: 1 }).toArray()
+      );
+      for (const loc of locations) roomNamesById.set(String(loc._id), loc.displayName);
+    } catch (locErr) {
+      // Non-fatal: the scan falls back to each side's positional display name.
+      logger.warn('[conflictReport] location name lookup failed (non-fatal):', locErr.message);
+    }
+
+    const report = await conflictReportService.runConflictReport({
+      eventsCollection: unifiedEventsCollection,
+      categoryMap: await getCachedCategories(),
+      windowStart,
+      windowEnd,
+      calendarOwner: req.query.calendarOwner || null,
+      retry: withCosmosRetry,
+      roomNamesById,
+    });
+
+    res.json({ ...report, window: { ...report.window, days } });
+  } catch (err) {
+    logger.error('conflict report error:', err);
+    res.status(500).json({ error: err.message || 'Failed to run conflict report' });
   }
 });
 

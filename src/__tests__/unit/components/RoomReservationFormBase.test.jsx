@@ -169,7 +169,7 @@ const mockDefaultConflictsReturn = () => ({
   skipRefused: false,
   loading: false,
   error: null,
-  retry: () => {},
+  retry: vi.fn(),
   lastKnownBlockers: {},
 });
 let mockConflictsReturn = mockDefaultConflictsReturn();
@@ -1426,6 +1426,39 @@ describe('RoomReservationFormBase', () => {
         })
       );
       expect(onHasChangesChange).toHaveBeenCalledWith(true);
+    });
+
+    it('FRS-1: regaining tab focus re-runs the conflict check for an active series', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={recurringInitialData}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+      await waitFor(() => expect(saProbe().getAttribute('data-series-present')).toBe('true'));
+      expect(mockConflictsReturn.retry).not.toHaveBeenCalled();
+
+      fireEvent(document, new Event('visibilitychange'));
+
+      expect(mockConflictsReturn.retry).toHaveBeenCalledTimes(1);
+    });
+
+    it('FRS-2: focus does not re-run the check for a non-recurring event', async () => {
+      render(
+        <RoomReservationFormBase
+          initialData={{ ...recurringInitialData, recurrence: undefined }}
+          apiToken="tok-123"
+          showAllTabs={false}
+          activeTab="details"
+        />
+      );
+      await waitFor(() => expect(saProbe().getAttribute('data-series-present')).toBe('false'));
+
+      fireEvent(document, new Event('visibilitychange'));
+
+      expect(mockConflictsReturn.retry).not.toHaveBeenCalled();
     });
 
     it('RST-2: restore also removes a previously saved exclusion', async () => {

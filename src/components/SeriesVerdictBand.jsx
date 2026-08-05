@@ -118,17 +118,26 @@ export default function SeriesVerdictBand({
                 )}
               </span>
               {onOpenBlockingEvent && (
-                <button
-                  type="button"
+                // A real link: plain click keeps the in-modal navigation
+                // (whose return leg refreshes this form), while ctrl/meta/
+                // shift/middle-click get the browser's native new-tab
+                // behavior via the ?eventId= deep link (matched by Mongo _id
+                // in Calendar's deep-link effect).
+                <a
+                  href={`/?eventId=${c.id}`}
                   className="svb-btn open"
                   data-testid={`svb-open-${c.id}`}
-                  onClick={() => onOpenBlockingEvent(c, {
-                    occurrenceDate: occurrence.date,
-                    outstandingConflictCount,
-                  })}
+                  onClick={(e) => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+                    e.preventDefault();
+                    onOpenBlockingEvent(c, {
+                      occurrenceDate: occurrence.date,
+                      outstandingConflictCount,
+                    });
+                  }}
                 >
                   Open blocking event
-                </button>
+                </a>
               )}
             </div>
           );

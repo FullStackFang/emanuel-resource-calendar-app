@@ -82,6 +82,16 @@ export const keys = {
     calendars: () => ['syncHealth', 'calendars'],
   },
 
+  // Room conflict report. Keyed by its controls (window + calendar filter) so
+  // changing either re-scans. No server cache backs this (a defect list that
+  // still shows a conflict you just fixed is worse than the RU it saves), so
+  // the client key is the only staleness boundary.
+  conflictReport: {
+    all: () => ['conflictReport'],
+    report: (scope) =>
+      scope === undefined ? ['conflictReport', 'report'] : ['conflictReport', 'report', scope],
+  },
+
   // ─── Events ────────────────────────────────────────────────────────────
   events: {
     all: () => ['events'],

@@ -45,6 +45,9 @@ const baseProps = (overrides = {}) => ({
   totalOccurrences: 12,
   conflictingOccurrences: 2,
   selectedDate: '2026-03-10',
+  hasData: true,
+  error: null,
+  onRetry: vi.fn(),
   onSelectDate: vi.fn(),
   ...overrides,
 });
@@ -201,6 +204,98 @@ describe('SeriesOccurrenceBand', () => {
 
     expect(screen.getByTestId('sob-next-conflict')).toBeDisabled();
     expect(screen.getByTestId('sob-prev-conflict')).toBeDisabled();
+  });
+
+  // ─── Honest empty states (regression: false all-clear) ─────────────────
+  // The retired panel never claimed 'clear' without data: it rendered a
+  // skeleton while loading and an error box with Retry on failure. The band
+  // must do the same — a fetch failure painting a green verdict is how a
+  // genuinely conflicted series ('[Hold] Test Fang Recurrence 8/9 #1' vs
+  // 'RS Staff meeting.') read as conflict-free.
+
+  it('SOB-15: a fetch error renders the error with a retry action and NO verdict or chips', () => {
+    const onRetry = vi.fn();
+    const { container } = render(
+      <SeriesOccurrenceBand
+        {...baseProps({
+          hasData: false,
+          error: 'Server error (401)',
+          onRetry,
+          occurrences: [],
+          conflictedDates: [],
+          conflicts: [],
+          totalOccurrences: 0,
+          conflictingOccurrences: 0,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('sob-error')).toHaveTextContent('Server error (401)');
+    expect(container.textContent).not.toMatch(/clear of room conflicts/i);
+    expect(screen.queryByTestId('sob-verdict')).toBeNull();
+    expect(container.querySelectorAll('[data-testid^="sob-chip-"]')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('sob-retry'));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('SOB-16: before data resolves (loading) the band shows a skeleton, never a clear verdict', () => {
+    const { container } = render(
+      <SeriesOccurrenceBand
+        {...baseProps({
+          hasData: false,
+          loading: true,
+          occurrences: [],
+          conflictedDates: [],
+          conflicts: [],
+          totalOccurrences: 0,
+          conflictingOccurrences: 0,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('sob-skeleton')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/clear of room conflicts/i);
+    expect(screen.queryByTestId('sob-verdict')).toBeNull();
+  });
+
+  it('SOB-17: the pre-debounce window (no data, not loading, no error) also shows the skeleton', () => {
+    const { container } = render(
+      <SeriesOccurrenceBand
+        {...baseProps({
+          hasData: false,
+          loading: false,
+          occurrences: [],
+          conflictedDates: [],
+          conflicts: [],
+          totalOccurrences: 0,
+          conflictingOccurrences: 0,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('sob-skeleton')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/clear of room conflicts/i);
+  });
+
+  it('SOB-18: missing time inputs show an instruction, not an endless skeleton', () => {
+    const { container } = render(
+      <SeriesOccurrenceBand
+        {...baseProps({
+          hasData: false,
+          inputsIncomplete: true,
+          occurrences: [],
+          conflictedDates: [],
+          conflicts: [],
+          totalOccurrences: 0,
+          conflictingOccurrences: 0,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('sob-incomplete')).toHaveTextContent(/add event or reservation times/i);
+    expect(screen.queryByTestId('sob-skeleton')).toBeNull();
+    expect(container.textContent).not.toMatch(/clear of room conflicts/i);
   });
 
   // ─── Density fallbacks ─────────────────────────────────────────────────

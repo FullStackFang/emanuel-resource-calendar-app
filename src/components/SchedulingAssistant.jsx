@@ -2043,6 +2043,10 @@ function SchedulingAssistant({
               )
             : null}
           loading={series.loading}
+          hasData={series.hasData}
+          inputsIncomplete={series.inputsIncomplete}
+          error={series.error}
+          onRetry={series.retry}
           onSelectDate={series.onSelectDate}
         />
       )}

@@ -30,6 +30,10 @@ export default function SeriesOccurrenceBand({
   selectedDate = null,
   recurrenceSummary = null,
   loading = false,
+  hasData = false,
+  inputsIncomplete = false,
+  error = null,
+  onRetry = null,
   onSelectDate = null,
 }) {
   // Conflicts-only focus is band-local UI state (design D6): compress, don't
@@ -71,6 +75,49 @@ export default function SeriesOccurrenceBand({
       : conflictedDates[(idx + dir + conflictedDates.length) % conflictedDates.length];
     selectDate(next);
   };
+
+  // Honest empty states: NEVER claim a verdict without data. The retired
+  // panel showed a skeleton while loading and an error + Retry on failure;
+  // a fetch failure that painted a green all-clear is exactly how a
+  // conflicted series read as conflict-free.
+  if (error) {
+    return (
+      <div className="series-occurrence-band" data-testid="series-occurrence-band">
+        <div className="sob-meta">
+          <span className="sob-title">Series</span>
+        </div>
+        <div className="sob-error" data-testid="sob-error" role="alert">
+          <span aria-hidden="true">&#9888;</span>
+          <span>Conflict check failed: {error}</span>
+          {onRetry && (
+            <button type="button" className="sob-retry" data-testid="sob-retry" onClick={onRetry}>
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasData) {
+    return (
+      <div className="series-occurrence-band" data-testid="series-occurrence-band">
+        <div className="sob-meta">
+          <span className="sob-title">Series</span>
+        </div>
+        {inputsIncomplete ? (
+          // Not a loading state: the check cannot run until the form has a
+          // time window (event times or a reservation window). An endless
+          // skeleton here would be a lie.
+          <p className="sob-incomplete" data-testid="sob-incomplete">
+            Add event or reservation times to check the series for room conflicts.
+          </p>
+        ) : (
+          <div className="sob-skeleton" data-testid="sob-skeleton" aria-label="Checking series for conflicts" />
+        )}
+      </div>
+    );
+  }
 
   const selectedConflictIndex = conflictedDates.indexOf(selectedDate);
   const positionText = conflictedDates.length === 0

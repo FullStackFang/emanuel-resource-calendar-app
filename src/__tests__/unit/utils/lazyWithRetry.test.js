@@ -3,6 +3,7 @@ import {
   isChunkLoadError,
   loadWithReload,
   CHUNK_RELOAD_FLAG,
+  RELOAD_COOLDOWN_MS,
 } from '../../../utils/lazyWithRetry';
 
 describe('lazyWithRetry', () => {
@@ -57,8 +58,12 @@ describe('lazyWithRetry', () => {
   });
 
   describe('loadWithReload', () => {
-    it('returns the module when the import succeeds and clears the reload flag', async () => {
-      sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1'); // pretend a prior reload set it
+    // The guard is a timestamp with a cooldown, NOT a boolean cleared on
+    // success. The cleared-on-success design looped forever when most chunks
+    // loaded and one persistently failed (observed as a ~12s full-boot loop).
+
+    it('returns the module when the import succeeds, leaving the guard alone', async () => {
+      sessionStorage.setItem(CHUNK_RELOAD_FLAG, String(Date.now())); // prior reload
       const mod = { default: 'Component' };
       const importFn = vi.fn().mockResolvedValue(mod);
 
@@ -66,11 +71,12 @@ describe('lazyWithRetry', () => {
 
       expect(result).toBe(mod);
       expect(importFn).toHaveBeenCalledTimes(1);
-      expect(sessionStorage.getItem(CHUNK_RELOAD_FLAG)).toBeNull();
+      // The recorded attempt survives — a success must not re-arm the reload
+      expect(sessionStorage.getItem(CHUNK_RELOAD_FLAG)).not.toBeNull();
       expect(reloadSpy).not.toHaveBeenCalled();
     });
 
-    it('reloads once on a chunk-load error and sets the session flag', async () => {
+    it('reloads once on a chunk-load error and records the attempt timestamp', async () => {
       const err = new TypeError(
         'Failed to fetch dynamically imported module: /assets/Calendar.js'
       );
@@ -86,20 +92,45 @@ describe('lazyWithRetry', () => {
 
       expect(result).toBe('still-pending');
       expect(reloadSpy).toHaveBeenCalledTimes(1);
-      expect(sessionStorage.getItem(CHUNK_RELOAD_FLAG)).toBe('1');
+      expect(Number(sessionStorage.getItem(CHUNK_RELOAD_FLAG))).toBeGreaterThan(0);
     });
 
-    it('does NOT reload again if the flag is already set, and rethrows the error', async () => {
-      sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+    it('LOOP GUARD: success between failures does not re-arm the reload; the next failure surfaces', async () => {
+      // First failure consumes the one recovery reload
       const err = new TypeError(
         'Failed to fetch dynamically imported module: /assets/Calendar.js'
       );
-      const importFn = vi.fn().mockRejectedValue(err);
+      const pending = loadWithReload(vi.fn().mockRejectedValue(err));
+      await Promise.race([
+        pending,
+        new Promise((resolve) => setTimeout(() => resolve('still-pending'), 30)),
+      ]);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
 
-      await expect(loadWithReload(importFn)).rejects.toBe(err);
-      expect(reloadSpy).not.toHaveBeenCalled();
-      // Flag is left set — there's nothing useful we can do.
-      expect(sessionStorage.getItem(CHUNK_RELOAD_FLAG)).toBe('1');
+      // Another chunk succeeds — this used to clear the boolean flag
+      await expect(loadWithReload(vi.fn().mockResolvedValue({ ok: true }))).resolves.toEqual({ ok: true });
+
+      // The same failure again, inside the cooldown: MUST throw, not reload
+      await expect(loadWithReload(vi.fn().mockRejectedValue(err))).rejects.toBe(err);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows a fresh recovery reload after the cooldown expires', async () => {
+      sessionStorage.setItem(
+        CHUNK_RELOAD_FLAG,
+        String(Date.now() - RELOAD_COOLDOWN_MS - 1000)
+      );
+      const err = new TypeError(
+        'Failed to fetch dynamically imported module: /assets/Calendar.js'
+      );
+
+      const pending = loadWithReload(vi.fn().mockRejectedValue(err));
+      await Promise.race([
+        pending,
+        new Promise((resolve) => setTimeout(() => resolve('still-pending'), 30)),
+      ]);
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
     });
 
     it('rethrows non-chunk errors without reloading', async () => {

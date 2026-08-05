@@ -37,6 +37,7 @@ const SERIES = {
   totalOccurrences: 3,
   conflictingOccurrences: 1,
   skipRefused: false,
+  hasData: true,
   loading: false,
   error: null,
   retry: () => {},

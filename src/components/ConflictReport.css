@@ -1,0 +1,310 @@
+/* src/components/ConflictReport.css
+ *
+ * Scoped under .conflict-report throughout. Unscoped generic class names leak
+ * across admin stylesheets in this codebase; every rule here is prefixed.
+ */
+
+.conflict-report {
+  padding: var(--space-6, 24px);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.conflict-report-header {
+  margin-bottom: var(--space-5, 20px);
+  border-bottom: 1px solid var(--color-neutral-200, #e5e5e5);
+  padding-bottom: var(--space-4, 16px);
+}
+
+.conflict-report-heading h1 {
+  margin: 0 0 4px 0;
+  font-size: 1.5rem;
+  font-weight: var(--font-semibold, 600);
+}
+
+.conflict-report-subtitle {
+  margin: 0;
+  color: var(--color-neutral-600, #666);
+  font-size: 0.875rem;
+  max-width: 60ch;
+}
+
+.conflict-report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
+  align-items: flex-end;
+  margin-top: var(--space-4, 16px);
+}
+
+.conflict-report-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--color-neutral-700, #555);
+}
+
+.conflict-report-control select,
+.conflict-report-control input {
+  padding: 6px 10px;
+  border: 1px solid var(--color-neutral-300, #ccc);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  min-width: 180px;
+  background: var(--color-surface, #fff);
+}
+
+.conflict-report-rerun {
+  padding: 7px 14px;
+  border: 1px solid var(--color-primary-500, #0078d4);
+  background: var(--color-primary-500, #0078d4);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.conflict-report-rerun:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.conflict-report-generated-at {
+  margin-top: var(--space-3, 12px);
+  font-size: 0.8125rem;
+  color: var(--color-neutral-600, #666);
+}
+
+/* ── Banners ─────────────────────────────────────────────────────────────── */
+
+.conflict-report-banner {
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin-bottom: var(--space-4, 16px);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.conflict-report-banner.warning {
+  background: var(--color-warning-50, #fff8e6);
+  border: 1px solid var(--color-warning-300, #f0c36d);
+  color: var(--color-warning-900, #6b4e00);
+}
+
+.conflict-report-error {
+  padding: 16px;
+  border-radius: 4px;
+  background: var(--color-error-50, #fdf2f2);
+  border: 1px solid var(--color-error-300, #f0a0a0);
+  color: var(--color-error-900, #7a1c1c);
+  margin-bottom: var(--space-4, 16px);
+}
+
+.conflict-report-error p {
+  margin: 0 0 8px 0;
+  font-size: 0.875rem;
+}
+
+/* The distinction between "we checked and found nothing" and "we could not
+   check" is the whole point of the error state on a defect list. */
+.conflict-report-error-note {
+  font-style: italic;
+}
+
+.conflict-report-error button {
+  padding: 6px 14px;
+  border: 1px solid var(--color-error-500, #d13438);
+  background: var(--color-error-500, #d13438);
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+/* ── Results ─────────────────────────────────────────────────────────────── */
+
+.conflict-report-count {
+  font-size: 0.875rem;
+  font-weight: var(--font-semibold, 600);
+  color: var(--color-neutral-700, #555);
+  margin-bottom: var(--space-4, 16px);
+}
+
+/* A background re-scan dims rather than blanks — the previous results are
+   still the best information available while the new ones are in flight. */
+.conflict-report-results.refreshing {
+  opacity: 0.6;
+  transition: opacity 120ms ease-in-out;
+}
+
+.conflict-date-group {
+  margin-bottom: var(--space-6, 24px);
+}
+
+.conflict-date-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1rem;
+  font-weight: var(--font-semibold, 600);
+  margin: 0 0 var(--space-3, 12px) 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-neutral-200, #e5e5e5);
+}
+
+.conflict-date-key {
+  font-size: 0.75rem;
+  font-weight: var(--font-medium, 500);
+  color: var(--color-neutral-500, #888);
+}
+
+.conflict-room-group {
+  margin: 0 0 var(--space-4, 16px) 0;
+  padding-left: var(--space-3, 12px);
+  border-left: 3px solid var(--color-neutral-200, #e5e5e5);
+}
+
+.conflict-room-heading {
+  font-size: 0.875rem;
+  font-weight: var(--font-semibold, 600);
+  color: var(--color-neutral-700, #555);
+  margin: 0 0 8px 0;
+}
+
+.conflict-row {
+  border: 1px solid var(--color-neutral-200, #e5e5e5);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--color-surface, #fff);
+}
+
+/* The contested interval leads because it is the only line that explains why
+   these two rows are a problem — with buffers, the visible times often look
+   perfectly compatible. */
+.conflict-contested {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--color-neutral-200, #e5e5e5);
+}
+
+.conflict-contested-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--font-semibold, 600);
+  color: var(--color-error-600, #b3282c);
+}
+
+.conflict-contested-times {
+  font-size: 1rem;
+  font-weight: var(--font-semibold, 600);
+}
+
+.conflict-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .conflict-sides {
+    grid-template-columns: 1fr;
+  }
+}
+
+.conflict-side {
+  border: 1px solid var(--color-neutral-200, #e5e5e5);
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--color-neutral-50, #fafafa);
+}
+
+.conflict-side-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.conflict-side-title {
+  font-weight: var(--font-semibold, 600);
+  font-size: 0.9375rem;
+}
+
+.conflict-side-badge.occurrence {
+  font-size: 0.6875rem;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--color-info-100, #e5f1fb);
+  color: var(--color-info-800, #14456b);
+  white-space: nowrap;
+}
+
+.conflict-side-status {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-neutral-600, #666);
+}
+
+.conflict-side-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8125rem;
+  color: var(--color-neutral-600, #666);
+}
+
+.conflict-side-open {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 4px 12px;
+  font-size: 0.8125rem;
+  border: 1px solid var(--color-neutral-300, #ccc);
+  background: var(--color-surface, #fff);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.conflict-side-open:hover {
+  border-color: var(--color-primary-500, #0078d4);
+  color: var(--color-primary-600, #106ebe);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.conflict-report-empty {
+  text-align: center;
+  padding: var(--space-8, 48px) var(--space-4, 16px);
+  color: var(--color-neutral-600, #666);
+}
+
+/* An empty defect list is good news, so it is styled as success rather than as
+   the usual grey "nothing here". */
+.conflict-report-empty-icon {
+  font-size: 2rem;
+  color: var(--color-success-500, #107c10);
+  margin-bottom: 8px;
+}
+
+.conflict-report-empty h2 {
+  font-size: 1.125rem;
+  font-weight: var(--font-semibold, 600);
+  margin: 0 0 6px 0;
+  color: var(--color-neutral-800, #333);
+}
+
+.conflict-report-empty p {
+  margin: 0 0 var(--space-4, 16px) 0;
+  font-size: 0.875rem;
+}

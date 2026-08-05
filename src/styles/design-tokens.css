@@ -36,6 +36,25 @@
   --color-accent-800: #854d0e;
   --color-accent-900: #713f12;
 
+  /* Rose Window - the Temple Emanu-El mark
+     Sampled directly from public/emanuel_logo.png, not chosen. The window has
+     twelve petals at 15deg + n*30deg cycling through six hues twice (180deg
+     rotational symmetry). Used by the loading mark; NOT general UI colors -
+     reach for --color-primary-* / --color-accent-* for interface surfaces.
+     The gold is the logo's own antique bronze, deliberately not
+     --color-accent-500, because at mark scale it must read as the logo. */
+  --rose-plum: #91226d;
+  --rose-crimson: #991b39;
+  --rose-teal: #408796;
+  --rose-cyan: #0085ab;
+  --rose-sapphire: #016395;
+  --rose-violet: #615c9b;
+  --rose-gold: #b18c52;
+  /* Outer band gradient, lightest at 12 o'clock deepening anticlockwise */
+  --rose-band-light: #3b96b7;
+  --rose-band-mid: #008baf;
+  --rose-band-deep: #01709e;
+
   /* Neutrals - Warm Stone Grays
      Softer than pure grays, more inviting */
   --color-neutral-0: #ffffff;
