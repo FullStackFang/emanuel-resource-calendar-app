@@ -1,0 +1,35 @@
+- generic [ref=f4e3]:
+  - generic [ref=f4e5]:
+    - generic [ref=f4e6]:
+      - img "Loading" [ref=f4e8]
+      - text: 64px
+    - generic [ref=f4e73]:
+      - img "Loading" [ref=f4e75]
+      - text: 48px
+    - generic [ref=f4e140]:
+      - img "Loading" [ref=f4e142]
+      - text: 40px
+    - generic [ref=f4e171]:
+      - img "Loading" [ref=f4e173]
+      - text: 36px
+    - generic [ref=f4e201]:
+      - img "Loading" [ref=f4e203]
+      - text: 32px
+    - generic [ref=f4e231]:
+      - img "Loading" [ref=f4e233]
+      - text: 28px
+    - generic [ref=f4e234]:
+      - img "Loading" [ref=f4e236]
+      - text: 20px
+    - generic [ref=f4e237]:
+      - img "Loading" [ref=f4e239]
+      - text: 14px
+  - generic [ref=f4e241]:
+    - button "Publishing…" [ref=f4e242]
+    - button "Saving…" [ref=f4e244]
+  - generic [ref=f4e247]:
+    - img "Loading reservations…" [ref=f4e248]
+    - generic [ref=f4e313]: Loading reservations…
+  - generic [ref=f4e316]:
+    - img "Loading event…" [ref=f4e317]
+    - paragraph [ref=f4e382]: Loading event…

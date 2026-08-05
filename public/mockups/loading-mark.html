@@ -67,10 +67,10 @@ input[type=range] { width:130px; accent-color:var(--color-primary-500); }
 @keyframes rose-lead-ccw { from { transform:rotate(-68deg)  } to { transform:rotate(-428deg) } }
 
 /* ── FUSED: illumination + tracery lead ── */
-.v-fused .unit { --rest:.26; opacity:var(--rest);
+.v-fused .unit { --rest:.4; opacity:var(--rest);
   animation:rose-illuminate var(--dur,1.6s) linear infinite;
   animation-delay:calc(var(--i) * var(--dur,1.6s) / -12); }
-.v-fused .band { opacity:.26 }
+.v-fused .band { opacity:.5 }
 .v-fused .arc  { fill:none; stroke-linecap:round; transform-origin:50px 50px;
   animation:rose-lead-cw var(--dur,1.6s) linear infinite; }
 .v-fused.ccw .arc { animation-name:rose-lead-ccw }
@@ -188,8 +188,9 @@ h3.sub { font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:u
       <li><b>Rotation is clockwise</b> by default, and there is a toggle.</li>
       <li><b>A and B are fused.</b> The tracery arc and the petal beam run phase&#8209;locked, so the band
         reads as the light source and the petals as what it falls on.</li>
-      <li><b>Resting opacity raised</b> from .14 to .26. At .14 the window washed out to pastel between
-        passes and looked sickly at 48px.</li>
+      <li><b>Resting opacity raised</b> from .14 to .40, and the band from .26 to .50. Saturated colour
+        on white goes pastel fast; below about .35 the window read as washed&#8209;out watercolour rather
+        than as the mark. These are the values that shipped.</li>
     </ul>
   </div>
 </header>

@@ -58,7 +58,11 @@
 
 .rose-spinner {
   --rose-dur: 1.6s;
-  --rose-rest: 0.26;
+  /* Saturated colour on white goes pastel fast, so the resting state cannot sit
+     as low as it would on a dark surface: below about 0.35 the window reads as
+     washed-out watercolour rather than as the mark. 0.4 -> 1.0 still leaves a
+     2.5x contrast step for the beam to be legible against. */
+  --rose-rest: 0.4;
 }
 
 .rose-unit {
@@ -68,7 +72,9 @@
   animation-delay: calc(var(--i) * var(--rose-dur) / -12);
 }
 
-.rose-band { opacity: 0.26; }
+/* The band is the masonry the arc rides on. Too faint and the mark looks
+   unfinished; too strong and it competes with the travelling arc. */
+.rose-band { opacity: 0.5; }
 
 .rose-arc {
   transform-origin: 50px 50px;
@@ -185,7 +191,10 @@
     animation: rose-breathe 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
   }
 
-  .rose-ring {
+  /* .btn-spinner is listed explicitly: it is a sibling of .rose-ring, not a
+     variant of it, so it does not inherit the rule above. */
+  .rose-ring,
+  .btn-spinner {
     animation-duration: 2.4s;
   }
 
