@@ -586,6 +586,73 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### PWA install affordance (implemented 2026-08-14)
+
+Spec: `openspec/changes/pwa-install-prompt/`. Frontend-only; no endpoint,
+schema, query key, or PWA plumbing change — `vite.config.js`'s VitePWA
+manifest and the `registerSW` call were already there and are untouched. 17/18
+tasks; only 6.5 (on-device manual) outstanding.
+
+**The gap it closes:** the app has been an installable PWA for a while and
+nothing in the UI ever said so. Discovery depended on knowing that a browser
+overflow menu hides an Install item — which on iPhone it does not.
+
+**Shipped:**
+- **`src/utils/pwaInstall.js`** — all platform knowledge, no React.
+  `isRunningStandalone()`, `detectPlatform()`, `shouldShowNudge()`, the
+  storage wrappers, and the module-scoped `beforeinstallprompt` /
+  `appinstalled` capture behind `initInstallCapture()`.
+- **Capture runs at module scope from `main.jsx`**, beside the
+  `vite:preloadError` handler. Chrome dispatches `beforeinstallprompt` during
+  initial page load, so a listener registered from an effect inside the lazily
+  imported mobile tree misses it — and misses it ONLY in production, because
+  dev hot-reload re-fires listeners after mount. Same "must run before React"
+  reason as the deep-link capture above it.
+- **`detectPlatform` checks the captured event BEFORE the UA** (`prompt` /
+  `ios-safari` / `ios-other` / `manual`), so UA sniffing only picks which
+  instructions to print and never gates capability. iPadOS 13+ (`MacIntel` +
+  `maxTouchPoints > 1`) counts as iOS.
+- **Installed state self-heals**: `appinstalled` sets the flag,
+  `beforeinstallprompt` CLEARS it — the browser only fires it for an origin
+  that is not currently installed, so an uninstall restores the entry with no
+  timer or version check. On iOS neither event fires, so the entry always
+  shows; Safari genuinely cannot report an existing install.
+- **Storage failure degrades asymmetrically (D7)** and this is the whole
+  mechanism, not a branch at the call sites: `readInstalledFlag()` returns
+  false when storage throws (entry shown), `readNudgeDone()` returns true
+  (nudge hidden). A storage failure must never remove the only route to
+  installing, nor turn a once-ever banner into a nag.
+- **One sheet for every platform** (`InstallAppSheet`): identical chrome —
+  app mark, title 'Install Temple Events', numbered step pills, ghost +
+  primary row — with only subtitle / steps / primary label varying. Android
+  deliberately opens this sheet rather than firing Chrome's dialog straight
+  from the menu (D3): one extra tap, one describable flow on both platforms.
+  The sheet holds the ONLY platform branch in the feature.
+- **`MobileApp` is the single owner (D9)**: holds `usePwaInstall()` + the
+  sheet's open state, passes `showInstall` / `onInstall` to `MobileHeader`,
+  renders nudge and sheet. **`recordVisit()` runs in a `useState` initializer,
+  not an effect** — child effects run before the parent's, so an effect would
+  hand the nudge last session's count and delay it a full visit. It is
+  idempotent per session (sessionStorage guard), so a StrictMode double-invoke
+  is harmless.
+- Nudge: second signed-in session only, either button retires it forever.
+
+**Tests:** new `pwaInstall.test.js` (29), `usePwaInstall.test.jsx` (13),
+`InstallAppSheet.test.jsx` (15), `InstallAppNudge.test.jsx` (9);
+`MobileHeader.test.jsx` 7 (was 3). Mobile suites 295/295. Mutation-checked:
+removing `clearInstalledFlag()` from the `beforeinstallprompt` handler fails
+UPI-4; removing `initInstallCapture()` from `main.jsx` fails UPI-1's companion
+UPI-0 (a `?raw` source assertion — main.jsx boots MSAL, Sentry and the whole
+app on import, so behavioural coverage of the bootstrap line is impossible in
+jsdom; the assertion matches a bare `initInstallCapture();` statement so a
+mention in a comment does not satisfy it). Full frontend suite 10 failures /
+3 files, identical to the documented baseline.
+
+**Outstanding:** task 6.5 — manual on real devices: Android install through
+the sheet end to end, entry disappears, uninstall restores it; iPhone Safari
+steps match what Safari actually shows and home-screen launch hides
+everything; nudge on the second signed-in session and never again.
+
 ### Room conflict report (implemented 2026-08-05)
 
 Spec: `openspec/changes/room-conflict-report/`. 42/43 tasks; only 11.3

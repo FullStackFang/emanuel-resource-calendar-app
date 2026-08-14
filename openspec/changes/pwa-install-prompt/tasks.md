@@ -50,14 +50,14 @@ is against a measured number, not the one written down here.
 
 ## 3. The shared sheet
 
-- [ ] 3.1 Write `src/__tests__/unit/components/mobile/InstallAppSheet.test.jsx`:
+- [x] 3.1 Write `src/__tests__/unit/components/mobile/InstallAppSheet.test.jsx`:
       each of the four platforms renders its own subtitle, steps, and primary
       label; the title `Install Temple Events`, the app mark, and the
       two-button row are identical across all four (assert the shared chrome
       explicitly, so a future per-platform divergence fails a test); the
       `prompt` primary calls `promptInstall`; the `ios-other` primary writes
       the page URL to the clipboard; dismiss closes without side effects
-- [ ] 3.2 Create `src/components/mobile/InstallAppSheet.jsx` + `.css` per the
+- [x] 3.2 Create `src/components/mobile/InstallAppSheet.jsx` + `.css` per the
       rev-2 mockup — scrim, grabber, 44px app mark, numbered step pills, ghost
       + primary row. Use `--font-semibold` / `--font-medium`, **not** the
       undefined `--weight-*` names. Scope every class under a component root
@@ -65,41 +65,41 @@ is against a measured number, not the one written down here.
 
 ## 4. The one-time nudge
 
-- [ ] 4.1 Write `src/__tests__/unit/components/mobile/InstallAppNudge.test.jsx`:
+- [x] 4.1 Write `src/__tests__/unit/components/mobile/InstallAppNudge.test.jsx`:
       hidden on session 1, shown on session 2 when authenticated and not
       retired; either button retires it so a subsequent session shows nothing;
       hidden when unauthenticated; hidden when storage reads throw
-- [ ] 4.2 Create `src/components/mobile/InstallAppNudge.jsx` + `.css`,
+- [x] 4.2 Create `src/components/mobile/InstallAppNudge.jsx` + `.css`,
       positioned above the tab bar without covering agenda content. Run 4.1
       until green
 
 ## 5. Wiring
 
-- [ ] 5.1 Extend `src/__tests__/unit/components/mobile/MobileHeader.test.jsx`:
+- [x] 5.1 Extend `src/__tests__/unit/components/mobile/MobileHeader.test.jsx`:
       the `Install App` entry renders when available and is absent when not;
       activating it invokes the passed handler
-- [ ] 5.2 Add the entry to `src/components/mobile/MobileHeader.jsx` behind new
+- [x] 5.2 Add the entry to `src/components/mobile/MobileHeader.jsx` behind new
       `showInstall` / `onInstall` props, matching the existing menu-item
       markup; close the menu on activation
-- [ ] 5.3 Wire `src/components/mobile/MobileApp.jsx` as the single owner (D9):
+- [x] 5.3 Wire `src/components/mobile/MobileApp.jsx` as the single owner (D9):
       hold `usePwaInstall()` and the sheet's open state, pass `showInstall` /
       `onInstall` to the header, render the nudge and the sheet. Run 5.1 until
       green
-- [ ] 5.4 Increment the visit count once per session from the mobile shell,
+- [x] 5.4 Increment the visit count once per session from the mobile shell,
       guarded by `sessionStorage`, only while authenticated
 
 ## 6. Verification
 
-- [ ] 6.1 Run the four new suites plus `MobileHeader.test.jsx` green
-- [ ] 6.2 Run the full frontend suite and confirm the failure count and file
+- [x] 6.1 Run the four new suites plus `MobileHeader.test.jsx` green
+- [x] 6.2 Run the full frontend suite and confirm the failure count and file
       list are identical to the baseline recorded above; if they differ,
       measure with `git stash push -u` → run → `git stash pop` → run before
       concluding anything
-- [ ] 6.3 Mutation-check the two load-bearing behaviours: removing the
+- [x] 6.3 Mutation-check the two load-bearing behaviours: removing the
       module-scope capture in `main.jsx` MUST fail the before-mount case in
       2.1; removing the `clearInstalledFlag()` call from the
       `beforeinstallprompt` handler MUST fail the self-heal case in 2.1
-- [ ] 6.4 `npm run lint` — confirm no new warnings on touched files
+- [x] 6.4 `npm run lint` — confirm no new warnings on touched files
 - [ ] 6.5 **Manual, on real devices** (cannot be faked in jsdom): on an Android
       phone, install through the sheet end to end and confirm the entry
       disappears afterwards, then uninstall and confirm it returns; on an
