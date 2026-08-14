@@ -78,9 +78,17 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#ffffff',
         theme_color: '#2b579a',
+        // Two SETS, not one dual-purpose set. 'maskable' promises Android that
+        // all meaningful content sits inside a centred circle of 80% diameter;
+        // Android then crops to the launcher's mask shape. The logo fills ~97%
+        // of its canvas, so declaring it 'any maskable' had Android slicing the
+        // outer ring off the rose window. The maskable files are the same art
+        // padded down to 75%, measured to sit inside the safe circle.
         icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ]
       }
     }),

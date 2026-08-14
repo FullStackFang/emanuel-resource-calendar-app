@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <!-- /favicon.ico never existed; the stock Vite link 404'd into the SPA
+         rewrite and returned HTML, which is why the tab icon was generic. -->
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- iOS ignores the manifest for home-screen icons and reads this instead. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Temple Emanu-El Events Scheduler</title>
 
