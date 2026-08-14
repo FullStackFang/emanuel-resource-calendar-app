@@ -622,12 +622,23 @@ overflow menu hides an Install item — which on iPhone it does not.
   false when storage throws (entry shown), `readNudgeDone()` returns true
   (nudge hidden). A storage failure must never remove the only route to
   installing, nor turn a once-ever banner into a nag.
-- **One sheet for every platform** (`InstallAppSheet`): identical chrome —
-  app mark, title 'Install Temple Events', numbered step pills, ghost +
-  primary row — with only subtitle / steps / primary label varying. Android
-  deliberately opens this sheet rather than firing Chrome's dialog straight
-  from the menu (D3): one extra tap, one describable flow on both platforms.
-  The sheet holds the ONLY platform branch in the feature.
+- **D3 REVISED (2026-08-14): where the browser can install, it installs.**
+  `MobileApp.handleInstall` branches on `canPrompt` — true fires
+  `promptInstall()` and the sheet never mounts, so Android is menu tap →
+  Chrome's own dialog. The original D3 routed every platform through the sheet
+  for a flow that read identically on both; that extra tap was judged not worth
+  its cost. The branch is `canPrompt`, NOT a UA test, so capability decides.
+  `promptInstall()` must stay synchronous in the handler — an await before
+  `prompt()` voids the gesture and the dialog silently never appears (D10).
+- **`InstallAppSheet` is now the instructions half**, reached only when there is
+  no dialog to fire: iOS always, plus any browser that withheld
+  `beforeinstallprompt` or already spent it. Identical chrome for every platform
+  it shows on — app mark, title 'Install Temple Events', numbered step pills,
+  ghost + primary row — with only subtitle / steps / primary label varying. Its
+  `'prompt'` case is off `MobileApp`'s path but kept: the component's contract
+  covers all four platform values. A dismissed Chrome dialog needs no recovery
+  code — the captured event is single-use, so `canPrompt` flips false,
+  `detectPlatform` reports `'manual'`, and the next tap lands on the sheet.
 - **`MobileApp` is the single owner (D9)**: holds `usePwaInstall()` + the
   sheet's open state, passes `showInstall` / `onInstall` to `MobileHeader`,
   renders nudge and sheet. **`recordVisit()` runs in a `useState` initializer,
@@ -639,7 +650,12 @@ overflow menu hides an Install item — which on iPhone it does not.
 
 **Tests:** new `pwaInstall.test.js` (29), `usePwaInstall.test.jsx` (13),
 `InstallAppSheet.test.jsx` (15), `InstallAppNudge.test.jsx` (9);
-`MobileHeader.test.jsx` 7 (was 3). Mobile suites 295/295. Mutation-checked:
+`MobileHeader.test.jsx` 7 (was 3); `MobileApp.install.test.jsx` (7, added with
+the D3 revision — the wiring it covers had no suite at all before). Mobile
+suites + `pwaInstall`/`usePwaInstall` 303/303 measured together (the older
+295 figure above was scoped slightly differently; don't diff the two).
+Mutation-checked: reverting `handleInstall` to the
+unconditional `setInstallSheetOpen(true)` fails MAI-1/3/5;
 removing `clearInstalledFlag()` from the `beforeinstallprompt` handler fails
 UPI-4; removing `initInstallCapture()` from `main.jsx` fails UPI-1's companion
 UPI-0 (a `?raw` source assertion — main.jsx boots MSAL, Sentry and the whole
@@ -648,10 +664,12 @@ jsdom; the assertion matches a bare `initInstallCapture();` statement so a
 mention in a comment does not satisfy it). Full frontend suite 10 failures /
 3 files, identical to the documented baseline.
 
-**Outstanding:** task 6.5 — manual on real devices: Android install through
-the sheet end to end, entry disappears, uninstall restores it; iPhone Safari
-steps match what Safari actually shows and home-screen launch hides
-everything; nudge on the second signed-in session and never again.
+**Outstanding:** task 6.5 — manual on real devices: on Android, 'Install App'
+raises Chrome's dialog with no sheet in between, install completes, the entry
+disappears, uninstall restores it, and a DISMISSED dialog leaves the entry
+working (it should then show the manual sheet); iPhone Safari steps match what
+Safari actually shows and home-screen launch hides everything; nudge on the
+second signed-in session and never again.
 
 ### Room conflict report (implemented 2026-08-05)
 

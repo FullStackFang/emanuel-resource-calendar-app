@@ -7,8 +7,9 @@ import './MobileHeader.css';
 /**
  * @param {boolean} [showInstall] The install affordance is available (not
  *   already installed, not running standalone). Owned by MobileApp.
- * @param {Function} [onInstall] Opens the install sheet. Every platform takes
- *   the same path — the only platform branch lives inside the sheet.
+ * @param {Function} [onInstall] Starts the install. Whether that means the
+ *   browser's own dialog or our instruction sheet is MobileApp's decision —
+ *   this menu never branches on platform.
  */
 function MobileHeader({ showInstall = false, onInstall }) {
   const { instance, accounts } = useMsal();

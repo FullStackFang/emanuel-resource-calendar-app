@@ -16,10 +16,10 @@ function MobileApp() {
   const { canApproveReservations } = usePermissions();
 
   // Install affordance (design D9): this component is its single owner. Two
-  // triggers — the menu entry and the nudge — resolve to one action, opening
-  // the sheet. Nothing upstream of the sheet branches on platform at all; that
-  // is the whole mechanism by which iPhone and Android look identical.
-  const { isAvailable, platform, promptInstall } = usePwaInstall();
+  // triggers — the menu entry and the nudge — resolve to one action, and this
+  // is the only place that decides what that action is. Nothing upstream of
+  // here knows about platform.
+  const { isAvailable, canPrompt, platform, promptInstall } = usePwaInstall();
   const [installSheetOpen, setInstallSheetOpen] = useState(false);
 
   // Count this signed-in session during render, not in an effect: the nudge is
@@ -34,7 +34,24 @@ function MobileApp() {
   const isAuthenticated = Boolean(apiToken);
   const [visitCount] = useState(() => (isAuthenticated ? recordVisit() : 0));
 
-  const handleInstall = () => setInstallSheetOpen(true);
+  // Where the browser can really install, install — no sheet of ours in the
+  // way (revises design D3, which routed every platform through the sheet for
+  // symmetry). promptInstall() must be called synchronously here: an await
+  // before it would void the user gesture and the browser's dialog would
+  // silently never appear.
+  //
+  // The branch is `canPrompt`, not a user-agent test, so a browser that can
+  // install gets the dialog whatever its UA claims. Everything else — iOS, and
+  // any browser that withheld beforeinstallprompt — gets the instructions. The
+  // captured event is single-use, so a dismissed dialog naturally lands here
+  // on the next tap with platform 'manual'.
+  const handleInstall = () => {
+    if (canPrompt) {
+      promptInstall();
+      return;
+    }
+    setInstallSheetOpen(true);
+  };
 
   const renderActiveView = () => {
     switch (activeTab) {

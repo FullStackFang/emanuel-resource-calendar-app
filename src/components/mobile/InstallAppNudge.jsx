@@ -5,9 +5,9 @@
 // affordance is available, the user is signed in, this is at least their second
 // signed-in session, and no nudge has been retired on this device.
 //
-// Either button retires it forever. The Install button opens the same sheet the
-// menu entry does — under design D9 there is exactly one action, and the only
-// platform branch lives inside the sheet.
+// Either button retires it forever. The Install button takes the same path the
+// menu entry does — under design D9 there is exactly one action, and MobileApp
+// alone decides whether it means the browser's dialog or the instruction sheet.
 
 import React, { useState } from 'react';
 import { readNudgeDone, retireNudge, shouldShowNudge } from '../../utils/pwaInstall';
@@ -17,7 +17,7 @@ import './InstallAppNudge.css';
  * @param {boolean} isAvailable  From usePwaInstall.
  * @param {boolean} isAuthenticated
  * @param {number}  visitCount   Signed-in sessions so far, counted by the shell.
- * @param {Function} onInstall   Opens the install sheet.
+ * @param {Function} onInstall   Starts the install (MobileApp decides how).
  */
 function InstallAppNudge({ isAvailable, isAuthenticated, visitCount, onInstall }) {
   // Read once at mount. An unreadable store reads as already-retired, so a

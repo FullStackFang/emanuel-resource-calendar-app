@@ -1,15 +1,22 @@
 // src/components/mobile/InstallAppSheet.jsx
 //
-// The one install sheet, shared by every platform. Chrome is identical
-// everywhere — app mark, title, numbered step pills, two-button row — and only
-// the subtitle, the steps and the primary label change. Android deliberately
-// opens this sheet rather than firing Chrome's dialog straight from the menu
-// (design D3): one extra tap buys a flow that looks and is described the same
-// way on both platforms, which matters for an audience that supports each
-// other in person.
+// The install sheet: one layout, shared by every platform it is shown on.
+// Chrome is identical everywhere — app mark, title, numbered step pills,
+// two-button row — and only the subtitle, the steps and the primary label
+// change.
 //
-// This component holds the ONLY platform branch in the feature. Everything
-// upstream — the menu entry, the nudge — just says "open the sheet".
+// This is the INSTRUCTIONS half of the affordance, reached when the browser has
+// no install dialog of its own to offer: iOS at all times, and anywhere
+// beforeinstallprompt was withheld or has already been spent. Where a real
+// dialog IS available, MobileApp fires it straight from the menu and this sheet
+// never appears — design D3 originally routed Android through here too, for a
+// flow that read the same on both platforms, and that extra tap was judged not
+// worth its cost.
+//
+// The 'prompt' case below is therefore not on MobileApp's path. It stays
+// because this component's contract is "given a platform, render the right
+// way in" for all four values, and a caller in that state deserves a correct
+// render rather than a fallthrough to the manual instructions.
 
 import React, { useState } from 'react';
 import useScrollLock from '../../hooks/useScrollLock';
