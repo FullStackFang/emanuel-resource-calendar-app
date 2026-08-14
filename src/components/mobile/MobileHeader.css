@@ -107,3 +107,15 @@
 .mobile-header-menu-item:active {
   background: var(--bg-tertiary);
 }
+
+/* The install entry: a brand tint because discovery is the entire point of it.
+ * Uses --font-medium, not the undefined --weight-medium above. */
+.mobile-header-menu-item-highlight {
+  background: var(--bg-brand-subtle);
+  color: var(--text-brand);
+  font-weight: var(--font-medium);
+}
+
+.mobile-header-menu-item-highlight:active {
+  background: var(--color-primary-100);
+}

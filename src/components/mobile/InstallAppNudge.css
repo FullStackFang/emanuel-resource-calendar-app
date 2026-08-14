@@ -1,0 +1,102 @@
+/* src/components/mobile/InstallAppNudge.css
+ *
+ * Sits just above the bottom tab bar (56px + safe area), floating over the
+ * agenda rather than displacing it: the banner shows once ever, and reflowing
+ * the whole list for a one-time card would move content under the user's
+ * thumb mid-scroll. Every class is prefixed so nothing leaks.
+ */
+
+.install-nudge {
+  position: fixed;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3));
+  z-index: 90; /* under the sheet (1000), over the agenda */
+  padding: var(--space-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  animation: install-nudge-in 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes install-nudge-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-nudge { animation: none; }
+}
+
+.install-nudge-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.install-nudge-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-700));
+  color: var(--text-inverse);
+}
+
+.install-nudge-title {
+  margin-bottom: 2px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.install-nudge-subtitle {
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.install-nudge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.install-nudge-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.install-nudge-btn-ghost {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+}
+
+.install-nudge-btn-primary {
+  background: var(--color-primary-600);
+  border: none;
+  color: var(--text-inverse);
+  font-weight: var(--font-semibold);
+}
+
+.install-nudge-btn-ghost:active {
+  background: var(--bg-tertiary);
+}
+
+.install-nudge-btn-primary:active {
+  background: var(--color-primary-700);
+}

@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'C:\\Users\\Stephen.Fang\\OneDrive\\Documents\\workspace\\github.com\\fullstackfang\\emanuel-resource-calendar-app\\.codex\\hooks\\post-tool-use-tracker.sh'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'C:\\Users\\Stephen.Fang\\OneDrive\\Documents\\workspace\\github.com\\fullstackfang\\emanuel-resource-calendar-app\\.codex\\hooks\\skill-activation-prompt.sh'"
+          }
+        ]
+      }
+    ]
+  }
+}

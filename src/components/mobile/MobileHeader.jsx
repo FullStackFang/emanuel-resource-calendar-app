@@ -4,7 +4,13 @@ import { setLayoutPreference } from '../../utils/layoutPreference';
 import { logger } from '../../utils/logger';
 import './MobileHeader.css';
 
-function MobileHeader() {
+/**
+ * @param {boolean} [showInstall] The install affordance is available (not
+ *   already installed, not running standalone). Owned by MobileApp.
+ * @param {Function} [onInstall] Opens the install sheet. Every platform takes
+ *   the same path — the only platform branch lives inside the sheet.
+ */
+function MobileHeader({ showInstall = false, onInstall }) {
   const { instance, accounts } = useMsal();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -60,6 +66,17 @@ function MobileHeader() {
               <span className="mobile-header-menu-email">{account?.username}</span>
             </div>
             <div className="mobile-header-menu-divider" />
+            {showInstall && onInstall && (
+              <button
+                className="mobile-header-menu-item mobile-header-menu-item-highlight"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onInstall();
+                }}
+              >
+                Install App
+              </button>
+            )}
             <button
               className="mobile-header-menu-item"
               onClick={() => {

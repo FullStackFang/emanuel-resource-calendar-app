@@ -15,6 +15,7 @@ import { canAttemptChunkReload, markChunkReloadAttempt } from './utils/lazyWithR
 import { bootstrapMsalAccount } from './utils/msalBootstrap';
 import { registerSW } from 'virtual:pwa-register';
 import { watchForServiceWorkerUpdates } from './utils/pwaUpdates';
+import { initInstallCapture } from './utils/pwaInstall';
 import './index.css'; // optional
 
 // Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
@@ -29,6 +30,16 @@ import './index.css'; // optional
     sessionStorage.setItem('deepLinkEventId', eventId);
   }
 })();
+
+// Capture the browser's install offer before React exists. Chrome dispatches
+// 'beforeinstallprompt' during initial page load — typically before
+// createRoot() completes, and always before an effect inside the lazily-loaded
+// mobile tree could subscribe. A hook that only listens on mount misses it in
+// production while appearing to work in dev, where hot reload re-fires
+// listeners after mount. Same "must run before React" reason as the deep-link
+// capture above; the handler bodies live in pwaInstall.js so every branch stays
+// unit-testable without loading this entry point.
+initInstallCapture();
 
 // Recover from stale-chunk-after-deploy errors. When a deploy ships new chunk
 // hashes, users with an old index.html in memory hit 404s on dynamic imports

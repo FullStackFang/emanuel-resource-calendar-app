@@ -9,7 +9,7 @@ is against a measured number, not the one written down here.
 
 ## 1. Pure detection and persistence
 
-- [ ] 1.1 Write `src/__tests__/unit/utils/pwaInstall.test.js`: standalone
+- [x] 1.1 Write `src/__tests__/unit/utils/pwaInstall.test.js`: standalone
       detection via `display-mode: standalone` and via legacy
       `navigator.standalone`; the platform resolution table (`prompt`,
       `ios-safari`, `ios-other` for `CriOS`/`FxiOS`/`EdgiOS`/`OPiOS`,
@@ -18,7 +18,7 @@ is against a measured number, not the one written down here.
       an iOS third-party marker** (capability outranks UA); the
       `shouldShowNudge` truth table; and storage-throws degrading to
       entry-shown / nudge-hidden
-- [ ] 1.2 Create `src/utils/pwaInstall.js` exporting `isRunningStandalone()`,
+- [x] 1.2 Create `src/utils/pwaInstall.js` exporting `isRunningStandalone()`,
       `detectPlatform({ hasDeferredPrompt, userAgent, platform,
       maxTouchPoints })`, `shouldShowNudge({ isAvailable, isAuthenticated,
       visitCount, nudgeDone })`, `recordVisit()`, `retireNudge()`,
@@ -27,14 +27,14 @@ is against a measured number, not the one written down here.
 
 ## 2. Event capture and the hook
 
-- [ ] 2.1 Write `src/__tests__/unit/hooks/usePwaInstall.test.jsx`: **an event
+- [x] 2.1 Write `src/__tests__/unit/hooks/usePwaInstall.test.jsx`: **an event
       dispatched before mount is still reported as available** (the primary
       regression guard for D2); an event dispatched after mount is picked up;
       `appinstalled` sets the flag and drops `isAvailable`;
       `beforeinstallprompt` clears a pre-existing installed flag (D6
       self-heal); `promptInstall` calls `prompt()` and clears the slot so a
       second call does not re-prompt; a `dismissed` outcome records nothing
-- [ ] 2.2 Add `initInstallCapture()` to `src/utils/pwaInstall.js` — it owns the
+- [x] 2.2 Add `initInstallCapture()` to `src/utils/pwaInstall.js` — it owns the
       module-scoped event slot, registers the `beforeinstallprompt` listener
       (`preventDefault()`, store the event, clear the installed flag) and the
       `appinstalled` listener (set the flag), and exposes
@@ -43,7 +43,7 @@ is against a measured number, not the one written down here.
       `src/main.jsx`, beside the existing `vite:preloadError` handler, so
       `main.jsx` gains a single import and a single call and all the logic
       stays unit-testable
-- [ ] 2.3 Create `src/hooks/usePwaInstall.js` returning `{ isAvailable,
+- [x] 2.3 Create `src/hooks/usePwaInstall.js` returning `{ isAvailable,
       canPrompt, platform, promptInstall }`. `promptInstall` calls
       `event.prompt()` with **no preceding `await`** (D10), then awaits
       `userChoice`. Run 2.1 until green

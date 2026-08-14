@@ -11,6 +11,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 vi.mock('../../../config/config', () => ({
   default: { API_BASE_URL: 'http://localhost:3001/api' },
@@ -26,6 +27,10 @@ vi.mock('@azure/msal-react', () => ({
 
 vi.mock('../../../hooks/useDepartments', () => ({ default: () => ({ departments: [] }) }));
 vi.mock('../../../hooks/useRoleTypes', () => ({ default: () => ({ roleTypes: [] }) }));
+
+vi.mock('../../../context/NotificationContext', () => ({
+  useNotification: () => ({ showSuccess: vi.fn(), showWarning: vi.fn(), showError: vi.fn() }),
+}));
 
 let currentRole = 'approver';
 vi.mock('../../../hooks/usePermissions', () => ({
@@ -48,7 +53,10 @@ function mockUserListFetch() {
   })));
 }
 
-const cardFor = (name) => screen.getByText(name).closest('.user-card');
+// Re-selectored for the roster rewrite (2026-08-14): the tile grid's
+// `.user-card` became `.ua-entry`, which wraps the row AND its inline editor
+// so `within()` still reaches both. Every assertion below is unchanged.
+const rowFor = (name) => screen.getByText(name).closest('.ua-entry');
 
 describe('UserAdmin role cap', () => {
   beforeEach(() => {
@@ -57,20 +65,20 @@ describe('UserAdmin role cap', () => {
 
   it('locks approver/admin rows and caps the role select for an approver caller', async () => {
     currentRole = 'approver';
-    render(<UserAdmin apiToken="tok" />);
+    render(<UserAdmin apiToken="tok" />, { wrapper: withQueryClient() });
 
     await waitFor(() => expect(screen.getByText('Vera Viewer')).toBeInTheDocument());
 
     // Manageable rows expose Edit; privileged rows are locked.
-    expect(within(cardFor('Vera Viewer')).getByText('Edit')).toBeInTheDocument();
-    expect(within(cardFor('Rita Requester')).getByText('Edit')).toBeInTheDocument();
-    expect(within(cardFor('Andy Approver')).queryByText('Edit')).toBeNull();
-    expect(within(cardFor('Andy Approver')).getByText('Admin only')).toBeInTheDocument();
-    expect(within(cardFor('Adam Admin')).queryByText('Edit')).toBeNull();
-    expect(within(cardFor('Adam Admin')).getByText('Admin only')).toBeInTheDocument();
+    expect(within(rowFor('Vera Viewer')).getByText('Edit')).toBeInTheDocument();
+    expect(within(rowFor('Rita Requester')).getByText('Edit')).toBeInTheDocument();
+    expect(within(rowFor('Andy Approver')).queryByText('Edit')).toBeNull();
+    expect(within(rowFor('Andy Approver')).getByText('Admin only')).toBeInTheDocument();
+    expect(within(rowFor('Adam Admin')).queryByText('Edit')).toBeNull();
+    expect(within(rowFor('Adam Admin')).getByText('Admin only')).toBeInTheDocument();
 
     // Editing a manageable row offers only viewer/requester roles.
-    fireEvent.click(within(cardFor('Vera Viewer')).getByText('Edit'));
+    fireEvent.click(within(rowFor('Vera Viewer')).getByText('Edit'));
     expect(screen.getByRole('option', { name: 'Viewer' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Requester' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Approver' })).toBeNull();
@@ -79,16 +87,16 @@ describe('UserAdmin role cap', () => {
 
   it('lets an admin caller edit every row with the full role list', async () => {
     currentRole = 'admin';
-    render(<UserAdmin apiToken="tok" />);
+    render(<UserAdmin apiToken="tok" />, { wrapper: withQueryClient() });
 
     await waitFor(() => expect(screen.getByText('Adam Admin')).toBeInTheDocument());
 
     for (const name of ['Vera Viewer', 'Rita Requester', 'Andy Approver', 'Adam Admin']) {
-      expect(within(cardFor(name)).getByText('Edit')).toBeInTheDocument();
+      expect(within(rowFor(name)).getByText('Edit')).toBeInTheDocument();
     }
     expect(screen.queryByText('Admin only')).toBeNull();
 
-    fireEvent.click(within(cardFor('Andy Approver')).getByText('Edit'));
+    fireEvent.click(within(rowFor('Andy Approver')).getByText('Edit'));
     for (const role of ['Viewer', 'Requester', 'Approver', 'Admin']) {
       expect(screen.getByRole('option', { name: role })).toBeInTheDocument();
     }

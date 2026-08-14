@@ -53,4 +53,41 @@ describe('MobileHeader', () => {
     expect(logoutRedirect).toHaveBeenCalledTimes(1);
     expect(window.localStorage.getItem(LAYOUT_PREFERENCE_KEY)).toBeNull();
   });
+
+  // The install entry is the deliverable of pwa-install-prompt: permanent,
+  // never dismissable, present on every mobile browser whether or not a
+  // programmatic install is possible. It lives here rather than in a bottom tab
+  // because this menu is already where device-scoped, non-calendar actions go
+  // (Switch to Desktop View writes a per-device layout preference).
+
+  it('MH-4: offers Install App when the affordance is available', () => {
+    render(<MobileHeader showInstall onInstall={vi.fn()} />);
+    openMenu();
+    expect(screen.getByRole('button', { name: /install app/i })).toBeInTheDocument();
+  });
+
+  it('MH-5: omits it when the app is already installed', () => {
+    render(<MobileHeader showInstall={false} onInstall={vi.fn()} />);
+    openMenu();
+    expect(screen.queryByRole('button', { name: /install app/i })).not.toBeInTheDocument();
+  });
+
+  it('MH-6: omits it when no owner wired it up', () => {
+    render(<MobileHeader />);
+    openMenu();
+    expect(screen.queryByRole('button', { name: /install app/i })).not.toBeInTheDocument();
+  });
+
+  it('MH-7: activating it invokes the handler and closes the menu', () => {
+    const onInstall = vi.fn();
+    render(<MobileHeader showInstall onInstall={onInstall} />);
+    openMenu();
+
+    fireEvent.click(screen.getByRole('button', { name: /install app/i }));
+
+    expect(onInstall).toHaveBeenCalledTimes(1);
+    // The sheet takes over the screen; leaving the menu open behind it would
+    // stack two overlays.
+    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
+  });
 });

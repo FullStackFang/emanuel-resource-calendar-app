@@ -92,6 +92,17 @@ export const keys = {
       scope === undefined ? ['conflictReport', 'report'] : ['conflictReport', 'report', scope],
   },
 
+  // ─── Users ─────────────────────────────────────────────────────────────
+  // The /admin/users directory. `list()` takes no scope because the fetch
+  // takes none: GET /api/users returns the whole collection unpaginated with
+  // no query params, so there is exactly one users list and all filtering is
+  // client-side. Create/update/delete each invalidate `list()` rather than
+  // hand-patching the cache.
+  users: {
+    all: () => ['users'],
+    list: () => ['users', 'list'],
+  },
+
   // ─── Events ────────────────────────────────────────────────────────────
   events: {
     all: () => ['events'],
