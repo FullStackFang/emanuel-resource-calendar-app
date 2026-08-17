@@ -864,15 +864,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             });
             return { success: false, error: 'SoftConflictPending' };
           }
+          // Hard conflicts: prefer the server message (it carries occurrence
+          // counts for series). Plain Save has no force affordance — the
+          // canForce flag is returned for callers but nothing arms an override
+          // here — so the toast must not advertise one; non-admins would be
+          // 403'd by the server anyway.
+          const msg = data.message
+            || `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Adjust times or rooms.`;
+          if (onError) onError(msg, data.conflicts);
           if (data.conflictTier === 'hard' && data.canForce && data.forceField) {
-            // Hard conflicts with admin force override available - show in error
-            const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Use force override to proceed.`;
-            if (onError) onError(msg, data.conflicts);
             return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts, canForce: true, forceField: data.forceField };
           }
-          // Hard conflicts without force option
-          const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Adjust times or rooms.`;
-          if (onError) onError(msg, data.conflicts);
           return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts };
         }
         // Legacy 409

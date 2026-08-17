@@ -228,8 +228,17 @@ export default function ReviewModal({
   const { isAdmin, canApproveReservations } = usePermissions();
 
   // Determine effective conflict blocking behavior
-  // Hard conflicts: block non-admins, allow admin override
+  // Hard conflicts: block non-admins from Approve/Publish (and requester
+  // resubmit), allow admin override.
   // Soft conflicts: show warning but don't disable buttons (handled by useReviewModal confirmation)
+  //
+  // Deliberately NOT applied to the Save button. The SchedulingAssistant flags
+  // every hard conflict on the viewed day, including pre-existing collisions
+  // unrelated to the edit in hand — so gating Save on it stopped approvers from
+  // saving changes that REDUCE a conflict (e.g. removing a room from a pending
+  // occurrence), while admins could. The server owns save-time conflict policy
+  // (409 SchedulingConflict on the general path, none on the occurrence path)
+  // and useReviewModal.handleSave already surfaces that 409.
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
 
   // 'Publish Anyway?' force-override state. The hook only arms this for
@@ -725,8 +734,8 @@ export default function ReviewModal({
                         type="button"
                         className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                         onClick={onSave}
-                        disabled={!hasChanges || !isFormValid || isSaving || hardConflictBlocks || (anyConfirming && !isSaveConfirming)}
-                        data-tooltip={getDisabledReason({ blockOnConflict: true, requireValid: true, requireChanges: true })}
+                        disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
+                        data-tooltip={getDisabledReason({ requireValid: true, requireChanges: true })}
                       >
                         {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
                       </button>
