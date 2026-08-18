@@ -32,6 +32,7 @@ const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = requir
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { isRealConflict } = require('./utils/concurrencyRules');
 const { introducedConflicts } = require('./utils/conflictDelta');
+const { locationMatchIds } = require('./utils/locationMatch');
 const { batchDelete } = require('./utils/batchDelete');
 const { buildEventDateRangeOverlapFilter, buildSeriesAwareDateRangeClause } = require('./utils/eventDateRangeFilter');
 const { expandSearchResults } = require('./utils/searchOccurrenceExpansion');
@@ -2663,7 +2664,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         { eventType: { $in: ['singleInstance', 'exception', 'addition', null] } },
         {
           // Check calendarData.locations (source of truth)
-          'calendarData.locations': { $in: roomIds }
+          'calendarData.locations': { $in: locationMatchIds(roomIds) }
         },
         {
           $or: [
@@ -2706,7 +2707,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       ...calendarOwnerFilter,
       status: { $in: ['published', 'pending'] },
       eventType: 'seriesMaster',
-      'calendarData.locations': { $in: roomIds },
+      'calendarData.locations': { $in: locationMatchIds(roomIds) },
     };
     if (excludeObjectIds.length > 0) {
       recurringQuery._id = { $nin: excludeObjectIds };
@@ -3051,7 +3052,7 @@ async function checkRecurringRoomConflicts(params) {
     ...calendarOwnerFilter,
     status: 'published',
     eventType: { $in: ['singleInstance', 'exception', 'addition', null] },
-    'calendarData.locations': { $in: roomIds },
+    'calendarData.locations': { $in: locationMatchIds(roomIds) },
     'calendarData.startDateTime': { $lt: spanEffectiveEnd },
     'calendarData.endDateTime': { $gt: spanEffectiveStart },
   };
@@ -3072,7 +3073,7 @@ async function checkRecurringRoomConflicts(params) {
     ...calendarOwnerFilter,
     status: 'published',
     eventType: 'seriesMaster',
-    'calendarData.locations': { $in: roomIds },
+    'calendarData.locations': { $in: locationMatchIds(roomIds) },
   };
   if (excludeEventId) {
     recurringQuery._id = { $ne: new ObjectId(excludeEventId) };

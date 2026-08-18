@@ -804,4 +804,48 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-18)', () => {
       }
     });
   });
+
+  // ─── RCC-20 (location string/ObjectId type robustness): a published blocker
+  //     whose calendarData.locations is stored as a hex STRING (as Outlook
+  //     delta-synced [Hold] events are) must still be detected. Before the
+  //     locationMatchIds() fix the conflict query normalized roomIds to
+  //     ObjectId only, so `$in` type-mismatched the string-stored location and
+  //     silently found nothing — the event never flagged as a conflict, never
+  //     blocked a save, never blocked a publish. Uses a distinct room-free date
+  //     (2026-05-05) so the string blocker is the ONLY possible conflict.
+  describe('RCC-20: String-stored location is still detected as a conflict', () => {
+    it('should flag a blocker whose calendarData.locations is a hex string', async () => {
+      const stringBlocker = createPublishedEvent({
+        eventTitle: 'String-Located Blocker',
+        startDateTime: new Date('2026-05-05T10:00:00'),
+        endDateTime: new Date('2026-05-05T11:00:00'),
+        // Reproduces the real defect: room reference stored as a STRING, not ObjectId
+        locations: [sharedRoomId.toString()],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      await insertEvents(db, [stringBlocker]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({
+          startDateTime: '2026-05-05T10:30:00',
+          endDateTime: '2026-05-05T11:30:00',
+          recurrence: {
+            pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+            range: { type: 'endDate', startDate: '2026-05-05', endDate: '2026-05-05' },
+            additions: [],
+            exclusions: [],
+          },
+          roomIds: [sharedRoomId.toString()],
+        })
+        .expect(200);
+
+      expect(res.body.conflictingOccurrences).toBeGreaterThan(0);
+      const may5 = res.body.conflicts.find(c => c.occurrenceDate === '2026-05-05');
+      expect(may5).toBeDefined();
+      const record = may5.hardConflicts.find(c => c.eventTitle === 'String-Located Blocker');
+      expect(record).toBeDefined();
+    });
+  });
 });
