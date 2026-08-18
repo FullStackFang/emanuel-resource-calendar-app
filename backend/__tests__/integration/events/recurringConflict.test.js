@@ -772,4 +772,36 @@ describe('Recurring Event Conflict Detection Tests (RCC-1 to RCC-18)', () => {
       }
     });
   });
+
+  // ─── RCC-19 (save-conflict-delta-gate task 3.3): per-date hardConflicts carry
+  //     the neighbour's room ObjectIds so the recurring delta key can be
+  //     per-room. roomNames are display strings and cannot key a room identity.
+  describe('RCC-19: Recurring conflict records carry room ObjectIds', () => {
+    it('should include rooms (location ObjectIds) alongside roomNames', async () => {
+      const single = createPublishedEvent({
+        eventTitle: 'Single Blocker',
+        requesterName: 'Alice Levine',
+        startDateTime: new Date('2026-04-07T10:00:00'),
+        endDateTime: new Date('2026-04-07T11:00:00'),
+        locations: [sharedRoomId],
+        locationDisplayNames: ['Conference Room B'],
+      });
+      const master = createWeeklySeriesMaster({ requesterName: 'Bob Marcus' });
+      await insertEvents(db, [single, master]);
+
+      const res = await request(app)
+        .post(RECURRING_CONFLICTS_URL)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send(proposedAprilSeriesBody())
+        .expect(200);
+
+      const allRecords = res.body.conflicts.flatMap(c => c.hardConflicts);
+      expect(allRecords.length).toBeGreaterThan(1);
+      for (const record of allRecords) {
+        expect(Array.isArray(record.rooms)).toBe(true);
+        // the neighbour occupies the shared room; its id must be present as a string
+        expect(record.rooms.map(String)).toContain(sharedRoomId.toString());
+      }
+    });
+  });
 });

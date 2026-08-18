@@ -586,6 +586,87 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Save conflict delta gate (implemented 2026-08-17)
+
+Spec: `openspec/changes/save-conflict-delta-gate/`. Tasks 2-8 done; only 9.x
+(manual, live MSAL) outstanding.
+
+**Root cause:** every save path blocked a save whenever the *resulting* state
+had ANY hard conflict — even one the edit did not create and often reduces. So
+an approver could remove a room from a pending series occurrence in the UI but
+could not save (an admin could, via `forceUpdate`). The 2026-08-17 client fix
+(584bc9d) only moved the wall one step later; the policy defect lived on the
+server for every save path.
+
+**Delta rule:** a save now blocks only on hard conflicts it INTRODUCES, never
+ones the stored event already carries. For each save path that runs a hard
+check, ALSO run it on the STORED state (same checker, same `excludeId`, same
+`calendarOwner`, stored fallbacks) and 409 only on `proposed − stored`.
+Publish/approve/restore/submit KEEP the whole-state rule (they commit to the
+published calendar).
+
+**Shipped:**
+- **`backend/utils/conflictDelta.js`** — pure `conflictKey(entry, requestRoomIds)`
+  + `introducedConflicts(baseline, proposed, requestRoomIds)`, deps-free like
+  `concurrencyRules.js`. Keys are per (neighbour, room), `String()`-normalized.
+- **KEY QUALIFIER GOTCHA (D1):** a published series MASTER's `_id` is stable
+  within one `checkRoomConflicts` call but not ACROSS the two the delta compares
+  — moving a single event to a different week that hits a DIFFERENT occurrence of
+  the same weekly master would key identically and save a new double-booking
+  silently. So `checkRoomConflicts` now surfaces `occurrenceStartDateTime` on
+  master-derived hard entries and the key for those is
+  `${id}::${room}::${occurrenceStartDateTime}`. Recurring-source entries key
+  `${date}::${id}::${room}` (checkRecurringRoomConflicts entries now carry `rooms`).
+- **BUFFER GOTCHA (D4):** the occurrence (`thisEvent`) delta reads buffer minutes
+  from `masterDoc.calendarData` (the `??` chain), NOT the merged occurrence —
+  `INHERITABLE_FIELDS`/`extractOverrideData` carry only HH:MM strings, so a naive
+  build computes 0-minute buffers on both sides and misses a buffer-zone-only
+  collision (SCG-11 locks this).
+- **Paths converted:** `PUT /api/admin/events/:id` general branch (single +
+  recurring) and both `thisEvent` branches; `PUT /api/room-reservations/:id/edit`
+  general branch (incl. rejected→pending resubmit) and its `thisEvent` branch.
+  The two `thisEvent` paths had NO conflict check at all before; a shared
+  `checkOccurrenceConflictDelta()` helper adds one. `canForce` is admin-only on
+  the admin paths, `false` on owner paths.
+- **OCC-first (D2):** on the admin general path, a stale `updates._version` (the
+  same field `conditionalUpdate` uses) now returns `VERSION_CONFLICT` via
+  `buildVersionConflictBody()` BEFORE any conflict query — turning an accident of
+  code order into a contract (SCG-13). Byte-identical to conditionalUpdate's
+  envelope: top-level `code: 'CONFLICT'`, discriminator in `details.code`.
+- **Latent bug fixed in passing:** the admin-save recurring branch passed client
+  `roomIds` (hex STRINGS over HTTP) unnormalized to `checkRecurringRoomConflicts`,
+  whose `$in` type-mismatches ObjectId-stored locations and silently finds nothing.
+  Existing tests dodged it by only changing time. Now normalized to ObjectId,
+  mirroring the `/api/rooms/recurring-conflicts` endpoint.
+- **409 contract:** `hardConflicts` stays the BLOCKING (introduced) set;
+  `preexistingConflicts` (informational) and `deltaGate: true` are added; message
+  reads `Cannot save: this change introduces N new scheduling conflict(s)`
+  (recurring: `...on N of M occurrence(s)`).
+- **Client:** `ReviewModal` "Save & Resubmit" drops the whole-state
+  `hardConflictBlocks` gate exactly as plain Save did in 584bc9d (server decides);
+  `useReviewModal.handleSave` already prefers `data.message`, so the new wording
+  surfaces with no code change.
+
+**Whole-state paths UNCHANGED (regression guards):** `/publish`,
+`/edit-requests/:id/approve`, both `/restore`, draft `/submit`, and the
+in-save exclusion-restore pre-check. Non-admin approvers still cannot
+publish/approve into a conflict.
+
+**Tests:** new `conflictDelta.test.js` (13, CD-1..13), new
+`saveConflictDelta.test.js` (17, SCG-1..13 + owner + occurrence), +RCC-19 in
+`recurringConflict.test.js`; frontend `ReviewModal.saveConflictGate.test.jsx`
+6 (was 4, +SCG-5), new `useReviewModal.saveDelta.test.jsx` (1). Backend baseline
+(red main) preserved: `editConflict` stays 4-fail/403 (a pre-existing
+owner-edit auth-fixture bug, NOT conflict logic — its EC-1..4 were never 409);
+the 3 red occurrence suites keep the SAME passing set (verified by name-diff);
+`publishConflict` stays 3-fail (pre-existing Graph-mock). No new regressions.
+
+**Outstanding:** task 9.x — manual on dev (live MSAL, writes real events): approver
+trims a room from the Religious School series (previously 409); re-adds a
+colliding room → 409 naming only the introduced conflict; admin force on an
+occurrence; requester shrinks an own colliding pending request → 200; publish of
+a still-colliding pending event → still blocked.
+
 ### PWA install affordance (implemented 2026-08-14)
 
 Spec: `openspec/changes/pwa-install-prompt/`. Frontend-only; no endpoint,

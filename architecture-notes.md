@@ -364,6 +364,47 @@ Frontend accesses `event.start.dateTime` (local-time string) and `event.start.ti
 
 ---
 
+## Conflict Detection: Save = Delta, Publish/Approve/Restore = Whole-State
+
+Two conflict producers live in `backend/api-server.js`: `checkRoomConflicts()`
+(single window) and `checkRecurringRoomConflicts()` (per occurrence). Both apply
+the shared `isRealConflict()` (category grants, buffers) and `calendarOwner`
+scoping, and both exclude the source event's whole series family. What differs is
+how each *caller* uses the result:
+
+- **Save paths block only the delta.** `PUT /api/admin/events/:id` (general +
+  both `thisEvent` branches) and `PUT /api/room-reservations/:id/edit` (general +
+  `thisEvent`) run the checker on the PROPOSED state and, only when that returns a
+  hard conflict, again on the STORED state (same checker, same `excludeId`, same
+  owner, stored fallbacks). They 409 only on `proposed − stored` via
+  `backend/utils/conflictDelta.js` (`conflictKey` + `introducedConflicts`). A save
+  on a `pending` event commits nothing, and a save on a `published` event that
+  already conflicts is *already* double-booked — blocking every later edit does not
+  un-book it. So "carrying" (or reducing) an existing collision saves; only
+  *introducing* a new one blocks. The stored-state check runs ONLY when the
+  proposed state is non-empty, so a clean save still costs one check.
+- **Whole-state paths keep blocking on the full resulting state:** `/publish`,
+  `/edit-requests/:id/approve`, both `/restore`, draft `/submit`, and the in-save
+  exclusion-restore pre-check. These decide whether an event ENTERS (or re-enters)
+  the published calendar, which is the commitment point; publishing into a
+  conflict stays admin-force-only.
+
+**Master occurrence qualifier (why the key is not just `id::room`):** a published
+series master's `_id` is stable within a single `checkRoomConflicts` call but not
+across the two calls the delta compares — moving a single event to a different
+week that collides with a *different* occurrence of the same weekly master would
+key identically and save a genuinely new double-booking silently. So master-derived
+hard entries carry `occurrenceStartDateTime` and key
+`${id}::${room}::${occurrenceStartDateTime}`; recurring-source entries key
+`${occurrenceDate}::${id}::${room}`; plain single neighbours key `${id}::${room}`.
+All ids are `String()`-normalized (neighbour rooms arrive as ObjectIds, request
+rooms as strings). Occurrence (`thisEvent`) buffers come from the master's
+`calendarData` (not the merged occurrence, which carries only HH:MM strings).
+
+See `openspec/changes/save-conflict-delta-gate/` for the full design.
+
+---
+
 ## Testing Checklist
 
 ### Backend (MongoDB)

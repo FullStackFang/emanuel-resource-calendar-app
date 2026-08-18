@@ -24,13 +24,14 @@ const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPre
 const { standardLimiter, publicLimiter, publicEventsLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
-const { conditionalUpdate } = require('./utils/concurrencyUtils');
+const { conditionalUpdate, getNestedValue } = require('./utils/concurrencyUtils');
 const { recurrenceEquals, exclusionsRemoved } = require('./utils/recurrenceCompare');
 const { findOrphanedOverrides } = require('./utils/recurrenceOrphanCleanup');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail, valuesAreDifferent } = require('./utils/changeDetection');
 const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('./utils/recurrenceExpansion');
 const { isRealConflict } = require('./utils/concurrencyRules');
+const { introducedConflicts } = require('./utils/conflictDelta');
 const { batchDelete } = require('./utils/batchDelete');
 const { buildEventDateRangeOverlapFilter, buildSeriesAwareDateRangeClause } = require('./utils/eventDateRangeFilter');
 const { expandSearchResults } = require('./utils/searchOccurrenceExpansion');
@@ -41,7 +42,7 @@ const { withGraphRetry } = require('./utils/graphRetry');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
-const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, materializeAdditionDocuments, EVENT_TYPE } = require('./utils/exceptionDocumentService');
+const { createExceptionDocument, updateExceptionDocument, findExceptionForDate, getExceptionsForMaster, cascadeDeleteExceptions, cascadeStatusUpdate, softDeleteException, undeleteExceptionForRestore, resolveSeriesMaster, enrichSeriesMastersWithOverrides, reconcileOccurrenceOverrides, materializeAdditionDocuments, mergeDefaultsWithOverrides, EVENT_TYPE } = require('./utils/exceptionDocumentService');
 const { resolveSeriesExclusionIds } = require('./utils/seriesExclusion');
 const { isEventOwner, isSameDepartment } = require('./utils/eventEditability');
 
@@ -2925,7 +2926,14 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       setupTimeMinutes: conflict.setupTimeMinutes || conflict.calendarData?.setupTimeMinutes || 0,
       teardownTimeMinutes: conflict.teardownTimeMinutes || conflict.calendarData?.teardownTimeMinutes || 0,
       isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
-      allowedConcurrentCategories: conflict.allowedConcurrentCategories || []
+      allowedConcurrentCategories: conflict.allowedConcurrentCategories || [],
+      // Additive (save-conflict-delta-gate D1): the specific occurrence this
+      // entry met when the neighbour is a published series master. Undefined
+      // for singleInstance/exception/addition neighbours. The delta key needs
+      // it because a master's _id is stable within one checkRoomConflicts call
+      // but NOT across the two calls the delta compares — "same master,
+      // different occurrence" must read as a new collision, not a carried one.
+      occurrenceStartDateTime: conflict._occurrenceStartDateTime,
     }));
 
     // Format pending recurring conflicts as soft conflicts
@@ -3110,6 +3118,10 @@ async function checkRecurringRoomConflicts(params) {
             startDateTime: cStart,
             endDateTime: cEnd,
             roomNames: Array.isArray(conflict.calendarData?.locationDisplayNames) ? conflict.calendarData.locationDisplayNames : (conflict.calendarData?.locationDisplayNames ? [conflict.calendarData.locationDisplayNames] : []),
+            // Additive (save-conflict-delta-gate D1): the neighbour's location
+            // ObjectIds, so the recurring delta key can be per-room. roomNames
+            // are display strings and cannot key a room identity.
+            rooms: conflict.calendarData?.locations || [],
             status: conflict.status,
             requestedBy: conflict.roomReservationData?.requestedBy?.name || null,
           });
@@ -3131,6 +3143,9 @@ async function checkRecurringRoomConflicts(params) {
             startDateTime: mOcc.startDateTime,
             endDateTime: mOcc.endDateTime,
             roomNames: Array.isArray(master.calendarData?.locationDisplayNames) ? master.calendarData.locationDisplayNames : (master.calendarData?.locationDisplayNames ? [master.calendarData.locationDisplayNames] : []),
+            // Additive (save-conflict-delta-gate D1): the neighbour master's
+            // location ObjectIds for the per-room recurring delta key.
+            rooms: master.calendarData?.locations || [],
             status: master.status,
             requestedBy: master.roomReservationData?.requestedBy?.name || null,
           });
@@ -3178,6 +3193,92 @@ function flattenRecurringConflicts(recurringConflicts) {
     }
   }
   return flattened;
+}
+
+/**
+ * Build the VERSION_CONFLICT 409 body from an already-fetched document, byte-
+ * identical to what conditionalUpdate() throws on a version mismatch. Used by
+ * the OCC-first short-circuit (save-conflict-delta-gate D2) so a stale client
+ * gets VERSION_CONFLICT before any conflict query runs — turning an accident
+ * of code order (conflict block before conditionalUpdate) into a contract.
+ * @param {Object} currentDoc - the current server document (the fetched event)
+ * @returns {Object} response body matching ApiError.conflict(...).toJSON()
+ */
+function buildVersionConflictBody(currentDoc) {
+  const details = {
+    code: 'VERSION_CONFLICT',
+    currentVersion: currentDoc._version,
+    currentStatus: currentDoc.status,
+    lastModifiedBy: currentDoc.lastModifiedBy || currentDoc.lastModifiedByEmail || null,
+    lastModifiedDateTime: currentDoc.lastModifiedDateTime || currentDoc.lastModified || null,
+    snapshot: {},
+  };
+  for (const { key, path } of CONFLICT_SNAPSHOT_FIELDS) {
+    details.snapshot[key] = getNestedValue(currentDoc, path);
+  }
+  return ApiError.conflict(
+    'This event was modified by another user. Please refresh and try again.',
+    details
+  ).toJSON();
+}
+
+/**
+ * Delta conflict check for a single-occurrence (`editScope: 'thisEvent'`) edit,
+ * shared by the admin (PUT /api/admin/events/:id) and owner
+ * (PUT /api/room-reservations/:id/edit) paths. Neither path checked conflicts
+ * at all before save-conflict-delta-gate; this closes the hole where an
+ * occurrence could be MOVED into a fresh collision with no server check, while
+ * keeping the approver fix intact (removing a room introduces nothing).
+ *
+ * Baseline = the effective occurrence BEFORE the override (existing exception
+ * overrides applied, else the master's values for the date). Proposed = after
+ * merging the new override on top (updateExceptionDocument merges, so proposed
+ * overrides = {...existing, ...new}).
+ *
+ * Buffer minutes come from `masterDoc.calendarData` (the same `??` chain
+ * checkRoomConflicts applies over calendarData), NOT the merged occurrence:
+ * INHERITABLE_FIELDS carries only HH:MM strings, so a naive construction would
+ * compute 0-minute buffers on both sides and miss a buffer-zone-only collision.
+ *
+ * The whole series family is excluded (checkRoomConflicts resolves it from the
+ * master's _id) so the master's own expansion never self-conflicts.
+ *
+ * @returns {Promise<{introduced: Array, preexisting: Array}>}
+ */
+async function checkOccurrenceConflictDelta({ masterDoc, existingException, dateKey, overrideData, calendarOwner }) {
+  const masterCd = masterDoc.calendarData || {};
+  const bufferFields = {
+    setupTimeMinutes: masterCd.setupTimeMinutes,
+    teardownTimeMinutes: masterCd.teardownTimeMinutes,
+    reservationStartMinutes: masterCd.reservationStartMinutes,
+    reservationEndMinutes: masterCd.reservationEndMinutes,
+  };
+  const baseOverrides = existingException?.overrides || {};
+  const baselineEff = mergeDefaultsWithOverrides(masterDoc, baseOverrides, dateKey).effectiveCalendarData;
+  const proposedEff = mergeDefaultsWithOverrides(masterDoc, { ...baseOverrides, ...overrideData }, dateKey).effectiveCalendarData;
+
+  const excludeId = masterDoc._id.toString();
+  const owner = calendarOwner || masterDoc.calendarOwner || null;
+  const mkReservation = (eff) => ({
+    calendarOwner: owner,
+    calendarData: { ...eff, ...bufferFields },
+    isAllowedConcurrent: masterDoc.isAllowedConcurrent ?? false,
+  });
+
+  const proposed = await checkRoomConflicts(mkReservation(proposedEff), excludeId);
+  // A clean proposed occurrence has nothing to subtract — skip the baseline run
+  // (matches the one-check-when-clean rule on the other paths).
+  if (!proposed.hardConflicts.length) {
+    return { introduced: [], preexisting: [] };
+  }
+  let baseline = { hardConflicts: [] };
+  try {
+    baseline = await checkRoomConflicts(mkReservation(baselineEff), excludeId);
+  } catch (e) {
+    logger.warn('Non-fatal: occurrence baseline conflict check failed; blocking on whole state:', e.message);
+  }
+  const proposedRooms = proposedEff.locations || [];
+  return introducedConflicts(baseline.hardConflicts, proposed.hardConflicts, proposedRooms);
 }
 
 /**
@@ -18063,6 +18164,30 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
 
       // Create or update exception document. Key off masterDoc.eventId, never event.eventId.
       const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
+
+      // Delta conflict gate (save-conflict-delta-gate D4), owner variant. Same
+      // helper as the admin thisEvent path; owners cannot force.
+      {
+        const { introduced, preexisting } = await checkOccurrenceConflictDelta({
+          masterDoc, existingException, dateKey, overrideData,
+          calendarOwner: event.calendarOwner,
+        });
+        if (introduced.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'hard',
+            message: `Cannot save: this change introduces ${introduced.length} new scheduling conflict(s)`,
+            hardConflicts: introduced,
+            preexistingConflicts: preexisting,
+            softConflicts: [],
+            conflicts: introduced,
+            deltaGate: true,
+            canForce: false,
+            _version: event._version,
+          });
+        }
+      }
+
       let exceptionDoc;
       try {
         if (existingException) {
@@ -18192,18 +18317,43 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         isAllowedConcurrent: event.isAllowedConcurrent ?? false,
         categories: categories || event.calendarData?.categories || []
       };
-      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, reservationId);
+      const { hardConflicts, softConflicts } = await checkRoomConflicts(reservationForConflict, reservationId);
       if (hardConflicts.length > 0) {
-        return res.status(409).json({
-          error: 'SchedulingConflict',
-          conflictTier: 'hard',
-          message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
-          hardConflicts,
-          softConflicts,
-          conflicts: allConflicts,
-          canForce: false,
-          _version: event._version
-        });
+        // Delta (save-conflict-delta-gate task 5): block only on hard conflicts
+        // this edit INTRODUCES. A requester whose pending/rejected request
+        // already collides must still be able to shrink it (or resubmit it)
+        // without an approver. Baseline = the SAME checker on the STORED
+        // window/rooms/buffers/categories, same exclude id and owner. Owners
+        // cannot force, so on a baseline error we fall back to whole-state
+        // blocking (empty baseline → everything introduced) — the safe
+        // direction and the pre-change behaviour.
+        let baseline = { hardConflicts: [] };
+        try {
+          baseline = await checkRoomConflicts({
+            calendarOwner: event.calendarOwner || null,
+            calendarData: event.calendarData,
+            isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          }, reservationId);
+        } catch (baseErr) {
+          logger.warn('Non-fatal: baseline conflict check failed on owner edit; blocking on whole state:', baseErr.message);
+        }
+        const { introduced, preexisting } = introducedConflicts(baseline.hardConflicts, hardConflicts, editedRoomIds);
+        if (introduced.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'hard',
+            message: `Cannot save: this change introduces ${introduced.length} new scheduling conflict(s)`,
+            hardConflicts: introduced,
+            preexistingConflicts: preexisting,
+            softConflicts,
+            conflicts: [...introduced, ...softConflicts],
+            deltaGate: true,
+            canForce: false,
+            _version: event._version
+          });
+        }
+        // else: all hard conflicts are pre-existing (carried) — do not block;
+        // fall through to the soft-conflict check.
       }
       if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
         return res.status(409).json({
@@ -25136,6 +25286,32 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // and surface as the proper response envelope (outer catch would turn them
       // into a generic 500).
       const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
+
+      // Delta conflict gate (save-conflict-delta-gate D4). This path had NO
+      // conflict check before; block only conflicts the override INTRODUCES so
+      // removing an inherited colliding room still saves. Admins may force.
+      if (!updates.forceUpdate) {
+        const { introduced, preexisting } = await checkOccurrenceConflictDelta({
+          masterDoc, existingException, dateKey, overrideData,
+          calendarOwner: event.calendarOwner,
+        });
+        if (introduced.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'hard',
+            message: `Cannot save: this change introduces ${introduced.length} new scheduling conflict(s)`,
+            hardConflicts: introduced,
+            preexistingConflicts: preexisting,
+            softConflicts: [],
+            conflicts: introduced,
+            deltaGate: true,
+            canForce: effectiveRole === 'admin',
+            forceField: 'forceUpdate',
+            _version: event._version,
+          });
+        }
+      }
+
       let exceptionDoc;
       try {
         if (existingException) {
@@ -25358,6 +25534,19 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
 
+    // OCC-first (save-conflict-delta-gate D2): answer a stale-version request
+    // with VERSION_CONFLICT BEFORE any conflict query runs. The conflict block
+    // below fetched-doc-derives a baseline that OCC is about to reject, so a
+    // SchedulingConflict computed from it would be a dishonest answer to a
+    // client that simply needs to refresh. Cheap in-memory compare of the
+    // already-fetched event (no extra read); the conditionalUpdate at write
+    // time still enforces the same version as defence in depth. Gated on
+    // updates._version so it never diverges from that write-time check (which
+    // uses `expectedVersion: updates._version || null` — null skips OCC).
+    if (updates._version != null && updates._version !== event._version) {
+      return res.status(409).json(buildVersionConflictBody(event));
+    }
+
     // Check for scheduling conflicts when time/room fields change on active events
     const bufferChanged = hasFieldChanged('reservationStartMinutes', updates.reservationStartMinutes, cd.reservationStartMinutes) ||
                            hasFieldChanged('reservationEndMinutes', updates.reservationEndMinutes, cd.reservationEndMinutes) ||
@@ -25366,7 +25555,18 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const timeOrRoomChanged = graphChanges.startDateTime || graphChanges.endDateTime || graphChanges.locations || bufferChanged;
     const activeStatuses = ['pending', 'published'];
     if (timeOrRoomChanged && activeStatuses.includes(event.status) && !updates.forceUpdate) {
-      const roomIds = updates.locations || updates.requestedRooms || cd.locations || [];
+      // Normalize to ObjectId. checkRoomConflicts normalizes internally, but
+      // checkRecurringRoomConflicts trusts its caller — and client `locations`
+      // arrive as hex STRINGS over HTTP, so an unnormalized `$in` type-mismatches
+      // the ObjectId-stored locations and silently finds nothing. Existing tests
+      // dodged this by only changing time (roomIds fell back to cd.locations,
+      // already ObjectIds); a room change exposes it. Mirrors the conversion the
+      // /api/rooms/recurring-conflicts endpoint already does.
+      const roomIds = (updates.locations || updates.requestedRooms || cd.locations || []).map(rid => {
+        if (rid instanceof ObjectId) return rid;
+        if (typeof rid === 'string' && ObjectId.isValid(rid)) return new ObjectId(rid);
+        return rid;
+      });
       if (roomIds.length > 0) {
         // Check if this is a recurring series master
         const saveRecurrence = updates.recurrence || event.recurrence || cd.recurrence;
@@ -25388,19 +25588,64 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               calendarOwner: event.calendarOwner || null,
             });
             if (recurringConflicts && recurringConflicts.conflictingOccurrences > 0) {
-              const flattened = flattenRecurringConflicts(recurringConflicts);
-              return res.status(409).json({
-                error: 'SchedulingConflict',
-                conflictTier: 'hard',
-                message: `Cannot save: ${recurringConflicts.conflictingOccurrences} of ${recurringConflicts.totalOccurrences} occurrence(s) have scheduling conflicts`,
-                recurringConflicts,
-                hardConflicts: flattened,
-                softConflicts: [],
-                conflicts: flattened,
-                canForce: true,
-                forceField: 'forceUpdate',
-                _version: event._version
-              });
+              // Delta (save-conflict-delta-gate): block only on conflicts this
+              // save INTRODUCES, not ones the stored series already carries.
+              // Baseline = the SAME checker on the STORED recurrence/rooms/
+              // times/buffers, same exclusion/owner. On a baseline-check error,
+              // fall back to whole-state blocking (empty baseline → every
+              // proposed date reads as introduced), which is exactly the
+              // pre-change behaviour — the safe direction.
+              let baselineRecurring = null;
+              try {
+                baselineRecurring = await checkRecurringRoomConflicts({
+                  startDateTime: cd.startDateTime,
+                  endDateTime: cd.endDateTime,
+                  recurrence: event.recurrence || cd.recurrence,
+                  roomIds: cd.locations || [],
+                  setupTimeMinutes: cd.setupTimeMinutes ?? 0,
+                  teardownTimeMinutes: cd.teardownTimeMinutes ?? 0,
+                  excludeEventId: id,
+                  isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+                  categories: cd.categories || [],
+                  calendarOwner: event.calendarOwner || null,
+                });
+              } catch (baseErr) {
+                logger.warn('Non-fatal: baseline recurring conflict check failed; blocking on whole state:', baseErr.message);
+              }
+
+              const proposedFlat = flattenRecurringConflicts(recurringConflicts);
+              const baselineFlat = baselineRecurring ? flattenRecurringConflicts(baselineRecurring) : [];
+              const { introduced, preexisting } = introducedConflicts(baselineFlat, proposedFlat, roomIds);
+
+              if (introduced.length > 0) {
+                // Filter the grouped recurringConflicts to introduced dates only
+                // and recompute the count so the body's occurrence math matches
+                // the blocking set.
+                const introducedDates = new Set(introduced.map(c => c.occurrenceDate));
+                const filteredOccurrences = (recurringConflicts.conflicts || [])
+                  .filter(o => introducedDates.has(o.occurrenceDate));
+                const filteredRecurring = {
+                  ...recurringConflicts,
+                  conflicts: filteredOccurrences,
+                  conflictingOccurrences: filteredOccurrences.length,
+                };
+                return res.status(409).json({
+                  error: 'SchedulingConflict',
+                  conflictTier: 'hard',
+                  message: `Cannot save: this change introduces new scheduling conflicts on ${filteredOccurrences.length} of ${recurringConflicts.totalOccurrences} occurrence(s)`,
+                  recurringConflicts: filteredRecurring,
+                  hardConflicts: introduced,
+                  preexistingConflicts: preexisting,
+                  softConflicts: [],
+                  conflicts: introduced,
+                  deltaGate: true,
+                  canForce: true,
+                  forceField: 'forceUpdate',
+                  _version: event._version
+                });
+              }
+              // else: every conflicting occurrence is carried (pre-existing) —
+              // the save does not introduce a new double-booking, so allow it.
             }
           } catch (err) {
             logger.warn('Non-fatal: recurring conflict check failed during admin save:', err.message);
@@ -25417,19 +25662,44 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             isAllowedConcurrent: event.isAllowedConcurrent ?? false,
             categories: updates.categories || cd.categories || []
           };
-          const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, id);
+          const { hardConflicts, softConflicts } = await checkRoomConflicts(reservationForConflict, id);
           if (hardConflicts.length > 0) {
-            return res.status(409).json({
-              error: 'SchedulingConflict',
-              conflictTier: 'hard',
-              message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
-              hardConflicts,
-              softConflicts,
-              conflicts: allConflicts,
-              canForce: true,
-              forceField: 'forceUpdate',
-              _version: event._version
-            });
+            // Delta (save-conflict-delta-gate): block only on hard conflicts
+            // this save INTRODUCES. Baseline = the SAME checker on the STORED
+            // window/rooms/buffers/categories (passed as calendarData so the
+            // internal `??` buffer chain applies identically), same exclude id
+            // and calendarOwner. Baseline runs ONLY because the proposed run
+            // was non-empty (SCG-7: a clean save costs one check, not two).
+            // On a baseline error, empty baseline → every proposed entry reads
+            // as introduced → whole-state block = pre-change behaviour.
+            let baseline = { hardConflicts: [] };
+            try {
+              baseline = await checkRoomConflicts({
+                calendarOwner: event.calendarOwner || null,
+                calendarData: cd,
+                isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+              }, id);
+            } catch (baseErr) {
+              logger.warn('Non-fatal: baseline conflict check failed; blocking on whole state:', baseErr.message);
+            }
+            const { introduced, preexisting } = introducedConflicts(baseline.hardConflicts, hardConflicts, roomIds);
+            if (introduced.length > 0) {
+              return res.status(409).json({
+                error: 'SchedulingConflict',
+                conflictTier: 'hard',
+                message: `Cannot save: this change introduces ${introduced.length} new scheduling conflict(s)`,
+                hardConflicts: introduced,
+                preexistingConflicts: preexisting,
+                softConflicts,
+                conflicts: [...introduced, ...softConflicts],
+                deltaGate: true,
+                canForce: true,
+                forceField: 'forceUpdate',
+                _version: event._version
+              });
+            }
+            // else: all hard conflicts are pre-existing (carried) — do not
+            // block on them; fall through to the soft-conflict check.
           }
           if (softConflicts.length > 0 && !updates.acknowledgeSoftConflicts) {
             return res.status(409).json({

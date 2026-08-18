@@ -645,8 +645,14 @@ export default function ReviewModal({
                         type="button"
                         className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
                         onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
-                        disabled={savingRejectedEdit || !isFormValid || hardConflictBlocks || (anyConfirming && localConfirming !== 'rejectedEdit')}
-                        data-tooltip={getDisabledReason({ blockOnConflict: true, requireValid: true })}
+                        // Save & Resubmit no longer disables on the whole-state
+                        // hardConflictBlocks signal (save-conflict-delta-gate D5):
+                        // resubmit commits nothing to the published calendar and
+                        // the server's delta gate decides conflicts, exactly as
+                        // plain Save was fixed in 584bc9d. Gate on changes/validity
+                        // only. The render condition already requires hasChanges.
+                        disabled={savingRejectedEdit || !isFormValid || (anyConfirming && localConfirming !== 'rejectedEdit')}
+                        data-tooltip={getDisabledReason({ requireValid: true })}
                       >
                         {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
                       </button>

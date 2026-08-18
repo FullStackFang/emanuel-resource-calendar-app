@@ -96,4 +96,51 @@ describe('ReviewModal Save button under a hard scheduling conflict', () => {
     expect(save).toBeDisabled();
     expect(save).toHaveAttribute('data-tooltip', 'Make a change first to enable this action');
   });
+
+  // SCG-5 (save-conflict-delta-gate D5): the requester's "Save & Resubmit" on a
+  // rejected item drops the whole-state hardConflictBlocks gate the same way
+  // Save did. Resubmit commits nothing to the published calendar; the server's
+  // delta gate decides conflicts. Over-blocking here would reproduce the
+  // original field report in the safe direction (client blocks what the server
+  // now allows).
+  const requesterRejectedProps = {
+    isOpen: true,
+    title: 'Review',
+    onClose: vi.fn(),
+    mode: 'review',
+    isPending: false,
+    itemStatus: 'rejected',
+    isRequesterOnly: true,
+    hasChanges: true,
+    isFormValid: true,
+    hasSchedulingConflicts: true,
+    onSaveRejectedEdit: vi.fn(),
+    onResubmit: vi.fn(),
+  };
+
+  it('SCG-5: requester Save & Resubmit is enabled under a hard conflict (with changes)', () => {
+    render(
+      <ReviewModal {...requesterRejectedProps}>
+        <div>Content</div>
+      </ReviewModal>
+    );
+
+    const btn = screen.getByRole('button', { name: 'Save & Resubmit' });
+    expect(btn).not.toBeDisabled();
+    expect(btn).not.toHaveAttribute('data-tooltip', 'Resolve the scheduling conflict before continuing');
+  });
+
+  it('SCG-5: without changes there is no Save & Resubmit — the plain Resubmit shows instead', () => {
+    // The "make a change first" guard is structural here: the edit-resubmit
+    // button only renders with a change; without one, the requester gets the
+    // as-is "Resubmit" button. Either way a change is required to resubmit edits.
+    render(
+      <ReviewModal {...requesterRejectedProps} hasChanges={false}>
+        <div>Content</div>
+      </ReviewModal>
+    );
+
+    expect(screen.queryByRole('button', { name: 'Save & Resubmit' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resubmit' })).toBeInTheDocument();
+  });
 });
