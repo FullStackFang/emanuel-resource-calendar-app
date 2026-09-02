@@ -14,7 +14,7 @@
  * ADMIN_DOMAIN is still exported for use by the migration script.
  */
 
-const { hasRole, getPermissions, canManageCalendarMarkers, getEffectiveRole, resolveEffectiveRole, getDepartmentEditableFields, canEditField, sanitizeUserWrite, assertUserManagementAllowed, DEPARTMENT_EDITABLE_FIELDS, ROLE_HIERARCHY, VALID_ROLES, DEFAULT_ADMIN_DOMAIN } = require('./permissionUtils');
+const { hasRole, getPermissions, canManageCalendarMarkers, canManageAssignments, getEffectiveRole, resolveEffectiveRole, getDepartmentEditableFields, canEditField, sanitizeUserWrite, assertUserManagementAllowed, DEPARTMENT_EDITABLE_FIELDS, ROLE_HIERARCHY, VALID_ROLES, DEFAULT_ADMIN_DOMAIN } = require('./permissionUtils');
 
 // Export ADMIN_DOMAIN for backward compatibility
 const ADMIN_DOMAIN = process.env.ADMIN_DOMAIN || DEFAULT_ADMIN_DOMAIN;
@@ -137,6 +137,7 @@ module.exports = {
   hasRole,
   getPermissions,
   canManageCalendarMarkers,
+  canManageAssignments,
   getEffectiveRole,
   resolveEffectiveRole,
   sanitizeUserWrite,

@@ -37,6 +37,7 @@ const PERMS = (overrides = {}) => ({
   canApproveReservations: true,
   canManageUsers: true,
   canManageCalendarMarkers: true,
+  canManageAssignments: true,
   isAdmin: false,
   ...overrides,
 });
@@ -98,5 +99,15 @@ describe('usePermissions() contract', () => {
     mockSim = simState({ effectivePermissions: PERMS({ canManageCalendarMarkers: false }) });
     const { result: r2 } = renderHook(() => usePermissions());
     expect(r2.current.canManageCalendarMarkers).toBe(false);
+  });
+
+  it('forwards `canManageAssignments` from effective permissions', () => {
+    mockSim = simState({ effectivePermissions: PERMS({ canManageAssignments: true }) });
+    const { result } = renderHook(() => usePermissions());
+    expect(result.current.canManageAssignments).toBe(true);
+
+    mockSim = simState({ effectivePermissions: PERMS({ canManageAssignments: false }) });
+    const { result: r2 } = renderHook(() => usePermissions());
+    expect(r2.current.canManageAssignments).toBe(false);
   });
 });

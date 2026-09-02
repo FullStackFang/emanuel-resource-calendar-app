@@ -2,7 +2,7 @@
 import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
-import { fetchPermissions, clearPermissionCache, departmentGrantsCalendarMarkers } from '../services/permissionService';
+import { fetchPermissions, clearPermissionCache, departmentGrantsCalendarMarkers, departmentGrantsAssignments } from '../services/permissionService';
 import { apiRequest } from '../config/authConfig';
 import { logger } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
@@ -31,6 +31,7 @@ export const ROLE_TEMPLATES = {
       canGenerateReservationTokens: false,
       canManageUsers: false,
       canManageCalendarMarkers: false,
+      canManageAssignments: false,
       isAdmin: false
     }
   },
@@ -48,6 +49,7 @@ export const ROLE_TEMPLATES = {
       canGenerateReservationTokens: false,
       canManageUsers: false,
       canManageCalendarMarkers: false,
+      canManageAssignments: false,
       isAdmin: false
     }
   },
@@ -66,6 +68,7 @@ export const ROLE_TEMPLATES = {
       // Approvers may manage users, capped to viewer/requester (see userManagementPolicy.js)
       canManageUsers: true,
       canManageCalendarMarkers: false,
+      canManageAssignments: false,
       isAdmin: false
     }
   },
@@ -83,6 +86,7 @@ export const ROLE_TEMPLATES = {
       canGenerateReservationTokens: true,
       canManageUsers: true,
       canManageCalendarMarkers: true,
+      canManageAssignments: true,
       isAdmin: true
     }
   }
@@ -242,6 +246,9 @@ export function RoleSimulationProvider({ children }) {
         // departmentEditableFields already key off actualDepartment, not the template.
         canManageCalendarMarkers:
           base.canManageCalendarMarkers || departmentGrantsCalendarMarkers(actualDepartment),
+        // Same department-based grant shape for Scheduling Sheets.
+        canManageAssignments:
+          base.canManageAssignments || departmentGrantsAssignments(actualDepartment),
       };
     }
     // Use actual permissions from backend if available
@@ -260,6 +267,7 @@ export function RoleSimulationProvider({ children }) {
         // for every real (non-simulated) admin/approver session.
         canManageUsers: actualPermissions.canManageUsers ?? false,
         canManageCalendarMarkers: actualPermissions.canManageCalendarMarkers ?? false,
+        canManageAssignments: actualPermissions.canManageAssignments ?? false,
         isAdmin: actualPermissions.isAdmin ?? false
       };
     }

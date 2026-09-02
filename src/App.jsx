@@ -92,6 +92,8 @@ const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
 const RschedImport = lazy(() => import('./components/RschedImport'));
 const SyncHealthReport = lazy(() => import('./components/SyncHealthReport'));
 const ConflictReport = lazy(() => import('./components/ConflictReport'));
+const SchedulingSheets = lazy(() => import('./components/scheduling/SchedulingSheets'));
+const MyAssignments = lazy(() => import('./components/MyAssignments'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 // Guards /admin/users — reachable by anyone with canManageUsers (approver + admin).
@@ -108,6 +110,14 @@ function RequireUserManagement({ children }) {
 function RequireCalendarMarkers({ children }) {
   const { effectivePermissions } = useRoleSimulation();
   if (!effectivePermissions.canManageCalendarMarkers) return <Navigate to="/" replace />;
+  return children;
+}
+
+// Guards /admin/scheduling-sheets — reachable by admins and Events-department
+// members (canManageAssignments). UX redirect; the backend is authoritative.
+function RequireSchedulingSheets({ children }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.canManageAssignments) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -367,6 +377,8 @@ function App() {
                   <Route path="/admin/users" element={<RequireUserManagement><UserAdmin apiToken={apiToken} /></RequireUserManagement>} />
                   <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
                   <Route path="/admin/calendar-markers" element={<RequireCalendarMarkers><CalendarMarkersManagement apiToken={apiToken} /></RequireCalendarMarkers>} />
+                  <Route path="/admin/scheduling-sheets" element={<RequireSchedulingSheets><SchedulingSheets /></RequireSchedulingSheets>} />
+                  <Route path="/my-assignments" element={<MyAssignments />} />
                   <Route path="/admin/sync-health" element={<RequireApproverReport><SyncHealthReport apiToken={apiToken} /></RequireApproverReport>} />
                   <Route path="/admin/reports/conflicts" element={<RequireApproverReport><ConflictReport apiToken={apiToken} /></RequireApproverReport>} />
                   <Route path="/admin/departments" element={<DepartmentManagement apiToken={apiToken} />} />

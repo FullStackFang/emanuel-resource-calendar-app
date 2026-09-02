@@ -36,4 +36,22 @@ function buildEventDeepLinkUrl(eventId) {
   }
 }
 
-module.exports = { buildEventDeepLinkUrl, DEFAULT_FRONTEND_URL };
+// Absolute URL for the My Assignments screen. Used by the ASSIGNMENT_SCHEDULE
+// email's CTA — a deliberate deviation from the per-event ?eventId= deep link
+// convention: schedule emails go to external recipients with no account whose
+// full schedule is in the email body, and to staff whose destination is their
+// assignments list, not a single event's review modal.
+function buildMyAssignmentsUrl() {
+  const base = process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL;
+  try {
+    const url = new URL(base);
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/my-assignments`;
+    return url.toString();
+  } catch {
+    const fallback = new URL(DEFAULT_FRONTEND_URL);
+    fallback.pathname = `${fallback.pathname.replace(/\/$/, '')}/my-assignments`;
+    return fallback.toString();
+  }
+}
+
+module.exports = { buildEventDeepLinkUrl, buildMyAssignmentsUrl, DEFAULT_FRONTEND_URL };

@@ -79,6 +79,7 @@ export async function fetchPermissions(apiToken, forceRefresh = false) {
       canViewAllReservations: false,
       canGenerateReservationTokens: false,
       canManageCalendarMarkers: false,
+      canManageAssignments: false,
       isAdmin: false
     };
   }
@@ -148,5 +149,17 @@ export const CALENDAR_MARKER_DEPARTMENT = 'events';
  * @returns {boolean}
  */
 export function departmentGrantsCalendarMarkers(department) {
+  return (department || '').toLowerCase().trim() === CALENDAR_MARKER_DEPARTMENT;
+}
+
+/**
+ * Whether a department grants scheduling-sheet (assignments) management.
+ * Same department-based, role-independent grant shape as calendar markers;
+ * mirrors backend permissionUtils.canManageAssignments().
+ *
+ * @param {string|null|undefined} department
+ * @returns {boolean}
+ */
+export function departmentGrantsAssignments(department) {
   return (department || '').toLowerCase().trim() === CALENDAR_MARKER_DEPARTMENT;
 }

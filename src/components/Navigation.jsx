@@ -15,6 +15,7 @@ export default function Navigation() {
     canApproveReservations,
     canManageUsers,
     canManageCalendarMarkers,
+    canManageAssignments,
     department,
     isAdmin
   } = usePermissions();
@@ -120,7 +121,7 @@ export default function Navigation() {
   // Viewers only see Calendar — hide nav bar entirely since it adds no value.
   // Events-dept members (canManageCalendarMarkers) keep the nav so their
   // top-level Holidays & Closures link can render.
-  if (!canSubmitReservation && !canApproveReservations && !isAdmin && !canManageCalendarMarkers) {
+  if (!canSubmitReservation && !canApproveReservations && !isAdmin && !canManageCalendarMarkers && !canManageAssignments) {
     return null;
   }
 
@@ -139,6 +140,17 @@ export default function Navigation() {
             <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
               My Reservations
               <span className="nav-badge pending">{pendingCount}</span>
+            </NavLink>
+          </li>
+        )}
+
+        {/* My Assignments - the derived scheduling-sheet view. The ROUTE is
+            open to any authenticated user (the email CTA deep-links here);
+            the nav link follows the same audience as the rest of the bar. */}
+        {(canSubmitReservation || canApproveReservations || isAdmin || canManageAssignments) && (
+          <li>
+            <NavLink to="/my-assignments" className={({ isActive }) => isActive ? 'active' : ''}>
+              My Assignments
             </NavLink>
           </li>
         )}
@@ -176,6 +188,22 @@ export default function Navigation() {
               Holidays &amp; Closures
               {/* Department tag makes the department-derived grant obvious: this
                   non-admin sees an admin-area link because they're in this dept. */}
+              {department && (
+                <span className="dept-tag">
+                  {department.charAt(0).toUpperCase() + department.slice(1)}
+                </span>
+              )}
+            </NavLink>
+          </li>
+        )}
+
+        {/* Scheduling Sheets - top-level for Events-department members (who can
+            manage staffing assignments but are not admins). Same treatment as
+            Holidays & Closures above; admins reach it in the Admin dropdown. */}
+        {canManageAssignments && !isAdmin && (
+          <li>
+            <NavLink to="/admin/scheduling-sheets" className={({ isActive }) => isActive ? 'active' : ''}>
+              Scheduling Sheets
               {department && (
                 <span className="dept-tag">
                   {department.charAt(0).toUpperCase() + department.slice(1)}
@@ -262,6 +290,15 @@ export default function Navigation() {
                     onClick={handleDropdownLinkClick}
                   >
                     Holidays &amp; Closures
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/scheduling-sheets"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Scheduling Sheets
                   </NavLink>
                 </li>
                 <li>

@@ -19,12 +19,12 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { buildEventFields, buildRequestedByObject, buildStatusHistoryEntry, remapToCalendarData } = require('./utils/eventFieldBuilder');
 const { buildEventAuditEntry, buildReservationAuditEntry } = require('./utils/auditBuilder');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canManageCalendarMarkers, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, canManageUsers, canManageCalendarMarkers, canManageAssignments, canAccessEventAttachments, getPermissions, getDepartmentEditableFields, getEffectiveRole, resolveEffectiveRole, sanitizeUserWrite, assertUserManagementAllowed, ROLE_HIERARCHY } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, publicEventsLimiter, sensitiveLimiter, sseTicketLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
-const { conditionalUpdate, getNestedValue } = require('./utils/concurrencyUtils');
+const { conditionalUpdate, getNestedValue, unwrapFindOneResult } = require('./utils/concurrencyUtils');
 const { recurrenceEquals, exclusionsRemoved } = require('./utils/recurrenceCompare');
 const { findOrphanedOverrides } = require('./utils/recurrenceOrphanCleanup');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
@@ -472,6 +472,8 @@ let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 let editRequestsCollection; // First-class change requests against published events
 let calendarMarkersCollection; // Holiday / office-closed day markers (separate from events)
+let schedulingSheetsCollection; // Scheduling Sheet workbooks (staffing artifacts, no calendar writes)
+let schedulingSheetDaysCollection; // One doc per day tab in a scheduling sheet
 let rschedImportStagingCollection; // Staging rows for admin-driven rsched CSV imports
 let rschedRecurrenceCandidatesCollection; // Detected recurring-series candidates per session
 
@@ -497,6 +499,8 @@ function setDatabase(injectedDb) {
   systemSettingsCollection = injectedDb.collection('templeEvents__SystemSettings');
   editRequestsCollection = injectedDb.collection('templeEvents__EditRequests');
   calendarMarkersCollection = injectedDb.collection('templeEvents__CalendarMarkers');
+  schedulingSheetsCollection = injectedDb.collection('templeEvents__SchedulingSheets');
+  schedulingSheetDaysCollection = injectedDb.collection('templeEvents__SchedulingSheetDays');
   rschedImportStagingCollection = injectedDb.collection(rschedImportService.STAGING_COLLECTION);
   rschedRecurrenceCandidatesCollection = injectedDb.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION);
   filesBucket = new GridFSBucket(injectedDb, { bucketName: 'templeEvents__Files' });
@@ -1074,6 +1078,33 @@ async function createCalendarMarkersIndexes() {
     logger.log('Calendar markers indexes created successfully');
   } catch (error) {
     logger.error('Error creating calendar markers indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the scheduling sheet day collection.
+ * sheet_date (unique) enforces one day-sheet per (workbook, date) and covers
+ * the per-workbook day listing; tagged_emails_date covers the my-assignments
+ * query (taggedEmails equality + upcoming-date range). taggedEmails is a
+ * multikey index over the denormalized person-chip email array.
+ */
+async function createSchedulingSheetIndexes() {
+  try {
+    logger.log('Creating scheduling sheet indexes...');
+
+    await schedulingSheetDaysCollection.createIndex(
+      { sheetId: 1, date: 1 },
+      { name: 'sheet_date', unique: true, background: true }
+    );
+
+    await schedulingSheetDaysCollection.createIndex(
+      { taggedEmails: 1, date: 1 },
+      { name: 'tagged_emails_date', background: true }
+    );
+
+    logger.log('Scheduling sheet indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating scheduling sheet indexes:', error);
   }
 }
 
@@ -3376,6 +3407,8 @@ async function connectToDatabase() {
     systemSettingsCollection = withRetryCollection(db.collection('templeEvents__SystemSettings'));
     editRequestsCollection = withRetryCollection(db.collection('templeEvents__EditRequests'));
     calendarMarkersCollection = withRetryCollection(db.collection('templeEvents__CalendarMarkers'));
+    schedulingSheetsCollection = withRetryCollection(db.collection('templeEvents__SchedulingSheets'));
+    schedulingSheetDaysCollection = withRetryCollection(db.collection('templeEvents__SchedulingSheetDays'));
     rschedImportStagingCollection = withRetryCollection(db.collection(rschedImportService.STAGING_COLLECTION));
     rschedRecurrenceCandidatesCollection = withRetryCollection(db.collection(rschedRecurrenceDetection.RECURRENCE_CANDIDATES_COLLECTION));
 
@@ -3412,6 +3445,7 @@ async function connectToDatabase() {
       createFeatureCategoriesIndexes(),
       createCategoriesIndexes(),
       createCalendarMarkersIndexes(),
+      createSchedulingSheetIndexes(),
       createDepartmentsIndexes(),
       createRoleTypesIndexes(),
       createEditRequestsIndexes()
@@ -20039,6 +20073,21 @@ async function requireMarkerManager(req, res) {
 }
 
 /**
+ * Management gate shared by the scheduling-sheet endpoints. Resolves the
+ * request user from the DATABASE (never trusts JWT claims for department) and
+ * returns it when they may manage assignments (admin OR Events department);
+ * otherwise sends 403 and returns null.
+ */
+async function requireAssignmentManager(req, res) {
+  const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+  if (!canManageAssignments(user, req.user.email)) {
+    res.status(403).json({ error: 'Assignment management access required' });
+    return null;
+  }
+  return user;
+}
+
+/**
  * Reconcile a marker's Outlook (Graph) state after a create or update, per the
  * design.md "Marker → Graph state matrix". Markers always target the main
  * TempleEvents calendar (the configured default calendar owner).
@@ -20309,6 +20358,859 @@ app.delete('/api/calendar-markers/:id', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error deleting calendar marker:', error);
     res.status(500).json({ error: 'Failed to delete calendar marker' });
+  }
+});
+
+// ============================================================================
+// SCHEDULING SHEETS (holiday staffing workbooks)
+// A Scheduling Sheet is a pure scheduling ARTIFACT: a workbook of day tabs,
+// each a freeform grid (columns = events/posts, rows = whatever, cells =
+// free text + @person/#location chips). Nothing in this section writes to
+// Graph/Outlook, templeEvents__Events, or any approval workflow. Assignments
+// are DERIVED from person chips (taggedEmails), never stored as rows.
+// Concurrency (design D2): structural ops use conditionalUpdate OCC; cell
+// writes are targeted $set with last-write-wins per cell, no version gate.
+// ============================================================================
+
+const {
+  validateCell: validateSheetCell,
+  extractTaggedEmails: extractSheetTaggedEmails,
+  cellKey: sheetCellKey
+} = require('./utils/sheetCells');
+const { buildMyAssignmentsUrl } = require('./utils/eventDeepLink');
+const { randomUUID } = require('crypto');
+
+const SHEET_STARTER_ROW_LABELS = ['Location', 'Call Time', 'Doors Open', 'Begins', 'Ends'];
+const SHEET_MAX_ROWS = 200;
+const SHEET_MAX_COLUMNS = 100;
+
+function seedStarterRows() {
+  return SHEET_STARTER_ROW_LABELS.map((label) => ({ id: randomUUID(), label, kind: 'starter' }));
+}
+
+/** Validate a client rows array (structural update). Returns error string or null. */
+function validateSheetRows(rows) {
+  if (!Array.isArray(rows)) return 'rows must be an array';
+  if (rows.length > SHEET_MAX_ROWS) return `rows exceeds the maximum of ${SHEET_MAX_ROWS}`;
+  for (const row of rows) {
+    if (!row || typeof row.id !== 'string' || !row.id) return 'each row requires an id';
+    if (typeof row.label !== 'string') return 'each row requires a label';
+    if (row.kind !== 'starter' && row.kind !== 'custom') return "row.kind must be 'starter' or 'custom'";
+  }
+  if (new Set(rows.map((r) => r.id)).size !== rows.length) return 'row ids must be unique';
+  return null;
+}
+
+/** Validate a client columns array (structural update). Returns error string or null. */
+function validateSheetColumns(columns) {
+  if (!Array.isArray(columns)) return 'columns must be an array';
+  if (columns.length > SHEET_MAX_COLUMNS) return `columns exceeds the maximum of ${SHEET_MAX_COLUMNS}`;
+  for (const col of columns) {
+    if (!col || typeof col.id !== 'string' || !col.id) return 'each column requires an id';
+    if (typeof col.name !== 'string') return 'each column requires a name';
+    if (col.linkedEvent != null) {
+      const le = col.linkedEvent;
+      if (typeof le !== 'object' || typeof le.eventId !== 'string' || !le.eventId) {
+        return 'linkedEvent requires an eventId';
+      }
+    }
+  }
+  if (new Set(columns.map((c) => c.id)).size !== columns.length) return 'column ids must be unique';
+  return null;
+}
+
+/**
+ * Normalize a linkedEvent to the stored shape: id + immutable link-time
+ * snapshot (design D6 — sugar with a drift flag, never a live coupling).
+ */
+function normalizeLinkedEvent(le) {
+  if (le == null) return null;
+  const snap = le.snapshot || {};
+  return {
+    eventId: le.eventId,
+    linkedAt: typeof le.linkedAt === 'string' ? le.linkedAt : new Date().toISOString(),
+    snapshot: {
+      title: typeof snap.title === 'string' ? snap.title : null,
+      startDateTime: typeof snap.startDateTime === 'string' ? snap.startDateTime : null,
+      endDateTime: typeof snap.endDateTime === 'string' ? snap.endDateTime : null,
+      locationNames: Array.isArray(snap.locationNames) ? snap.locationNames.filter((n) => typeof n === 'string') : []
+    }
+  };
+}
+
+/**
+ * Per-recipient email status for one day doc: latest successful send and
+ * whether the sheet changed since (staleness is COMPUTED, never stored —
+ * design D5).
+ */
+function buildDayEmailStatus(day) {
+  const latestByEmail = {};
+  for (const entry of day.emailLog || []) {
+    const prev = latestByEmail[entry.email];
+    if (!prev || entry.sentAt > prev) latestByEmail[entry.email] = entry.sentAt;
+  }
+  const lastModified = day.lastModifiedAt instanceof Date
+    ? day.lastModifiedAt.toISOString()
+    : day.lastModifiedAt || null;
+  return (day.taggedEmails || []).map((email) => {
+    const sentAt = latestByEmail[email] || null;
+    return {
+      email,
+      sentAt,
+      stale: !!(sentAt && lastModified && lastModified > sentAt)
+    };
+  });
+}
+
+/** Copy a day's grid content onto a new date. emailLog deliberately resets. */
+function buildDayCopy(sourceDay, { sheetId, date, title, userEmail, now }) {
+  return {
+    sheetId,
+    date,
+    title: title !== undefined ? title : sourceDay.title,
+    columns: (sourceDay.columns || []).map((c) => ({ ...c })),
+    rows: (sourceDay.rows || []).map((r) => ({ ...r })),
+    cells: JSON.parse(JSON.stringify(sourceDay.cells || {})),
+    taggedEmails: [...(sourceDay.taggedEmails || [])],
+    emailLog: [],
+    _version: 1,
+    createdAt: now,
+    createdBy: userEmail,
+    lastModifiedAt: now,
+    lastModifiedBy: userEmail
+  };
+}
+
+function buildBlankDay({ sheetId, date, title, userEmail, now }) {
+  return {
+    sheetId,
+    date,
+    title: title || null,
+    columns: [],
+    rows: seedStarterRows(),
+    cells: {},
+    taggedEmails: [],
+    emailLog: [],
+    _version: 1,
+    createdAt: now,
+    createdBy: userEmail,
+    lastModifiedAt: now,
+    lastModifiedBy: userEmail
+  };
+}
+
+function sheetOperationalError(res, error, action) {
+  if (error && error.isOperational) {
+    return res.status(error.statusCode).json(error.toJSON());
+  }
+  logger.error(`Error ${action}:`, error);
+  return res.status(500).json({ error: `Failed to ${action}` });
+}
+
+/**
+ * GET /api/scheduling-sheets/user-lookup?q=<term>
+ * People search for the @ picker. Gated by requireAssignmentManager ITSELF —
+ * deliberately NOT GET /api/users (canManageUsers-gated: approver/admin only),
+ * which would 403 the Events-department requesters this feature admits.
+ * Filtering happens in memory (small collection) — never $regex on Cosmos.
+ * Registered before the /:id routes so 'user-lookup' is not captured as an id.
+ */
+app.get('/api/scheduling-sheets/user-lookup', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const users = await withCosmosRetry(() =>
+      usersCollection
+        .find({}, { projection: { displayName: 1, email: 1 } })
+        .toArray()
+    );
+
+    const all = users
+      .filter((u) => u.email)
+      .map((u) => ({ userId: String(u._id), name: u.displayName || u.email, email: u.email }));
+
+    const matches = q
+      ? all.filter((u) =>
+          (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q))
+      : all;
+
+    matches.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    res.json({ matches: matches.slice(0, 25), total: matches.length });
+  } catch (error) {
+    sheetOperationalError(res, error, 'look up users');
+  }
+});
+
+/**
+ * GET /api/scheduling-sheets — workbook list for the picker.
+ * Each workbook carries a light day list (id/date/title) for tab rendering.
+ */
+app.get('/api/scheduling-sheets', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const [sheets, days] = await Promise.all([
+      withCosmosRetry(() => schedulingSheetsCollection.find({}).sort({ name: 1 }).toArray()),
+      withCosmosRetry(() =>
+        schedulingSheetDaysCollection
+          .find({}, { projection: { sheetId: 1, date: 1, title: 1, taggedEmails: 1 } })
+          .sort({ date: 1 })
+          .toArray()
+      )
+    ]);
+
+    const daysBySheet = {};
+    for (const day of days) {
+      const key = String(day.sheetId);
+      (daysBySheet[key] = daysBySheet[key] || []).push({
+        _id: day._id,
+        date: day.date,
+        title: day.title || null,
+        peopleCount: (day.taggedEmails || []).length
+      });
+    }
+
+    res.json(sheets.map((s) => ({ ...s, days: daysBySheet[String(s._id)] || [] })));
+  } catch (error) {
+    sheetOperationalError(res, error, 'fetch scheduling sheets');
+  }
+});
+
+/**
+ * POST /api/scheduling-sheets — create a workbook.
+ * Body: { name, notes?, seedDates?: ['YYYY-MM-DD'], copyFromSheetId? }.
+ * With copyFromSheetId, source day structures map onto sorted seedDates in
+ * date order; extra target dates become blank seeded days, extra source days
+ * are dropped (design D8 / spec workbook-copy scenarios).
+ */
+app.post('/api/scheduling-sheets', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { name, notes, seedDates, copyFromSheetId } = req.body || {};
+    if (typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const dates = Array.isArray(seedDates) ? [...seedDates] : [];
+    for (const d of dates) {
+      if (!isValidMarkerDate(d)) {
+        return res.status(400).json({ error: `seedDates entry '${d}' must be a valid YYYY-MM-DD date` });
+      }
+    }
+    if (new Set(dates).size !== dates.length) {
+      return res.status(400).json({ error: 'seedDates must be unique', code: 'DUPLICATE_DATE' });
+    }
+    dates.sort();
+
+    let sourceDays = [];
+    if (copyFromSheetId) {
+      if (!ObjectId.isValid(copyFromSheetId)) {
+        return res.status(404).json({ error: 'Source scheduling sheet not found' });
+      }
+      const source = await withCosmosRetry(() =>
+        schedulingSheetsCollection.findOne({ _id: new ObjectId(copyFromSheetId) })
+      );
+      if (!source) return res.status(404).json({ error: 'Source scheduling sheet not found' });
+      sourceDays = await withCosmosRetry(() =>
+        schedulingSheetDaysCollection.find({ sheetId: source._id }).sort({ date: 1 }).toArray()
+      );
+    }
+
+    const now = new Date();
+    const userEmail = (req.user.email || '').toLowerCase();
+    const sheetDoc = {
+      name: name.trim(),
+      notes: typeof notes === 'string' ? notes : '',
+      createdAt: now,
+      createdBy: userEmail,
+      lastModifiedAt: now,
+      lastModifiedBy: userEmail
+    };
+    const result = await withCosmosRetry(() => schedulingSheetsCollection.insertOne(sheetDoc));
+    const sheetId = result.insertedId;
+
+    const dayDocs = dates.map((date, i) => {
+      const src = sourceDays[i];
+      return src
+        ? buildDayCopy(src, { sheetId, date, title: undefined, userEmail, now })
+        : buildBlankDay({ sheetId, date, title: null, userEmail, now });
+    });
+    if (dayDocs.length) {
+      await withCosmosRetry(() => schedulingSheetDaysCollection.insertMany(dayDocs));
+    }
+
+    res.status(201).json({ ...sheetDoc, _id: sheetId, days: dayDocs });
+  } catch (error) {
+    sheetOperationalError(res, error, 'create scheduling sheet');
+  }
+});
+
+/**
+ * GET /api/scheduling-sheets/:id — one workbook with FULL day docs (the
+ * workbook UI loads in one fetch; sheets are small by construction) plus
+ * per-day emailStatus (computed staleness).
+ */
+app.get('/api/scheduling-sheets/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
+    if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const days = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection.find({ sheetId: sheet._id }).sort({ date: 1 }).toArray()
+    );
+
+    res.json({
+      ...sheet,
+      days: days.map((d) => ({ ...d, emailStatus: buildDayEmailStatus(d) }))
+    });
+  } catch (error) {
+    sheetOperationalError(res, error, 'fetch scheduling sheet');
+  }
+});
+
+/**
+ * PUT /api/scheduling-sheets/:id — rename / notes.
+ */
+app.put('/api/scheduling-sheets/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const updates = {};
+    if (req.body && typeof req.body.name === 'string') {
+      if (!req.body.name.trim()) return res.status(400).json({ error: 'name is required' });
+      updates.name = req.body.name.trim();
+    }
+    if (req.body && typeof req.body.notes === 'string') updates.notes = req.body.notes;
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'nothing to update' });
+
+    updates.lastModifiedAt = new Date();
+    updates.lastModifiedBy = (req.user.email || '').toLowerCase();
+
+    const result = await withCosmosRetry(() =>
+      schedulingSheetsCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: updates },
+        { returnDocument: 'after' }
+      )
+    );
+    const updated = unwrapFindOneResult(result);
+    if (!updated) return res.status(404).json({ error: 'Scheduling sheet not found' });
+    res.json(updated);
+  } catch (error) {
+    sheetOperationalError(res, error, 'update scheduling sheet');
+  }
+});
+
+/**
+ * DELETE /api/scheduling-sheets/:id — hard delete, cascades to day docs.
+ * Scheduling sheets are artifacts with no workflow history; soft-delete and
+ * restore machinery is deliberately not inherited from events.
+ */
+app.delete('/api/scheduling-sheets/:id', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
+    if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    await withCosmosRetry(() => schedulingSheetDaysCollection.deleteMany({ sheetId: sheet._id }));
+    await withCosmosRetry(() => schedulingSheetsCollection.deleteOne({ _id: sheet._id }));
+
+    res.json({ message: 'Scheduling sheet deleted' });
+  } catch (error) {
+    sheetOperationalError(res, error, 'delete scheduling sheet');
+  }
+});
+
+/**
+ * POST /api/scheduling-sheets/:id/days — add a day tab.
+ * Body: { date, title?, copyFromDayId? }. One day per (workbook, date):
+ * duplicates 400 DUPLICATE_DATE (the unique sheet_date index backstops the
+ * pre-check under concurrency). The same date in ANOTHER workbook is allowed.
+ */
+app.post('/api/scheduling-sheets/:id/days', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(404).json({ error: 'Scheduling sheet not found' });
+    const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
+    if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const { date, title, copyFromDayId } = req.body || {};
+    if (!isValidMarkerDate(date)) {
+      return res.status(400).json({ error: 'date must be a valid YYYY-MM-DD date' });
+    }
+
+    const existing = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection.findOne({ sheetId: sheet._id, date })
+    );
+    if (existing) {
+      return res.status(400).json({ error: 'This sheet already has a day for that date', code: 'DUPLICATE_DATE' });
+    }
+
+    let sourceDay = null;
+    if (copyFromDayId) {
+      if (!ObjectId.isValid(copyFromDayId)) return res.status(404).json({ error: 'Source day not found' });
+      sourceDay = await withCosmosRetry(() =>
+        schedulingSheetDaysCollection.findOne({ _id: new ObjectId(copyFromDayId) })
+      );
+      if (!sourceDay) return res.status(404).json({ error: 'Source day not found' });
+    }
+
+    const now = new Date();
+    const userEmail = (req.user.email || '').toLowerCase();
+    const dayDoc = sourceDay
+      ? buildDayCopy(sourceDay, { sheetId: sheet._id, date, title, userEmail, now })
+      : buildBlankDay({ sheetId: sheet._id, date, title, userEmail, now });
+
+    try {
+      const result = await withCosmosRetry(() => schedulingSheetDaysCollection.insertOne(dayDoc));
+      res.status(201).json({ ...dayDoc, _id: result.insertedId });
+    } catch (err) {
+      if (err && err.code === 11000) {
+        return res.status(400).json({ error: 'This sheet already has a day for that date', code: 'DUPLICATE_DATE' });
+      }
+      throw err;
+    }
+  } catch (error) {
+    sheetOperationalError(res, error, 'create scheduling sheet day');
+  }
+});
+
+/**
+ * DELETE /api/scheduling-sheets/:id/days/:dayId — remove a day tab.
+ */
+app.delete('/api/scheduling-sheets/:id/days/:dayId', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id, dayId } = req.params;
+    if (!ObjectId.isValid(id) || !ObjectId.isValid(dayId)) {
+      return res.status(404).json({ error: 'Day not found' });
+    }
+    const result = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection.deleteOne({ _id: new ObjectId(dayId), sheetId: new ObjectId(id) })
+    );
+    if (!result.deletedCount) return res.status(404).json({ error: 'Day not found' });
+    res.json({ message: 'Day deleted' });
+  } catch (error) {
+    sheetOperationalError(res, error, 'delete scheduling sheet day');
+  }
+});
+
+/**
+ * PUT /api/scheduling-sheets/:id/days/:dayId/structure — OCC-gated structural
+ * update (design D2): title, rows, columns. Requires expectedVersion; a stale
+ * version returns the standard 409 VERSION_CONFLICT envelope via
+ * conditionalUpdate. Cell content is NOT writable here.
+ */
+app.put('/api/scheduling-sheets/:id/days/:dayId/structure', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id, dayId } = req.params;
+    if (!ObjectId.isValid(id) || !ObjectId.isValid(dayId)) {
+      return res.status(404).json({ error: 'Day not found' });
+    }
+
+    const { expectedVersion, title, rows, columns } = req.body || {};
+    if (typeof expectedVersion !== 'number') {
+      return res.status(400).json({ error: 'expectedVersion is required for structural updates' });
+    }
+
+    const updates = {};
+    if (title !== undefined) {
+      if (title !== null && typeof title !== 'string') {
+        return res.status(400).json({ error: 'title must be a string or null' });
+      }
+      updates.title = title === null ? null : title.trim() || null;
+    }
+    if (rows !== undefined) {
+      const rowError = validateSheetRows(rows);
+      if (rowError) return res.status(400).json({ error: rowError });
+      updates.rows = rows.map((r) => ({ id: r.id, label: r.label, kind: r.kind }));
+    }
+    if (columns !== undefined) {
+      const colError = validateSheetColumns(columns);
+      if (colError) return res.status(400).json({ error: colError });
+      updates.columns = columns.map((c) => ({
+        id: c.id,
+        name: c.name,
+        linkedEvent: normalizeLinkedEvent(c.linkedEvent)
+      }));
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'nothing to update' });
+
+    // conditionalUpdate stamps lastModifiedDateTime; day docs track
+    // lastModifiedAt (the email-staleness anchor), so stamp it too — a
+    // structural edit after a send must read as stale exactly like a cell edit.
+    updates.lastModifiedAt = new Date();
+
+    const updated = await conditionalUpdate(
+      schedulingSheetDaysCollection,
+      { _id: new ObjectId(dayId), sheetId: new ObjectId(id) },
+      { $set: updates },
+      { expectedVersion, modifiedBy: (req.user.email || '').toLowerCase() }
+    );
+    res.json(updated);
+  } catch (error) {
+    sheetOperationalError(res, error, 'update scheduling sheet structure');
+  }
+});
+
+/**
+ * PUT /api/scheduling-sheets/:id/days/:dayId/cells/:rowId/:colId — one-cell
+ * write. Targeted $set on the single cell path + $inc _version, NO version
+ * gate (design D2: different cells never conflict; the same cell is
+ * last-write-wins with a one-cell blast radius). taggedEmails is recomputed
+ * server-side from the post-write document — the recompute always includes
+ * every concurrently-written cell because it reads the doc AFTER this write,
+ * so concurrent writers converge on a superset-correct array.
+ */
+app.put('/api/scheduling-sheets/:id/days/:dayId/cells/:rowId/:colId', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id, dayId, rowId, colId } = req.params;
+    if (!ObjectId.isValid(id) || !ObjectId.isValid(dayId)) {
+      return res.status(404).json({ error: 'Day not found' });
+    }
+
+    const validation = validateSheetCell((req.body || {}).cell);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+
+    const key = sheetCellKey(rowId, colId);
+    const userEmail = (req.user.email || '').toLowerCase();
+    const isEmpty = validation.cell.segments.length === 0 && !validation.cell.note;
+
+    const update = isEmpty
+      ? { $unset: { [`cells.${key}`]: '' }, $inc: { _version: 1 }, $set: { lastModifiedAt: new Date(), lastModifiedBy: userEmail } }
+      : { $set: { [`cells.${key}`]: validation.cell, lastModifiedAt: new Date(), lastModifiedBy: userEmail }, $inc: { _version: 1 } };
+
+    const result = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection.findOneAndUpdate(
+        { _id: new ObjectId(dayId), sheetId: new ObjectId(id) },
+        update,
+        { returnDocument: 'after' }
+      )
+    );
+    const updated = unwrapFindOneResult(result);
+    if (!updated) return res.status(404).json({ error: 'Day not found' });
+
+    const taggedEmails = extractSheetTaggedEmails(updated.cells);
+    await withCosmosRetry(() =>
+      schedulingSheetDaysCollection.updateOne({ _id: updated._id }, { $set: { taggedEmails } })
+    );
+
+    res.json({ ...updated, taggedEmails });
+  } catch (error) {
+    sheetOperationalError(res, error, 'update scheduling sheet cell');
+  }
+});
+
+/**
+ * Extract every person-chip assignment from one day doc. Shared by
+ * GET /api/my-assignments (filters to the caller) and the schedule-email
+ * fan-out (groups by recipient). Placeholders are included with email: null
+ * and placeholder: true so the email endpoint can hard-block on them.
+ */
+function extractDayAssignments(day) {
+  const textOfCell = (cell) =>
+    ((cell && cell.segments) || [])
+      .filter((s) => s.type === 'text')
+      .map((s) => s.text)
+      .join(' ')
+      .trim() || null;
+
+  const rowById = Object.fromEntries((day.rows || []).map((r) => [r.id, r]));
+  const colById = Object.fromEntries((day.columns || []).map((c) => [c.id, c]));
+  const rowIdByLabel = {};
+  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
+
+  const metaCell = (label, colId) => {
+    const rowId = rowIdByLabel[label];
+    return rowId ? textOfCell((day.cells || {})[sheetCellKey(rowId, colId)]) : null;
+  };
+
+  const entries = [];
+  for (const key of Object.keys(day.cells || {})) {
+    const cell = day.cells[key];
+    for (const seg of (cell && cell.segments) || []) {
+      if (seg.type !== 'person') continue;
+      const [rowId, colId] = key.split(':');
+      const row = rowById[rowId];
+      const col = colById[colId];
+      entries.push({
+        email: seg.email || null,
+        name: seg.name,
+        placeholder: !!seg.placeholder,
+        dayId: day._id,
+        sheetId: day.sheetId,
+        date: day.date,
+        dayTitle: day.title || null,
+        rowLabel: row ? row.label : null,
+        columnName: col ? col.name : null,
+        // Effective call time: person override wins over the column's
+        // Call Time metadata cell (design D8 / assignments-view spec).
+        callTime: seg.callTimeOverride || metaCell('call time', colId),
+        begins: metaCell('begins', colId),
+        ends: metaCell('ends', colId),
+        location: metaCell('location', colId),
+        note: cell.note ? cell.note.text : null
+      });
+    }
+  }
+  return entries;
+}
+
+/** 'Friday, September 11, 2026' from a YYYY-MM-DD string (UTC-safe). */
+function formatSheetDayLabel(dateStr) {
+  try {
+    return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+const escapeAssignmentHtml = require('escape-html');
+
+/** Render one recipient's assignments (already sorted) as an email table. */
+function buildAssignmentsTableHtml(entries) {
+  const rows = entries
+    .map((e) => {
+      const time = [e.begins, e.ends].filter(Boolean).join(' - ') || null;
+      const cells = [
+        formatSheetDayLabel(e.date),
+        e.columnName,
+        e.rowLabel,
+        e.callTime ? `Call ${e.callTime}` : time,
+        e.location,
+        e.note
+      ].map((v) => `<td style="padding: 8px 10px; color: #2d3748; border-bottom: 1px solid #e2e8f0;">${v ? escapeAssignmentHtml(v) : '&mdash;'}</td>`);
+      return `<tr>${cells.join('')}</tr>`;
+    })
+    .join('\n');
+
+  const headers = ['Date', 'Event / Post', 'Role', 'Call time', 'Location', 'Notes']
+    .map((h) => `<th style="padding: 8px 10px; color: #718096; text-align: left; font-size: 13px; border-bottom: 2px solid #cbd5e0;">${h}</th>`)
+    .join('');
+
+  return `<div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+<table style="width: 100%; border-collapse: collapse;">
+  <tr>${headers}</tr>
+  ${rows}
+</table>
+</div>`;
+}
+
+/**
+ * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
+ * Body: { dayId? , wholeSheet?: true, recipients?: [emails], allowPlaceholders?: bool }
+ *
+ * One email per distinct tagged person in scope, covering ALL their rows in
+ * scope chronologically. Hard-blocks (422 UNRESOLVED_PLACEHOLDERS, zero
+ * dispatches) while placeholder chips remain in scope; allowPlaceholders is
+ * honored for ADMINS only (spec scheduling-schedule-email). Fan-out is
+ * Promise.allSettled — one bad address never blocks the rest — and each
+ * success appends an emailLog entry on every in-scope day that person appears
+ * on (staleness is later computed against day.lastModifiedAt). Any future
+ * retry-on-transient-failure here MUST go through retryWithBackoff.
+ */
+app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
+  try {
+    const user = await requireAssignmentManager(req, res);
+    if (!user) return;
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(404).json({ error: 'Scheduling sheet not found' });
+    const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
+    if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
+
+    const { dayId, wholeSheet, recipients, allowPlaceholders } = req.body || {};
+    let scopeDays;
+    let scopeLabel;
+    if (dayId) {
+      if (!ObjectId.isValid(dayId)) return res.status(404).json({ error: 'Day not found' });
+      const day = await withCosmosRetry(() =>
+        schedulingSheetDaysCollection.findOne({ _id: new ObjectId(dayId), sheetId: sheet._id })
+      );
+      if (!day) return res.status(404).json({ error: 'Day not found' });
+      scopeDays = [day];
+      scopeLabel = formatSheetDayLabel(day.date);
+    } else if (wholeSheet === true) {
+      scopeDays = await withCosmosRetry(() =>
+        schedulingSheetDaysCollection.find({ sheetId: sheet._id }).sort({ date: 1 }).toArray()
+      );
+      scopeLabel = sheet.name;
+    } else {
+      return res.status(400).json({ error: 'Provide dayId or wholeSheet: true' });
+    }
+
+    const allEntries = scopeDays.flatMap((d) => extractDayAssignments(d));
+
+    // Placeholder hard-block (design D5): an unresolved slot on a roster being
+    // emailed is exactly what this gate exists to catch.
+    const placeholders = allEntries.filter((e) => e.placeholder);
+    const overrideAllowed = allowPlaceholders === true && isAdmin(user, req.user.email);
+    if (placeholders.length && !overrideAllowed) {
+      return res.status(422).json({
+        error: 'Cannot send: unresolved placeholder assignments remain in scope',
+        code: 'UNRESOLVED_PLACEHOLDERS',
+        placeholders: [...new Set(placeholders.map((p) => p.name))]
+      });
+    }
+
+    const byEmail = new Map();
+    for (const entry of allEntries) {
+      if (!entry.email || entry.placeholder) continue;
+      if (!byEmail.has(entry.email)) byEmail.set(entry.email, []);
+      byEmail.get(entry.email).push(entry);
+    }
+
+    let targetEmails = [...byEmail.keys()];
+    if (Array.isArray(recipients) && recipients.length) {
+      const wanted = new Set(recipients.map((r) => String(r).toLowerCase()));
+      targetEmails = targetEmails.filter((e) => wanted.has(e));
+    }
+    targetEmails.sort();
+
+    const myAssignmentsUrl = buildMyAssignmentsUrl();
+    const sentAt = new Date().toISOString();
+    const senderEmail = (req.user.email || '').toLowerCase();
+
+    const settled = await Promise.allSettled(
+      targetEmails.map(async (email) => {
+        const entries = [...byEmail.get(email)].sort(
+          (a, b) => a.date.localeCompare(b.date) || (a.columnName || '').localeCompare(b.columnName || '')
+        );
+        const { subject, html } = await emailTemplates.generateFromTemplate(
+          emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
+          {
+            recipientName: escapeAssignmentHtml(entries[0].name),
+            scopeLabel: escapeAssignmentHtml(scopeLabel),
+            sheetTitle: dayId && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
+            assignmentsTable: buildAssignmentsTableHtml(entries),
+            eventUrl: myAssignmentsUrl
+          }
+        );
+        await emailService.sendEmail(email, subject, html, { reservationId: String(sheet._id) });
+        return email;
+      })
+    );
+
+    const results = targetEmails.map((email, i) => {
+      const outcome = settled[i];
+      return outcome.status === 'fulfilled'
+        ? { email, success: true }
+        : { email, success: false, error: outcome.reason && outcome.reason.message ? outcome.reason.message : 'send failed' };
+    });
+
+    // emailLog: append per successful recipient on every scope day they
+    // appear on. Failure-isolated from the response — a log write error must
+    // not turn a successful send into a reported failure.
+    const succeeded = new Set(results.filter((r) => r.success).map((r) => r.email));
+    if (succeeded.size) {
+      try {
+        await Promise.all(
+          scopeDays.map((day) => {
+            const dayEmails = new Set(
+              extractDayAssignments(day)
+                .filter((e) => e.email && !e.placeholder && succeeded.has(e.email))
+                .map((e) => e.email)
+            );
+            if (!dayEmails.size) return null;
+            const logEntries = [...dayEmails].map((email) => ({ email, sentAt, sentBy: senderEmail }));
+            return withCosmosRetry(() =>
+              schedulingSheetDaysCollection.updateOne(
+                { _id: day._id },
+                { $push: { emailLog: { $each: logEntries } } }
+              )
+            );
+          })
+        );
+      } catch (logError) {
+        logger.error('Failed to append scheduling sheet emailLog entries:', logError);
+      }
+    }
+
+    res.json({
+      results,
+      sent: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      skippedPlaceholders: overrideAllowed ? [...new Set(placeholders.map((p) => p.name))] : []
+    });
+  } catch (error) {
+    sheetOperationalError(res, error, 'send schedule emails');
+  }
+});
+
+/**
+ * GET /api/my-assignments — ANY authenticated user (no manager gate).
+ * Derives the caller's assignments from person chips: taggedEmails equality
+ * (lowercased token email, never $regex) + upcoming dates, then extracts ONLY
+ * the caller's own cells — the raw sheet is never exposed here.
+ */
+app.get('/api/my-assignments', verifyToken, async (req, res) => {
+  try {
+    const email = (req.user.email || '').toLowerCase();
+    if (!email) return res.json([]);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const days = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection
+        .find({ taggedEmails: email, date: { $gte: today } })
+        .sort({ date: 1 })
+        .toArray()
+    );
+    if (!days.length) return res.json([]);
+
+    const sheetIds = [...new Set(days.map((d) => String(d.sheetId)))].map((s) => new ObjectId(s));
+    const sheets = await withCosmosRetry(() =>
+      schedulingSheetsCollection.find({ _id: { $in: sheetIds } }, { projection: { name: 1 } }).toArray()
+    );
+    const sheetNameById = Object.fromEntries(sheets.map((s) => [String(s._id), s.name]));
+
+    const assignments = days.flatMap((day) =>
+      extractDayAssignments(day)
+        .filter((e) => e.email === email && !e.placeholder)
+        .map(({ placeholder, name, ...entry }) => ({
+          ...entry,
+          sheetName: sheetNameById[String(day.sheetId)] || null
+        }))
+    );
+
+    res.json(assignments);
+  } catch (error) {
+    sheetOperationalError(res, error, 'fetch my assignments');
   }
 });
 

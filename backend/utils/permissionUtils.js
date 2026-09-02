@@ -43,6 +43,9 @@ const DEPARTMENT_EDITABLE_FIELDS = {
 // grant -- the app's first department-grants-a-feature gate. See
 // docs/superpowers/specs/2026-06-11-events-dept-calendar-markers-access-design.md.
 const CALENDAR_MARKER_DEPARTMENT = 'events';
+// Scheduling Sheets share the same department grant as calendar markers but
+// keep their own constant so the two features can diverge independently.
+const ASSIGNMENT_MANAGER_DEPARTMENT = 'events';
 
 // Complete permission set for each role
 const ROLE_PERMISSIONS = {
@@ -57,6 +60,7 @@ const ROLE_PERMISSIONS = {
     canGenerateReservationTokens: false,
     canManageUsers: false,
     canManageCalendarMarkers: false,
+    canManageAssignments: false,
     isAdmin: false
   },
   requester: {
@@ -70,6 +74,7 @@ const ROLE_PERMISSIONS = {
     canGenerateReservationTokens: false,
     canManageUsers: false,
     canManageCalendarMarkers: false,
+    canManageAssignments: false,
     isAdmin: false
   },
   approver: {
@@ -84,6 +89,7 @@ const ROLE_PERMISSIONS = {
     // Approvers may manage users, but capped to viewer/requester (see ROLE_MAX_ASSIGNABLE)
     canManageUsers: true,
     canManageCalendarMarkers: false,
+    canManageAssignments: false,
     isAdmin: false
   },
   admin: {
@@ -97,6 +103,7 @@ const ROLE_PERMISSIONS = {
     canGenerateReservationTokens: true,
     canManageUsers: true,
     canManageCalendarMarkers: true,
+    canManageAssignments: true,
     isAdmin: true
   }
 };
@@ -236,6 +243,20 @@ function canManageCalendarMarkers(user, userEmail) {
 }
 
 /**
+ * Whether a user may create/update/delete Scheduling Sheets (holiday staffing
+ * workbooks). Same grant shape as canManageCalendarMarkers: admins OR anyone
+ * whose department is Events, deliberately role-independent.
+ *
+ * @param {Object} user - User object from database (can be null)
+ * @param {string} userEmail - User's email address
+ * @returns {boolean}
+ */
+function canManageAssignments(user, userEmail) {
+  if (hasRole(user, userEmail, 'admin')) return true;
+  return (user?.department || '').toLowerCase().trim() === ASSIGNMENT_MANAGER_DEPARTMENT;
+}
+
+/**
  * Get all permissions for a user based on their effective role
  *
  * @param {Object} user - User object from database (can be null)
@@ -253,7 +274,8 @@ function getPermissions(user, userEmail) {
     departmentEditableFields,
     canEditDepartmentFields: departmentEditableFields.length > 0,
     ...ROLE_PERMISSIONS[role],
-    canManageCalendarMarkers: canManageCalendarMarkers(user, userEmail)
+    canManageCalendarMarkers: canManageCalendarMarkers(user, userEmail),
+    canManageAssignments: canManageAssignments(user, userEmail)
   };
 }
 
@@ -407,6 +429,7 @@ module.exports = {
   hasRole,
   getPermissions,
   canManageCalendarMarkers,
+  canManageAssignments,
   isValidRole,
   sanitizeUserWrite,
   assertUserManagementAllowed,

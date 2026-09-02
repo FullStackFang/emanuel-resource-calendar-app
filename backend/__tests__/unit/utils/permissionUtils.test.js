@@ -15,6 +15,7 @@ const {
   sanitizeUserWrite,
   assertUserManagementAllowed,
   canManageCalendarMarkers,
+  canManageAssignments,
 } = require('../../../utils/permissionUtils');
 
 describe('permissionUtils', () => {
@@ -321,6 +322,44 @@ describe('permissionUtils', () => {
 
     it('the exported predicate returns true for an admin', () => {
       expect(canManageCalendarMarkers({ role: 'admin' }, 'a@x.org')).toBe(true);
+    });
+  });
+
+  describe('canManageAssignments flag (Events-department feature grant)', () => {
+    it('role-projection on ROLE_PERMISSIONS: admin only', () => {
+      expect(ROLE_PERMISSIONS.viewer.canManageAssignments).toBe(false);
+      expect(ROLE_PERMISSIONS.requester.canManageAssignments).toBe(false);
+      expect(ROLE_PERMISSIONS.approver.canManageAssignments).toBe(false);
+      expect(ROLE_PERMISSIONS.admin.canManageAssignments).toBe(true);
+    });
+
+    it('getPermissions grants to any admin', () => {
+      expect(getPermissions({ role: 'admin' }, 'a@x.org').canManageAssignments).toBe(true);
+    });
+
+    it('getPermissions grants to a non-admin in the events department (role-independent)', () => {
+      expect(getPermissions({ role: 'viewer', department: 'events' }, 'v@x.org').canManageAssignments).toBe(true);
+      expect(getPermissions({ role: 'requester', department: 'events' }, 'r@x.org').canManageAssignments).toBe(true);
+    });
+
+    it('getPermissions denies a non-admin outside the events department', () => {
+      expect(getPermissions({ role: 'viewer' }, 'v@x.org').canManageAssignments).toBe(false);
+      expect(getPermissions({ role: 'requester', department: 'security' }, 's@x.org').canManageAssignments).toBe(false);
+      expect(getPermissions({ role: 'approver' }, 'a@x.org').canManageAssignments).toBe(false);
+    });
+
+    it('matches the department case-insensitively and trims whitespace', () => {
+      expect(getPermissions({ role: 'viewer', department: 'Events' }, 'v@x.org').canManageAssignments).toBe(true);
+      expect(getPermissions({ role: 'viewer', department: '  events  ' }, 'v@x.org').canManageAssignments).toBe(true);
+    });
+
+    it('the exported predicate returns true for an events-dept non-admin and false for null user', () => {
+      expect(canManageAssignments({ role: 'viewer', department: 'events' }, 'v@x.org')).toBe(true);
+      expect(canManageAssignments(null, 'x@x.org')).toBe(false);
+    });
+
+    it('the exported predicate returns true for an admin', () => {
+      expect(canManageAssignments({ role: 'admin' }, 'a@x.org')).toBe(true);
     });
   });
 

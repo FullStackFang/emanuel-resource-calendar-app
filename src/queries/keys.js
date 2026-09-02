@@ -92,6 +92,21 @@ export const keys = {
       scope === undefined ? ['conflictReport', 'report'] : ['conflictReport', 'report', scope],
   },
 
+  // Scheduling Sheets (holiday staffing workbooks). `list()` feeds the
+  // workbook picker; `detail(id)` is one workbook with its full day docs.
+  // myAssignments is the derived per-user view — its own resource because it
+  // is visible to every authenticated user, not just managers, and a sheet
+  // mutation invalidates both prefixes.
+  schedulingSheets: {
+    all: () => ['schedulingSheets'],
+    list: () => ['schedulingSheets', 'list'],
+    detail: (sheetId) => ['schedulingSheets', 'detail', sheetId],
+    userLookup: () => ['schedulingSheets', 'userLookup'],
+  },
+  myAssignments: {
+    all: () => ['myAssignments'],
+  },
+
   // ─── Users ─────────────────────────────────────────────────────────────
   // The /admin/users directory. `list()` takes no scope because the fetch
   // takes none: GET /api/users returns the whole collection unpaginated with

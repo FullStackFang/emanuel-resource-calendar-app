@@ -586,6 +586,93 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Scheduling Sheets (implemented 2026-09-02)
+
+Spec: `openspec/changes/scheduling-sheets/`. Tasks 1-6 + 7.1 done; only 7.2
+(manual, live MSAL) outstanding.
+
+**What it is:** a scheduling ARTIFACT builder for holiday staffing (replaces a
+printed Excel sheet). One master workbook view: Scheduling Sheet picker
+('2026 High Holy Days') grouping DISJOINT day tabs; each day is a freeform
+grid (events/posts = columns, five seeded starter rows Location/Call Time/
+Doors Open/Begins/Ends — renameable/deletable like any row, free text in any
+cell, '@' person chips + '#' location chips as opt-in enhancements). NOTHING
+writes to Graph/Outlook, templeEvents__Events, or any approval workflow —
+event-linked columns store an immutable snapshot with a 'changed since
+linked' drift flag and explicit 'refresh from event' (never auto-applied).
+
+**Data model:** `templeEvents__SchedulingSheets` (workbook: name only) +
+`templeEvents__SchedulingSheetDays` (one doc per day: columns/rows/cells map
+keyed `rowId:colId`, `taggedEmails` denormalized+indexed, `emailLog`,
+`_version`). Assignments are DERIVED from person chips, never stored as rows.
+Unique index `{sheetId, date}`; multikey `{taggedEmails, date}` (equality
+match, never $regex).
+
+**Concurrency (design D2, deliberate split):** structural ops (title/rows/
+columns) go through `conditionalUpdate` OCC with `expectedVersion` → standard
+409 VERSION_CONFLICT envelope; CELL writes are targeted `$set` on one cell
+path + `$inc _version` with NO version gate — different cells never conflict,
+same cell is last-write-wins with a one-cell blast radius. `taggedEmails` is
+recomputed server-side from the POST-write doc on every cell write (client
+arrays ignored — sheetCells.js util, SC-13/SS-19).
+
+**Permission:** `canManageAssignments` = isAdmin OR department 'events',
+threaded through the FULL calendar-markers pipeline (permissionUtils →
+getPermissions → RoleSimulationContext → usePermissions → RequireSchedulingSheets
+guard + nav). `requireAssignmentManager` re-fetches the user via
+findUserByIdentity — never trusts JWT claims. **The @ picker uses
+`GET /api/scheduling-sheets/user-lookup` gated by the assignment gate ITSELF —
+NOT `GET /api/users` (canManageUsers-gated), which would 403 the events-dept
+requesters this feature admits** (architecture-review P1; locked by SS-22).
+
+**Email:** `ASSIGNMENT_SCHEDULE` template + CTA_CONFIG (EU-14 classified; CTA
+deliberately targets `buildMyAssignmentsUrl()`, not the ?eventId= deep link —
+external recipients have no account and the body is self-contained).
+`POST /api/scheduling-sheets/:id/email`: day- or wholeSheet-scoped, ONE email
+per distinct person covering all their cells, Promise.allSettled fan-out with
+per-recipient {email, success, error} results. 422 UNRESOLVED_PLACEHOLDERS
+hard-block while placeholder chips remain; `allowPlaceholders` honored for
+ADMINS only. Success appends per-day `emailLog`; staleness is COMPUTED
+(`lastModifiedAt > sentAt`), never stored — the structure endpoint also stamps
+`lastModifiedAt` (conditionalUpdate only stamps lastModifiedDateTime) so
+structural edits read as stale too.
+
+**Frontend:** `/admin/scheduling-sheets` (workbook, `?sheet&date` deep link,
+empty workbook auto-opens the creation panel once) + `/my-assignments`
+(derived read-only view, deliberately UNGUARDED route — the email CTA lands
+any authenticated user there; nav link audience matches the rest of the bar).
+Components under `src/components/scheduling/` (page shell / grid / cell
+editor / email panel), data layer in `useSchedulingSheets.js`, keys under
+`keys.schedulingSheets` + `keys.myAssignments`. Grid: sticky label column +
+header, starter band tint, two-step in-button confirms everywhere, soft
+double-booking warning (same person, overlapping Begins-Ends in two columns —
+warns, never blocks), Sheets-style note corners, `@media print` outputs just
+the active sheet like the Excel original. Copy-a-day/workbook carries
+structure+people, clears emailLog, warns on weekday drift.
+
+**Tests:** backend `sheetCells.test.js` (14, SC-1..14),
+`schedulingSheets.test.js` (26, SS-1..26), `schedulingSheetEmail.test.js`
+(8, SE-1..8); +7 in `permissionUtils.test.js`; EU-14 green. Frontend:
+`SchedulingSheets.components.test.jsx` (18, SCE/SSG/SEP),
+`SchedulingSheets.route.test.jsx` (7, SSR-1..7 incl. App.jsx ?raw source
+assertions), `SchedulingSheets.firstPaint.test.jsx` (4, SSFP),
+`MyAssignments.firstPaint.test.jsx` (4, MAFP), +2 in
+`usePermissions.contract.test.jsx`. Full frontend suite: 10 failures / 3
+files — IDENTICAL to the documented pre-existing baseline. Lint clean on all
+new files (App.jsx setApiToken + RoleSimulationContext react-refresh warnings
+pre-date this change).
+
+**Known QA caveat:** role simulation simulates role, not department — an
+admin previewing an events-dept requester sees assignment nav only if their
+real account is in the events department (same as Calendar Markers).
+
+**Outstanding:** task 7.2 — manual end-to-end on dev (live MSAL): create
+'2026 High Holy Days' with disjoint days, build a grid with all three chip
+kinds + # locations, print, day- and workbook-scoped sends to a test mailbox,
+placeholder block + admin override, My Assignments as a tagged non-manager,
+events-dept requester full round-trip (nav, lookup, edit), non-manager
+redirect.
+
 ### Save conflict delta gate (implemented 2026-08-17)
 
 Spec: `openspec/changes/save-conflict-delta-gate/`. Tasks 2-8 done; only 9.x

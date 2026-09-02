@@ -45,6 +45,8 @@ const TEMPLATE_IDS = {
   DELETION: 'event-deleted',
   // Ownership reassignment notification
   OWNERSHIP_REASSIGNED: 'ownership-reassigned',
+  // Scheduling sheet per-person schedule (High Holy Day staffing etc.)
+  ASSIGNMENT_SCHEDULE: 'assignment-schedule',
   // Error notification templates
   ERROR_NOTIFICATION: 'error-notification',
   USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
@@ -372,6 +374,35 @@ const DEFAULT_TEMPLATES = {
   Thank you.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'reassignedByName', 'eventUrl']
+  },
+
+  [TEMPLATE_IDS.ASSIGNMENT_SCHEDULE]: {
+    id: TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
+    name: 'Assignment Schedule',
+    description: 'Sent to each person tagged on a scheduling sheet with their personal schedule',
+    subject: 'Your assignments for {{scopeLabel}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2d3748;">Your Schedule</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{recipientName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Here is your schedule for {{scopeLabel}}.{{#sheetTitle}} ({{sheetTitle}}){{/sheetTitle}}
+</p>
+
+{{assignmentsTable}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Everything you need is in this email. The button below opens your assignments
+  in the Temple Events app for staff who use it &mdash; if you do not have an
+  account, you can simply ignore it.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  If anything looks wrong or you have a scheduling conflict, please contact the events office.
+</p>`,
+    variables: ['recipientName', 'scopeLabel', 'sheetTitle', 'assignmentsTable', 'eventUrl']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -1457,7 +1488,12 @@ const CTA_CONFIG = {
   [TEMPLATE_IDS.CANCELLATION_REQUEST_REJECTED]: { label: 'View Reservation', color: '#2b6cb0' },
   [TEMPLATE_IDS.EVENT_UPDATED]: { label: 'View Reservation', color: '#2b6cb0' },
   [TEMPLATE_IDS.DELETION]: { label: 'View Reservation', color: '#2b6cb0' },
-  [TEMPLATE_IDS.OWNERSHIP_REASSIGNED]: { label: 'View Reservation', color: '#2b6cb0' }
+  [TEMPLATE_IDS.OWNERSHIP_REASSIGNED]: { label: 'View Reservation', color: '#2b6cb0' },
+  // ASSIGNMENT_SCHEDULE deliberately deviates from the ?eventId= deep-link
+  // convention: its eventUrl variable is buildMyAssignmentsUrl() — schedule
+  // recipients include external people with no account (email body is
+  // self-contained) and staff whose destination is the assignments list.
+  [TEMPLATE_IDS.ASSIGNMENT_SCHEDULE]: { label: 'View My Assignments', color: '#2b6cb0' }
 };
 
 /**
