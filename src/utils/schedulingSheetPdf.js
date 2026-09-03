@@ -1,72 +1,119 @@
 // src/utils/schedulingSheetPdf.js
 //
 // Landscape PDF export for a Scheduling Sheet workbook — the printed artifact
-// that replaced the Excel sheet. Every day in the workbook is rendered, one
-// day per page (more when a day has more posts than fit across the sheet).
+// that replaced the Excel sheet. Every day is rendered, one day per page (more
+// when a day has more posts than fit across the sheet).
 //
-// LAYOUT GOAL: the grid IS the document, and it fills the sheet in BOTH axes.
-//   * Vertically, leftover height is handed back to the rows (see
-//     distributeRowHeights), so nine rows print nine TALL rows rather than a
-//     small table floating in half a page of white. Tall rows double as
-//     handwriting space on a clipboard, which is how these sheets get used.
-//   * Horizontally, columns are sized to their CONTENT (see planColumnWidths)
-//     rather than split evenly, so a column of clock times stops claiming the
-//     same width as a column of full names.
-// Chrome is held to one 10mm band at the top and a 5mm footer.
+// DESIGN — editorial-institutional, per PRODUCT.md: closer to a museum
+// publication than a dashboard. Concretely:
+//   * Typeface is DM Sans, embedded (see dmSansFont.js), so the printed sheet
+//     and the screen are the same document. Four faces give a real hierarchy.
+//   * Colour is the app's own design-tokens palette. Posts carry primary-600
+//     because they are the primary entity; row labels carry primary-700; the
+//     five seeded rows carry a primary-50 wash quoted from `.ss-row-starter`.
+//     Gold is limited to note numerals and call-time overrides.
+//   * Hierarchy is a rule hierarchy — 0.9 / 0.6 / 0.3 / 0.1mm — plus
+//     letterspaced small capitals. There is no dark header band.
+//   * Rows sit at their natural height on a 3.6mm baseline grid and are NEVER
+//     stretched to fill the page; trailing whitespace at the foot is correct.
+//     (An earlier revision stretched them and the result read sparse and
+//     cluttered at once. Density comes from fitting more per page.)
+//   * People, rooms and unfilled posts are distinguishable without reading the
+//     words — see the chip notes on drawBlock.
 //
-// It borrows the gold rule and muted palette from calendarPdfGenerator.js and
-// reuses that module's sanitizeForPdfText — jsPDF's built-in fonts are
-// WinAnsi-only, so any user-entered codepoint above 0xFF is byte-split into
-// mojibake rather than failing loudly. EVERY user string here goes through it.
+// Every user string goes through sanitizeForPdfText. With an embedded TTF the
+// WinAnsi limitation no longer strictly applies, but DM Sans has no emoji
+// glyphs, so unsanitised input would still print as tofu.
 //
 // This is a pure read of data already in the React Query cache: no network
 // call, no write, nothing touches Graph or templeEvents__Events.
 
 import { jsPDF } from 'jspdf';
 import { sanitizeForPdfText } from './calendarPdfGenerator';
+import { registerDmSans } from './dmSansFont';
 import { computeDoubleBookedEmails } from '../components/scheduling/sheetEventUtils';
 
 const S = sanitizeForPdfText;
 
-// ---------------------------------------------------------------- design system
-const colors = {
-  primary: [45, 52, 64],
-  secondary: [107, 114, 128],
-  bodyText: [51, 51, 51],
-  accent: [180, 142, 73],
-  border: [229, 231, 235],
-  muted: [156, 163, 175],
-  warn: [150, 52, 52],
-  // Echoes of the on-screen grid, so the print and the screen read as one thing.
-  starterTint: [239, 244, 250],
-  starterLabel: [230, 238, 248],
-  customLabel: [245, 245, 244],
-  zebra: [252, 252, 251],
-  chipUserBg: [238, 244, 251], chipUserBorder: [194, 215, 239], chipUserText: [42, 77, 128],
-  chipExtBg: [245, 245, 244], chipExtBorder: [214, 211, 209], chipExtText: [68, 64, 60],
-  chipPhBorder: [168, 162, 158], chipPhText: [120, 113, 108],
-  chipLocBg: [248, 243, 233], chipLocBorder: [214, 196, 158], chipLocText: [120, 90, 60],
-};
+// ---------------------------------------------------------------- tokens
+// From src/styles/design-tokens.css. Never pure black, never pure white.
+const N900 = [28, 25, 23];
+const N800 = [41, 37, 36];
+const N700 = [68, 64, 60];
+const N600 = [87, 83, 78];
+const N500 = [120, 113, 108];
+const N400 = [168, 162, 158];
+const N300 = [214, 211, 209];
+const N200 = [231, 229, 228];
+const SAPPHIRE700 = [30, 71, 133];
+const SAPPHIRE600 = [45, 90, 158];
+const SAPPHIRE200 = [194, 215, 239];
+const SAPPHIRE50 = [238, 244, 255];
+const GOLD600 = [202, 138, 4];   // gold TEXT — 500 is too light on paper
+const GOLD500 = [234, 179, 8];
+const GOLD50 = [254, 252, 232];
 
-// Sized to be read at arm's length on a clipboard, not on a screen.
+const RULE = { masthead: 0.9, colHead: 0.6, section: 0.3, close: 0.6, hair: 0.1 };
+const RHYTHM = 3.6;              // every baseline on the page sits on this grid
+
+// Type scale. Steps are ≥1.25 apart so the hierarchy is legible rather than
+// five things all at 8pt: day 16 / post 10 / data 8 / caption 6.4.
 const F = {
-  ident: 7, dayTitle: 14, dayDate: 9.5,
-  colHeader: 9, colTime: 7, rowLabel: 8.8, cell: 8.8, chip: 7.8, tiny: 6.6, note: 7.8,
+  house: 6.8, meta: 7.0, dayTitle: 16, dayDate: 10,
+  colName: 10, colTime: 6.6, rowLabel: 7.2,
+  data: 8.0, tag: 5.8, note: 7.0, tiny: 6.4,
 };
 
-const M = 7;                       // page margin — narrow, the grid is the page
-const LABEL_W = 26;                // frozen row-label column, repeated per page
-const MIN_COL_W = 27;              // a column is never squeezed below this
-const ROW_MIN_H = 9;
-const MAX_ROW_H = 30;              // stops a two-row day stretching into absurdity
-const DAY_HEADER_H = 10.4;
-const NOTES_GAP = 5;
-const GRID_R = 2.2;                // rounded outer corner on the whole table
-const PAD_X = 1.8, PAD_Y = 1.8, LINE_H = 4.6;
-const CHIP_H = 4.6, CHIP_R = 1.4, CHIP_PAD = 1.6, CHIP_GAP = 1.3;
+const M = 13;                    // page margin
+const LABEL_W = 26;
+const MIN_COL_W = 21;
+const ROW_MIN_H = RHYTHM * 2;
+const PAD_X = 1.9, PAD_Y = 1.7, LINE_H = RHYTHM, HANG = 1.8;
+// CHIP_PAD_Y is generous enough that a two- or three-line chip breathes as much
+// as a one-line one; wrapped lines are set on LINE_H, not on the raw font size.
+const CHIP_PAD_X = 1.9, CHIP_PAD_Y = 1.5, CHIP_R = 1.1;
+const BLOCK_GAP = 1.3;           // breathing room between stacked chips in a cell
+const MARK_W = 2.4;              // leading dot / pin gutter
 
-export const MAX_COLS_PER_PAGE = 8;
+export const MAX_COLS_PER_PAGE = 9;
 export const DEFAULT_MAX_DAYS = 31;
+
+// ---------------------------------------------------------------- styles
+const ST = {
+  house:     { f: 'DMSans', w: 'medium', s: F.house, c: N500, cs: 0.52 },
+  meta:      { f: 'DMSans', w: 'normal', s: F.meta, c: N500 },
+  dayTitle:  { f: 'DMSans', w: 'bold', s: F.dayTitle, c: N900 },
+  dayDate:   { f: 'DMSans', w: 'normal', s: F.dayDate, c: N600 },
+  contentsLabel: { f: 'DMSans', w: 'medium', s: 6.0, c: N400, cs: 0.4 },
+  contentsBody:  { f: 'DMSans', w: 'normal', s: 6.8, c: N600 },
+  contentsCap:   { f: 'DMSans', w: 'bold', s: 6.8, c: N700 },
+
+  // The post name IS the event title — the emphasis target. Bold, a full step
+  // above the data, and in the primary.
+  colName:   { f: 'DMSans', w: 'bold', s: F.colName, c: SAPPHIRE600 },
+  colTime:   { f: 'DMSans', w: 'normal', s: F.colTime, c: N500 },
+  colStatus: { f: 'DMSans', w: 'italic', s: F.colTime, c: N500 },
+
+  rowLabel:  { f: 'DMSans', w: 'medium', s: F.rowLabel, c: SAPPHIRE700, cs: 0.3 },
+
+  person:      { f: 'DMSans', w: 'normal', s: F.data, c: N800 },
+  personTag:   { f: 'DMSans', w: 'normal', s: F.tag, c: N400, cs: 0.24 },
+  callTime:    { f: 'DMSans', w: 'normal', s: F.colTime, c: GOLD600 },
+  placeholder: { f: 'DMSans', w: 'italic', s: F.data, c: N500 },
+  location:    { f: 'DMSans', w: 'medium', s: 7.4, c: N800 },
+  text:        { f: 'DMSans', w: 'normal', s: F.data, c: N800 },
+  empty:       { f: 'DMSans', w: 'normal', s: 7.6, c: N300 },
+
+  noteMark:  { f: 'DMSans', w: 'bold', s: 5.6, c: GOLD600, raise: 1.6 },
+  noteNum:   { f: 'DMSans', w: 'medium', s: 6.8, c: GOLD600 },
+  noteHead:  { f: 'DMSans', w: 'medium', s: F.tiny, c: N800, cs: 0.26 },
+  noteBody:  { f: 'DMSans', w: 'normal', s: F.note, c: N700 },
+  notesTitle:{ f: 'DMSans', w: 'medium', s: 6.2, c: N600, cs: 0.44 },
+  footer:    { f: 'DMSans', w: 'normal', s: 6.3, c: N400 },
+  legend:    { f: 'DMSans', w: 'italic', s: F.tiny, c: N500 },
+};
+
+const HOUSE = 'CONGREGATION EMANU-EL OF THE CITY OF NEW YORK';
 
 // ---------------------------------------------------------------- pure planners
 
@@ -88,36 +135,22 @@ export function chunkColumns(columns, maxPerPage = MAX_COLS_PER_PAGE) {
 /**
  * Width per column, sized to content and summing to exactly `gridW`.
  *
- * Two tiers, because the two numbers mean different things:
- *   `minNeed` — the widest SINGLE item in the column. Multiple chips wrap onto
- *     the next line, but one chip cannot break in half, so this is the floor
- *     below which content would be clipped.
- *   `want`    — everything on one line. Purely aspirational; it is what decides
- *     who gets the surplus.
+ * Two tiers, because the numbers mean different things:
+ *   `minNeed` — the widest unbreakable unit in the column (longest word, plus
+ *     any chip padding around it). Below this, content would be clipped.
+ *   `want`    — everything on one line. Aspirational; decides who gets surplus.
  *
- * Every column is first guaranteed its floor, then the leftover is offered in
- * proportion to how much each still wants, and anything left after that is
- * split evenly. The result always fills the width — a column of clock times
- * simply stops claiming as much of it as a column of full names.
- *
- * @param {number[]} minNeed  per-column floor
- * @param {number[]} want     per-column one-line ideal
- * @param {number}   gridW    total width to fill
- * @param {number}   minW     absolute floor applied to every column
+ * Every column is guaranteed its floor, the leftover is offered in proportion
+ * to what each still wants, and any remainder is split evenly — so the row
+ * always fills the width and a column of clock times stops claiming as much of
+ * it as a column of full names.
  */
 export function planColumnWidths(minNeed, want, gridW, minW = MIN_COL_W) {
   const n = minNeed.length;
   if (!n) return [];
   const widths = minNeed.map((w) => Math.max(w, minW));
   const total = widths.reduce((a, b) => a + b, 0);
-
-  // Too wide to fit: scale back proportionally. Chips clamp to the cell and
-  // wrap; nothing is lost, it just gets tighter.
-  if (total > gridW) {
-    const scale = gridW / total;
-    return widths.map((w) => w * scale);
-  }
-
+  if (total > gridW) { const k = gridW / total; return widths.map((w) => w * k); }
   let room = gridW - total;
   const deficit = widths.map((w, i) => Math.max(0, (want[i] || 0) - w));
   const totalDeficit = deficit.reduce((a, b) => a + b, 0);
@@ -134,10 +167,10 @@ export function planColumnWidths(minNeed, want, gridW, minW = MIN_COL_W) {
  * Number a day's cell notes in reading order (column-page, then row, then
  * column) and tag each with the column-page it appears on.
  *
- * Numbering runs continuously through the DAY so no two notes on a day share a
- * number, but the `cp` tag is what lets the renderer print each note on the
- * page carrying its own marker — a marker whose text sits on a different sheet
- * of paper is worse than no marker at all.
+ * Numbering runs continuously through the DAY so no two notes share a number,
+ * but the `cp` tag is what lets each note print on the page carrying its own
+ * marker — a marker whose text sits on another sheet of paper is worse than no
+ * marker at all.
  */
 export function collectDayNotes(day, colPages) {
   const indexByCell = new Map();
@@ -157,36 +190,6 @@ export function collectDayNotes(day, colPages) {
   return { notes, indexByCell };
 }
 
-/**
- * Give a page's leftover vertical space back to its rows, in EQUAL amounts.
- *
- * Equal addition (not proportional scaling) is deliberate: scaling would
- * exaggerate an already-tall row, while a uniform bump keeps the grid regular
- * and reads as a form. Rows stop growing at MAX_ROW_H, and the height they
- * refuse is re-offered to the rows still under the cap — otherwise one capped
- * row would strand space the others could have used.
- */
-export function distributeRowHeights(natural, avail) {
-  const heights = [...natural];
-  if (!heights.length) return heights;
-  let room = avail - heights.reduce((a, b) => a + b, 0);
-  // Bounded: each pass either fills every growable row or exhausts `room`.
-  for (let pass = 0; pass < 6 && room > 0.5; pass += 1) {
-    const growable = heights.reduce((acc, h, i) => (h < MAX_ROW_H - 0.01 ? acc.concat(i) : acc), []);
-    if (!growable.length) break;
-    const share = room / growable.length;
-    let consumed = 0;
-    for (const i of growable) {
-      const grow = Math.min(share, MAX_ROW_H - heights[i]);
-      heights[i] += grow;
-      consumed += grow;
-    }
-    room -= consumed;
-    if (consumed < 0.01) break;
-  }
-  return heights;
-}
-
 /** Mirrors SchedulingSheetGrid's linkStatus: 'linked' | 'drift' | 'missing'. */
 function linkStateOf(col, liveEventsById) {
   if (!col.linkedEvent) return null;
@@ -197,16 +200,16 @@ function linkStateOf(col, liveEventsById) {
     (snap.title && live.title && snap.title !== live.title) ||
     (snap.startDateTime && live.startDateTime && snap.startDateTime !== live.startDateTime) ||
     (snap.endDateTime && live.endDateTime && snap.endDateTime !== live.endDateTime);
-  return { state: drifted ? 'drift' : 'linked', live };
+  return { state: drifted ? 'drift' : 'linked' };
 }
 
-// Date-only keys are formatted in LOCAL time with no explicit locale, exactly
-// as SchedulingSheets.jsx formats its tabs and title — the print must not
-// disagree with the screen it was printed from.
+// Date-only keys format in LOCAL time with no explicit locale, exactly as
+// SchedulingSheets.jsx formats its tabs — the print must not disagree with the
+// screen it was printed from.
 const fullDate = (key) => {
   const d = new Date(`${key}T00:00:00`);
   return Number.isNaN(d.getTime()) ? key
-    : d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 };
 const shortDate = (key) => {
   const d = new Date(`${key}T00:00:00`);
@@ -216,8 +219,11 @@ const shortDate = (key) => {
 const clockTime = (iso) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? ''
-    : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', '');
+    : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })
+        .replace(' ', '').toLowerCase();
 };
+/** '3:45 PM' -> '3:45p': one token, so the meridiem cannot wrap alone. */
+const compactTime = (t) => String(t).replace(/\s*([AP])M$/i, (m, p) => p.toLowerCase());
 
 const slug = (s) => String(s || 'sheet').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'sheet';
 
@@ -237,18 +243,22 @@ function emailSummary(day) {
 
 /**
  * @param {Object}  options
- * @param {Object}  options.sheet            workbook as returned by GET /api/scheduling-sheets/:id
+ * @param {Object}  options.sheet            workbook from GET /api/scheduling-sheets/:id
  * @param {Map}     [options.liveEventsById] published events by id, for the drift flag
  * @param {number}  [options.maxDays]        runaway guard on workbook size
  * @returns {{ blob, blobUrl, fileName, dayCount, omittedDays }}
  */
 export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDays = DEFAULT_MAX_DAYS }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+  // Before ANY measurement: an unregistered font name silently falls back to
+  // Helvetica, which measures differently and would break every column width.
+  registerDmSans(doc);
+
   const PW = doc.internal.pageSize.getWidth();
   const PH = doc.internal.pageSize.getHeight();
   const CW = PW - M * 2;
   const GRID_W = CW - LABEL_W;
-  const BOTTOM = PH - 9;           // just above the one-line footer
+  const BOTTOM = PH - M + 4;
 
   const allDays = (sheet && sheet.days) || [];
   const days = allDays.slice(0, maxDays);
@@ -262,306 +272,328 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
 
   let pageStarted = false;
   const newPage = () => { if (pageStarted) doc.addPage(); pageStarted = true; };
+  let pageHasDagger = false;
 
-  // -------------------------------------------------------------- cell layout
-  // A cell mixes wrappable free text with atomic chips. `measureItems` turns
-  // segments into measured boxes; `flowItems` wraps them to a width. They are
-  // separate so column sizing can ask "how wide does this want to be?" without
-  // committing to a width first.
-  function measureItems(cell, noteNum, warned) {
-    const items = [];
+  // -------------------------------------------------------------- text
+  const applyStyle = (st) => {
+    doc.setFont(st.f || 'DMSans', st.w || 'normal');
+    doc.setFontSize(st.s);
+    if (doc.setCharSpace) doc.setCharSpace(st.cs || 0);
+  };
+  // jsPDF's getTextWidth ignores setCharSpace, so letterspaced strings measure
+  // short and overflow. Compensate so measure and draw agree.
+  const measure = (t, st) => {
+    applyStyle(st);
+    return doc.getTextWidth(String(t)) + (st.cs || 0) * String(t).length;
+  };
+  const draw = (t, st, x, y) => {
+    applyStyle(st);
+    doc.setTextColor(...(st.c || N900));
+    doc.text(String(t), x, y - (st.raise || 0));
+    if (doc.setCharSpace) doc.setCharSpace(0);
+  };
+  const drawRight = (t, st, xRight, y) => draw(t, st, xRight - measure(t, st), y);
+  /** Greedy wrap on the corrected measure; replaces splitTextToSize. */
+  const wrapText = (t, st, maxW) => {
+    const words = String(t).split(/\s+/).filter(Boolean);
+    if (!words.length) return [''];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i += 1) {
+      const trial = `${cur} ${words[i]}`;
+      if (measure(trial, st) <= maxW) cur = trial;
+      else { lines.push(cur); cur = words[i]; }
+    }
+    lines.push(cur);
+    return lines;
+  };
+
+  // -------------------------------------------------------------- cell model
+  // A cell is a stack of BLOCKS, one per segment — one entity per line, the way
+  // a call sheet lists a crew, rather than a wrapped soup of inline boxes.
+  //
+  // Chip treatment mirrors the on-screen grid so print and screen agree, but at
+  // a fraction of the width: only LOCATIONS get a full pill (there is normally
+  // one per cell, so the padding is paid once). People are marked instead —
+  // a filled sapphire dot for staff, a hollow one for an outside vendor — which
+  // costs a 2.4mm gutter rather than ~6mm of pill. Placeholders take a dashed
+  // underline, which costs nothing horizontally and still reads as "not filled".
+  function cellBlocks(cell, noteNum, warned) {
+    const blocks = [];
     for (const seg of (cell && cell.segments) || []) {
       if (seg.type === 'text') {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(F.cell);
-        for (const word of S(seg.text).split(/\s+/).filter(Boolean)) {
-          items.push({ kind: 'word', text: word, w: doc.getTextWidth(word), space: doc.getTextWidth(' ') });
-        }
+        blocks.push({ kind: 'text', runs: [{ t: S(seg.text), st: ST.text }], mark: null, box: null });
       } else if (seg.type === 'location') {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(F.chip);
-        const label = S(seg.name);
-        items.push({ kind: 'chip', variant: 'location', label, tag: '', call: '', w: doc.getTextWidth(label) + CHIP_PAD * 2 + 2.8 });
+        blocks.push({ kind: 'location', runs: [{ t: S(seg.name), st: ST.location }], mark: 'pin', box: 'gold' });
       } else if (seg.type === 'person') {
-        const variant = seg.placeholder ? 'placeholder' : seg.userId ? 'user' : 'external';
-        doc.setFont('helvetica', seg.placeholder ? 'italic' : 'normal'); doc.setFontSize(F.chip);
-        const label = S(seg.name);
-        const tag = seg.placeholder ? 'unassigned' : variant === 'external' ? 'ext' : '';
-        const call = seg.callTimeOverride ? S(seg.callTimeOverride) : '';
-        let w = doc.getTextWidth(label) + CHIP_PAD * 2 + (variant === 'user' ? 2.6 : 0);
-        doc.setFontSize(F.tiny);
-        if (tag) w += doc.getTextWidth(tag) + 1.5;
-        if (call) w += doc.getTextWidth(call) + 1.7;
-        items.push({ kind: 'chip', variant, label, tag, call, w, warn: !!(seg.email && warned.has(seg.email)) });
+        const isPlaceholder = !!seg.placeholder;
+        const isStaff = !isPlaceholder && !!seg.userId;
+        const runs = [];
+        if (isPlaceholder) {
+          runs.push({ t: S(String(seg.name).replace(/^@/, '')), st: ST.placeholder });
+          runs.push({ t: '  TBA', st: ST.personTag });
+        } else {
+          // The dagger is bound to the name in ONE token so it can never wrap
+          // onto a line of its own.
+          const warn = seg.email && warned.has(seg.email);
+          runs.push({ t: S(`${seg.name}${warn ? '†' : ''}`), st: ST.person });
+          if (!isStaff) runs.push({ t: '  EXT', st: ST.personTag });
+          if (seg.callTimeOverride) runs.push({ t: ` ${S(compactTime(seg.callTimeOverride))}`, st: ST.callTime });
+        }
+        blocks.push({
+          kind: 'person',
+          runs,
+          mark: isPlaceholder ? null : (isStaff ? 'dot' : 'ring'),
+          box: null,
+          underline: isPlaceholder,
+        });
       }
     }
     if (noteNum) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(F.tiny);
-      items.push({ kind: 'note', text: String(noteNum), w: doc.getTextWidth(String(noteNum)) + 0.8 });
+      const marker = { t: String(noteNum), st: ST.noteMark };
+      const last = blocks[blocks.length - 1];
+      // A marker inside a chip lands on or across its border. Boxed blocks
+      // carry it as a TRAILING mark, drawn clear of the frame; unboxed blocks
+      // can take it inline as an ordinary superscript.
+      if (last && last.box) last.trailingMark = marker;
+      else if (last) last.runs = last.runs.concat(marker);
+      else blocks.push({ kind: 'text', runs: [marker], mark: null, box: null });
     }
-    return items;
+    if (!blocks.length) blocks.push({ kind: 'empty', runs: [{ t: '–', st: ST.empty }], mark: null, box: null });
+    return blocks;
   }
 
-  /** Widest single item — the floor below which content would be clipped. */
-  const widestItem = (items) => items.reduce((m, it) => Math.max(m, it.w), 0);
-  /** Everything on one line — the aspirational width. */
-  const oneLineWidth = (items) => items.reduce((sum, it, i) => {
-    const gap = i === 0 ? 0 : (it.kind === 'word' && items[i - 1].kind === 'word' ? it.space : CHIP_GAP);
-    return sum + gap + it.w;
-  }, 0);
+  const blockLead = (b) => (b.mark ? MARK_W : 0) + (b.box ? CHIP_PAD_X * 2 : 0);
+  const widestWord = (b) => b.runs.reduce((m, run) => String(run.t).split(/\s+/).filter(Boolean)
+    .reduce((mm, w) => Math.max(mm, measure(w, run.st)), m), 0);
+  const oneLine = (b) => b.runs.reduce((sum, run) => sum + measure(String(run.t), run.st), 0);
 
-  function flowItems(items, width) {
-    const avail = width - PAD_X * 2;
+  const blockMinNeed = (b) => widestWord(b) + blockLead(b);
+  const blockWant = (b) => oneLine(b) + blockLead(b);
+
+  /**
+   * Wrap one block's runs and return its lines plus the width it is drawn at.
+   *
+   * A chip SHRINK-WRAPS to its text, the way the on-screen grid's chips do —
+   * it is a pill, not a band. Wrapping happens at the cell's inner width, then
+   * the box is sized to the text that actually resulted.
+   *
+   * The overflow this used to show was never caused by shrink-wrapping: the box
+   * was sized from `textW`, which ignored the HANG indent added to continuation
+   * lines, so a wrapped chip was drawn up to HANG too narrow for the text inside
+   * it. That is corrected below, and only *second* lines ever breached the
+   * frame, which is the tell.
+   */
+  function flowBlock(b, avail) {
+    const markW = b.trailingMark ? measure(b.trailingMark.t, b.trailingMark.st) + 1.2 : 0;
+    // True inner width: strip the chip's own padding, the leading mark gutter,
+    // and any reserved trailing note marker. No glyph may cross the border.
+    const inner = avail - blockLead(b) - markW;
     const lines = [];
-    let line = [], used = 0;
-    for (const raw of items) {
-      const it = { ...raw, w: Math.min(raw.w, avail) };   // never overflow the cell
-      const gap = line.length ? (it.kind === 'word' && line[line.length - 1].kind === 'word' ? it.space : CHIP_GAP) : 0;
-      if (line.length && used + gap + it.w > avail) { lines.push(line); line = [it]; used = it.w; }
-      else { if (line.length) used += gap; line.push(it); used += it.w; }
+    let cur = [], curW = 0;
+    for (const run of b.runs) {
+      const tokens = String(run.t).split(/(\s+)/).filter((s) => s.length);
+      for (const tok of tokens) {
+        if (/^\s+$/.test(tok)) {
+          if (cur.length) { const w = measure(' ', run.st); cur.push({ t: ' ', st: run.st, w }); curW += w; }
+          continue;
+        }
+        const w = measure(tok, run.st);
+        const indent = lines.length ? HANG : 0;
+        if (cur.length && curW + w > inner - indent) { lines.push(cur); cur = [{ t: tok, st: run.st, w }]; curW = w; }
+        else { cur.push({ t: tok, st: run.st, w }); curW += w; }
+      }
     }
-    if (line.length) lines.push(line);
-    return { lines, height: Math.max(lines.length, 1) * LINE_H + PAD_Y * 2 };
+    if (cur.length) lines.push(cur);
+    // Continuation lines are indented by HANG, so the width they occupy is
+    // HANG wider than the text they hold — the miss that let text escape.
+    const textW = lines.reduce((m, ln, i) =>
+      Math.max(m, (i ? HANG : 0) + ln.reduce((s, r) => s + r.w, 0)), 0);
+    const height = lines.length * LINE_H + (b.box ? CHIP_PAD_Y * 2 : 0);
+    return {
+      ...b, lines, textW, markW, height,
+      width: Math.min(textW + blockLead(b), avail - markW),
+    };
+  }
+
+  /**
+   * Space between stacked entries in one cell. Applied only where a chip is
+   * involved: two pills sitting flush read as one smudged shape, whereas plain
+   * name lists are already separated by their own line height and would just
+   * go loose if this were applied to them too.
+   */
+  const gapBefore = (blocks, i) =>
+    (i > 0 && (blocks[i].box || blocks[i - 1].box)) ? BLOCK_GAP : 0;
+
+  function layoutCell(blocks, width) {
+    const avail = width - PAD_X * 2;
+    const laid = blocks.map((b) => flowBlock(b, avail));
+    const gaps = laid.reduce((a, _, i) => a + gapBefore(laid, i), 0);
+    return { blocks: laid, height: laid.reduce((a, b) => a + b.height, 0) + gaps + PAD_Y * 2 };
   }
 
   function drawCell(layout, x, y) {
-    let ly = y + PAD_Y + 3.4;
-    for (const line of layout.lines) {
-      let lx = x + PAD_X;
-      for (let i = 0; i < line.length; i += 1) {
-        const it = line[i];
-        if (i > 0) lx += (it.kind === 'word' && line[i - 1].kind === 'word') ? it.space : CHIP_GAP;
-        if (it.kind === 'word') {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(F.cell); doc.setTextColor(...colors.bodyText);
-          doc.text(it.text, lx, ly);
-        } else if (it.kind === 'note') {
-          doc.setFont('helvetica', 'bold'); doc.setFontSize(F.tiny); doc.setTextColor(...colors.accent);
-          doc.text(it.text, lx, ly - 1.6);
-        } else {
-          drawChip(it, lx, ly - 3.4);
-        }
-        lx += it.w;
+    let by = y + PAD_Y;
+    layout.blocks.forEach((b, bi) => {
+      by += gapBefore(layout.blocks, bi);
+      if (b.box === 'gold') {
+        doc.setFillColor(...GOLD50);
+        doc.setDrawColor(...GOLD500);
+        doc.setLineWidth(0.15);
+        doc.roundedRect(x + PAD_X, by, b.width, b.height, CHIP_R, CHIP_R, 'FD');
       }
-      ly += LINE_H;
+      const textLeft = x + PAD_X + (b.box ? CHIP_PAD_X : 0) + (b.mark ? MARK_W : 0);
+      const markX = x + PAD_X + (b.box ? CHIP_PAD_X : 0);
+      let ly = by + (b.box ? CHIP_PAD_Y : 0) + 2.6;
+
+      // Outside the frame, never on it.
+      if (b.trailingMark) draw(b.trailingMark.t, b.trailingMark.st, x + PAD_X + b.width + 1.2, ly);
+
+      b.lines.forEach((line, li) => {
+        if (li === 0 && b.mark) drawMark(b.mark, markX, ly);
+        let lx = textLeft + (li ? HANG : 0);
+        for (const run of line) { draw(run.t, run.st, lx, ly); lx += run.w; }
+        if (b.underline) {
+          const w = line.reduce((s, r) => s + r.w, 0);
+          doc.setDrawColor(...N400); doc.setLineWidth(0.12);
+          doc.setLineDashPattern([0.6, 0.6], 0);
+          doc.line(textLeft + (li ? HANG : 0), ly + 1.1, textLeft + (li ? HANG : 0) + w, ly + 1.1);
+          doc.setLineDashPattern([], 0);
+        }
+        ly += LINE_H;
+      });
+      by += b.height;
+    });
+  }
+
+  /** Leading marks, drawn as vectors — no glyph in any font is relied on. */
+  function drawMark(kind, x, baseline) {
+    const cy = baseline - 1.1;
+    if (kind === 'dot') {                       // staff
+      doc.setFillColor(...SAPPHIRE600);
+      doc.circle(x + 0.85, cy, 0.85, 'F');
+    } else if (kind === 'ring') {               // outside vendor
+      doc.setDrawColor(...N500); doc.setLineWidth(0.25);
+      doc.circle(x + 0.85, cy, 0.8, 'S');
+    } else if (kind === 'pin') {                // room
+      doc.setFillColor(...GOLD600);
+      doc.circle(x + 0.85, cy - 0.35, 0.62, 'F');
+      doc.setDrawColor(...GOLD600); doc.setLineWidth(0.32);
+      doc.line(x + 0.85, cy + 0.1, x + 0.85, cy + 1.35);
     }
   }
 
-  function drawChip(it, lx, top) {
-    const v = it.variant;
-    const bg = v === 'location' ? colors.chipLocBg : v === 'user' ? colors.chipUserBg : v === 'external' ? colors.chipExtBg : null;
-    const bd = v === 'location' ? colors.chipLocBorder : v === 'user' ? colors.chipUserBorder : v === 'external' ? colors.chipExtBorder : colors.chipPhBorder;
-    const tx = v === 'location' ? colors.chipLocText : v === 'user' ? colors.chipUserText : v === 'external' ? colors.chipExtText : colors.chipPhText;
-
-    doc.setDrawColor(...bd); doc.setLineWidth(0.25);
-    if (v === 'placeholder') doc.setLineDashPattern([0.7, 0.7], 0);
-    if (bg) { doc.setFillColor(...bg); doc.roundedRect(lx, top, it.w, CHIP_H, CHIP_R, CHIP_R, 'FD'); }
-    else doc.roundedRect(lx, top, it.w, CHIP_H, CHIP_R, CHIP_R, 'S');
-    doc.setLineDashPattern([], 0);
-
-    // Glyphs are drawn as vectors, never as text: a bullet or a map pin from
-    // the emoji planes cannot survive WinAnsi encoding.
-    let cx = lx + CHIP_PAD;
-    if (v === 'user') { doc.setFillColor(...tx); doc.circle(cx + 0.8, top + CHIP_H / 2, 0.8, 'F'); cx += 2.6; }
-    if (v === 'location') {
-      doc.setFillColor(...tx); doc.circle(cx + 0.9, top + CHIP_H / 2 - 0.4, 0.6, 'F');
-      doc.setDrawColor(...tx); doc.setLineWidth(0.3);
-      doc.line(cx + 0.9, top + CHIP_H / 2 + 0.1, cx + 0.9, top + CHIP_H / 2 + 1.4);
-      cx += 2.8;
-    }
-
-    doc.setFont('helvetica', v === 'placeholder' ? 'italic' : 'normal'); doc.setFontSize(F.chip); doc.setTextColor(...tx);
-    // planColumnWidths guarantees room for the widest chip whenever the page can
-    // afford it, but its scale-down branch cannot. Clamp the TEXT too, or a
-    // clipped pill would have its label spill across the neighbouring column.
-    const room = it.w - (cx - lx) - CHIP_PAD;
-    let label = it.label;
-    if (doc.getTextWidth(label) > room) {
-      while (label.length > 1 && doc.getTextWidth(`${label}…`) > room) label = label.slice(0, -1);
-      label = `${label}…`;
-    }
-    doc.text(label, cx, top + CHIP_H / 2 + 1.1);
-    cx += doc.getTextWidth(label);
-    if (it.call) {
-      doc.setFontSize(F.tiny); doc.setTextColor(...colors.accent);
-      doc.text(it.call, cx + 1.3, top + CHIP_H / 2 + 1.1);
-      cx += 1.3 + doc.getTextWidth(it.call);
-    }
-    if (it.tag) {
-      doc.setFontSize(F.tiny); doc.setTextColor(...colors.muted);
-      doc.text(it.tag, cx + 1.3, top + CHIP_H / 2 + 1.1);
-    }
-    if (it.warn) {
-      const wx = lx + it.w + 1.1;
-      doc.setFillColor(...colors.warn); doc.circle(wx, top + CHIP_H / 2, 1.4, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(5.6); doc.setTextColor(255, 255, 255);
-      doc.text('!', wx, top + CHIP_H / 2 + 0.95, { align: 'center' });
-    }
-  }
-
-  // jsPDF's roundedRect rounds all four corners, so a table edge needs the
-  // round-then-square trick: draw it rounded, then paint a plain rect back over
-  // the end that must stay square.
-  function fillRoundedSide(x, y, w, h, side) {
-    const r = Math.min(GRID_R, h / 2, w / 2);
-    doc.roundedRect(x, y, w, h, r, r, 'F');
-    if (side === 'top') doc.rect(x, y + r, w, h - r, 'F');
-    else doc.rect(x, y, w, h - r, 'F');
-  }
-
-  // -------------------------------------------------------------- page chrome
-
-  /**
-   * One 10mm band replaces what used to be a centred masthead, a subtitle and a
-   * boxed day card (37mm). The day and its date lead at full size; the identity,
-   * workbook, posts-range and email state are demoted to a single muted line on
-   * the right, where they are available but never compete with the grid.
-   */
-  function drawDayHeader(day, part, partCount) {
-    const top = M - 1;
-    let x = M;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(F.dayTitle); doc.setTextColor(...colors.primary);
-    const title = S(day.title || fullDate(day.date));
-    doc.text(title, x, top + 5.2);
-    x += doc.getTextWidth(title) + 3;
-    if (day.title) {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(F.dayDate); doc.setTextColor(...colors.secondary);
-      doc.text(S(fullDate(day.date)), x, top + 5.2);
-    }
-
+  // -------------------------------------------------------------- chrome
+  function drawMasthead(day, part, partCount) {
+    const y = M - 1;
+    draw(HOUSE, ST.house, M, y + 2.4);
     const { lastSent, stale } = emailSummary(day);
-    const right = ['CONGREGATION EMANU-EL', S((sheet && sheet.name) || '')];
-    if (partCount > 1) right.push(`POSTS ${part.from}-${part.to} OF ${part.total}`);
-    right.push(lastSent
-      ? `EMAILED ${new Date(lastSent).toLocaleDateString(undefined)}${stale ? ' (EDITED SINCE)' : ''}`
-      : 'NOT YET EMAILED');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(F.ident); doc.setTextColor(...colors.muted);
-    doc.text(S(right.filter(Boolean).join('  ·  ')), PW - M, top + 5.0, { align: 'right' });
+    const meta = [S((sheet && sheet.name) || '')];
+    if (partCount > 1) meta.push(`Posts ${part.from}–${part.to} of ${part.total}`);
+    meta.push(lastSent
+      ? `Emailed ${new Date(lastSent).toLocaleDateString(undefined)}${stale ? ', edited since' : ''}`
+      : 'Not yet emailed');
+    drawRight(S(meta.filter(Boolean).join('   ·   ')), ST.meta, PW - M, y + 2.4);
 
-    doc.setDrawColor(...colors.accent); doc.setLineWidth(1);
-    doc.line(M, top + 7.6, PW - M, top + 7.6);
-    return top + DAY_HEADER_H;
+    const title = S(day.title || fullDate(day.date));
+    draw(title, ST.dayTitle, M, y + 10.8);
+    if (day.title) draw(S(fullDate(day.date)), ST.dayDate, M + measure(title, ST.dayTitle) + 3.8, y + 10.8);
+
+    doc.setDrawColor(...SAPPHIRE700); doc.setLineWidth(RULE.masthead);
+    doc.line(M, y + 13.6, PW - M, y + 13.6);
+    return y + 17.5;
   }
 
-  /** One muted line on page 1 listing the whole workbook. */
-  function contentsLines() {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(F.tiny);
-    const label = days.map((d) => `${shortDate(d.date)}${d.title ? ` · ${d.title}` : ''}`).join('   |   ');
-    return doc.splitTextToSize(S(label), CW - 20);
-  }
-  const contentsHeight = (lines) => lines.length * 3.0 + (omittedDays > 0 ? 3.4 : 0) + 2.4;
+  const contentsLines = () => wrapText(
+    S(days.map((d) => `${shortDate(d.date)}${d.title ? `, ${d.title}` : ''}`).join('   ·   ')),
+    ST.contentsBody, CW - 30
+  );
+  const contentsHeight = (lines) => lines.length * 3.2 + (omittedDays > 0 ? 3.4 : 0) + 4.4;
 
   function drawContents(startY, lines) {
-    let y = startY + 2.4;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(F.tiny); doc.setTextColor(...colors.muted);
-    doc.text('IN THIS SHEET', M, y);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(...colors.secondary);
-    doc.text(lines, M + 19, y);
-    y += lines.length * 3.0;
+    let y = startY;
+    draw('IN THIS SHEET', ST.contentsLabel, M, y);
+    lines.forEach((ln, i) => draw(ln, ST.contentsBody, M + 28, y + i * 3.2));
+    y += lines.length * 3.2;
     // A silently truncated workbook would misstate its own coverage.
     if (omittedDays > 0) {
-      doc.setTextColor(...colors.warn);
-      doc.text(S(`Showing the first ${days.length} days of ${allDays.length} - print the remaining days from their own day tabs.`), M + 19, y);
+      draw(S(`First ${days.length} days shown; ${omittedDays} more — print those from their own day tabs.`),
+        ST.contentsCap, M + 28, y);
       y += 3.4;
     }
-    return y;
+    return y + 4.4;
   }
 
-  /** Measured separately from drawing so row packing can budget for it. */
-  function planTableHeader(cols, xs, widths) {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(F.colHeader);
-    let maxLines = 1;
-    const wrapped = cols.map((c, i) => {
-      const w = doc.splitTextToSize(S(c.name || ''), widths[i] - 3);
-      maxLines = Math.max(maxLines, w.length);
-      return w;
-    });
-    const anyCaption = cols.some((c) => linkStateOf(c, liveEventsById));
-    // Derive the band height FROM the caption's baseline rather than computing
-    // the two separately — two formulas for one number is how the caption ended
-    // up sitting exactly on the band's edge, with its descenders clipped off.
-    const lastNameY = 4.6 + (maxLines - 1) * 3.5;
-    const captionY = anyCaption ? lastNameY + 3.4 : null;
-    const h = Math.max(7.6, (captionY || lastNameY) + 2.4);
-    return { wrapped, maxLines, captionY, h, xs, widths };
-  }
-
-  function drawTableHeader(cols, startY, plan) {
-    doc.setFillColor(...colors.primary);
-    fillRoundedSide(M, startY, CW, plan.h, 'top');
+  function planTableHeader(cols, widths) {
+    let nameLines = 1, capLines = 0;
+    const wrapped = [], caps = [];
     cols.forEach((c, i) => {
-      const x = plan.xs[i];
-      doc.setDrawColor(90, 96, 108); doc.setLineWidth(0.2);
-      doc.line(x, startY + 1.2, x, startY + plan.h - 1.2);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(F.colHeader); doc.setTextColor(255, 255, 255);
-      plan.wrapped[i].forEach((ln, li) => doc.text(ln, x + 2.2, startY + 4.6 + li * 3.5));
-
-      // The snapshot time is what the sheet was built against. Drift is
-      // reported, never silently re-synced — the same stance as the grid.
+      const w = wrapText(S(c.name || ''), ST.colName, widths[i] - PAD_X * 2);
+      nameLines = Math.max(nameLines, w.length);
+      wrapped.push(w);
       const status = linkStateOf(c, liveEventsById);
-      if (!status) return;
-      const snap = (c.linkedEvent && c.linkedEvent.snapshot) || {};
-      let caption = '';
-      if (status.state === 'missing') caption = '(linked event no longer exists)';
-      else {
-        if (snap.startDateTime) caption = `${clockTime(snap.startDateTime)}${snap.endDateTime ? `-${clockTime(snap.endDateTime)}` : ''}`;
-        if (status.state === 'drift') caption += `${caption ? '  ' : ''}(event changed since linked)`;
+      const lines = [];
+      if (status) {
+        const snap = (c.linkedEvent && c.linkedEvent.snapshot) || {};
+        if (status.state === 'missing') lines.push({ t: 'linked event removed', st: ST.colStatus });
+        else {
+          if (snap.startDateTime) lines.push({ t: S(`${clockTime(snap.startDateTime)}–${clockTime(snap.endDateTime)}`), st: ST.colTime });
+          if (status.state === 'drift') lines.push({ t: 'changed since linked', st: ST.colStatus });
+        }
       }
-      if (!caption || plan.captionY == null) return;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(F.colTime);
-      doc.setTextColor(...(status.state === 'linked' ? colors.accent : [222, 178, 120]));
-      doc.text(S(caption), x + 2.2, startY + plan.captionY);
+      capLines = Math.max(capLines, lines.length);
+      caps.push(lines);
     });
-    return startY + plan.h;
+    return { wrapped, caps, nameLines, h: 4.2 + nameLines * 4.2 + capLines * 3.1 + 2.6 };
   }
 
-  /** Wrapped note bodies, measured once and reused for both budget and draw. */
+  function drawTableHeader(cols, xs, y, plan) {
+    cols.forEach((c, i) => {
+      plan.wrapped[i].forEach((ln, li) => draw(ln, ST.colName, xs[i] + PAD_X, y + 4.2 + li * 4.2));
+      plan.caps[i].forEach((cl, li) =>
+        draw(cl.t, cl.st, xs[i] + PAD_X, y + 4.2 + plan.nameLines * 4.2 + li * 3.1));
+    });
+    doc.setDrawColor(...SAPPHIRE700); doc.setLineWidth(RULE.colHead);
+    doc.line(M, y + plan.h, xs.gridRight, y + plan.h);
+    return y + plan.h;
+  }
+
   function planNotes(pageNotes) {
     if (!pageNotes.length) return { rows: [], h: 0 };
     const rows = pageNotes.map((n) => {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(F.note);
-      const head = S(`${n.col} · ${n.row}`);
-      // Measure while BOLD is still active. getTextWidth reads the CURRENT
-      // font, so measuring after the switch to normal under-reads and runs the
-      // body text back over the heading.
-      const headW = doc.getTextWidth(head);
-      doc.setFont('helvetica', 'normal');
-      const bodyX = M + 6.5 + headW;
-      const body = doc.splitTextToSize(S(`${n.text}${n.authorName ? `  — ${n.authorName}` : ''}`), Math.max(20, PW - M - bodyX));
+      const head = S(`${n.col} — ${n.row}`);
+      const headW = measure(head, ST.noteHead);
+      const bodyX = M + 5.5 + headW + 2.5;
+      const body = wrapText(S(`${n.text}${n.authorName ? `  (${n.authorName})` : ''}`), ST.noteBody, Math.max(30, PW - M - bodyX));
       return { n: n.n, head, bodyX, body };
     });
-    const h = 4.6 + rows.reduce((a, r) => a + r.body.length * 3.6 + 0.8, 0);
-    return { rows, h };
+    return { rows, h: 5.4 + rows.reduce((a, r) => a + r.body.length * 3.5 + 0.9, 0) };
   }
 
   function drawNotes(plan, startY) {
     let y = startY;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(F.tiny);
-    const pw = doc.getTextWidth('NOTES') + 6;
-    doc.setFillColor(...colors.accent); doc.roundedRect(M, y - 3.2, pw, 5, 1, 1, 'F');
-    doc.setTextColor(255, 255, 255); doc.text('NOTES', M + 3, y);
-    doc.setDrawColor(...colors.border); doc.setLineWidth(0.3);
-    doc.line(M + pw + 2, y - 0.7, PW - M, y - 0.7);
-    y += 4.6;
-
+    draw('NOTES', ST.notesTitle, M, y);
+    doc.setDrawColor(...N200); doc.setLineWidth(RULE.hair);
+    doc.line(M + 16, y - 1.0, PW - M, y - 1.0);
+    y += 5.4;
     for (const r of plan.rows) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(F.note); doc.setTextColor(...colors.accent);
-      doc.text(String(r.n), M + 1, y);
-      doc.setTextColor(...colors.primary);
-      doc.text(r.head, M + 5, y);
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(...colors.bodyText);
-      doc.text(r.body[0], r.bodyX, y);
-      y += 3.6;
-      for (let i = 1; i < r.body.length; i += 1) { doc.text(r.body[i], M + 5, y); y += 3.6; }
-      y += 0.8;
+      draw(String(r.n), ST.noteNum, M + 0.5, y);
+      draw(r.head, ST.noteHead, M + 5.5, y);
+      draw(r.body[0], ST.noteBody, r.bodyX, y);
+      y += 3.5;
+      for (let i = 1; i < r.body.length; i += 1) { draw(r.body[i], ST.noteBody, M + 5.5, y); y += 3.5; }
+      y += 0.9;
     }
   }
 
   function drawFooter(pageNum, totalPages) {
-    const y = PH - 4.6;
-    doc.setDrawColor(...colors.border); doc.setLineWidth(0.3);
+    const y = PH - M + 5.5;
+    doc.setDrawColor(...N200); doc.setLineWidth(RULE.hair);
     doc.line(M, y - 3.2, PW - M, y - 3.2);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(F.tiny); doc.setTextColor(...colors.muted);
-    doc.text(S(`Generated ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`), M, y);
+    draw(S(`Generated ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`), ST.footer, M, y);
+    applyStyle(ST.footer); doc.setTextColor(...ST.footer.c);
     doc.text('Congregation Emanu-El of the City of New York', PW / 2, y, { align: 'center' });
-    doc.text(`Page ${pageNum} of ${totalPages}`, PW - M, y, { align: 'right' });
+    drawRight(`${pageNum} / ${totalPages}`, ST.footer, PW - M, y);
   }
 
   // -------------------------------------------------------------- document
@@ -576,43 +608,60 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
       const part = { from, to: from + cols.length - 1, total: (day.columns || []).length };
 
       // PASS 1 — measure content, then size the columns to it.
-      const itemsByCell = rows.map((row) => cols.map((c) => {
+      const blocksByCell = rows.map((row) => cols.map((c) => {
         const key = `${row.id}:${c.id}`;
-        return measureItems((day.cells || {})[key], indexByCell.get(key), warned);
+        return cellBlocks((day.cells || {})[key], indexByCell.get(key), warned);
       }));
       const minNeed = cols.map((c, ci) => {
         let w = 0;
-        for (let ri = 0; ri < rows.length; ri += 1) w = Math.max(w, widestItem(itemsByCell[ri][ci]));
-        // A header name wraps between words but never mid-word.
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(F.colHeader);
-        for (const word of S(c.name || '').split(/\s+/)) w = Math.max(w, doc.getTextWidth(word) + 1.2);
+        for (let ri = 0; ri < rows.length; ri += 1)
+          for (const b of blocksByCell[ri][ci]) w = Math.max(w, blockMinNeed(b));
+        for (const word of S(c.name || '').split(/\s+/)) w = Math.max(w, measure(word, ST.colName));
         return w + PAD_X * 2;
       });
       const want = cols.map((c, ci) => {
         let w = 0;
-        for (let ri = 0; ri < rows.length; ri += 1) w = Math.max(w, oneLineWidth(itemsByCell[ri][ci]));
+        for (let ri = 0; ri < rows.length; ri += 1)
+          for (const b of blocksByCell[ri][ci]) w = Math.max(w, blockWant(b));
         return w + PAD_X * 2;
       });
       const widths = planColumnWidths(minNeed, want, GRID_W);
       const xs = [];
       let cursor = M + LABEL_W;
       for (const w of widths) { xs.push(cursor); cursor += w; }
-      const gridRight = M + LABEL_W + widths.reduce((a, b) => a + b, 0);
+      xs.gridRight = M + LABEL_W + widths.reduce((a, b) => a + b, 0);
 
-      const headerPlan = planTableHeader(cols, xs, widths);
+      const headerPlan = planTableHeader(cols, widths);
       const notesPlan = planNotes(notes.filter((n) => n.cp === pageIdx));
       const showContents = dayIdx === 0 && pageIdx === 0;
       const contents = showContents ? contentsLines() : null;
       const contentsH = showContents ? contentsHeight(contents) : 0;
 
-      // PASS 2 — lay every cell out at its final width and measure the rows.
-      const rowLayouts = itemsByCell.map((rowItems) => rowItems.map((items, ci) => flowItems(items, widths[ci])));
-      const natural = rowLayouts.map((ls) => Math.max(ROW_MIN_H, ...ls.map((l) => l.height)));
+      // PASS 2 — lay every cell out at its final width; snap to the rhythm so
+      // every baseline on the page sits on one grid.
+      const layouts = blocksByCell.map((rowBlocks) => {
+        const cells = rowBlocks.map((b, ci) => layoutCell(b, widths[ci]));
+        // Level the chips across the row: a band of boxes at three different
+        // heights reads as broken, so every boxed block on a row takes the
+        // tallest one's height. Cell heights are recomputed from the result.
+        const tallestChip = cells.reduce((m, cell) =>
+          cell.blocks.reduce((mm, b) => (b.box ? Math.max(mm, b.height) : mm), m), 0);
+        if (tallestChip > 0) {
+          for (const cell of cells) {
+            for (const b of cell.blocks) if (b.box) b.height = tallestChip;
+            cell.height = cell.blocks.reduce((a, b) => a + b.height, 0) + PAD_Y * 2;
+          }
+        }
+        return cells;
+      });
+      const natural = layouts.map((ls) => {
+        const raw = Math.max(ROW_MIN_H, ...ls.map((l) => l.height));
+        return Math.ceil(raw / RHYTHM) * RHYTHM;
+      });
 
-      // PASS 3 — pack rows into physical pages.
+      // PASS 3 — pack rows into physical pages. Heights are NEVER stretched.
       const availOn = (physIdx) =>
-        BOTTOM - ((M - 1) + DAY_HEADER_H + (physIdx === 0 ? contentsH : 0) + headerPlan.h);
-
+        BOTTOM - ((M - 1) + 17.5 + (physIdx === 0 ? contentsH : 0) + headerPlan.h);
       const groups = [];
       let current = [], used = 0, avail = availOn(0);
       natural.forEach((h, i) => {
@@ -624,64 +673,63 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
       });
       groups.push({ rows: current, avail });
 
-      // The day's notes ride on its last physical page when they fit; when they
-      // do not, they take a page of their own rather than shrinking the grid.
       const last = groups[groups.length - 1];
-      const lastNatural = last.rows.reduce((a, i) => a + natural[i], 0);
-      const notesInline = notesPlan.h > 0 && lastNatural + notesPlan.h + NOTES_GAP <= last.avail;
-      if (notesInline) last.avail -= notesPlan.h + NOTES_GAP;
+      const lastUsed = last.rows.reduce((a, i) => a + natural[i], 0);
+      const notesInline = notesPlan.h > 0 && lastUsed + notesPlan.h + 6 <= last.avail;
 
-      // PASS 4 — hand each page's leftover height back to its rows, then draw.
       groups.forEach((group, physIdx) => {
-        const heights = distributeRowHeights(group.rows.map((i) => natural[i]), group.avail);
-
         newPage();
-        let y = drawDayHeader(day, part, colPages.length);
+        pageHasDagger = false;
+        let y = drawMasthead(day, part, colPages.length);
         if (showContents && physIdx === 0) y = drawContents(y, contents);
-        const tableTop = y;
-        y = drawTableHeader(cols, y, headerPlan);
+        y = drawTableHeader(cols, xs, y, headerPlan);
 
         group.rows.forEach((rowIdx, k) => {
           const row = rows[rowIdx];
-          const h = heights[k];
+          const h = natural[rowIdx];
           const isLast = k === group.rows.length - 1;
-          const isStarter = row.kind === 'starter';
+          const nextRow = rows[group.rows[k + 1]];
+          const sectionBreak = !!nextRow && row.kind === 'starter' && nextRow.kind !== 'starter';
 
-          if (isStarter) doc.setFillColor(...colors.starterTint);
-          else if (k % 2 === 1) doc.setFillColor(...colors.zebra);
-          if (isStarter || k % 2 === 1) {
-            if (isLast) fillRoundedSide(M, y, CW, h, 'bottom');
-            else doc.rect(M, y, CW, h, 'F');
+          // The seeded rows carry a primary-50 wash — a direct quote of the
+          // app's `.ss-row-starter` band. It also does real work: the wash
+          // simply stopping is what marks the hand-off to the sheet's own rows.
+          if (row.kind === 'starter') {
+            doc.setFillColor(...SAPPHIRE50);
+            doc.rect(M, y, xs.gridRight - M, h, 'F');
           }
 
-          doc.setFillColor(...(isStarter ? colors.starterLabel : colors.customLabel));
-          if (isLast) fillRoundedSide(M, y, LABEL_W, h, 'bottom');
-          else doc.rect(M, y, LABEL_W, h, 'F');
+          wrapText(S(row.label || '').toUpperCase(), ST.rowLabel, LABEL_W - PAD_X * 2)
+            .forEach((ln, i) => draw(ln, ST.rowLabel, M + PAD_X, y + 4.4 + i * 3.4));
 
-          doc.setFont('helvetica', 'bold'); doc.setFontSize(F.rowLabel); doc.setTextColor(...colors.primary);
-          doc.splitTextToSize(S(row.label || ''), LABEL_W - 3.4)
-            .forEach((ln, i) => doc.text(ln, M + 2.2, y + 5.2 + i * 3.6));
+          cols.forEach((c, i) => {
+            const cellLayout = layouts[rowIdx][i];
+            if (cellLayout.blocks.some((b) => b.runs.some((r) => String(r.t).includes('†')))) pageHasDagger = true;
+            drawCell(cellLayout, xs[i], y);
+          });
 
-          cols.forEach((c, i) => drawCell(rowLayouts[rowIdx][i], xs[i], y));
-
-          // Interior rules only — the outer edge is the rounded border below.
-          doc.setDrawColor(...colors.border); doc.setLineWidth(0.2);
-          if (!isLast) doc.line(M, y + h, gridRight, y + h);
-          for (let i = 0; i < cols.length; i += 1) doc.line(xs[i], y, xs[i], y + h);
+          doc.setDrawColor(...N200); doc.setLineWidth(RULE.hair);
+          doc.line(M + LABEL_W, y, M + LABEL_W, y + h);
+          for (let i = 1; i < cols.length; i += 1) doc.line(xs[i], y, xs[i], y + h);
+          if (isLast) {
+            doc.setDrawColor(...SAPPHIRE700); doc.setLineWidth(RULE.close);
+            doc.line(M, y + h, xs.gridRight, y + h);
+          } else if (sectionBreak) {
+            doc.setDrawColor(...N300); doc.setLineWidth(RULE.section);
+            doc.line(M, y + h, xs.gridRight, y + h);
+          } else {
+            doc.setDrawColor(...N200); doc.setLineWidth(RULE.hair);
+            doc.line(M, y + h, xs.gridRight, y + h);
+          }
           y += h;
         });
 
-        doc.setDrawColor(...colors.primary); doc.setLineWidth(0.5);
-        doc.roundedRect(M, tableTop, gridRight - M, y - tableTop, GRID_R, GRID_R, 'S');
-
         if (physIdx === groups.length - 1 && notesPlan.h > 0) {
-          if (notesInline) {
-            drawNotes(notesPlan, y + NOTES_GAP + 1);
-          } else {
-            newPage();
-            const ny = drawDayHeader(day, part, colPages.length);
-            drawNotes(notesPlan, ny + 4);
-          }
+          if (notesInline) drawNotes(notesPlan, y + 7);
+          else { newPage(); const ny = drawMasthead(day, part, colPages.length); drawNotes(notesPlan, ny + 4); }
+        }
+        if (pageHasDagger) {
+          draw(S('† also assigned to another post whose times overlap'), ST.legend, M, PH - M + 1.5);
         }
       });
     });
@@ -689,8 +737,7 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
 
   if (!pageStarted) {
     // An empty workbook still gets an honest page rather than a blank one.
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(F.dayDate); doc.setTextColor(...colors.secondary);
-    doc.text('This scheduling sheet has no days yet.', PW / 2, 60, { align: 'center' });
+    draw('This scheduling sheet has no days yet.', ST.dayDate, PW / 2 - 30, 60);
   }
 
   const totalPages = doc.internal.getNumberOfPages();

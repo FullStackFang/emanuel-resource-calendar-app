@@ -139,7 +139,9 @@ function CellContent({ cell, doubleBooked }) {
   return (
     <>
       {cell.segments.map((seg, i) => {
-        if (seg.type === 'text') return <span key={i} className="ss-cell-text">{seg.text}</span>;
+        if (seg.type === 'text') {
+          return <span key={i} className="ss-chip ss-chip-text" data-testid="grid-chip-text">{seg.text}</span>;
+        }
         if (seg.type === 'location') {
           return <span key={i} className="ss-chip ss-chip-location"><span aria-hidden="true">&#128205;</span> {seg.name}</span>;
         }

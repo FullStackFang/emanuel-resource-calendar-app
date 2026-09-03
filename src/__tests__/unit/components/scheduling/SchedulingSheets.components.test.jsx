@@ -686,6 +686,24 @@ describe('SchedulingSheetGrid', () => {
     expect(onStructure).not.toHaveBeenCalled();
   });
 
+  it('SSG-28: free text renders as its own chip, distinct from the person/location chips', () => {
+    renderGrid();
+
+    // The Begins cell holds a plain text segment. It is a chip like every
+    // other segment, but carries its own kind class so the stylesheet can
+    // colour it apart from a name or a room.
+    const cell = screen.getByTestId('cell-rBegins:c1');
+    const chip = within(cell).getByTestId('grid-chip-text');
+    expect(chip).toHaveTextContent('16:30');
+    expect(chip.className).toContain('ss-chip');
+    expect(chip.className).toContain('ss-chip-text');
+
+    // A person chip in the same grid keeps its own kind — the two never
+    // collapse onto one class.
+    const person = within(screen.getByTestId('cell-rUshers:c1')).getByTestId('grid-chip-user');
+    expect(person.className).not.toContain('ss-chip-text');
+  });
+
   it('SSG-12: opening a cell editor refreshes the people directory (stale-tab self-heal)', () => {
     const onRefreshPeople = vi.fn();
     render(

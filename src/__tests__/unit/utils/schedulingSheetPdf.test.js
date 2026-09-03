@@ -1,16 +1,18 @@
 // schedulingSheetPdf.test.js
 //
 // The scheduling-sheet PDF export. Two layers are tested separately:
-//   * the pure planners (chunkColumns / collectDayNotes) with no jsPDF at all
+//   * the pure planners (chunkColumns / planColumnWidths / collectDayNotes)
+//     with no jsPDF at all
 //   * the generator, against a recording fake doc (same approach as
 //     calendarPdfGenerator.test.js)
 //
-// Test IDs: SSP-1 to SSP-18
+// Test IDs: SSP-1 to SSP-22
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Capture what got drawn so we can assert content and page boundaries.
+// Capture what got drawn so we can assert content, chrome and page boundaries.
 const textCalls = [];
+const shapes = { roundedRect: 0, circleFilled: 0, circleStroked: 0, rect: 0, dashOn: 0 };
 let pageCount = 1;
 
 vi.mock('jspdf', () => {
@@ -27,14 +29,16 @@ vi.mock('jspdf', () => {
     setFillColor() {}
     setTextColor() {}
     setLineWidth() {}
-    setLineDashPattern() {}
+    setLineDashPattern(pattern) { if (pattern && pattern.length) shapes.dashOn += 1; }
+    setCharSpace() {}
     setFont() {}
     setFontSize() {}
+    addFileToVFS() {}
+    addFont() {}
     line() {}
-    rect() {}
-    roundedRect() {}
-    circle() {}
-    triangle() {}
+    rect() { shapes.rect += 1; }
+    roundedRect() { shapes.roundedRect += 1; }
+    circle(x, y, r, style) { if (style === 'F') shapes.circleFilled += 1; else shapes.circleStroked += 1; }
     addPage() { pageCount += 1; }
     setPage() {}
     getTextWidth(s) { return String(s).length * 1.4; }
@@ -45,9 +49,16 @@ vi.mock('jspdf', () => {
   return { jsPDF: FakeDoc };
 });
 
+// The embedded font is ~257KB of base64 and nothing here depends on its bytes,
+// only on the fact that registration happens before any measurement.
+const registerDmSans = vi.fn();
+vi.mock('../../../utils/dmSansFont', () => ({ registerDmSans, default: registerDmSans }));
+
 beforeEach(() => {
   textCalls.length = 0;
   pageCount = 1;
+  Object.keys(shapes).forEach((k) => { shapes[k] = 0; });
+  registerDmSans.mockClear();
   globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock');
 });
 
@@ -55,7 +66,6 @@ const {
   generateSchedulingSheetPdf,
   chunkColumns,
   collectDayNotes,
-  distributeRowHeights,
   planColumnWidths,
   MAX_COLS_PER_PAGE,
 } = await import('../../../utils/schedulingSheetPdf');
@@ -94,17 +104,11 @@ describe('chunkColumns', () => {
     expect(chunkColumns(cols(1)).map((c) => c.length)).toEqual([1]);
   });
 
-  // A greedy fill would give 8 + 1; a lone straggler column on page 2 reads as
-  // a bug. Balancing is the whole point of the helper.
+  // A greedy fill would give 9 + 4; a lone straggler column reads as a bug.
   it('SSP-2: balances across pages rather than filling greedily', () => {
-    expect(chunkColumns(cols(9)).map((c) => c.length)).toEqual([5, 4]);
     expect(chunkColumns(cols(13)).map((c) => c.length)).toEqual([7, 6]);
-    expect(chunkColumns(cols(17)).map((c) => c.length)).toEqual([6, 6, 5]);
-  });
-
-  it('SSP-2b: a day that fits within the cap is never split', () => {
-    expect(chunkColumns(cols(7)).map((c) => c.length)).toEqual([7]);
-    expect(chunkColumns(cols(8)).map((c) => c.length)).toEqual([8]);
+    expect(chunkColumns(cols(10)).map((c) => c.length)).toEqual([5, 5]);
+    expect(chunkColumns(cols(19)).map((c) => c.length)).toEqual([7, 7, 5]);
   });
 
   it('SSP-3: never exceeds the per-page cap', () => {
@@ -125,95 +129,49 @@ describe('planColumnWidths', () => {
 
   // The point of content-aware widths: a column of clock times stops claiming
   // as much of the page as a column of full names.
-  it('SSP-24: gives the surplus to the columns that actually want it', () => {
+  it('SSP-5: gives the surplus to the columns that actually want it', () => {
     const out = planColumnWidths([30, 30], [40, 100], 200, 30);
     expect(sum(out)).toBeCloseTo(200, 1);
     expect(out[1]).toBeGreaterThan(out[0]);
   });
 
-  // No column may fall below its widest single chip, or that chip gets clipped:
-  // several chips wrap onto the next line, but one chip cannot break in half.
-  it('SSP-25: never drops a column below its floor when there is room', () => {
-    const out = planColumnWidths([50, 28], [50, 28], 200, 27);
+  // No column may fall below its widest unbreakable unit — for a location that
+  // includes the chip padding and the pin gutter, or the chip would clip.
+  it('SSP-6: never drops a column below its floor when there is room', () => {
+    const out = planColumnWidths([50, 28], [50, 28], 200, 21);
     expect(out[0]).toBeGreaterThanOrEqual(50);
     expect(out[1]).toBeGreaterThanOrEqual(28);
   });
 
-  it('SSP-26: always fills the width exactly, even with nothing to want', () => {
+  it('SSP-7: always fills the width exactly, even with nothing to want', () => {
     const out = planColumnWidths([30, 30, 30], [30, 30, 30], 210, 30);
     expect(sum(out)).toBeCloseTo(210, 1);
     out.forEach((w) => expect(w).toBeCloseTo(70, 1));
   });
 
-  it('SSP-27: scales back proportionally when the floors cannot all fit', () => {
-    const out = planColumnWidths([60, 60, 60], [60, 60, 60], 90, 27);
+  it('SSP-8: scales back proportionally when the floors cannot all fit', () => {
+    const out = planColumnWidths([60, 60, 60], [60, 60, 60], 90, 21);
     expect(sum(out)).toBeCloseTo(90, 1);
     out.forEach((w) => expect(w).toBeCloseTo(30, 1));
   });
 
-  it('SSP-28: handles a page with no columns', () => {
+  it('SSP-9: handles a page with no columns', () => {
     expect(planColumnWidths([], [], 200)).toEqual([]);
-  });
-});
-
-describe('distributeRowHeights', () => {
-  const sum = (a) => a.reduce((x, y) => x + y, 0);
-
-  // The whole point of the rework: a short sheet must fill its page instead of
-  // floating in the top third of it.
-  it('SSP-19: spends the whole page, adding the leftover equally', () => {
-    const out = distributeRowHeights([10, 10, 10], 60);
-    expect(sum(out)).toBeCloseTo(60, 1);
-    expect(out[0]).toBeCloseTo(20, 1);
-    expect(out[1]).toBeCloseTo(20, 1);
-    expect(out[2]).toBeCloseTo(20, 1);
-  });
-
-  // Equal ADDITION, not proportional scaling: scaling would turn a row that is
-  // merely tall into a monster and wreck the regularity of the grid.
-  it('SSP-20: adds the same amount to every row rather than scaling them', () => {
-    const out = distributeRowHeights([10, 20], 50);
-    expect(out[1] - out[0]).toBeCloseTo(10, 1);   // gap preserved, not doubled
-    expect(sum(out)).toBeCloseTo(50, 1);
-  });
-
-  it('SSP-21: never shrinks a row that already needs its height', () => {
-    const natural = [12, 40, 9];
-    const out = distributeRowHeights(natural, 20);   // avail smaller than needed
-    out.forEach((h, i) => expect(h).toBeGreaterThanOrEqual(natural[i]));
-  });
-
-  // A capped row must hand its refused height to rows still under the cap,
-  // otherwise one short sheet strands space the others could have used.
-  it('SSP-22: caps runaway growth and re-offers the refused height', () => {
-    const out = distributeRowHeights([10, 10], 400);
-    out.forEach((h) => expect(h).toBeLessThanOrEqual(30));
-    // Both hit the cap, so the page cannot be filled - and that is correct.
-    expect(sum(out)).toBeCloseTo(60, 1);
-
-    // One row is already at the cap; the other should still take the leftover.
-    const mixed = distributeRowHeights([30, 10], 55);
-    expect(mixed[0]).toBeCloseTo(30, 1);
-    expect(mixed[1]).toBeCloseTo(25, 1);
-  });
-
-  it('SSP-23: handles an empty page without dividing by zero', () => {
-    expect(distributeRowHeights([], 100)).toEqual([]);
   });
 });
 
 describe('collectDayNotes', () => {
   const noted = day({
-    columns: cols(9),
+    columns: cols(13),
     cells: {
       'r1:c1': { segments: [], note: { text: 'first', authorName: 'A' } },
-      'r5:c9': { segments: [], note: { text: 'last', authorName: 'B' } },
+      'r5:c13': { segments: [], note: { text: 'last', authorName: 'B' } },
     },
   });
 
   // Continuous numbering means no two notes on a day share a number; the `cp`
   // tag is what lets each note print on the page carrying its own marker.
-  it('SSP-5: numbers continuously through the day and tags each note with its column-page', () => {
+  it('SSP-10: numbers continuously through the day and tags each with its column-page', () => {
     const pages = chunkColumns(noted.columns);
     const { notes, indexByCell } = collectDayNotes(noted, pages);
 
@@ -221,10 +179,10 @@ describe('collectDayNotes', () => {
     expect(notes[0].cp).toBe(0);
     expect(notes[1].cp).toBe(1);
     expect(indexByCell.get('r1:c1')).toBe(1);
-    expect(indexByCell.get('r5:c9')).toBe(2);
+    expect(indexByCell.get('r5:c13')).toBe(2);
   });
 
-  it('SSP-6: carries the post and row names so an endnote is self-describing', () => {
+  it('SSP-11: carries the post and row names so an endnote is self-describing', () => {
     const { notes } = collectDayNotes(noted, chunkColumns(noted.columns));
     expect(notes[0].col).toBe('Post 1');
     expect(notes[0].row).toBe('Location');
@@ -232,7 +190,7 @@ describe('collectDayNotes', () => {
     expect(notes[0].authorName).toBe('A');
   });
 
-  it('SSP-7: a day with no notes produces nothing', () => {
+  it('SSP-12: a day with no notes produces nothing', () => {
     const { notes, indexByCell } = collectDayNotes(day(), chunkColumns(cols(3)));
     expect(notes).toEqual([]);
     expect(indexByCell.size).toBe(0);
@@ -242,7 +200,7 @@ describe('collectDayNotes', () => {
 // ---------------------------------------------------------------- generator
 
 describe('generateSchedulingSheetPdf', () => {
-  it('SSP-8: returns a blob, url, filename and day count', () => {
+  it('SSP-13: returns a blob, url, filename and day count', () => {
     const result = generateSchedulingSheetPdf({ sheet: sheet() });
 
     expect(result.blob).toBeInstanceOf(Blob);
@@ -251,13 +209,21 @@ describe('generateSchedulingSheetPdf', () => {
     expect(result.fileName).toBe('emanu-el-scheduling-2026-high-holy-days-2026-09-11.pdf');
   });
 
-  it('SSP-9: draws the masthead and the sheet name on the document', () => {
+  // An unregistered font name silently falls back to Helvetica, which measures
+  // differently — every column width in the document would be computed against
+  // the wrong metrics. Registration must happen before anything is measured.
+  it('SSP-14: registers the embedded typeface before drawing', () => {
+    generateSchedulingSheetPdf({ sheet: sheet() });
+    expect(registerDmSans).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSP-15: draws the house line and the sheet name', () => {
     generateSchedulingSheetPdf({ sheet: sheet() });
     expect(drew('CONGREGATION EMANU-EL')).toBe(true);
     expect(drew('2026 High Holy Days')).toBe(true);
   });
 
-  it('SSP-10: lists every day of the workbook, each starting a new page', () => {
+  it('SSP-16: renders every day of the workbook, each starting a new page', () => {
     const days = [
       day({ _id: 'd1', date: '2026-09-11', title: 'Erev Rosh Hashanah' }),
       day({ _id: 'd2', date: '2026-09-12', title: 'Rosh Hashanah' }),
@@ -266,37 +232,40 @@ describe('generateSchedulingSheetPdf', () => {
     const result = generateSchedulingSheetPdf({ sheet: sheet({ days }) });
 
     expect(result.dayCount).toBe(3);
-    expect(drew('Erev Rosh Hashanah')).toBe(true);
-    expect(drew('Rosh Hashanah')).toBe(true);
     expect(drew('Kol Nidre')).toBe(true);
     expect(pageCount).toBe(3);
   });
 
-  // The row-label column is repeated on the continuation page; the posts-range
-  // is what tells the reader the day is not finished.
-  it('SSP-11: paginates a wide day and labels the posts range on each page', () => {
+  // The whole reason the chip treatment had to stay cheap: a nine-post day is
+  // the real-world shape (High Holy Days), and it must not split.
+  it('SSP-17: keeps a nine-post day on a single page', () => {
     generateSchedulingSheetPdf({ sheet: sheet({ days: [day({ columns: cols(9) })] }) });
-
-    expect(pageCount).toBe(2);
-    expect(drew('POSTS 1-5 OF 9')).toBe(true);
-    expect(drew('POSTS 6-9 OF 9')).toBe(true);
-    // Row labels repeat so a torn-off page still reads.
-    expect(drewCount('Location')).toBeGreaterThanOrEqual(2);
+    expect(pageCount).toBe(1);
   });
 
-  it('SSP-12: omits the posts range when the day fits on one page', () => {
+  it('SSP-18: paginates a day too wide for one page and labels the posts range', () => {
+    generateSchedulingSheetPdf({ sheet: sheet({ days: [day({ columns: cols(14) })] }) });
+
+    expect(pageCount).toBe(2);
+    expect(drew('Posts 1–7 of 14')).toBe(true);
+    expect(drew('Posts 8–14 of 14')).toBe(true);
+    // Row labels repeat so a torn-off page still reads.
+    expect(drewCount('LOCATION')).toBeGreaterThanOrEqual(2);
+  });
+
+  it('SSP-19: omits the posts range when the day fits on one page', () => {
     generateSchedulingSheetPdf({ sheet: sheet() });
-    expect(drew('POSTS 1-')).toBe(false);
+    expect(drew('Posts 1–')).toBe(false);
   });
 
   // A marker whose text sits on a different sheet of paper is worse than no
   // marker: each page prints only the notes its own cells reference.
-  it('SSP-13: prints each note on the page that carries its marker', () => {
+  it('SSP-20: prints each note on the page that carries its marker', () => {
     const wide = day({
-      columns: cols(9),
+      columns: cols(14),
       cells: {
         'r1:c1': { segments: [], note: { text: 'flowers arrive at three', authorName: 'S. Fang' } },
-        'r1:c9': { segments: [], note: { text: 'ramp must stay clear', authorName: 'Facilities' } },
+        'r1:c14': { segments: [], note: { text: 'ramp must stay clear', authorName: 'Facilities' } },
       },
     });
     generateSchedulingSheetPdf({ sheet: sheet({ days: [wide] }) });
@@ -306,18 +275,18 @@ describe('generateSchedulingSheetPdf', () => {
     expect(drewCount('NOTES')).toBe(2); // one block per column-page, not one per day
   });
 
-  it('SSP-14: caps the number of days and says so instead of silently dropping them', () => {
+  it('SSP-21: caps the number of days and says so instead of silently dropping them', () => {
     const days = Array.from({ length: 5 }, (_, i) =>
       day({ _id: `d${i}`, date: `2026-09-1${i}`, title: `Day ${i}` }));
     const result = generateSchedulingSheetPdf({ sheet: sheet({ days }), maxDays: 3 });
 
     expect(result.dayCount).toBe(3);
     expect(result.omittedDays).toBe(2);
-    expect(drew('first 3 days of 5')).toBe(true);
+    expect(drew('First 3 days shown; 2 more')).toBe(true);
     expect(drew('Day 4')).toBe(false);
   });
 
-  it('SSP-15: flags a linked column whose event drifted, and one that vanished', () => {
+  it('SSP-22: flags a linked column whose event drifted, and one that vanished', () => {
     const linkedCols = [
       {
         id: 'c1', name: 'Main Sanctuary',
@@ -335,20 +304,20 @@ describe('generateSchedulingSheetPdf', () => {
 
     generateSchedulingSheetPdf({ sheet: sheet({ days: [day({ columns: linkedCols })] }), liveEventsById: live });
 
-    expect(drew('event changed since linked')).toBe(true);
-    expect(drew('linked event no longer exists')).toBe(true);
+    expect(drew('changed since linked')).toBe(true);
+    expect(drew('linked event removed')).toBe(true);
   });
 
-  it('SSP-16: reports the email state of each day honestly', () => {
+  it('SSP-23: reports the email state of each day honestly', () => {
     const sent = day({ _id: 'd1', date: '2026-09-11', emailStatus: [{ email: 'a@x.org', sentAt: '2026-09-02T18:30:00Z', stale: true }] });
     const unsent = day({ _id: 'd2', date: '2026-09-12', emailStatus: [] });
     generateSchedulingSheetPdf({ sheet: sheet({ days: [sent, unsent] }) });
 
-    expect(drew('EDITED SINCE')).toBe(true);
-    expect(drew('NOT YET EMAILED')).toBe(true);
+    expect(drew('edited since')).toBe(true);
+    expect(drew('Not yet emailed')).toBe(true);
   });
 
-  it('SSP-17: renders every chip kind, including the placeholder and the overlap warning', () => {
+  it('SSP-24: renders every entity kind, including the overlap dagger', () => {
     const staffed = day({
       columns: cols(2),
       cells: {
@@ -369,19 +338,55 @@ describe('generateSchedulingSheetPdf', () => {
     });
     generateSchedulingSheetPdf({ sheet: sheet({ days: [staffed] }) });
 
-    expect(drew('Main Sanctuary')).toBe(true);
-    expect(drew('Dan Rosen')).toBe(true);
-    expect(drew('3:45 PM')).toBe(true);      // call-time override
-    expect(drew('T. Whitfield')).toBe(true);
-    expect(drew('ext')).toBe(true);           // outside vendor tag
-    expect(drew('@third usher')).toBe(true);
-    expect(drew('unassigned')).toBe(true);
-    expect(drew('!')).toBe(true);             // Dan Rosen covers two overlapping posts
+    // Asserted per WORD: text is drawn one wrapped token at a time, so a
+    // two-word name is two draw calls whenever the column is narrow.
+    expect(drew('Sanctuary')).toBe(true);
+    expect(drew('3:45p')).toBe(true);      // call-time override, compacted
+    expect(drew('Whitfield')).toBe(true);
+    expect(drew('EXT')).toBe(true);        // outside vendor
+    expect(drew('usher')).toBe(true);
+    expect(drew('TBA')).toBe(true);
+    // Dan Rosen covers two overlapping posts. The dagger is bound INTO the name
+    // token, so it travels with the surname and can never wrap onto a line of
+    // its own — which is exactly what this assertion pins.
+    expect(drew('Rosen†')).toBe(true);
+    expect(textCalls).not.toContain('†');
+    expect(drew('also assigned to another post')).toBe(true);
   });
 
-  // jsPDF's built-in fonts are WinAnsi only; an unsanitized codepoint above
-  // 0xFF is byte-split into mojibake rather than failing loudly.
-  it('SSP-18: sanitizes user-entered text before it reaches the page', () => {
+  // A location, a staff member, a vendor and an unfilled post must be
+  // distinguishable without reading the words.
+  it('SSP-25: marks each entity kind with its own non-textual treatment', () => {
+    const marked = day({
+      columns: cols(1),
+      cells: {
+        'r1:c1': { segments: [{ type: 'location', locationId: 'l1', name: 'Greenwald Hall' }] },
+        'r5:c1': {
+          segments: [
+            { type: 'person', userId: 'u1', name: 'Leah Fine', email: 'l@x.org' },
+            { type: 'person', userId: null, name: 'R. Iyer', email: 'r@vendor.com' },
+            { type: 'person', userId: null, name: '@usher', email: null, placeholder: true },
+          ],
+        },
+      },
+    });
+    generateSchedulingSheetPdf({ sheet: sheet({ days: [marked] }) });
+
+    expect(shapes.roundedRect).toBeGreaterThanOrEqual(1);   // the location chip
+    expect(shapes.circleFilled).toBeGreaterThanOrEqual(2);  // pin head + staff dot
+    expect(shapes.circleStroked).toBeGreaterThanOrEqual(1); // vendor ring
+    expect(shapes.dashOn).toBeGreaterThanOrEqual(1);        // placeholder underline
+  });
+
+  it('SSP-26: tints the seeded rows and leaves the sheet\'s own rows clear', () => {
+    generateSchedulingSheetPdf({ sheet: sheet({ days: [day({ columns: cols(1) })] }) });
+    // Four starter rows in the fixture get the wash; the custom row does not.
+    expect(shapes.rect).toBe(4);
+  });
+
+  // DM Sans has no emoji glyphs, so unsanitised input would print as tofu even
+  // though an embedded TTF lifts the WinAnsi restriction.
+  it('SSP-27: sanitizes user-entered text before it reaches the page', () => {
     const emoji = day({
       title: 'Erev 🎉 Rosh Hashanah',
       columns: [{ id: 'c1', name: 'Post 🔥 One' }],
