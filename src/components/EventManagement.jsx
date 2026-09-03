@@ -613,7 +613,7 @@ export default function EventManagement() {
       {/* Content */}
       {loading ? (
         <div className="em-loading">
-          <LoadingSpinner variant="card" size={40} text="Loading events..." />
+          <LoadingSpinner variant="card" text="Loading events..." />
         </div>
       ) : (
         <>

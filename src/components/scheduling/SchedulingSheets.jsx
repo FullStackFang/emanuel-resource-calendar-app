@@ -284,7 +284,12 @@ export default function SchedulingSheets() {
   // So an empty or failed list must not print 'no scheduling sheets yet' over a
   // sheet the user is populating — and must not trip the auto-open effect below
   // into throwing the creation panel at them mid-edit.
-  const viewingSheet = !!sheet || (!!selectedSheetId && !!detailQuery.isPending);
+  // Picking a sheet swaps the detail query's key, so `sheet` goes null while the
+  // new one loads. `detailQuery.isPending` is also true when the query is merely
+  // disabled (no sheet chosen), hence the selectedSheetId qualifier.
+  const sheetLoading = !!selectedSheetId && !!detailQuery.isPending;
+  const sheetLoadError = !!selectedSheetId && !sheetLoading && !sheet && !!detailQuery.isError;
+  const viewingSheet = !!sheet || sheetLoading || sheetLoadError;
   const listSettled = !isFirstLoad && !isSilentRefreshing;
   const showListError = listSettled && !!listQuery.isError && !viewingSheet;
   const showWorkbookEmpty = listSettled && !listQuery.isError && !viewingSheet && sheets.length === 0;
@@ -298,13 +303,14 @@ export default function SchedulingSheets() {
     }
   }, [showWorkbookEmpty]);
 
-  if (isFirstLoad) {
-    return (
-      <div className="ss-page" data-testid="scheduling-sheets-loading">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  // ONE loading element for the whole page, positioned and sized exactly like
+  // Calendar.jsx's: default 64px wheel, absolutely centred in a container that
+  // fills <main>. Two separate gates (an early-return card for the first load,
+  // a veil for sheet swaps) put the wheel at two different heights.
+  //   initial  – nothing behind it yet, lighter backdrop (Calendar's own case)
+  //   visible  – veiling the chrome while a different sheet loads
+  const overlayClass = isFirstLoad ? 'visible initial' : sheetLoading ? 'visible' : 'hidden';
+  const overlayText = isFirstLoad ? 'Loading scheduling sheets...' : 'Loading sheet...';
 
   return (
     <div className="ss-page" data-testid="scheduling-sheets-page">
@@ -392,6 +398,18 @@ export default function SchedulingSheets() {
           )}
         </div>
       </div>
+
+      {/* Always mounted and class-toggled so it fades in and out instead of
+          popping — an unmounted overlay skips the transition. No `size`: the
+          wheel is ROSE_DEFAULT_SIZE, the same 64px Calendar renders. */}
+      <LoadingSpinner variant="overlay" text={overlayText} className={overlayClass} />
+
+      {sheetLoadError && (
+        <div className="ss-empty" data-testid="sheet-load-error">
+          <p>Could not load this scheduling sheet.</p>
+          <EmptyStateRefreshButton onClick={() => detailQuery.refetch()} isRefreshing={detailQuery.isFetching} />
+        </div>
+      )}
 
       {showListError && (
         <div className="ss-empty" data-testid="workbook-list-error">

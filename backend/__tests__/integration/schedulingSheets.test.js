@@ -466,4 +466,33 @@ describe('Scheduling Sheets (SS-1 to SS-26)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
+
+  // -------------------------------------------------------------------------
+  // Workbook list ordering (SS-27)
+  // -------------------------------------------------------------------------
+
+  // GET /api/scheduling-sheets orders in memory, because Cosmos rejects an
+  // order-by on a non-prefix index path and neither of its two UNFILTERED reads
+  // has a usable index (the sheets collection has none; `date` is the second
+  // key of both day indexes). This test cannot reproduce that failure —
+  // MongoDB Memory Server honours any sort — so it locks the ORDERING the
+  // in-memory sort has to keep producing.
+  test('SS-27 workbooks come back name-ordered and their days date-ordered', async () => {
+    const zulu = await createSheet(adminToken, { name: 'Zulu Retreat' });
+    const alpha = await createSheet(adminToken, { name: 'Alpha Weekend' });
+
+    // Insert out of chronological order so a dropped sort is visible.
+    await createDay(adminToken, zulu._id, { date: '2026-10-05' });
+    await createDay(adminToken, zulu._id, { date: '2026-09-11' });
+    await createDay(adminToken, zulu._id, { date: '2026-09-30' });
+    await createDay(adminToken, alpha._id, { date: '2026-03-02' });
+
+    const res = await request(app).get('/api/scheduling-sheets').set(auth(adminToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.map((s) => s.name)).toEqual(['Alpha Weekend', 'Zulu Retreat']);
+
+    const zuluRow = res.body.find((s) => s.name === 'Zulu Retreat');
+    expect(zuluRow.days.map((d) => d.date)).toEqual(['2026-09-11', '2026-09-30', '2026-10-05']);
+  });
 });

@@ -7,6 +7,13 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Fill the content area and anchor the loading veil, exactly as
+     .calendar-container does (height:100% inside the same flex-column <main>).
+     Without this the page is content-sized, so the absolutely-positioned veil
+     centres in a shorter box and the wheel lands at a different height than
+     the Calendar's. */
+  flex: 1;
+  position: relative;
 }
 
 /* ── Top bar: workbook picker + day tabs ─────────────────────────────── */

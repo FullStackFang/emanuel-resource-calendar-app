@@ -6,7 +6,7 @@
 // the creation panel, design D8 #7), and a loaded workbook lands on the grid
 // with day tabs.
 //
-// Test IDs: SSFP-1 to SSFP-7
+// Test IDs: SSFP-1 to SSFP-12
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -32,9 +32,27 @@ vi.mock('../../../../hooks/usePermissions', () => ({
 vi.mock('../../../../hooks/useLocationsQuery', () => ({
   useLocationsQuery: () => ({ data: [] }),
 }));
+// Surface the props: 'the same loading wheel as the rest of the app' IS the
+// variant/text contract (LoadingSpinner renders the shared RoseSpinner either
+// way), so the variant is what these tests must assert.
+// `size` is surfaced because it was half of the 'the wheels are different'
+// bug: Calendar renders ROSE_DEFAULT_SIZE (64) and this page was passing 40.
 vi.mock('../../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant = 'default', text = '', className = '', size }) => (
+    <div
+      data-testid="loading-spinner"
+      data-variant={variant}
+      data-text={text}
+      data-classname={className}
+      data-size={size === undefined ? 'default' : String(size)}
+    />
+  ),
 }));
+
+// The veil is always mounted and class-toggled (so it fades), so presence
+// proves nothing — 'visible' vs 'hidden' is the assertion.
+const veil = (screenApi) =>
+  screenApi.getAllByTestId('loading-spinner').find((el) => el.dataset.variant === 'overlay');
 
 const noopMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
 let mockListQuery;
@@ -85,13 +103,32 @@ describe('SchedulingSheets — first paint', () => {
   // isLoading is false. A gate bound to isLoading would flash the
   // 'no scheduling sheets yet' empty state (and auto-open the creation panel)
   // at a manager whose workbooks simply have not loaded yet.
-  it('SSFP-1: pending && idle holds the spinner, never the empty workbook state', () => {
+  it('SSFP-1: pending && idle holds the loading veil, never the empty workbook state', () => {
     mockListQuery = { data: undefined, isPending: true, isFetching: false, isError: false, refetch: vi.fn() };
     renderPage();
 
-    expect(screen.getByTestId('scheduling-sheets-loading')).toBeInTheDocument();
+    expect(veil(screen)).toHaveAttribute('data-classname', 'visible initial');
+    expect(veil(screen)).toHaveAttribute('data-text', 'Loading scheduling sheets...');
     expect(screen.queryByTestId('workbook-empty')).not.toBeInTheDocument();
     expect(screen.queryByTestId('new-sheet-panel')).not.toBeInTheDocument();
+  });
+
+  // The whole point of the rework: ONE loading element, one position, one size.
+  // A second gate elsewhere on the page put the wheel at a different height.
+  it('SSFP-12: every loading state uses the one veil, at the default wheel size', () => {
+    const listed = { _id: 's1', name: '2099 High Holy Days', days: [{ _id: 'd1', date: DAY.date, title: DAY.title }] };
+
+    mockListQuery = { data: undefined, isPending: true, isFetching: false, isError: false, refetch: vi.fn() };
+    const first = renderPage();
+    expect(screen.getAllByTestId('loading-spinner')).toHaveLength(1);
+    expect(veil(screen)).toHaveAttribute('data-size', 'default');
+    first.unmount();
+
+    mockListQuery = { data: [listed], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
+    mockDetailQuery = { data: null, isFetching: true, isPending: true, refetch: vi.fn() };
+    renderPage('/?sheet=s1&date=2099-09-11');
+    expect(screen.getAllByTestId('loading-spinner')).toHaveLength(1);
+    expect(veil(screen)).toHaveAttribute('data-size', 'default');
   });
 
   it('SSFP-2: a genuine empty resolve auto-opens the New Scheduling Sheet panel', () => {
@@ -157,5 +194,60 @@ describe('SchedulingSheets — first paint', () => {
 
     expect(screen.queryByTestId('workbook-empty')).not.toBeInTheDocument();
     expect(screen.queryByTestId('new-sheet-panel')).not.toBeInTheDocument();
+  });
+
+  // Picking a sheet swaps the detail query's key, so `sheet` goes null while the
+  // new one loads. Without a gate the content region simply blanks. The app's
+  // convention for a content-region gate is the card-variant spinner rendered
+  // BELOW the page chrome (EventManagement keeps its tab bar) — not an early
+  // return that takes the picker away with it.
+  it('SSFP-8: selecting a sheet shows the standard card spinner under the page chrome', () => {
+    const listed = { _id: 's1', name: '2099 High Holy Days', days: [{ _id: 'd1', date: DAY.date, title: DAY.title }] };
+    mockListQuery = { data: [listed], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
+    mockDetailQuery = { data: null, isFetching: true, isPending: true, refetch: vi.fn() };
+    renderPage('/?sheet=s1&date=2099-09-11');
+
+    expect(veil(screen)).toHaveAttribute('data-classname', 'visible');
+    expect(veil(screen)).toHaveAttribute('data-text', 'Loading sheet...');
+    // The chrome stays put underneath: this is a veil, not a page replacement.
+    expect(screen.getByTestId('workbook-picker')).toBeInTheDocument();
+    expect(screen.getByTestId('day-tabs')).toBeInTheDocument();
+  });
+
+  it('SSFP-10: a resolved sheet leaves the veil mounted but hidden, so it can fade', () => {
+    const listed = { _id: 's1', name: '2099 High Holy Days', days: [{ _id: 'd1', date: DAY.date, title: DAY.title }] };
+    mockListQuery = { data: [listed], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
+    mockDetailQuery = { data: { ...listed, days: [DAY] }, isFetching: false, isPending: false, refetch: vi.fn() };
+    renderPage('/?sheet=s1&date=2099-09-11');
+
+    expect(veil(screen)).toHaveAttribute('data-classname', 'hidden');
+    expect(screen.getByTestId('sheet-card')).toBeInTheDocument();
+  });
+
+  // Cell writes invalidate the sheet detail on EVERY save. Veiling on a plain
+  // background refetch would flash the whole page on each keystroke-save, so
+  // the veil is gated on isPending only, never on isFetching.
+  it('SSFP-11: a background refetch of the open sheet never raises the veil', () => {
+    const listed = { _id: 's1', name: '2099 High Holy Days', days: [{ _id: 'd1', date: DAY.date, title: DAY.title }] };
+    mockListQuery = { data: [listed], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
+    mockDetailQuery = { data: { ...listed, days: [DAY] }, isFetching: true, isPending: false, refetch: vi.fn() };
+    renderPage('/?sheet=s1&date=2099-09-11');
+
+    expect(veil(screen)).toHaveAttribute('data-classname', 'hidden');
+    expect(screen.getByTestId('sheet-card')).toBeInTheDocument();
+  });
+
+  it('SSFP-9: a sheet that fails to load says so instead of rendering blank', () => {
+    const listed = { _id: 's1', name: '2099 High Holy Days', days: [] };
+    mockListQuery = { data: [listed], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
+    mockDetailQuery = {
+      data: null, isFetching: false, isPending: false,
+      isError: true, error: new Error('Could not load the scheduling sheet'), refetch: vi.fn(),
+    };
+    renderPage('/?sheet=s1&date=2099-09-11');
+
+    expect(screen.getByTestId('sheet-load-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('workbook-empty')).not.toBeInTheDocument();
   });
 });

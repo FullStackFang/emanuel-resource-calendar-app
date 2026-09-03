@@ -3,10 +3,12 @@
    ============================================================================
    Standardized loading states for the entire application.
 
-   Variants:
-     default  – spinner centered in flex container (sections/panels)
-     card     – spinner inside elevated card (page-level, modal gates)
-     overlay  – absolute backdrop with blur + card (navigation overlays)
+   All three variants render the SAME mark and the SAME text treatment. They
+   differ only in the container, i.e. in whether there is content behind the
+   spinner worth keeping on screen:
+     default  – centered in a section/panel
+     card     – centered as a page or modal content gate (nothing behind it)
+     overlay  – blurred veil over content that stays put (Calendar, sheet swaps)
 
    Shared utility:
      .btn-spinner – 14px inline spinner for buttons (import this CSS to use)
@@ -49,28 +51,30 @@
   min-height: 0 !important;
 }
 
-.loading-spinner-text {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
+/* .loading-spinner-text is styled with .loading-spinner-card-text below —
+   one text treatment for every variant. */
 
 /* --------------------------------------------------------------------------
    CARD — elevated card wrapping the spinner (page-level, modal content gates)
    -------------------------------------------------------------------------- */
 
+/* ONE loading appearance across the app: rose mark over a line of text, no
+   container chrome. This used to be an elevated white card, which is why the
+   admin screens read as a different loading state from the Calendar — the
+   Calendar's overlay never had the card. The variants now differ only in
+   whether they veil content behind them, which is a real difference (is there
+   something on screen to keep?) rather than a stylistic one.
+
+   Keep the class: 22 call sites pass variant='card', and the wrapper is what
+   centres the stack. */
 .loading-spinner-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-8) var(--space-10);
-  border-radius: var(--radius-xl, 16px);
-  background-color: var(--bg-primary, #ffffff);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12), 0 2px 10px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  min-width: 200px;
 }
 
+.loading-spinner-text,
 .loading-spinner-card-text {
   margin: 0;
   font-size: var(--text-base, 16px);

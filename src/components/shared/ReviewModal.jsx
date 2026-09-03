@@ -394,7 +394,7 @@ export default function ReviewModal({
       {/* Content gate: show spinner on frosted overlay until data is ready.
           Modal container only renders once content is loaded — no empty white box. */}
       {!isContentReady ? (
-        <LoadingSpinner size={48} text="Loading..." />
+        <LoadingSpinner text="Loading..." />
       ) : (
       <div className={modalClassName} style={inlineStyles}>
         {/* Return bar — the way back after opening a blocking event from the
@@ -1130,7 +1130,7 @@ export default function ReviewModal({
 
           {/* Loading Overlay for Series Navigation */}
           {isNavigating && (
-            <LoadingSpinner variant="overlay" size={40} text="Loading..." />
+            <LoadingSpinner variant="overlay" text="Loading..." />
           )}
         </div>
 

@@ -20552,15 +20552,27 @@ app.get('/api/scheduling-sheets', verifyToken, async (req, res) => {
     const user = await requireAssignmentManager(req, res);
     if (!user) return;
 
+    // ORDERING IS DONE IN MEMORY, DELIBERATELY — do not re-add .sort() here.
+    // Cosmos rejects an order-by whose key is not an indexed path PREFIX:
+    //   'The index path corresponding to the specified order-by item is excluded'
+    // The sheets collection carries no indexes, and `date` is only the SECOND
+    // key of both day indexes (sheet_date, tagged_emails_date), so neither of
+    // these UNFILTERED reads can be sorted server-side. The per-sheet reads
+    // elsewhere in this file are fine — they filter on the index prefix first.
+    // MongoDB Memory Server honours any sort regardless of indexes, so the test
+    // suite cannot catch this; the constraint only bites against real Cosmos.
+    // Both reads already load the whole (small) collection to regroup below.
     const [sheets, days] = await Promise.all([
-      withCosmosRetry(() => schedulingSheetsCollection.find({}).sort({ name: 1 }).toArray()),
+      withCosmosRetry(() => schedulingSheetsCollection.find({}).toArray()),
       withCosmosRetry(() =>
         schedulingSheetDaysCollection
           .find({}, { projection: { sheetId: 1, date: 1, title: 1, taggedEmails: 1 } })
-          .sort({ date: 1 })
           .toArray()
       )
     ]);
+
+    sheets.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    days.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 
     const daysBySheet = {};
     for (const day of days) {
