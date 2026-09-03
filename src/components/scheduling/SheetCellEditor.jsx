@@ -1,11 +1,12 @@
 // src/components/scheduling/SheetCellEditor.jsx
 //
 // The one place cell content gets edited. A cell is an ordered list of
-// segments (free text, @person chips, #location chips) plus an optional note.
+// segments (free text, person chips, location chips) plus an optional note.
 // Smart tagging is OPT-IN: plain text commits as a text segment; typing '@'
-// opens the people picker (ReassignOwnerControl contract: 5-cap, honest
-// overflow count, 'not a user' escape hatch, placeholder confirm); '#' opens
-// the locations picker with free-text fallback.
+// opens a unified mention picker — people first (ReassignOwnerControl
+// contract: 5-cap, honest overflow count, 'not a user' escape hatch,
+// placeholder confirm) with a Locations group beneath; '#' still narrows to
+// locations only, with a free-text fallback.
 
 import React, { useMemo, useState } from 'react';
 
@@ -51,11 +52,13 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   const [callTimeIndex, setCallTimeIndex] = useState(null);
   const [callTimeDraft, setCallTimeDraft] = useState('');
 
-  const mode = input.startsWith('@') ? 'person' : input.startsWith('#') ? 'location' : 'text';
+  // '@' is the universal tag: people AND locations, grouped. '#' narrows to
+  // locations only (kept as a shortcut and for muscle memory).
+  const mode = input.startsWith('@') ? 'mention' : input.startsWith('#') ? 'location' : 'text';
   const term = mode === 'text' ? input : input.slice(1);
 
   const personMatches = useMemo(() => {
-    if (mode !== 'person') return [];
+    if (mode !== 'mention') return [];
     const q = term.trim().toLowerCase();
     const all = people || [];
     return q
@@ -64,7 +67,7 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   }, [mode, term, people]);
 
   const locationMatches = useMemo(() => {
-    if (mode !== 'location') return [];
+    if (mode !== 'location' && mode !== 'mention') return [];
     const q = term.trim().toLowerCase();
     const all = locations || [];
     return q ? all.filter((l) => (l.displayName || '').toLowerCase().includes(q)) : all;
@@ -85,8 +88,8 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     if (e.key === 'Enter') {
       e.preventDefault();
       if (mode === 'text') commitText();
-      else if (mode === 'person' && personMatches.length) pickPerson(personMatches[0]);
-      else if (mode === 'location' && locationMatches.length) pickLocation(locationMatches[0]);
+      else if (mode === 'mention' && personMatches.length) pickPerson(personMatches[0]);
+      else if ((mode === 'mention' || mode === 'location') && locationMatches.length) pickLocation(locationMatches[0]);
     }
     if (e.key === 'Backspace' && !input && segments.length) {
       setSegments((prev) => prev.slice(0, -1));
@@ -182,10 +185,10 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
           autoFocus
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type text, @ to tag a person, # to tag a location"
+          placeholder="Type text, @ to tag a person or location"
         />
 
-        {mode === 'person' && !externalDraft && (
+        {mode === 'mention' && !externalDraft && (
           <div className="ss-picker" data-testid="person-picker">
             {personMatches.slice(0, MATCH_CAP).map((p) => (
               <button key={p.userId} type="button" className="ss-picker-row" onClick={() => pickPerson(p)}>
@@ -197,6 +200,19 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
               <div className="ss-picker-overflow">
                 {personMatches.length - MATCH_CAP} more {personMatches.length - MATCH_CAP === 1 ? 'match' : 'matches'}. Keep typing&hellip;
               </div>
+            )}
+            {locationMatches.length > 0 && (
+              <>
+                <div className="ss-picker-group" data-testid="mention-locations-group">Locations</div>
+                {locationMatches.slice(0, MATCH_CAP).map((l) => (
+                  <button key={String(l._id)} type="button" className="ss-picker-row" onClick={() => pickLocation(l)}>
+                    <span className="ss-picker-name"><span aria-hidden="true">&#128205;</span> {l.displayName}</span>
+                  </button>
+                ))}
+                {locationMatches.length > MATCH_CAP && (
+                  <div className="ss-picker-overflow">{locationMatches.length - MATCH_CAP} more locations. Keep typing&hellip;</div>
+                )}
+              </>
             )}
             {personMatches.length === 0 && term.trim() && (
               <button type="button" className="ss-picker-row ss-picker-placeholder" onClick={addPlaceholder}>

@@ -19,6 +19,102 @@ const newId = () =>
 
 const cellKeyOf = (rowId, colId) => `${rowId}:${colId}`;
 
+const MATCH_CAP = 5;
+
+/** "Thu, Sep 11 · 18:00–21:00" for an event-mention picker row. */
+function formatEventWhen(event) {
+  const parts = [];
+  if (event.date) {
+    try {
+      parts.push(new Date(`${event.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }));
+    } catch { /* unparseable date — omit */ }
+  }
+  if (event.startTime) parts.push(event.endTime ? `${event.startTime}–${event.endTime}` : event.startTime);
+  return parts.join(' · ');
+}
+
+/** The immutable link-time snapshot stored on a column (server whitelists this shape). */
+function snapshotOf(event) {
+  return {
+    eventId: String(event.id),
+    linkedAt: new Date().toISOString(),
+    snapshot: {
+      title: event.title || null,
+      startDateTime: event.startDateTime || null,
+      endDateTime: event.endDateTime || null,
+      locationNames: event.locationNames || [],
+    },
+  };
+}
+
+// Starter rows an event link can prefill, matched by label (case-insensitive) so
+// a renamed or deleted starter row simply opts out of prefill.
+const STARTER_PREFILL = [
+  { label: 'location', kind: 'locations' },
+  { label: 'call time', field: 'setupTime' },
+  { label: 'doors open', field: 'doorOpenTime' },
+  { label: 'begins', field: 'startTime' },
+  { label: 'ends', field: 'endTime' },
+];
+
+/**
+ * Cell writes to prefill a column from a just-linked event. Only fills cells
+ * that are currently EMPTY — linking never clobbers entered values (same
+ * stance as the drift flag: event data is sugar, the sheet is the artifact).
+ * Location names are matched against the locations list to carry real ids;
+ * unmatched names still become chips with locationId null.
+ */
+function buildPrefillCells(event, colId, day, locations) {
+  const rowIdByLabel = {};
+  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
+  const writes = [];
+  for (const spec of STARTER_PREFILL) {
+    const rowId = rowIdByLabel[spec.label];
+    if (!rowId) continue;
+    const existing = (day.cells || {})[cellKeyOf(rowId, colId)];
+    if (existing && existing.segments && existing.segments.length) continue;
+    if (spec.kind === 'locations') {
+      const names = event.locationNames || [];
+      if (!names.length) continue;
+      const segments = names.map((name) => {
+        const match = (locations || []).find((l) => (l.displayName || '').toLowerCase() === name.toLowerCase());
+        return { type: 'location', locationId: match ? String(match._id) : null, name };
+      });
+      writes.push({ rowId, colId, cell: { segments, note: null } });
+    } else if (event[spec.field]) {
+      writes.push({ rowId, colId, cell: { segments: [{ type: 'text', text: event[spec.field] }], note: null } });
+    }
+  }
+  return writes;
+}
+
+/**
+ * The dropdown behind '@' in a column-name input: published events near this
+ * day, each with its date and time range so same-named services on adjacent
+ * days are tellable apart. onMouseDown is swallowed so picking wins the race
+ * against the input's blur.
+ */
+function EventMentionList({ term, events, onPick }) {
+  const q = term.trim().toLowerCase();
+  const matches = q ? (events || []).filter((e) => (e.title || '').toLowerCase().includes(q)) : (events || []);
+  return (
+    <div className="ss-picker ss-event-picker" data-testid="event-mention-picker" onMouseDown={(e) => e.preventDefault()}>
+      {matches.slice(0, MATCH_CAP).map((e) => (
+        <button key={e.id} type="button" className="ss-picker-row" data-testid={`event-option-${e.id}`} onClick={() => onPick(e)}>
+          <span className="ss-picker-name">{e.title}</span>
+          <span className="ss-picker-sub">{formatEventWhen(e)}</span>
+        </button>
+      ))}
+      {matches.length > MATCH_CAP && (
+        <div className="ss-picker-overflow">{matches.length - MATCH_CAP} more. Keep typing&hellip;</div>
+      )}
+      {matches.length === 0 && (
+        <div className="ss-picker-overflow">No published events near this day match.</div>
+      )}
+    </div>
+  );
+}
+
 function textOfCell(cell) {
   return ((cell && cell.segments) || [])
     .filter((s) => s.type === 'text')
@@ -114,7 +210,6 @@ export default function SchedulingSheetGrid({
   const [openNoteKey, setOpenNoteKey] = useState(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
-  const [newColumnLink, setNewColumnLink] = useState('');
   const [newRowLabel, setNewRowLabel] = useState('');
   const [renaming, setRenaming] = useState(null); // { kind: 'row'|'column', id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // { kind, id }
@@ -163,29 +258,38 @@ export default function SchedulingSheetGrid({
     });
   };
 
-  const addColumn = () => {
-    const linked = publishedEvents && publishedEvents.find((e) => String(e.id) === newColumnLink);
-    const name = newColumnName.trim() || (linked && linked.title) || 'New post';
-    const column = {
-      id: newId(),
-      name,
-      linkedEvent: linked
-        ? {
-            eventId: String(linked.id),
-            linkedAt: new Date().toISOString(),
-            snapshot: {
-              title: linked.title || null,
-              startDateTime: linked.startDateTime || null,
-              endDateTime: linked.endDateTime || null,
-              locationNames: linked.locationNames || [],
-            },
-          }
-        : null,
-    };
+  const addFreeColumn = () => {
+    const name = newColumnName.trim() || 'New post';
+    const column = { id: newId(), name, linkedEvent: null };
     onStructure({ columns: [...(day.columns || []), column] });
     setAddingColumn(false);
     setNewColumnName('');
-    setNewColumnLink('');
+  };
+
+  // '@event' in the add-column input: one gesture creates the linked column AND
+  // prefills the starter rows (Location as chips, Call Time/Doors Open/Begins/
+  // Ends as text) from the event — all empty by definition on a new column.
+  const linkNewColumn = (event) => {
+    const column = { id: newId(), name: event.title || 'Linked event', linkedEvent: snapshotOf(event) };
+    const prefills = buildPrefillCells(event, column.id, day, locations);
+    onStructure({ columns: [...(day.columns || []), column] }, prefills);
+    setAddingColumn(false);
+    setNewColumnName('');
+  };
+
+  // '@event' while renaming an existing column: link (or relink) it in place.
+  // Prefill fills only cells that are still empty — entered values are kept.
+  const linkExistingColumn = (colId, event) => {
+    const prefills = buildPrefillCells(event, colId, day, locations);
+    onStructure(
+      {
+        columns: (day.columns || []).map((c) =>
+          c.id === colId ? { ...c, name: event.title || c.name, linkedEvent: snapshotOf(event) } : c
+        ),
+      },
+      prefills
+    );
+    setRenaming(null);
   };
 
   const addRow = () => {
@@ -197,6 +301,12 @@ export default function SchedulingSheetGrid({
   const commitRename = () => {
     if (!renaming) return;
     const value = renaming.value.trim();
+    // A column name starting with '@' is mention mode, not a name — picking
+    // from the list commits; blur/Enter without a pick just cancels.
+    if (renaming.kind === 'column' && value.startsWith('@')) {
+      setRenaming(null);
+      return;
+    }
     if (value) {
       if (renaming.kind === 'row') {
         onStructure({ rows: (day.rows || []).map((r) => (r.id === renaming.id ? { ...r, label: value } : r)) });
@@ -228,14 +338,24 @@ export default function SchedulingSheetGrid({
               return (
                 <th key={col.id} className="ss-col-header" data-testid={`column-header-${col.id}`}>
                   {renaming && renaming.kind === 'column' && renaming.id === col.id ? (
-                    <input
-                      className="ss-rename-input"
-                      value={renaming.value}
-                      autoFocus
-                      onChange={(e) => setRenaming((r) => ({ ...r, value: e.target.value }))}
-                      onBlur={commitRename}
-                      onKeyDown={(e) => e.key === 'Enter' && commitRename()}
-                    />
+                    <span className="ss-mention-anchor">
+                      <input
+                        className="ss-rename-input"
+                        value={renaming.value}
+                        autoFocus
+                        onChange={(e) => setRenaming((r) => ({ ...r, value: e.target.value }))}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => e.key === 'Enter' && commitRename()}
+                        placeholder="Name, or @ to link an event"
+                      />
+                      {renaming.value.startsWith('@') && (
+                        <EventMentionList
+                          term={renaming.value.slice(1)}
+                          events={publishedEvents}
+                          onPick={(event) => linkExistingColumn(col.id, event)}
+                        />
+                      )}
+                    </span>
                   ) : (
                     <span
                       className="ss-col-name"
@@ -282,27 +402,40 @@ export default function SchedulingSheetGrid({
             {canEdit && (
               <th className="ss-add-col">
                 {addingColumn ? (
-                  <div className="ss-add-col-form" data-testid="add-column-form">
+                  <div className="ss-add-col-form ss-mention-anchor" data-testid="add-column-form">
                     <input
-                      placeholder="Column name"
+                      data-testid="add-column-input"
+                      placeholder="Post name — @ links an event"
+                      title="Type a name for a free-standing column, or @ to pick a published event: it links the column and prefills location, call time and times. Nothing writes back to the calendar."
                       value={newColumnName}
                       autoFocus
                       onChange={(e) => setNewColumnName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        if (newColumnName.startsWith('@')) {
+                          const q = newColumnName.slice(1).trim().toLowerCase();
+                          const first = (publishedEvents || []).find((ev) => !q || (ev.title || '').toLowerCase().includes(q));
+                          if (first) linkNewColumn(first);
+                        } else {
+                          addFreeColumn();
+                        }
+                      }}
                     />
-                    <select
-                      data-testid="add-column-link"
-                      value={newColumnLink}
-                      onChange={(e) => setNewColumnLink(e.target.value)}
-                      title="Optionally link a published event — prefills name and times; nothing writes back to the calendar"
-                    >
-                      <option value="">Free-standing (no linked event)</option>
-                      {(publishedEvents || []).map((e) => (
-                        <option key={String(e.id)} value={String(e.id)}>{e.title}</option>
-                      ))}
-                    </select>
+                    {newColumnName.startsWith('@') && (
+                      <EventMentionList
+                        term={newColumnName.slice(1)}
+                        events={publishedEvents}
+                        onPick={linkNewColumn}
+                      />
+                    )}
                     <div className="ss-add-col-actions">
-                      <button type="button" className="ss-primary-btn" onClick={addColumn}>Add</button>
-                      <button type="button" className="ss-ghost-btn" onClick={() => setAddingColumn(false)}>Cancel</button>
+                      <button type="button" className="ss-primary-btn" onClick={addFreeColumn} disabled={newColumnName.startsWith('@')}>
+                        Add
+                      </button>
+                      <button type="button" className="ss-ghost-btn" onClick={() => { setAddingColumn(false); setNewColumnName(''); }}>
+                        Cancel
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -390,7 +523,7 @@ export default function SchedulingSheetGrid({
                 />
               </th>
               <td className="ss-add-row-hint" colSpan={(day.columns || []).length + 1}>
-                Cells take free text; @ tags a person, # tags a location.
+                Cells take free text; @ tags a person or location. In a column name, @ links an event.
               </td>
             </tr>
           )}

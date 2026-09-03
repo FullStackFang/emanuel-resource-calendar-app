@@ -43,6 +43,7 @@
 - [x] 6.6 Email Schedules panel: recipient list with per-person sent/not-sent/stale status, placeholder rows greyed with hard-block messaging (+ admin override), two-step confirm, per-recipient results rendering
 - [x] 6.7 `@media print` stylesheet: active sheet only, rows grow, chrome stripped
 - [x] 6.8 Component/unit tests for 6.2-6.6 (picker gate, two-step confirms, drift flag, block messaging) + firstPaint test for the workbook screen
+- [x] 6.9 Unified '@' mention UX (user feedback 2026-09-03): '@' in column-name inputs (add + rename) replaces the link dropdown — event options show date/times, picking links the column and prefills empty starter rows (Location chips, Call Time from setup, Doors Open, Begins, Ends); '@' in cells offers people AND a Locations group ('#' stays as location-only shortcut); prefill cell writes sequenced after the structure write succeeds; tests SSG-8..10, SCE-7
 
 ## 7. Verification
 

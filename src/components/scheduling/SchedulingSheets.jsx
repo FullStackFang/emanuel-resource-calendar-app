@@ -154,8 +154,15 @@ export default function SchedulingSheets() {
         .map((e) => ({
           id: String(e.id || e._id),
           title: e.eventTitle,
+          date: e.startDate || null,
           startDateTime: e.startDateTime || null,
           endDateTime: e.endDateTime || null,
+          // HH:MM fields feed the '@event' starter-row prefill (Call Time ←
+          // setup, Doors Open, Begins, Ends) and the picker's when-line.
+          startTime: e.startTime || null,
+          endTime: e.endTime || null,
+          setupTime: e.setupTime || null,
+          doorOpenTime: e.doorOpenTime || null,
           locationNames: e.locationDisplayNames || [],
         }));
     },
@@ -172,11 +179,26 @@ export default function SchedulingSheets() {
     showError(error.message || fallback);
   };
 
-  const structureChange = (updates) => {
+  // cellWrites: optional follow-up cell writes (the '@event' starter-row
+  // prefill). Sequenced AFTER the structure write succeeds so a 409 on the
+  // column itself never strands prefill cells for a column that was never
+  // created (cell writes are ungated by design D2 and would land regardless).
+  const structureChange = (updates, cellWrites) => {
     if (!activeDay) return;
+    const dayId = activeDay._id;
     mutations.updateStructure.mutate(
-      { dayId: activeDay._id, expectedVersion: activeDay._version, ...updates },
-      { onError: (e) => onMutationError(e, 'Could not save the change') }
+      { dayId, expectedVersion: activeDay._version, ...updates },
+      {
+        onError: (e) => onMutationError(e, 'Could not save the change'),
+        onSuccess: () => {
+          for (const write of cellWrites || []) {
+            mutations.updateCell.mutate(
+              { dayId, rowId: write.rowId, colId: write.colId, cell: write.cell },
+              { onError: (e) => onMutationError(e, 'Could not prefill a cell from the event') }
+            );
+          }
+        },
+      }
     );
   };
 

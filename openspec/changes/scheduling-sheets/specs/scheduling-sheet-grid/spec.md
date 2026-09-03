@@ -36,7 +36,7 @@ A cell write SHALL update only that cell's path (plus recomputed `taggedEmails`,
 - **THEN** both writes persist and `_version` reflects both increments
 
 ### Requirement: Person tagging with three assignee kinds
-Typing `@` in a cell SHALL open a people picker backed by `GET /api/scheduling-sheets/user-lookup` (gated by `requireAssignmentManager`, NOT by `canManageUsers`), showing at most 5 matches with an honest overflow count and a "not a user? add name and email" escape hatch. Person segments SHALL be one of: linked user (`userId` set), external (`userId` null, email present), or placeholder (`placeholder: true`, no email). A person segment MAY carry a `callTimeOverride` (HH:MM).
+Typing `@` in a cell SHALL open a unified mention picker: people first, backed by `GET /api/scheduling-sheets/user-lookup` (gated by `requireAssignmentManager`, NOT by `canManageUsers`), showing at most 5 matches with an honest overflow count and a "not a user? add name and email" escape hatch, followed by a Locations group over `templeEvents__Locations`. Person segments SHALL be one of: linked user (`userId` set), external (`userId` null, email present), or placeholder (`placeholder: true`, no email). A person segment MAY carry a `callTimeOverride` (HH:MM).
 
 #### Scenario: Lookup succeeds for events-dept requester
 - **WHEN** an events-department requester types '@sar' in a cell
@@ -47,14 +47,22 @@ Typing `@` in a cell SHALL open a people picker backed by `GET /api/scheduling-s
 - **THEN** the segment is stored with `placeholder: true` and no email
 
 ### Requirement: Location tagging
-Typing `#` in a cell (or using the location affordance) SHALL open a location picker over `templeEvents__Locations`; selection stores a location segment with `locationId`; a non-match falls back to free text.
+Locations SHALL be taggable from the unified `@` mention picker (Locations group) and from `#`, which narrows to locations only; selection stores a location segment with `locationId`; a non-match falls back to free text.
 
 #### Scenario: Location chip from list
-- **WHEN** a manager picks 'Wise Hall' from the '#' picker
+- **WHEN** a manager picks 'Wise Hall' from the '#' picker (or the '@' picker's Locations group)
 - **THEN** the segment stores the location's ObjectId and display name
 
 ### Requirement: Event-linked columns carry a snapshot and a drift flag
-Linking a column to a published event SHALL store `{ eventId, linkedAt, snapshot }` and perform a one-time prefill of column name and starter-row cells. The client SHALL compare live event data to the snapshot on load and show a "changed since linked" flag on mismatch with an explicit refresh action; the system SHALL NOT auto-update linked cells. A deleted event SHALL degrade the chip without breaking the column. The event picker SHALL offer published events on the day's date ±1 day.
+Typing `@` in a column-name input (add-column or rename) SHALL open an event mention picker of published events on the day's date ±1 day, each option showing the event's date and time range. Picking one SHALL store `{ eventId, linkedAt, snapshot }` on the column and perform a one-time prefill of the column name and the starter-row cells (Location as location chips, Call Time from setup time, Doors Open, Begins, Ends), filling ONLY cells that are currently empty. There SHALL be no separate link dropdown. The client SHALL compare live event data to the snapshot on load and show a "changed since linked" flag on mismatch with an explicit refresh action; the system SHALL NOT auto-update linked cells. A deleted event SHALL degrade the chip without breaking the column.
+
+#### Scenario: @ links and prefills in one gesture
+- **WHEN** a manager types '@din' in the add-column input and picks 'Community Dinner'
+- **THEN** the column is created linked to that event and the empty starter-row cells are prefilled from it
+
+#### Scenario: Linking never clobbers entered values
+- **WHEN** a manager links an existing column whose Begins/Ends cells already hold values
+- **THEN** only the still-empty starter cells are prefilled
 
 #### Scenario: Drift is flagged, not applied
 - **WHEN** a linked event's start time changes after linking

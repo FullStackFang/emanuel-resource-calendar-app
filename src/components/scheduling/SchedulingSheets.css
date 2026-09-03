@@ -332,8 +332,33 @@
   font-size: 12px;
 }
 .ss-add-col-form { display: flex; flex-direction: column; gap: 6px; min-width: 220px; font-weight: 400; }
-.ss-add-col-form input, .ss-add-col-form select { font-size: 13px; padding: 5px 6px; }
+.ss-add-col-form input { font-size: 13px; padding: 5px 6px; width: 100%; box-sizing: border-box; }
 .ss-add-col-actions { display: flex; gap: 6px; }
+
+/* '@event' mention dropdown anchored under a column-name input. */
+.ss-mention-anchor { position: relative; display: block; }
+.ss-event-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  min-width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 2px;
+  background: var(--bg-primary, #fff);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.15));
+  font-weight: 400;
+  text-align: left;
+}
+.ss-picker-group {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: var(--font-semibold, 600);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
 .ss-add-row .ss-row-label input {
   border: none;
   background: transparent;

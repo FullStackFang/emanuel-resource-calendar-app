@@ -596,7 +596,15 @@ printed Excel sheet). One master workbook view: Scheduling Sheet picker
 ('2026 High Holy Days') grouping DISJOINT day tabs; each day is a freeform
 grid (events/posts = columns, five seeded starter rows Location/Call Time/
 Doors Open/Begins/Ends — renameable/deletable like any row, free text in any
-cell, '@' person chips + '#' location chips as opt-in enhancements). NOTHING
+cell, unified '@' mentions as opt-in enhancements). '@' is the universal tag
+(rev 2026-09-03): in a COLUMN-NAME input (add or rename) it lists published
+events ±1 day with date/times — picking links the column AND prefills the
+still-empty starter rows (Location as location chips matched by displayName,
+Call Time ← setupTime, Doors Open ← doorOpenTime, Begins/Ends ← start/end);
+the old link <select> is gone; prefill cell writes fire only AFTER the
+structure write succeeds (409 never strands orphan cells). In CELLS '@'
+offers people + a Locations group ('#' remains a location-only shortcut);
+linking NEVER clobbers non-empty cells. NOTHING
 writes to Graph/Outlook, templeEvents__Events, or any approval workflow —
 event-linked columns store an immutable snapshot with a 'changed since
 linked' drift flag and explicit 'refresh from event' (never auto-applied).
@@ -653,7 +661,7 @@ structure+people, clears emailLog, warns on weekday drift.
 **Tests:** backend `sheetCells.test.js` (14, SC-1..14),
 `schedulingSheets.test.js` (26, SS-1..26), `schedulingSheetEmail.test.js`
 (8, SE-1..8); +7 in `permissionUtils.test.js`; EU-14 green. Frontend:
-`SchedulingSheets.components.test.jsx` (18, SCE/SSG/SEP),
+`SchedulingSheets.components.test.jsx` (22, SCE-1..7/SSG-1..10/SEP-1..5),
 `SchedulingSheets.route.test.jsx` (7, SSR-1..7 incl. App.jsx ?raw source
 assertions), `SchedulingSheets.firstPaint.test.jsx` (4, SSFP),
 `MyAssignments.firstPaint.test.jsx` (4, MAFP), +2 in

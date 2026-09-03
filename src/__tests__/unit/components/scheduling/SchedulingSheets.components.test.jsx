@@ -120,6 +120,22 @@ describe('SheetCellEditor', () => {
     );
   });
 
+  it('SCE-7: @ is the universal tag — the mention picker offers locations too, and picking one stores the location id', () => {
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: '@wise' } });
+
+    const picker = screen.getByTestId('person-picker');
+    expect(within(picker).getByTestId('mention-locations-group')).toHaveTextContent(/locations/i);
+    fireEvent.click(within(picker).getByText(/Wise Hall/));
+
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        segments: [expect.objectContaining({ type: 'location', locationId: 'l1', name: 'Wise Hall' })],
+      })
+    );
+  });
+
   it('SCE-6: a person chip takes a per-person call-time override', () => {
     openEditor({ segments: [{ type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org', placeholder: false, callTimeOverride: null }], note: null });
 
@@ -198,7 +214,24 @@ describe('SchedulingSheetGrid', () => {
     onCellSave = vi.fn();
   });
 
-  const renderGrid = ({ day = buildDay(), live } = {}) => {
+  // A published event as the page shell now maps it: HH:MM prefill fields plus
+  // the when-line data for the '@' mention picker.
+  const LINKABLE = [
+    {
+      id: 'ev9',
+      title: 'Community Dinner',
+      date: '2027-09-11',
+      startDateTime: '2027-09-11T18:00:00',
+      endDateTime: '2027-09-11T21:00:00',
+      startTime: '18:00',
+      endTime: '21:00',
+      setupTime: '17:00',
+      doorOpenTime: '17:30',
+      locationNames: ['Wise Hall', 'Uptown Annex'],
+    },
+  ];
+
+  const renderGrid = ({ day = buildDay(), live, publishedEvents = [] } = {}) => {
     const liveEventsById = live !== undefined ? live : new Map([
       // ev1 drifted (time changed); ev2 deliberately absent → missing.
       ['ev1', { id: 'ev1', title: 'Erev Service', startDateTime: '2027-09-11T17:00:00', endDateTime: '2027-09-11T19:30:00', locationNames: [] }],
@@ -209,7 +242,7 @@ describe('SchedulingSheetGrid', () => {
         canEdit
         people={PEOPLE}
         locations={LOCATIONS}
-        publishedEvents={[]}
+        publishedEvents={publishedEvents}
         liveEventsById={liveEventsById}
         onCellSave={onCellSave}
         onStructure={onStructure}
@@ -282,6 +315,70 @@ describe('SchedulingSheetGrid', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('note-marker-rUshers:c1'));
     expect(screen.getByTestId('note-popover-rUshers:c1')).toHaveTextContent('North door');
+  });
+
+  it('SSG-8: @ in the add-column input lists events with date and times; picking one links the column AND prefills the starter rows', () => {
+    renderGrid({ publishedEvents: LINKABLE });
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    fireEvent.change(screen.getByTestId('add-column-input'), { target: { value: '@din' } });
+
+    const option = screen.getByTestId('event-option-ev9');
+    // The picker row carries when-context, not just a name.
+    expect(option).toHaveTextContent('Community Dinner');
+    expect(option).toHaveTextContent('18:00');
+    fireEvent.click(option);
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const [updates, cellWrites] = onStructure.mock.calls[0];
+    const added = updates.columns.at(-1);
+    expect(added.name).toBe('Community Dinner');
+    expect(added.linkedEvent).toEqual(expect.objectContaining({ eventId: 'ev9' }));
+
+    const byRow = Object.fromEntries(cellWrites.map((w) => [w.rowId, w]));
+    expect(Object.keys(byRow)).toHaveLength(5);
+    expect(cellWrites.every((w) => w.colId === added.id)).toBe(true);
+    // Location row: chips, with a real id where the name matches a location.
+    expect(byRow.rLoc.cell.segments).toEqual([
+      expect.objectContaining({ type: 'location', locationId: 'l1', name: 'Wise Hall' }),
+      expect.objectContaining({ type: 'location', locationId: null, name: 'Uptown Annex' }),
+    ]);
+    expect(byRow.rCall.cell.segments).toEqual([{ type: 'text', text: '17:00' }]);
+    expect(byRow.rDoors.cell.segments).toEqual([{ type: 'text', text: '17:30' }]);
+    expect(byRow.rBegins.cell.segments).toEqual([{ type: 'text', text: '18:00' }]);
+    expect(byRow.rEnds.cell.segments).toEqual([{ type: 'text', text: '21:00' }]);
+  });
+
+  it('SSG-9: plain text in the add-column input still adds a free-standing column, no link, no prefill', () => {
+    renderGrid({ publishedEvents: LINKABLE });
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const input = screen.getByTestId('add-column-input');
+    fireEvent.change(input, { target: { value: 'Overflow West' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const [updates, cellWrites] = onStructure.mock.calls[0];
+    expect(updates.columns.at(-1)).toEqual(expect.objectContaining({ name: 'Overflow West', linkedEvent: null }));
+    expect(cellWrites).toBeUndefined();
+  });
+
+  it('SSG-10: @ while renaming links an existing column in place and prefills ONLY still-empty starter cells', () => {
+    renderGrid({ publishedEvents: LINKABLE });
+    // c1 already has Begins (16:30) and Ends (19:00) filled in.
+    const header = screen.getByTestId('column-header-c1');
+    fireEvent.doubleClick(within(header).getByText('Erev Service'));
+    fireEvent.change(within(header).getByPlaceholderText(/@ to link an event/), { target: { value: '@community' } });
+    fireEvent.click(screen.getByTestId('event-option-ev9'));
+
+    const [updates, cellWrites] = onStructure.mock.calls[0];
+    const c1 = updates.columns.find((c) => c.id === 'c1');
+    expect(c1.name).toBe('Community Dinner');
+    expect(c1.linkedEvent).toEqual(expect.objectContaining({ eventId: 'ev9' }));
+
+    const rowIds = cellWrites.map((w) => w.rowId);
+    expect(rowIds).toEqual(expect.arrayContaining(['rLoc', 'rCall', 'rDoors']));
+    // Entered values are never clobbered by a link.
+    expect(rowIds).not.toContain('rBegins');
+    expect(rowIds).not.toContain('rEnds');
   });
 });
 
