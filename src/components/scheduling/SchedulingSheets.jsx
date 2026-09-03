@@ -29,6 +29,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
 import SchedulingSheetGrid from './SchedulingSheetGrid';
+import { toLocationNameArray } from './sheetEventUtils';
 import SeedDatePicker from './SeedDatePicker';
 import EmailSchedulesPanel from './EmailSchedulesPanel';
 import { transformEventToFlatStructure } from '../../utils/eventTransformers';
@@ -163,7 +164,10 @@ export default function SchedulingSheets() {
           endTime: e.endTime || null,
           setupTime: e.setupTime || null,
           doorOpenTime: e.doorOpenTime || null,
-          locationNames: e.locationDisplayNames || [],
+          // locationDisplayNames is a comma-separated STRING on legacy events
+          // (same shape 4e60397 handles server-side) — normalize to an array
+          // here so the snapshot and the prefill always see one.
+          locationNames: toLocationNameArray(e.locationDisplayNames),
         }));
     },
   });
@@ -521,6 +525,7 @@ export default function SchedulingSheets() {
             day={activeDay}
             canEdit
             people={userLookupQuery.data || []}
+            onRefreshPeople={userLookupQuery.refetch}
             locations={locationsQuery.data || []}
             publishedEvents={publishedEvents}
             liveEventsById={liveEventsById}

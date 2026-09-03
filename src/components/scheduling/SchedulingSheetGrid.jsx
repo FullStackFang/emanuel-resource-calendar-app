@@ -13,6 +13,16 @@
 
 import React, { useMemo, useState } from 'react';
 import SheetCellEditor from './SheetCellEditor';
+import {
+  toLocationNameArray,
+  customRowsOf,
+  moveArrayItem,
+  moveArrayItemBy,
+  reorderArrayItem,
+  moveCustomRowBy,
+  moveCustomRowTo,
+  reorderCustomRows,
+} from './sheetEventUtils';
 
 const newId = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}`;
@@ -42,7 +52,7 @@ function snapshotOf(event) {
       title: event.title || null,
       startDateTime: event.startDateTime || null,
       endDateTime: event.endDateTime || null,
-      locationNames: event.locationNames || [],
+      locationNames: toLocationNameArray(event.locationNames),
     },
   };
 }
@@ -74,7 +84,7 @@ function buildPrefillCells(event, colId, day, locations) {
     const existing = (day.cells || {})[cellKeyOf(rowId, colId)];
     if (existing && existing.segments && existing.segments.length) continue;
     if (spec.kind === 'locations') {
-      const names = event.locationNames || [];
+      const names = toLocationNameArray(event.locationNames);
       if (!names.length) continue;
       const segments = names.map((name) => {
         const match = (locations || []).find((l) => (l.displayName || '').toLowerCase() === name.toLowerCase());
@@ -205,6 +215,7 @@ export default function SchedulingSheetGrid({
   liveEventsById,
   onCellSave,
   onStructure,
+  onRefreshPeople,
 }) {
   const [editingCell, setEditingCell] = useState(null); // { rowId, colId }
   const [openNoteKey, setOpenNoteKey] = useState(null);
@@ -213,12 +224,51 @@ export default function SchedulingSheetGrid({
   const [newRowLabel, setNewRowLabel] = useState('');
   const [renaming, setRenaming] = useState(null); // { kind: 'row'|'column', id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // { kind, id }
+  const [dragState, setDragState] = useState(null); // { kind: 'column'|'row', id }
+  const [dropTarget, setDropTarget] = useState(null); // { kind: 'column'|'row', id }
+  const [openMoveMenu, setOpenMoveMenu] = useState(null); // { kind: 'column'|'row', id }
 
   const doubleBooked = useMemo(() => computeDoubleBookedEmails(day), [day]);
 
   const starterRows = (day.rows || []).filter((r) => r.kind === 'starter');
-  const customRows = (day.rows || []).filter((r) => r.kind !== 'starter');
+  const customRows = customRowsOf(day.rows);
   const orderedRows = [...starterRows, ...customRows];
+
+  const moveColumnBy = (id, delta) => {
+    const next = moveArrayItemBy(day.columns || [], id, delta);
+    if (next !== day.columns) onStructure({ columns: next });
+    setOpenMoveMenu(null);
+  };
+  const moveColumnTo = (id, toIndex) => {
+    const next = moveArrayItem(day.columns || [], id, toIndex);
+    if (next !== day.columns) onStructure({ columns: next });
+    setOpenMoveMenu(null);
+  };
+  const dropColumn = (targetId) => {
+    if (!dragState || dragState.kind !== 'column') return;
+    const next = reorderArrayItem(day.columns || [], dragState.id, targetId);
+    if (next !== day.columns) onStructure({ columns: next });
+    setDragState(null);
+    setDropTarget(null);
+  };
+
+  const moveRowBy = (id, delta) => {
+    const next = moveCustomRowBy(day.rows || [], id, delta);
+    if (next !== day.rows) onStructure({ rows: next });
+    setOpenMoveMenu(null);
+  };
+  const moveRowTo = (id, toIndex) => {
+    const next = moveCustomRowTo(day.rows || [], id, toIndex);
+    if (next !== day.rows) onStructure({ rows: next });
+    setOpenMoveMenu(null);
+  };
+  const dropRow = (targetId) => {
+    if (!dragState || dragState.kind !== 'row') return;
+    const next = reorderCustomRows(day.rows || [], dragState.id, targetId);
+    if (next !== day.rows) onStructure({ rows: next });
+    setDragState(null);
+    setDropTarget(null);
+  };
 
   const linkStatus = (col) => {
     if (!col.linkedEvent) return null;
@@ -333,10 +383,56 @@ export default function SchedulingSheetGrid({
         <thead>
           <tr>
             <th className="ss-corner">rows &darr; &middot; columns &rarr;</th>
-            {(day.columns || []).map((col) => {
+            {(day.columns || []).map((col, colIndex) => {
               const status = linkStatus(col);
+              const columnCount = (day.columns || []).length;
+              const isDragging = dragState && dragState.kind === 'column' && dragState.id === col.id;
+              const isDropTarget = dropTarget && dropTarget.kind === 'column' && dropTarget.id === col.id;
+              const menuOpen = openMoveMenu && openMoveMenu.kind === 'column' && openMoveMenu.id === col.id;
               return (
-                <th key={col.id} className="ss-col-header" data-testid={`column-header-${col.id}`}>
+                <th
+                  key={col.id}
+                  className={`ss-col-header${isDragging ? ' ss-dragging' : ''}${isDropTarget ? ' ss-drop-target' : ''}`}
+                  data-testid={`column-header-${col.id}`}
+                  onDragOver={canEdit ? (e) => {
+                    if (!dragState || dragState.kind !== 'column') return;
+                    e.preventDefault();
+                    setDropTarget({ kind: 'column', id: col.id });
+                  } : undefined}
+                  onDragLeave={canEdit ? () => setDropTarget((dt) => (dt && dt.kind === 'column' && dt.id === col.id ? null : dt)) : undefined}
+                  onDrop={canEdit ? (e) => { e.preventDefault(); dropColumn(col.id); } : undefined}
+                >
+                  {canEdit && (
+                    <span className="ss-reorder-wrap">
+                      <button
+                        type="button"
+                        className="ss-drag-handle"
+                        data-testid={`column-drag-handle-${col.id}`}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragState({ kind: 'column', id: col.id });
+                          if (e.dataTransfer) {
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', col.id);
+                          }
+                        }}
+                        onDragEnd={() => { setDragState(null); setDropTarget(null); }}
+                        onClick={() => setOpenMoveMenu((m) => (m && m.kind === 'column' && m.id === col.id ? null : { kind: 'column', id: col.id }))}
+                        title="Drag to reorder, or click for move options"
+                        aria-label={`Reorder ${col.name || 'column'}`}
+                      >
+                        <span aria-hidden="true">&#8942;&#8942;</span>
+                      </button>
+                      {menuOpen && (
+                        <div className="ss-move-menu" data-testid={`column-move-menu-${col.id}`}>
+                          <button type="button" onClick={() => moveColumnBy(col.id, -1)} disabled={colIndex === 0}>Move left</button>
+                          <button type="button" onClick={() => moveColumnBy(col.id, 1)} disabled={colIndex === columnCount - 1}>Move right</button>
+                          <button type="button" onClick={() => moveColumnTo(col.id, 0)} disabled={colIndex === 0}>Move to start</button>
+                          <button type="button" onClick={() => moveColumnTo(col.id, columnCount - 1)} disabled={colIndex === columnCount - 1}>Move to end</button>
+                        </div>
+                      )}
+                    </span>
+                  )}
                   {renaming && renaming.kind === 'column' && renaming.id === col.id ? (
                     <span className="ss-mention-anchor">
                       <input
@@ -448,9 +544,59 @@ export default function SchedulingSheetGrid({
           </tr>
         </thead>
         <tbody>
-          {orderedRows.map((row) => (
-            <tr key={row.id} className={row.kind === 'starter' ? 'ss-row-starter' : 'ss-row-custom'}>
-              <th className="ss-row-label" data-testid={`row-label-${row.id}`}>
+          {orderedRows.map((row) => {
+            const isCustom = row.kind !== 'starter';
+            const customIndex = isCustom ? customRows.findIndex((r) => r.id === row.id) : -1;
+            const isDragging = dragState && dragState.kind === 'row' && dragState.id === row.id;
+            const isDropTarget = dropTarget && dropTarget.kind === 'row' && dropTarget.id === row.id;
+            const menuOpen = openMoveMenu && openMoveMenu.kind === 'row' && openMoveMenu.id === row.id;
+            return (
+            <tr
+              key={row.id}
+              className={`${row.kind === 'starter' ? 'ss-row-starter' : 'ss-row-custom'}${isDragging ? ' ss-dragging' : ''}${isDropTarget ? ' ss-drop-target' : ''}`}
+            >
+              <th
+                className="ss-row-label"
+                data-testid={`row-label-${row.id}`}
+                onDragOver={canEdit && isCustom ? (e) => {
+                  if (!dragState || dragState.kind !== 'row') return;
+                  e.preventDefault();
+                  setDropTarget({ kind: 'row', id: row.id });
+                } : undefined}
+                onDragLeave={canEdit && isCustom ? () => setDropTarget((dt) => (dt && dt.kind === 'row' && dt.id === row.id ? null : dt)) : undefined}
+                onDrop={canEdit && isCustom ? (e) => { e.preventDefault(); dropRow(row.id); } : undefined}
+              >
+                {canEdit && isCustom && (
+                  <span className="ss-reorder-wrap">
+                    <button
+                      type="button"
+                      className="ss-drag-handle"
+                      data-testid={`row-drag-handle-${row.id}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragState({ kind: 'row', id: row.id });
+                        if (e.dataTransfer) {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', row.id);
+                        }
+                      }}
+                      onDragEnd={() => { setDragState(null); setDropTarget(null); }}
+                      onClick={() => setOpenMoveMenu((m) => (m && m.kind === 'row' && m.id === row.id ? null : { kind: 'row', id: row.id }))}
+                      title="Drag to reorder, or click for move options"
+                      aria-label={`Reorder ${row.label || 'row'}`}
+                    >
+                      <span aria-hidden="true">&#8942;&#8942;</span>
+                    </button>
+                    {menuOpen && (
+                      <div className="ss-move-menu" data-testid={`row-move-menu-${row.id}`}>
+                        <button type="button" onClick={() => moveRowBy(row.id, -1)} disabled={customIndex <= 0}>Move up</button>
+                        <button type="button" onClick={() => moveRowBy(row.id, 1)} disabled={customIndex === customRows.length - 1}>Move down</button>
+                        <button type="button" onClick={() => moveRowTo(row.id, 0)} disabled={customIndex <= 0}>Move to top</button>
+                        <button type="button" onClick={() => moveRowTo(row.id, customRows.length - 1)} disabled={customIndex === customRows.length - 1}>Move to bottom</button>
+                      </div>
+                    )}
+                  </span>
+                )}
                 {renaming && renaming.kind === 'row' && renaming.id === row.id ? (
                   <input
                     className="ss-rename-input"
@@ -487,7 +633,14 @@ export default function SchedulingSheetGrid({
                     key={col.id}
                     className={`ss-cell ${canEdit ? 'editable' : ''}`}
                     data-testid={`cell-${key}`}
-                    onClick={() => canEdit && setEditingCell({ rowId: row.id, colId: col.id })}
+                    onClick={() => {
+                      if (!canEdit) return;
+                      setEditingCell({ rowId: row.id, colId: col.id });
+                      // Refresh the people directory on open — a tab held open
+                      // across a backend restart otherwise keeps a stale
+                      // page-load snapshot, silently hiding new/late users.
+                      if (onRefreshPeople) onRefreshPeople();
+                    }}
                   >
                     <CellContent cell={cell} doubleBooked={doubleBooked} />
                     {cell && cell.note && (
@@ -510,7 +663,8 @@ export default function SchedulingSheetGrid({
               })}
               {canEdit && <td className="ss-cell ss-cell-spacer" />}
             </tr>
-          ))}
+            );
+          })}
           {canEdit && (
             <tr className="ss-add-row">
               <th className="ss-row-label">

@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheets integration tests (SS-1 to SS-26)
+ * Scheduling Sheets integration tests (SS-1 to SS-27)
  *
  * Covers the workbook/day/grid route family against the REAL api-server via
  * createAppForTest:
@@ -33,7 +33,7 @@ const { COLLECTIONS } = require('../__helpers__/testConstants');
 const SHEETS = 'templeEvents__SchedulingSheets';
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheets (SS-1 to SS-26)', () => {
+describe('Scheduling Sheets (SS-1 to SS-27)', () => {
   let mongoClient, db, app;
   let adminUser, approverUser, eventsRequesterUser, viewerUser;
   let adminToken, approverToken, eventsRequesterToken, viewerToken;
@@ -395,6 +395,27 @@ describe('Scheduling Sheets (SS-1 to SS-26)', () => {
       .get('/api/scheduling-sheets/user-lookup?q=a')
       .set(auth(viewerToken));
     expect(res.status).toBe(403);
+  });
+
+  test('SS-27 unqueried lookup returns the whole directory — the @ picker filters client-side, so a capped response hides later names', async () => {
+    // Regression: with >25 users, the old 25-cap silently dropped everyone
+    // sorting after the cut ('Steven Jones' was unfindable via @Steven).
+    const extras = Array.from({ length: 30 }, (_, i) =>
+      createRequester({
+        email: `person${String(i).padStart(2, '0')}@emanuelnyc.org`,
+        displayName: `Person ${String(i).padStart(2, '0')}`,
+      })
+    );
+    await insertUsers(db, extras);
+
+    const res = await request(app)
+      .get('/api/scheduling-sheets/user-lookup')
+      .set(auth(adminToken));
+    expect(res.status).toBe(200);
+    expect(res.body.matches.length).toBeGreaterThan(25);
+    expect(res.body.matches.length).toBe(res.body.total);
+    // The alphabetically-last extra is present — the cap used to drop it.
+    expect(res.body.matches.some((m) => m.email === 'person29@emanuelnyc.org')).toBe(true);
   });
 
   // -------------------------------------------------------------------------

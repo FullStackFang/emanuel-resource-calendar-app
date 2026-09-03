@@ -20537,7 +20537,12 @@ app.get('/api/scheduling-sheets/user-lookup', verifyToken, async (req, res) => {
       : all;
 
     matches.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    res.json({ matches: matches.slice(0, 25), total: matches.length });
+    // No q → the @ picker prefetches the WHOLE directory once and filters
+    // client-side; capping here made anyone sorting past the first 25 names
+    // permanently unfindable (the collection is already fully read above —
+    // the cap only ever trimmed the response). Typed lookups keep the 25-cap.
+    const capped = q ? matches.slice(0, 25) : matches;
+    res.json({ matches: capped, total: matches.length });
   } catch (error) {
     sheetOperationalError(res, error, 'look up users');
   }

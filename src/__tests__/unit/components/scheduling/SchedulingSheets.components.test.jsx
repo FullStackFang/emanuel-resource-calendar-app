@@ -380,6 +380,157 @@ describe('SchedulingSheetGrid', () => {
     expect(rowIds).not.toContain('rBegins');
     expect(rowIds).not.toContain('rEnds');
   });
+
+  it('SSG-11: legacy string-stored locationNames prefill as split chips instead of crashing', () => {
+    // Real events can carry locationDisplayNames as a comma-separated STRING
+    // (the string-stored-locations legacy shape) — this reproduced a live
+    // 'names.map is not a function' crash on pick.
+    renderGrid({
+      publishedEvents: [{ ...LINKABLE[0], locationNames: 'Wise Hall, Uptown Annex' }],
+    });
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    fireEvent.change(screen.getByTestId('add-column-input'), { target: { value: '@din' } });
+    fireEvent.click(screen.getByTestId('event-option-ev9'));
+
+    const [, cellWrites] = onStructure.mock.calls[0];
+    const loc = cellWrites.find((w) => w.rowId === 'rLoc');
+    expect(loc.cell.segments).toEqual([
+      expect.objectContaining({ type: 'location', locationId: 'l1', name: 'Wise Hall' }),
+      expect.objectContaining({ type: 'location', locationId: null, name: 'Uptown Annex' }),
+    ]);
+  });
+
+  it('SSG-13: dragging a column onto another column reorders columns and preserves linked-event metadata', () => {
+    const day = renderGrid();
+    const handle = screen.getByTestId('column-drag-handle-c1');
+    const target = screen.getByTestId('column-header-c3');
+
+    fireEvent.dragStart(handle);
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const columns = onStructure.mock.calls[0][0].columns;
+    expect(columns.map((c) => c.id)).toEqual(['c2', 'c3', 'c1']);
+    const movedC1 = columns.find((c) => c.id === 'c1');
+    expect(movedC1).toEqual(day.columns.find((c) => c.id === 'c1'));
+  });
+
+  it('SSG-14: column drag does not trigger rename, delete, or link refresh', () => {
+    renderGrid();
+    const handle = screen.getByTestId('column-drag-handle-c1');
+    const target = screen.getByTestId('column-header-c3');
+
+    fireEvent.dragStart(handle);
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+
+    expect(screen.queryByTestId('sheet-cell-editor')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/@ to link an event/)).not.toBeInTheDocument();
+  });
+
+  it('SSG-15: the column move menu moves left/right and calls onStructure', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('column-drag-handle-c2'));
+    const menu = screen.getByTestId('column-move-menu-c2');
+
+    fireEvent.click(within(menu).getByText('Move left'));
+    expect(onStructure.mock.calls[0][0].columns.map((c) => c.id)).toEqual(['c2', 'c1', 'c3']);
+  });
+
+  it('SSG-16: column move-to-start and move-to-end are disabled at the boundaries', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('column-drag-handle-c1'));
+    const firstMenu = screen.getByTestId('column-move-menu-c1');
+    expect(within(firstMenu).getByText('Move left')).toBeDisabled();
+    expect(within(firstMenu).getByText('Move to start')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('column-drag-handle-c1'));
+
+    fireEvent.click(screen.getByTestId('column-drag-handle-c3'));
+    const lastMenu = screen.getByTestId('column-move-menu-c3');
+    expect(within(lastMenu).getByText('Move right')).toBeDisabled();
+    expect(within(lastMenu).getByText('Move to end')).toBeDisabled();
+  });
+
+  it('SSG-17: dragging a custom row onto another custom row reorders rows below the locked starter prefix', () => {
+    const day = buildDay();
+    day.rows.push({ id: 'rGreeters', label: 'Greeters', kind: 'custom' });
+    renderGrid({ day });
+
+    const handle = screen.getByTestId('row-drag-handle-rGreeters');
+    const target = screen.getByTestId('row-label-rUshers');
+    fireEvent.dragStart(handle);
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rDoors', 'rBegins', 'rEnds', 'rGreeters', 'rUshers']);
+  });
+
+  it('SSG-18: starter rows have no drag handle or move menu', () => {
+    renderGrid();
+    expect(screen.queryByTestId('row-drag-handle-rLoc')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-drag-handle-rBegins')).not.toBeInTheDocument();
+  });
+
+  it('SSG-19: the custom row move menu moves up/down within the custom group and calls onStructure', () => {
+    const day = buildDay();
+    day.rows.push({ id: 'rGreeters', label: 'Greeters', kind: 'custom' });
+    renderGrid({ day });
+
+    fireEvent.click(screen.getByTestId('row-drag-handle-rGreeters'));
+    const menu = screen.getByTestId('row-move-menu-rGreeters');
+    fireEvent.click(within(menu).getByText('Move up'));
+
+    const rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rDoors', 'rBegins', 'rEnds', 'rGreeters', 'rUshers']);
+  });
+
+  it('SSG-20: a single custom row has no-op move up/down disabled', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('row-drag-handle-rUshers'));
+    const menu = screen.getByTestId('row-move-menu-rUshers');
+    expect(within(menu).getByText('Move up')).toBeDisabled();
+    expect(within(menu).getByText('Move down')).toBeDisabled();
+  });
+
+  it('SSG-21: read-only users see no reorder handles or move menus', () => {
+    render(
+      <SchedulingSheetGrid
+        day={buildDay()}
+        canEdit={false}
+        people={PEOPLE}
+        locations={LOCATIONS}
+        publishedEvents={[]}
+        liveEventsById={new Map()}
+        onCellSave={onCellSave}
+        onStructure={onStructure}
+      />
+    );
+    expect(screen.queryByTestId('column-drag-handle-c1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-drag-handle-rUshers')).not.toBeInTheDocument();
+  });
+
+  it('SSG-12: opening a cell editor refreshes the people directory (stale-tab self-heal)', () => {
+    const onRefreshPeople = vi.fn();
+    render(
+      <SchedulingSheetGrid
+        day={buildDay()}
+        canEdit
+        people={PEOPLE}
+        locations={LOCATIONS}
+        publishedEvents={[]}
+        liveEventsById={new Map()}
+        onCellSave={onCellSave}
+        onStructure={onStructure}
+        onRefreshPeople={onRefreshPeople}
+      />
+    );
+    fireEvent.click(screen.getByTestId('cell-rUshers:c3'));
+    expect(screen.getByTestId('sheet-cell-editor')).toBeInTheDocument();
+    expect(onRefreshPeople).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

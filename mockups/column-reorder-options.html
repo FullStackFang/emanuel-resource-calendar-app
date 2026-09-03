@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Scheduling Sheet Column Reorder Mock</title>
+  <style>
+    :root {
+      --bg: #fbfaf8;
+      --surface: #fffefa;
+      --surface-2: #f3f0ea;
+      --surface-3: #e9edf5;
+      --text: #252a31;
+      --muted: #6f746f;
+      --border: #d8d2c8;
+      --border-soft: #ebe6dd;
+      --primary: #3b6eb8;
+      --primary-strong: #2f5a99;
+      --primary-soft: #eef4fb;
+      --gold: #d8a20c;
+      --gold-soft: #fdf3d7;
+      --danger: #b42318;
+      --success: #247a45;
+      --shadow: 0 18px 42px rgba(46, 43, 38, 0.12);
+      color-scheme: light;
+      font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(59, 110, 184, 0.06), transparent 270px),
+        var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .shell {
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+
+    .top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      line-height: 1.18;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .dek {
+      max-width: 75ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .decision {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-width: 270px;
+      box-shadow: 0 8px 20px rgba(46, 43, 38, 0.08);
+    }
+
+    .decision strong {
+      display: block;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .decision span {
+      display: block;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 14px;
+    }
+
+    .tab {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 13px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .tab[aria-selected="true"] {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fbfdff;
+    }
+
+    .panel {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .panel-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #fffefa, #f8f6f1);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 750;
+    }
+
+    .panel-note {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .badge {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      color: var(--success);
+      background: #eff8f1;
+      border-color: #badfca;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-soft);
+      background: #fbfaf7;
+    }
+
+    .toolbar .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-right: 4px;
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .btn:hover {
+      border-color: var(--primary);
+      color: var(--primary-strong);
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fbfdff;
+    }
+
+    .btn.danger {
+      color: var(--danger);
+    }
+
+    .grid-wrap {
+      overflow: auto;
+      max-height: 560px;
+      position: relative;
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      min-width: 900px;
+    }
+
+    th,
+    td {
+      border-right: 1px solid var(--border-soft);
+      border-bottom: 1px solid var(--border-soft);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: var(--surface);
+      border-bottom: 2px solid var(--border);
+      min-width: 210px;
+    }
+
+    .corner {
+      left: 0;
+      z-index: 5;
+      min-width: 160px;
+      width: 160px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .row-label {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      width: 160px;
+      min-width: 160px;
+      background: var(--surface);
+      font-weight: 650;
+      color: #3b3f43;
+    }
+
+    .starter th,
+    .starter td {
+      background: var(--primary-soft);
+    }
+
+    .starter .row-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .col-head {
+      user-select: none;
+      transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+
+    .col-head.drag-over,
+    .col-head.menu-target {
+      background: #f7f9fd;
+      box-shadow: inset 0 -3px 0 var(--primary);
+    }
+
+    .col-head.dragging {
+      opacity: 0.64;
+      transform: translateY(1px);
+    }
+
+    .col-tools {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .drag-handle {
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      border-radius: 6px;
+      cursor: grab;
+      color: var(--muted);
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .col-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .col-name {
+      display: block;
+      font-weight: 750;
+      margin-bottom: 5px;
+      white-space: normal;
+      line-height: 1.25;
+    }
+
+    .link-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .mini-delete,
+    .menu-trigger {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      border-radius: 5px;
+      padding: 3px 6px;
+      line-height: 1.2;
+    }
+
+    .mini-delete:hover,
+    .menu-trigger:hover {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    .cell-muted {
+      color: var(--muted);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--border);
+      background: #f7f5f0;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin: 0 4px 4px 0;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .chip.person {
+      background: #eef4fb;
+      border-color: #c2d7ef;
+      color: #2a4d80;
+    }
+
+    .chip.place {
+      background: #f0f8f2;
+      border-color: #c7dfcb;
+    }
+
+    .menu {
+      position: absolute;
+      display: none;
+      z-index: 20;
+      min-width: 178px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px;
+      box-shadow: 0 14px 32px rgba(46, 43, 38, 0.16);
+    }
+
+    .menu.open {
+      display: block;
+    }
+
+    .menu button {
+      display: block;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 8px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .menu button:hover {
+      background: var(--surface-2);
+    }
+
+    .reorder-lane {
+      padding: 14px 16px;
+      background: #fbfaf7;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .lane-inner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .lane-card {
+      flex: 0 0 240px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 10px;
+      cursor: grab;
+      box-shadow: 0 7px 18px rgba(46, 43, 38, 0.08);
+    }
+
+    .lane-card.dragging {
+      opacity: 0.58;
+    }
+
+    .lane-card.over {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .lane-num {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+      font-size: 12px;
+      font-weight: 800;
+      margin-right: 6px;
+    }
+
+    .status-line {
+      min-height: 32px;
+      padding: 8px 16px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--border-soft);
+      background: #fbfaf7;
+    }
+
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .option-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .option-card h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .option-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .keyboard-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    kbd {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 5px;
+      padding: 2px 5px;
+      font-family: "JetBrains Mono", "Cascadia Mono", monospace;
+      font-size: 11px;
+    }
+
+    @media (max-width: 860px) {
+      .page {
+        padding: 14px;
+      }
+
+      .top,
+      .panel-head,
+      .option-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .badge-row {
+        justify-content: flex-start;
+      }
+
+      .keyboard-note {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="shell">
+      <section class="top">
+        <div>
+          <h1>Scheduling Sheet Column Reorder Mock</h1>
+          <p class="dek">
+            Three product-safe ways to reorder event columns in the scheduling sheet. The data below mirrors the current header pattern:
+            column name, linked event chip, delete affordance, and an add-column slot.
+          </p>
+        </div>
+        <aside class="decision">
+          <strong>Current recommendation</strong>
+          <span>Option A: drag handle, with Option B commands as accessible fallback.</span>
+        </aside>
+      </section>
+
+      <nav class="tabs" aria-label="Mock variants">
+        <button class="tab" type="button" data-tab="drag" aria-selected="true">A. Header drag</button>
+        <button class="tab" type="button" data-tab="menu" aria-selected="false">B. Move menu</button>
+        <button class="tab" type="button" data-tab="mode" aria-selected="false">C. Reorder mode</button>
+      </nav>
+
+      <section class="panel active" id="panel-drag" data-panel="drag">
+        <header class="panel-head">
+          <div>
+            <p class="panel-title">Option A: drag handle in each column header</p>
+            <p class="panel-note">Best for admins who think spatially. The handle makes the draggable target explicit while preserving double-click rename and delete.</p>
+          </div>
+          <div class="badge-row">
+            <span class="badge good">fastest daily use</span>
+            <span class="badge">needs keyboard fallback</span>
+          </div>
+        </header>
+        <div class="toolbar">
+          <span class="label">Try it</span>
+          <button class="btn" type="button" data-reset="drag">Reset order</button>
+          <span class="keyboard-note"><kbd>Tab</kbd> to a handle, then use move commands in the final app</span>
+        </div>
+        <div class="grid-wrap" id="drag-grid"></div>
+        <div class="status-line" id="drag-status">Drag a handle left or right. A blue underline marks the drop target.</div>
+      </section>
+
+      <section class="panel" id="panel-menu" data-panel="menu">
+        <header class="panel-head">
+          <div>
+            <p class="panel-title">Option B: column menu with move commands</p>
+            <p class="panel-note">Most accessible and least surprising. Better for infrequent reorders, but slower when moving several columns across the sheet.</p>
+          </div>
+          <div class="badge-row">
+            <span class="badge good">keyboard friendly</span>
+            <span class="badge">slower for bulk changes</span>
+          </div>
+        </header>
+        <div class="toolbar">
+          <span class="label">Try it</span>
+          <button class="btn" type="button" data-reset="menu">Reset order</button>
+          <span class="keyboard-note">Open a column's three-dot menu</span>
+        </div>
+        <div class="grid-wrap" id="menu-grid"></div>
+        <div class="menu" id="column-menu" role="menu" aria-label="Column actions"></div>
+        <div class="status-line" id="menu-status">Open the menu on a column and choose a move command.</div>
+      </section>
+
+      <section class="panel" id="panel-mode" data-panel="mode">
+        <header class="panel-head">
+          <div>
+            <p class="panel-title">Option C: explicit reorder mode with apply/cancel</p>
+            <p class="panel-note">Safest for high-consequence sheets. Reorder cards in a lane, preview the resulting table, then apply. This avoids accidental structure changes.</p>
+          </div>
+          <div class="badge-row">
+            <span class="badge good">hard to mis-click</span>
+            <span class="badge">more UI surface</span>
+          </div>
+        </header>
+        <div class="toolbar">
+          <span class="label">Reorder mode</span>
+          <button class="btn primary" type="button" id="apply-mode">Apply order</button>
+          <button class="btn" type="button" id="cancel-mode">Cancel</button>
+          <button class="btn" type="button" data-reset="mode">Reset order</button>
+        </div>
+        <div class="reorder-lane">
+          <div class="lane-inner" id="mode-lane" aria-label="Column order"></div>
+        </div>
+        <div class="grid-wrap" id="mode-grid"></div>
+        <div class="status-line" id="mode-status">Drag cards in the lane. The grid previews the pending order until Apply order is clicked.</div>
+      </section>
+
+      <section class="option-grid" aria-label="Design notes">
+        <article class="option-card">
+          <h2>What I would spec</h2>
+          <p>Persist an ordered <code>columns[]</code> array. Reorder changes only array position, not column ids or cell keys, so existing cell data remains stable.</p>
+        </article>
+        <article class="option-card">
+          <h2>Safety behavior</h2>
+          <p>Delete stays a separate two-click action. Dragging should never trigger rename, delete, link refresh, or cell editing.</p>
+        </article>
+        <article class="option-card">
+          <h2>Accessibility baseline</h2>
+          <p>Even if drag is approved, include menu actions: move left, move right, move to start, move to end. That gives keyboard and screen-reader users the same capability.</p>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const initialColumns = [
+      { id: "fb1cec17-bff7-4a3b-b7ce-71b4fd0b6f67", name: "Erev Rosh Hashana", linked: true },
+      { id: "de7a2eb5-ff3f-4312-8cc7-cae727b699b6", name: "CAF Rosh Hashana Dinner", linked: true },
+      { id: "c13a4752-9ce7-49a4-a127-09a2034b3420", name: "Sanctuary Greeters", linked: false },
+      { id: "a045c1d2-fc17-4edb-9b52-daf90a68dc71", name: "Family Service", linked: true }
+    ];
+
+    const rows = [
+      { label: "Location", starter: true, cells: [["Sanctuary"], ["Reception Hall"], ["Main Lobby"], ["Chapel"]] },
+      { label: "Call Time", starter: true, cells: [["17:00"], ["18:15"], ["16:45"], ["10:00"]] },
+      { label: "Doors Open", starter: true, cells: [["17:30"], ["18:45"], ["17:00"], ["10:15"]] },
+      { label: "Begins", starter: true, cells: [["18:00"], ["19:00"], ["17:15"], ["10:30"]] },
+      { label: "Ends", starter: true, cells: [["19:15"], ["21:00"], ["18:20"], ["11:45"]] },
+      { label: "Assignments", starter: false, cells: [["Rabbi L.", "Cantor M."], ["Ari F.", "Security desk"], ["Maya K."], ["Rabbi L.", "Youth team"]] },
+      { label: "Notes", starter: false, cells: [["Use south entrance"], ["Hold 12 seats"], ["Printed signs"], ["Quiet room nearby"]] }
+    ];
+
+    const state = {
+      drag: initialColumns.map((c) => ({ ...c })),
+      menu: initialColumns.map((c) => ({ ...c })),
+      mode: initialColumns.map((c) => ({ ...c })),
+      appliedMode: initialColumns.map((c) => ({ ...c })),
+      dragged: null,
+      laneDragged: null
+    };
+
+    function reorder(list, fromIndex, toIndex) {
+      const next = list.slice();
+      const item = next.splice(fromIndex, 1)[0];
+      next.splice(toIndex, 0, item);
+      return next;
+    }
+
+    function cellContent(values) {
+      return values.map((value) => {
+        const place = /Sanctuary|Hall|Lobby|Chapel/.test(value);
+        const person = /Rabbi|Cantor|Ari|Maya|Youth/.test(value);
+        if (place || person) {
+          return `<span class="chip ${place ? "place" : "person"}">${value}</span>`;
+        }
+        return `<span>${value}</span>`;
+      }).join(" ");
+    }
+
+    function renderTable(targetId, columns, mode) {
+      const header = columns.map((col, index) => {
+        const originalIndex = initialColumns.findIndex((c) => c.id === col.id);
+        const handle = mode === "drag"
+          ? `<button class="drag-handle" type="button" draggable="true" data-index="${index}" aria-label="Drag ${col.name} column">::</button>`
+          : "";
+        const menuButton = mode === "menu"
+          ? `<button class="menu-trigger" type="button" data-index="${index}" aria-label="Open menu for ${col.name}">...</button>`
+          : "";
+        return `
+          <th class="col-head" data-index="${index}">
+            <div class="col-tools">
+              ${handle}
+              <span class="col-main">
+                <span class="col-name">${col.name}</span>
+                ${col.linked ? '<span class="link-chip">linked event</span>' : '<span class="link-chip" style="background:#f7f5f0;border-color:#d8d2c8;color:#6f746f;">manual column</span>'}
+              </span>
+              ${menuButton}
+              <button type="button" class="mini-delete" title="Delete this column">x</button>
+            </div>
+          </th>`;
+      }).join("");
+
+      const body = rows.map((row) => {
+        const cells = columns.map((col) => {
+          const originalIndex = initialColumns.findIndex((c) => c.id === col.id);
+          return `<td>${cellContent(row.cells[originalIndex])}</td>`;
+        }).join("");
+        return `<tr class="${row.starter ? "starter" : ""}"><th class="row-label">${row.label}</th>${cells}<td class="cell-muted"></td></tr>`;
+      }).join("");
+
+      document.getElementById(targetId).innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th class="corner">rows down / columns right</th>
+              ${header}
+              <th><button type="button" class="btn">+ column</button></th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>`;
+    }
+
+    function renderLane() {
+      document.getElementById("mode-lane").innerHTML = state.mode.map((col, index) => `
+        <div class="lane-card" draggable="true" data-index="${index}">
+          <span class="lane-num">${index + 1}</span>
+          <strong>${col.name}</strong>
+          <div style="margin-top:6px">${col.linked ? '<span class="link-chip">linked event</span>' : '<span class="link-chip" style="background:#f7f5f0;border-color:#d8d2c8;color:#6f746f;">manual column</span>'}</div>
+        </div>
+      `).join("");
+    }
+
+    function paint() {
+      renderTable("drag-grid", state.drag, "drag");
+      renderTable("menu-grid", state.menu, "menu");
+      renderLane();
+      renderTable("mode-grid", state.mode, "mode");
+      bindDragTable();
+      bindMenus();
+      bindLane();
+    }
+
+    function setStatus(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    function bindDragTable() {
+      document.querySelectorAll("#drag-grid .drag-handle").forEach((handle) => {
+        handle.addEventListener("dragstart", (event) => {
+          state.dragged = Number(event.currentTarget.dataset.index);
+          event.dataTransfer.effectAllowed = "move";
+          event.currentTarget.closest(".col-head").classList.add("dragging");
+        });
+        handle.addEventListener("dragend", () => {
+          document.querySelectorAll("#drag-grid .col-head").forEach((th) => th.classList.remove("dragging", "drag-over"));
+          state.dragged = null;
+        });
+      });
+
+      document.querySelectorAll("#drag-grid .col-head").forEach((head) => {
+        head.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          head.classList.add("drag-over");
+        });
+        head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
+        head.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const toIndex = Number(head.dataset.index);
+          if (state.dragged !== null && state.dragged !== toIndex) {
+            const movedName = state.drag[state.dragged].name;
+            state.drag = reorder(state.drag, state.dragged, toIndex);
+            paint();
+            setStatus("drag-status", `Moved ${movedName} to position ${toIndex + 1}. In the app this would save through onStructure({ columns }).`);
+          }
+        });
+      });
+    }
+
+    function bindMenus() {
+      const menu = document.getElementById("column-menu");
+      document.querySelectorAll("#menu-grid .menu-trigger").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          const index = Number(button.dataset.index);
+          const col = state.menu[index];
+          const rect = button.getBoundingClientRect();
+          menu.style.left = `${rect.left + window.scrollX - 142}px`;
+          menu.style.top = `${rect.bottom + window.scrollY + 6}px`;
+          menu.innerHTML = `
+            <button type="button" data-action="left">Move left</button>
+            <button type="button" data-action="right">Move right</button>
+            <button type="button" data-action="start">Move to start</button>
+            <button type="button" data-action="end">Move to end</button>
+            <button type="button" class="danger" data-action="delete">Delete column...</button>
+          `;
+          menu.classList.add("open");
+          menu.dataset.index = String(index);
+          setStatus("menu-status", `Menu opened for ${col.name}.`);
+          event.stopPropagation();
+        });
+      });
+    }
+
+    document.getElementById("column-menu").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      const index = Number(event.currentTarget.dataset.index);
+      const action = button.dataset.action;
+      let toIndex = index;
+      if (action === "left") toIndex = Math.max(0, index - 1);
+      if (action === "right") toIndex = Math.min(state.menu.length - 1, index + 1);
+      if (action === "start") toIndex = 0;
+      if (action === "end") toIndex = state.menu.length - 1;
+      if (action === "delete") {
+        setStatus("menu-status", "Delete remains the existing two-click confirm pattern. It is intentionally separate from reorder.");
+        event.currentTarget.classList.remove("open");
+        return;
+      }
+      if (toIndex !== index) {
+        const movedName = state.menu[index].name;
+        state.menu = reorder(state.menu, index, toIndex);
+        paint();
+        setStatus("menu-status", `Moved ${movedName} to position ${toIndex + 1}.`);
+      }
+      event.currentTarget.classList.remove("open");
+    });
+
+    function bindLane() {
+      document.querySelectorAll(".lane-card").forEach((card) => {
+        card.addEventListener("dragstart", (event) => {
+          state.laneDragged = Number(card.dataset.index);
+          event.dataTransfer.effectAllowed = "move";
+          card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", () => {
+          document.querySelectorAll(".lane-card").forEach((node) => node.classList.remove("dragging", "over"));
+          state.laneDragged = null;
+        });
+        card.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          card.classList.add("over");
+        });
+        card.addEventListener("dragleave", () => card.classList.remove("over"));
+        card.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const toIndex = Number(card.dataset.index);
+          if (state.laneDragged !== null && state.laneDragged !== toIndex) {
+            const movedName = state.mode[state.laneDragged].name;
+            state.mode = reorder(state.mode, state.laneDragged, toIndex);
+            paint();
+            setStatus("mode-status", `Previewing ${movedName} at position ${toIndex + 1}. Click Apply order to commit.`);
+          }
+        });
+      });
+    }
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const name = tab.dataset.tab;
+        document.querySelectorAll(".tab").forEach((node) => node.setAttribute("aria-selected", String(node === tab)));
+        document.querySelectorAll(".panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === name));
+      });
+    });
+
+    document.querySelectorAll("[data-reset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.reset;
+        state[key] = initialColumns.map((c) => ({ ...c }));
+        if (key === "mode") state.appliedMode = initialColumns.map((c) => ({ ...c }));
+        paint();
+        setStatus(`${key}-status`, "Order reset to the original event sequence.");
+      });
+    });
+
+    document.getElementById("apply-mode").addEventListener("click", () => {
+      state.appliedMode = state.mode.map((c) => ({ ...c }));
+      setStatus("mode-status", "Order applied. In the app this would call onStructure with the reordered columns array.");
+    });
+
+    document.getElementById("cancel-mode").addEventListener("click", () => {
+      state.mode = state.appliedMode.map((c) => ({ ...c }));
+      paint();
+      setStatus("mode-status", "Pending reorder canceled. The applied order remains unchanged.");
+    });
+
+    document.addEventListener("click", () => {
+      document.getElementById("column-menu").classList.remove("open");
+    });
+
+    paint();
+  </script>
+</body>
+</html>

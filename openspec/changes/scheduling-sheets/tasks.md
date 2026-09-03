@@ -20,6 +20,7 @@
 - [x] 3.4 Cell write endpoint: targeted `$set` on one cell path + `$inc _version`, no version gate; recompute `taggedEmails` server-side; tests: different-cell concurrency both persist, invalid segment 400
 - [x] 3.5 Copy-a-day and copy-a-workbook endpoints (structure+people carry, dates re-seeded in order, `emailLog` reset, count-mismatch behavior); tests per spec scenarios
 - [x] 3.6 `GET /api/scheduling-sheets/user-lookup?q=` gated by `requireAssignmentManager` (capped results); test: events-dept requester gets matches (regression guard against reusing `GET /api/users`)
+- [x] 3.7 Lookup cap fix (bug found live 2026-09-03): an UNQUERIED lookup returns the whole directory — the @ picker prefetches once and filters client-side, so the 25-cap made users sorting past the cut unfindable; typed `q` lookups keep the cap (SS-27)
 
 ## 4. My Assignments (derived)
 

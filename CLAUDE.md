@@ -586,6 +586,61 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Scheduling sheet drag reorder (implemented 2026-09-03)
+
+Spec: `openspec/changes/scheduling-sheet-drag-reorder/`. 17/18 tasks; only 5.3
+(manual, live MSAL) outstanding.
+
+**What it is:** columns and user-created custom rows on a scheduling sheet day
+can now be reordered after creation, instead of only add/rename/delete.
+Starter rows (Location, Call Time, Doors Open, Begins, Ends) stay locked as a
+fixed prefix above any custom rows — reordering only ever touches the custom
+group.
+
+**Shipped:**
+- **`src/components/scheduling/sheetEventUtils.js`** gained small pure
+  array-move primitives: `moveArrayItem`/`moveArrayItemBy`/`reorderArrayItem`
+  (generic, used directly for columns) plus `customRowsOf`/
+  `reorderCustomRows`/`moveCustomRowBy`/`moveCustomRowTo` (row-specific
+  wrappers that always rebuild `starterRows + reorderedCustomRows`). All
+  return the SAME array reference on a no-op — unknown id, dragging onto self,
+  a starter-row id passed to a row mover — so callers can skip the
+  `onStructure` write.
+- **`SchedulingSheetGrid.jsx`**: an explicit drag-handle button
+  (`.ss-drag-handle`, `⋮⋮`) in each editable column header and each editable
+  *custom* row label — never on starter rows, and never the whole
+  header/row-label, so existing rename/delete/link-refresh/cell-editing click
+  targets are untouched. Native HTML5 drag events (`dragstart`/`dragover`/
+  `dragleave`/`drop`) call `onStructure({ columns })` / `onStructure({ rows })`
+  on drop. The same handle button doubles as the keyboard/AT fallback: a click
+  (not drag) opens a small move menu (`.ss-move-menu`) with Move
+  left/right/to start/to end (columns) or up/down/to top/to bottom (custom
+  rows), each a real `<button>` with boundary states disabled.
+- `e.dataTransfer` is guarded (`if (e.dataTransfer) {...}`) before use —
+  jsdom's test environment does not implement `DataTransfer`, and real
+  browsers do, so this is free robustness rather than a test-only shim.
+- Read-only users (`canEdit={false}`) get no handles and no move menus at all
+  (not just disabled) — the same gate every other structural control in this
+  component already uses.
+- CSS: hover/focus states on the handle, a dimmed `.ss-dragging` state, a
+  dashed `.ss-drop-target` outline, all wrapped in
+  `@media (prefers-reduced-motion: reduce)` to drop the transitions; the print
+  stylesheet hides `.ss-drag-handle`/`.ss-move-menu` alongside the other
+  editing chrome it already hides.
+
+**Tests:** new `sheetEventUtils.test.js` (13, SRU-1..13) for the pure movers;
+`SchedulingSheets.components.test.jsx` grew from 24 to 33 (+9, SSG-13..21)
+covering column drag-drop, the column move menu and its boundary-disabled
+states, custom-row drag-drop preserving the starter prefix, the row move menu,
+a single-custom-row boundary case, and the read-only hidden-controls case.
+Full frontend suite unchanged at 10 failures / 3 files (pre-existing
+`eventTransformers.test.js` baseline, unrelated to this change). Lint clean on
+all touched files.
+
+**Outstanding:** task 5.3 — manual verification on dev (live MSAL session):
+column drag, custom row drag, fallback move-menu actions, boundary-disabled
+states, and read-only mode all behave correctly in a real browser.
+
 ### Scheduling Sheets (implemented 2026-09-02)
 
 Spec: `openspec/changes/scheduling-sheets/`. Tasks 1-6 + 7.1 done; only 7.2

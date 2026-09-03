@@ -368,6 +368,75 @@
 }
 .ss-add-row-hint { color: var(--color-neutral-400, #a8a29e); font-size: 11px; }
 
+/* ── Reorder: drag handles + fallback move menu ─────────────────────────
+   Explicit handle only (design D: not whole-header/whole-row dragging) so
+   rename, delete, and link-refresh keep their existing click targets. */
+
+.ss-reorder-wrap { position: relative; display: inline-block; margin-right: 4px; }
+.ss-drag-handle {
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-400, #a8a29e);
+  cursor: grab;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.ss-drag-handle:hover,
+.ss-drag-handle:focus-visible {
+  background: var(--bg-secondary);
+  color: var(--text-primary, #2d3748);
+}
+.ss-drag-handle:active { cursor: grabbing; }
+
+.ss-col-header.ss-dragging,
+tr.ss-dragging { opacity: 0.5; transition: opacity 0.12s ease; }
+.ss-col-header.ss-drop-target,
+tr.ss-drop-target .ss-row-label {
+  outline: 2px dashed var(--color-primary-500);
+  outline-offset: -2px;
+  transition: outline-color 0.12s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-col-header.ss-dragging,
+  tr.ss-dragging,
+  .ss-col-header.ss-drop-target,
+  tr.ss-drop-target .ss-row-label {
+    transition: none;
+  }
+}
+
+.ss-move-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  min-width: 150px;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  font-weight: 400;
+}
+.ss-move-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary, #2d3748);
+}
+.ss-move-menu button:hover:not(:disabled) { background: var(--bg-secondary); }
+.ss-move-menu button:disabled { color: var(--color-neutral-300); cursor: not-allowed; }
+
 /* ── Chips ───────────────────────────────────────────────────────────── */
 
 .ss-chip {
@@ -722,7 +791,7 @@
   .ss-sheet-card { position: absolute; left: 0; top: 0; width: 100%; border: none; }
   .ss-actions, .ss-mini-delete, .ss-add-btn, .ss-add-col, .ss-add-row,
   .ss-chip-remove, .ss-chip-action, .ss-note-marker, .ss-cell-spacer,
-  .ss-link-refresh { display: none !important; }
+  .ss-link-refresh, .ss-drag-handle, .ss-move-menu { display: none !important; }
   .ss-grid-scroll { overflow: visible; }
   .ss-grid thead th, .ss-row-label { position: static; }
   /* Rows grow: every chip visible, no truncation. */
