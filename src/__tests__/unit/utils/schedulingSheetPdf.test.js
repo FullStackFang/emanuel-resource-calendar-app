@@ -9,10 +9,12 @@
 // Test IDs: SSP-1 to SSP-22
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+// Source assertion, the repo's idiom for behaviour jsdom cannot observe.
+import pdfSource from '../../../utils/schedulingSheetPdf.js?raw';
 
 // Capture what got drawn so we can assert content, chrome and page boundaries.
 const textCalls = [];
-const shapes = { roundedRect: 0, circleFilled: 0, circleStroked: 0, rect: 0, dashOn: 0 };
+const shapes = { roundedRect: 0, circleFilled: 0, circleStroked: 0, rect: 0, dashOn: 0, triangle: 0 };
 let pageCount = 1;
 
 vi.mock('jspdf', () => {
@@ -39,6 +41,7 @@ vi.mock('jspdf', () => {
     rect() { shapes.rect += 1; }
     roundedRect() { shapes.roundedRect += 1; }
     circle(x, y, r, style) { if (style === 'F') shapes.circleFilled += 1; else shapes.circleStroked += 1; }
+    triangle() { shapes.triangle += 1; }
     addPage() { pageCount += 1; }
     setPage() {}
     getTextWidth(s) { return String(s).length * 1.4; }
@@ -317,7 +320,7 @@ describe('generateSchedulingSheetPdf', () => {
     expect(drew('Not yet emailed')).toBe(true);
   });
 
-  it('SSP-24: renders every entity kind, including the overlap dagger', () => {
+  it('SSP-24: renders every entity kind, including the overlap warning', () => {
     const staffed = day({
       columns: cols(2),
       cells: {
@@ -346,11 +349,12 @@ describe('generateSchedulingSheetPdf', () => {
     expect(drew('EXT')).toBe(true);        // outside vendor
     expect(drew('usher')).toBe(true);
     expect(drew('TBA')).toBe(true);
-    // Dan Rosen covers two overlapping posts. The dagger is bound INTO the name
-    // token, so it travels with the surname and can never wrap onto a line of
-    // its own — which is exactly what this assertion pins.
-    expect(drew('Rosen†')).toBe(true);
-    expect(textCalls).not.toContain('†');
+    // Dan Rosen covers two overlapping posts. The warning is a DRAWN caution
+    // triangle, not a typed dagger: '†' means nothing to someone reading a
+    // call sheet, and a typed glyph depends on the font carrying it.
+    expect(drew('Rosen')).toBe(true);
+    expect(textCalls.some((c) => c.includes('†'))).toBe(false);
+    expect(shapes.triangle).toBeGreaterThan(0);
     expect(drew('also assigned to another post')).toBe(true);
   });
 
@@ -396,5 +400,33 @@ describe('generateSchedulingSheetPdf', () => {
 
     expect(textCalls.some((t) => /[\u{1F300}-\u{1FAFF}]/u.test(t))).toBe(false);
     expect(drew('Rosh Hashanah')).toBe(true);
+  });
+});
+
+// The row LABEL must be measured into the row height, not just the cells. A
+// label like '65th St Help Desk/Lobby' wraps to several lines; when only the
+// cells were measured, a row whose cells were short stayed at ROW_MIN_H and the
+// label overran into the row beneath it.
+//
+// The fake doc cannot observe draw POSITIONS, so these are source assertions
+// (the same mechanism the print-rule and stylesheet tests use): the label
+// metrics must be shared by BOTH the height calculation and the draw call,
+// because two places owning one number is what produced the overlap.
+describe('row label metrics', () => {
+  const src = pdfSource;
+
+  it('SSP-28: the row height accounts for a wrapped row label', () => {
+    const block = src.slice(src.indexOf('const natural = layouts.map'));
+    expect(block.slice(0, 400)).toContain('labelH');
+  });
+
+  it('SSP-29: measuring and drawing the label share one set of metrics', () => {
+    expect(src).toContain('const LABEL_LEAD =');
+    expect(src).toContain('const LABEL_LINE =');
+    expect(src).toContain('const LABEL_TAIL =');
+    expect(src).toContain('LABEL_LEAD + (wrapText');
+    expect(src).toContain('y + LABEL_LEAD + i * LABEL_LINE');
+    // The old hardcoded draw offsets must not come back.
+    expect(src).not.toContain('y + 4.4 + i * 3.4');
   });
 });

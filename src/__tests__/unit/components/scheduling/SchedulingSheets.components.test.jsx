@@ -704,57 +704,7 @@ describe('SchedulingSheetGrid', () => {
     expect(person.className).not.toContain('ss-chip-text');
   });
 
-  it('SSG-29: only a cell with something in it offers Copy, and Paste appears on the others once one is copied', () => {
-    renderGrid();
-    // rBegins:c1 holds '16:30'; rLoc:c1 has no cell at all.
-    expect(screen.getByTestId('cell-copy-rBegins:c1')).toBeInTheDocument();
-    expect(screen.queryByTestId('cell-copy-rLoc:c1')).not.toBeInTheDocument();
-    // Nothing on the clipboard yet, so nothing offers to paste.
-    expect(screen.queryByTestId('cell-paste-rLoc:c1')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('cell-copy-rBegins:c1'));
-
-    expect(screen.getByTestId('cell-paste-rLoc:c1')).toBeInTheDocument();
-    // Never back onto the cell it came from, which is marked instead.
-    expect(screen.queryByTestId('cell-paste-rBegins:c1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('cell-rBegins:c1').className).toContain('ss-cell-copied');
-  });
-
-  it('SSG-30: pasting writes the copied segments and leaves the destination note alone', () => {
-    renderGrid();
-    fireEvent.click(screen.getByTestId('cell-copy-rBegins:c1'));
-    // rUshers:c1 carries a note of its own ('North door').
-    fireEvent.click(screen.getByTestId('cell-paste-rUshers:c1'));
-
-    expect(onCellSave).toHaveBeenCalledTimes(1);
-    const [rowId, colId, cell] = onCellSave.mock.calls[0];
-    expect([rowId, colId]).toEqual(['rUshers', 'c1']);
-    expect(cell.segments).toEqual([{ type: 'text', text: '16:30' }]);
-    expect(cell.note).toEqual(expect.objectContaining({ text: 'North door' }));
-  });
-
-  it('SSG-31: a copied person keeps their identity, and the system clipboard gets a readable line', () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    const original = navigator.clipboard;
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    try {
-      renderGrid();
-      fireEvent.click(screen.getByTestId('cell-copy-rUshers:c1'));
-      fireEvent.click(screen.getByTestId('cell-paste-rUshers:c2'));
-
-      // userId and email are what drive double-booking detection and the email
-      // fan-out; a copy that dropped them would look right and email nobody.
-      const [, , cell] = onCellSave.mock.calls[0];
-      expect(cell.segments[0]).toEqual(expect.objectContaining({
-        type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org',
-      }));
-      expect(writeText).toHaveBeenCalledWith('Sarah Levine');
-    } finally {
-      Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true });
-    }
-  });
-
-  it('SSG-32: Ctrl+C then Ctrl+V moves a cell without touching the mouse', () => {
+  it('SSG-29: Ctrl+C then Ctrl+V moves a whole cell between cells', () => {
     renderGrid();
     fireEvent.keyDown(screen.getByTestId('cell-rBegins:c1'), { key: 'c', ctrlKey: true });
     fireEvent.keyDown(screen.getByTestId('cell-rEnds:c2'), { key: 'v', ctrlKey: true });
@@ -763,8 +713,75 @@ describe('SchedulingSheetGrid', () => {
     const [rowId, colId, cell] = onCellSave.mock.calls[0];
     expect([rowId, colId]).toEqual(['rEnds', 'c2']);
     expect(cell.segments).toEqual([{ type: 'text', text: '16:30' }]);
-    // And the modified keys never leak into the type-to-edit path.
+    // The modified keys never leak into the type-to-edit path.
     expect(screen.queryByTestId('inline-cell-editor')).not.toBeInTheDocument();
+  });
+
+  it('SSG-30: the shortcuts work from inside an OPEN editor, which is the state a clicked cell is in', () => {
+    // The bug this locks: clicking a cell opens the editor, so gating the
+    // shortcuts on 'focused but not editing' put them out of a mouse user's
+    // reach entirely.
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'c', ctrlKey: true });
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Escape' });
+
+    // Paste into a cell holding something DIFFERENT ('18:00'), or the test
+    // passes on the destination's own content and proves nothing.
+    fireEvent.click(screen.getByTestId('cell-rBegins:c2'));
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'v', ctrlKey: true });
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Enter' });
+
+    const [rowId, colId, cell] = onCellSave.mock.calls[0];
+    expect([rowId, colId]).toEqual(['rBegins', 'c2']);
+    expect(cell.segments).toEqual([expect.objectContaining({ userId: 'u1', name: 'Sarah Levine' })]);
+  });
+
+  it('SSG-31: a mixed cell — a tagged person AND free text — copies whole, identity intact', () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    const original = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const day = buildDay();
+      day.cells['rUshers:c3'] = {
+        segments: [
+          { type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org', placeholder: false, callTimeOverride: null },
+          { type: 'text', text: 'some free form text' },
+        ],
+        note: null,
+      };
+      renderGrid({ day });
+
+      fireEvent.keyDown(screen.getByTestId('cell-rUshers:c3'), { key: 'c', ctrlKey: true });
+      fireEvent.keyDown(screen.getByTestId('cell-rLoc:c1'), { key: 'v', ctrlKey: true });
+
+      // BOTH segments travel, and userId/email survive — they are what drive
+      // double-booking detection and the email fan-out.
+      const [, , cell] = onCellSave.mock.calls[0];
+      expect(cell.segments).toEqual([
+        expect.objectContaining({ type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' }),
+        { type: 'text', text: 'some free form text' },
+      ]);
+      expect(writeText).toHaveBeenCalledWith('Sarah Levine, some free form text');
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true });
+    }
+  });
+
+  it('SSG-32: pasting keeps the destination note, marks the source, and adds no buttons to the grid', () => {
+    renderGrid();
+    fireEvent.keyDown(screen.getByTestId('cell-rBegins:c1'), { key: 'c', ctrlKey: true });
+    expect(screen.getByTestId('cell-rBegins:c1').className).toContain('ss-cell-copied');
+    // Copy and paste are keyboard-only; the grid grew no per-cell chrome.
+    expect(screen.queryByTestId('cell-copy-rBegins:c1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cell-paste-rUshers:c1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('cell-clipboard-hint')).toHaveTextContent('Ctrl+C');
+
+    // rUshers:c1 carries a note of its own ('North door').
+    fireEvent.keyDown(screen.getByTestId('cell-rUshers:c1'), { key: 'v', ctrlKey: true });
+    const [, , cell] = onCellSave.mock.calls[0];
+    expect(cell.segments).toEqual([{ type: 'text', text: '16:30' }]);
+    expect(cell.note).toEqual(expect.objectContaining({ text: 'North door' }));
   });
 
   it('SSG-12: opening a cell editor refreshes the people directory (stale-tab self-heal)', () => {

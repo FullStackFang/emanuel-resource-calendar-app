@@ -23,7 +23,7 @@ const LOCATIONS = [{ _id: 'l1', displayName: 'Wise Hall' }];
 const PERSON_SEG = { type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org', placeholder: false, callTimeOverride: null };
 
 /** Mounts the editor inside an anchor element, the way the grid cell does. */
-function Harness({ cell, onCommit, onCancel, initialInput }) {
+function Harness({ cell, onCommit, onCancel, initialInput, clipboard, onCopyCell }) {
   const anchorRef = useRef(null);
   return (
     <div ref={anchorRef} data-testid="anchor">
@@ -33,6 +33,8 @@ function Harness({ cell, onCommit, onCancel, initialInput }) {
         locations={LOCATIONS}
         anchorRef={anchorRef}
         initialInput={initialInput}
+        clipboard={clipboard}
+        onCopyCell={onCopyCell}
         onCommit={onCommit}
         onCancel={onCancel}
       />
@@ -46,8 +48,8 @@ beforeEach(() => {
   onCancel = vi.fn();
 });
 
-const open = (cell = { segments: [], note: null }, initialInput = '') => {
-  render(<Harness cell={cell} onCommit={onCommit} onCancel={onCancel} initialInput={initialInput} />);
+const open = (cell = { segments: [], note: null }, initialInput = '', extra = {}) => {
+  render(<Harness cell={cell} onCommit={onCommit} onCancel={onCancel} initialInput={initialInput} {...extra} />);
   return screen.getByTestId('inline-cell-input');
 };
 
@@ -289,6 +291,44 @@ describe('InlineCellEditor — commit and discard', () => {
     fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Enter' });
     expect(onCommit).toHaveBeenCalledWith(
       expect.objectContaining({ segments: [expect.objectContaining({ placeholder: true, name: '@zzzz' })] }),
+      'down'
+    );
+  });
+
+  it('ICE-28: Ctrl+C copies the whole cell, including text still sitting in the box', () => {
+    const onCopyCell = vi.fn();
+    const input = open({ segments: [PERSON_SEG], note: null }, '', { onCopyCell });
+    fireEvent.change(input, { target: { value: 'some free form text' } });
+
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true });
+    // Uncommitted text travels with the chips — copying a cell the user can
+    // SEE must not quietly drop half of what is in it.
+    expect(onCopyCell).toHaveBeenCalledWith([
+      PERSON_SEG,
+      { type: 'text', text: 'some free form text' },
+    ]);
+  });
+
+  it('ICE-29: a real text selection still copies text, rather than hijacking Ctrl+C', () => {
+    const onCopyCell = vi.fn();
+    const input = open({ segments: [PERSON_SEG], note: null }, '', { onCopyCell });
+    fireEvent.change(input, { target: { value: 'north door' } });
+    input.setSelectionRange(0, 5);
+
+    fireEvent.keyDown(input, { key: 'c', ctrlKey: true });
+    expect(onCopyCell).not.toHaveBeenCalled();
+  });
+
+  it('ICE-30: Ctrl+V drops the copied cell in as chips, not as a run of flat text', () => {
+    const input = open({ segments: [{ type: 'text', text: '18:00' }], note: null }, '', {
+      clipboard: [PERSON_SEG, { type: 'text', text: 'some free form text' }],
+    });
+
+    fireEvent.keyDown(input, { key: 'v', ctrlKey: true });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [PERSON_SEG, { type: 'text', text: 'some free form text' }] }),
       'down'
     );
   });

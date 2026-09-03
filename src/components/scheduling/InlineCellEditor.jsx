@@ -84,6 +84,8 @@ export default function InlineCellEditor({
   locations,
   anchorRef,
   initialInput = '',
+  clipboard = null,
+  onCopyCell,
   onCommit,
   onCancel,
 }) {
@@ -177,6 +179,33 @@ export default function InlineCellEditor({
     // needs its arrows for the caret — so nothing typed in here reaches it.
     e.stopPropagation();
 
+    // Ctrl/Cmd+C and +V have to work HERE, not only on a focused cell: a
+    // click opens the editor, so 'the cell is focused but not editing' is a
+    // state a mouse user is almost never in. A real text selection still
+    // wins — copying a couple of words out of a cell is a legitimate thing
+    // to want, and only the caret can tell the two intents apart.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+      const el = inputRef.current;
+      const hasSelection = el && el.selectionStart !== el.selectionEnd;
+      if (!hasSelection && onCopyCell) {
+        e.preventDefault();
+        // Copy what a commit would write, so text still sitting in the box
+        // travels with the chips instead of being silently dropped.
+        const pending = pendingSegment();
+        onCopyCell(pending ? [...segments, pending] : segments);
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+      if (clipboard) {
+        // Beat the browser to it: a native paste would drop the copied cell
+        // in as one run of plain text, turning tagged people into strings.
+        e.preventDefault();
+        setSegments(clipboard.map((seg) => ({ ...seg })));
+        setInput('');
+      }
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       cancel();

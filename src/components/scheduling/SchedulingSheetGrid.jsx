@@ -226,10 +226,26 @@ export default function SchedulingSheetGrid({
     return { rowId: rowIds[nr], colId: columnIds[nc] };
   };
 
+  // The grid MOVES the browser's focus only when something asked it to —
+  // arrow keys, commit-and-advance, Escape. This ref is that request, and the
+  // effect below consumes it.
+  //
+  // A commit caused by a BLUR must never set it. A blur means focus has
+  // already gone somewhere the user chose, and this grid lives in a
+  // scrollport: re-focusing a cell they have scrolled away from scrolls the
+  // sheet back, and it does so BETWEEN the click's mousedown and its mouseup.
+  // The content moves out from under the pointer, so no click is ever
+  // dispatched on the cell they aimed at — the editor looks stuck on the old
+  // cell and the sheet snaps back to it. The same theft swallowed clicks on
+  // the toolbar and day tabs while a cell was open.
+  const takeFocusRef = useRef(false);
+
   // Focus follows the focused cell whenever no cell is being edited — one
   // effect covers arrow moves, commit-and-advance, and Escape alike.
   useEffect(() => {
     if (!canEdit || !focusedCell || editingCell) return;
+    if (!takeFocusRef.current) return;
+    takeFocusRef.current = false;
     const el = cellRefs.current[cellKeyOf(focusedCell.rowId, focusedCell.colId)];
     if (el) el.focus();
   }, [canEdit, focusedCell, editingCell]);
@@ -244,11 +260,21 @@ export default function SchedulingSheetGrid({
     if (onRefreshPeople) onRefreshPeople();
   };
 
+  // Escape leaves the editor without leaving the grid, so arrow navigation
+  // carries on from where the user was — that needs the focus back.
+  const cancelEditingCell = () => {
+    takeFocusRef.current = true;
+    setEditingCell(null);
+  };
+
   const commitEditingCell = (cell, advance) => {
     if (!editingCell) return;
     const { rowId, colId } = editingCell;
     onCellSave(rowId, colId, cell);
     setEditingCell(null);
+    // Enter and Tab are keyboard exits and want the focus moved for them.
+    // `advance` is null for a blur, which is already focused elsewhere.
+    if (advance) takeFocusRef.current = true;
     setFocusedCell(advance ? neighbourOf({ rowId, colId }, advance) : { rowId, colId });
   };
 
@@ -293,6 +319,7 @@ export default function SchedulingSheetGrid({
     const ARROWS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
     if (ARROWS[e.key]) {
       e.preventDefault();
+      takeFocusRef.current = true;
       setFocusedCell(neighbourOf({ rowId, colId }, ARROWS[e.key]));
       return;
     }
@@ -484,7 +511,16 @@ export default function SchedulingSheetGrid({
       <table className="ss-grid">
         <thead>
           <tr>
-            <th className="ss-corner">rows &darr; &middot; columns &rarr;</th>
+            {/* The corner is the only chrome with room for a hint, and the
+                shortcuts need one: nothing else on the grid advertises them. */}
+            <th className="ss-corner">
+              rows &darr; &middot; columns &rarr;
+              {canEdit && (
+                <span className="ss-corner-hint" data-testid="cell-clipboard-hint">
+                  Ctrl+C / Ctrl+V copies a whole cell
+                </span>
+              )}
+            </th>
             {(day.columns || []).map((col, colIndex) => {
               const status = linkStatus(col);
               const columnCount = (day.columns || []).length;
@@ -696,7 +732,6 @@ export default function SchedulingSheetGrid({
               {(day.columns || []).map((col) => {
                 const key = cellKeyOf(row.id, col.id);
                 const cell = (day.cells || {})[key];
-                const hasContent = !!(cell && cell.segments && cell.segments.length);
                 const isEditing = !!editingCell && editingCell.rowId === row.id && editingCell.colId === col.id;
                 const isFocused = !!focusedCell && focusedCell.rowId === row.id && focusedCell.colId === col.id;
                 return (
@@ -719,56 +754,21 @@ export default function SchedulingSheetGrid({
                         locations={locations}
                         anchorRef={editingCellRef}
                         initialInput={editingCell.initialInput}
+                        clipboard={clipboard ? clipboard.segments : null}
+                        onCopyCell={(segments) => setClipboard({
+                          segments: segments.map((seg) => ({ ...seg })),
+                          sourceKey: key,
+                        })}
                         onCommit={commitEditingCell}
-                        onCancel={() => setEditingCell(null)}
+                        onCancel={cancelEditingCell}
                       />
                     ) : (
                       <CellContent cell={cell} doubleBooked={doubleBooked} />
                     )}
-                    {/* Copy/paste ride in the TOP corner beside the note
-                        marker; the expand button keeps the bottom one. Copy
-                        only appears on a cell with something in it, but paste
-                        appears on any cell — the usual move is filling an
-                        empty one. Both are absolutely positioned, so no cell
-                        grows a pixel for having them. */}
-                    {canEdit && (hasContent || (clipboard && clipboard.sourceKey !== key)) && (
-                      <div className={`ss-cell-tools${cell && cell.note ? ' has-note' : ''}`}>
-                        {hasContent && (
-                          <button
-                            type="button"
-                            className="ss-cell-tool ss-cell-copy"
-                            data-testid={`cell-copy-${key}`}
-                            title="Copy this cell, people and all — then paste it onto another cell (Ctrl+V)"
-                            aria-label="Copy this cell"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyCell(row.id, col.id);
-                            }}
-                          >
-                            <span aria-hidden="true">&#10697;</span>
-                          </button>
-                        )}
-                        {clipboard && clipboard.sourceKey !== key && (
-                          <button
-                            type="button"
-                            className="ss-cell-tool ss-cell-paste"
-                            data-testid={`cell-paste-${key}`}
-                            title="Paste the copied cell here, replacing what is in it"
-                            aria-label="Paste into this cell"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              pasteCell(row.id, col.id);
-                            }}
-                          >
-                            <span aria-hidden="true">&#128203;</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
                     {canEdit && (
                       <button
                         type="button"
-                        className="ss-cell-tool ss-cell-expand"
+                        className="ss-cell-expand"
                         data-testid={`cell-expand-${key}`}
                         title="Open the full editor — notes and per-person call times"
                         aria-label="Open the full cell editor"
@@ -806,6 +806,7 @@ export default function SchedulingSheetGrid({
             <tr className="ss-add-row">
               <th className="ss-row-label">
                 <input
+                  className="ss-add-row-input"
                   data-testid="add-row-input"
                   placeholder="+ Add row"
                   value={newRowLabel}

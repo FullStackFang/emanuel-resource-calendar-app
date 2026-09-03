@@ -72,8 +72,16 @@ const PAD_X = 1.9, PAD_Y = 1.7, LINE_H = RHYTHM, HANG = 1.8;
 // CHIP_PAD_Y is generous enough that a two- or three-line chip breathes as much
 // as a one-line one; wrapped lines are set on LINE_H, not on the raw font size.
 const CHIP_PAD_X = 1.9, CHIP_PAD_Y = 1.5, CHIP_R = 1.1;
-const BLOCK_GAP = 1.3;           // breathing room between stacked chips in a cell
+const BLOCK_GAP = 0.8;           // between wrapped lines of entries in a cell
+const BLOCK_GAP_X = 2.4;         // between entries sitting side by side
+const WARN_W = 3.0;              // gutter for the double-booking caution mark
+const WARN = [150, 52, 52];
 const MARK_W = 2.4;              // leading dot / pin gutter
+// Row-label metrics. Measuring and drawing MUST share these, or a wrapped
+// label is sized against one number and painted against another.
+const LABEL_LEAD = 4.4;          // first baseline below the row top
+const LABEL_LINE = 3.4;          // leading between wrapped label lines
+const LABEL_TAIL = 2.0;          // descender clearance under the last line
 
 export const MAX_COLS_PER_PAGE = 9;
 export const DEFAULT_MAX_DAYS = 31;
@@ -272,7 +280,7 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
 
   let pageStarted = false;
   const newPage = () => { if (pageStarted) doc.addPage(); pageStarted = true; };
-  let pageHasDagger = false;
+  let pageHasWarn = false;
 
   // -------------------------------------------------------------- text
   const applyStyle = (st) => {
@@ -333,10 +341,7 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
           runs.push({ t: S(String(seg.name).replace(/^@/, '')), st: ST.placeholder });
           runs.push({ t: '  TBA', st: ST.personTag });
         } else {
-          // The dagger is bound to the name in ONE token so it can never wrap
-          // onto a line of its own.
-          const warn = seg.email && warned.has(seg.email);
-          runs.push({ t: S(`${seg.name}${warn ? '†' : ''}`), st: ST.person });
+          runs.push({ t: S(seg.name), st: ST.person });
           if (!isStaff) runs.push({ t: '  EXT', st: ST.personTag });
           if (seg.callTimeOverride) runs.push({ t: ` ${S(compactTime(seg.callTimeOverride))}`, st: ST.callTime });
         }
@@ -346,6 +351,10 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
           mark: isPlaceholder ? null : (isStaff ? 'dot' : 'ring'),
           box: null,
           underline: isPlaceholder,
+          // Drawn as a vector caution mark after the name, not typed as a
+          // dagger. A '†' is a typographer's convention nobody on a loading
+          // dock reads as 'double-booked', and it depends on a font glyph.
+          warn: !isPlaceholder && !!(seg.email && warned.has(seg.email)),
         });
       }
     }
@@ -369,7 +378,6 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
   const oneLine = (b) => b.runs.reduce((sum, run) => sum + measure(String(run.t), run.st), 0);
 
   const blockMinNeed = (b) => widestWord(b) + blockLead(b);
-  const blockWant = (b) => oneLine(b) + blockLead(b);
 
   /**
    * Wrap one block's runs and return its lines plus the width it is drawn at.
@@ -416,54 +424,99 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
     };
   }
 
-  /**
-   * Space between stacked entries in one cell. Applied only where a chip is
-   * involved: two pills sitting flush read as one smudged shape, whereas plain
-   * name lists are already separated by their own line height and would just
-   * go loose if this were applied to them too.
-   */
-  const gapBefore = (blocks, i) =>
-    (i > 0 && (blocks[i].box || blocks[i - 1].box)) ? BLOCK_GAP : 0;
+  /** Width this block needs to sit on a line by itself, all on one line. */
+  const blockSoloW = (b) => {
+    const markW = b.trailingMark ? measure(b.trailingMark.t, b.trailingMark.st) + 1.2 : 0;
+    return oneLine(b) + blockLead(b) + markW + (b.warn ? WARN_W : 0);
+  };
 
+  /**
+   * Entries FLOW INLINE and wrap, rather than each taking its own line. Eight
+   * ushers in a wide column belong on two or three lines, not eight — stacking
+   * them wasted most of the cell and made every row taller than it needed to be.
+   *
+   * A block that cannot share a line (longer than the cell is wide) takes a row
+   * of its own and wraps internally; everything else is laid on one line and
+   * packed left to right.
+   */
   function layoutCell(blocks, width) {
     const avail = width - PAD_X * 2;
-    const laid = blocks.map((b) => flowBlock(b, avail));
-    const gaps = laid.reduce((a, _, i) => a + gapBefore(laid, i), 0);
-    return { blocks: laid, height: laid.reduce((a, b) => a + b.height, 0) + gaps + PAD_Y * 2 };
+    const rows = [];
+    let cur = [], curW = 0;
+    const flush = () => { if (cur.length) { rows.push(cur); cur = []; curW = 0; } };
+
+    for (const b of blocks) {
+      if (blockSoloW(b) > avail) {          // needs the full width, and to wrap
+        flush();
+        rows.push([flowBlock(b, avail)]);
+        continue;
+      }
+      const laid = flowBlock(b, avail);      // fits, so this yields one line
+      const total = laid.width + laid.markW + (laid.warn ? WARN_W : 0);
+      const gap = cur.length ? BLOCK_GAP_X : 0;
+      if (cur.length && curW + gap + total > avail) flush();
+      cur.push(laid);
+      curW += (cur.length > 1 ? BLOCK_GAP_X : 0) + total;
+    }
+    flush();
+
+    const rowHeights = rows.map((r) => Math.max(...r.map((b) => b.height)));
+    const height = rowHeights.reduce((a, h) => a + h, 0)
+      + Math.max(0, rows.length - 1) * BLOCK_GAP
+      + PAD_Y * 2;
+    return { rows, rowHeights, blocks: rows.flat(), height };
   }
 
   function drawCell(layout, x, y) {
     let by = y + PAD_Y;
-    layout.blocks.forEach((b, bi) => {
-      by += gapBefore(layout.blocks, bi);
-      if (b.box === 'gold') {
-        doc.setFillColor(...GOLD50);
-        doc.setDrawColor(...GOLD500);
-        doc.setLineWidth(0.15);
-        doc.roundedRect(x + PAD_X, by, b.width, b.height, CHIP_R, CHIP_R, 'FD');
+    layout.rows.forEach((row, ri) => {
+      let bx = x + PAD_X;
+      for (const b of row) {
+        drawBlock(b, bx, by);
+        bx += b.width + b.markW + (b.warn ? WARN_W : 0) + BLOCK_GAP_X;
       }
-      const textLeft = x + PAD_X + (b.box ? CHIP_PAD_X : 0) + (b.mark ? MARK_W : 0);
-      const markX = x + PAD_X + (b.box ? CHIP_PAD_X : 0);
-      let ly = by + (b.box ? CHIP_PAD_Y : 0) + 2.6;
-
-      // Outside the frame, never on it.
-      if (b.trailingMark) draw(b.trailingMark.t, b.trailingMark.st, x + PAD_X + b.width + 1.2, ly);
-
-      b.lines.forEach((line, li) => {
-        if (li === 0 && b.mark) drawMark(b.mark, markX, ly);
-        let lx = textLeft + (li ? HANG : 0);
-        for (const run of line) { draw(run.t, run.st, lx, ly); lx += run.w; }
-        if (b.underline) {
-          const w = line.reduce((s, r) => s + r.w, 0);
-          doc.setDrawColor(...N400); doc.setLineWidth(0.12);
-          doc.setLineDashPattern([0.6, 0.6], 0);
-          doc.line(textLeft + (li ? HANG : 0), ly + 1.1, textLeft + (li ? HANG : 0) + w, ly + 1.1);
-          doc.setLineDashPattern([], 0);
-        }
-        ly += LINE_H;
-      });
-      by += b.height;
+      by += layout.rowHeights[ri] + BLOCK_GAP;
     });
+  }
+
+  function drawBlock(b, bx, by) {
+    if (b.box === 'gold') {
+      doc.setFillColor(...GOLD50);
+      doc.setDrawColor(...GOLD500);
+      doc.setLineWidth(0.15);
+      doc.roundedRect(bx, by, b.width, b.height, CHIP_R, CHIP_R, 'FD');
+    }
+    const textLeft = bx + (b.box ? CHIP_PAD_X : 0) + (b.mark ? MARK_W : 0);
+    const markX = bx + (b.box ? CHIP_PAD_X : 0);
+    let ly = by + (b.box ? CHIP_PAD_Y : 0) + 2.6;
+
+    // Outside the frame, never on it.
+    if (b.trailingMark) draw(b.trailingMark.t, b.trailingMark.st, bx + b.width + 1.2, ly);
+
+    b.lines.forEach((line, li) => {
+      if (li === 0 && b.mark) drawMark(b.mark, markX, ly);
+      let lx = textLeft + (li ? HANG : 0);
+      for (const run of line) { draw(run.t, run.st, lx, ly); lx += run.w; }
+      if (li === 0 && b.warn) drawWarn(bx + b.width + 0.9, ly);
+      if (b.underline) {
+        const w = line.reduce((s, r) => s + r.w, 0);
+        doc.setDrawColor(...N400); doc.setLineWidth(0.12);
+        doc.setLineDashPattern([0.6, 0.6], 0);
+        doc.line(textLeft + (li ? HANG : 0), ly + 1.1, textLeft + (li ? HANG : 0) + w, ly + 1.1);
+        doc.setLineDashPattern([], 0);
+      }
+      ly += LINE_H;
+    });
+  }
+
+  /** Caution triangle for a double-booked person. Vector, so no font glyph. */
+  function drawWarn(x, baseline) {
+    const cy = baseline - 1.05, r = 1.15;
+    doc.setDrawColor(...WARN); doc.setLineWidth(0.28);
+    doc.triangle(x + r, cy - r, x, cy + r * 0.85, x + r * 2, cy + r * 0.85, 'S');
+    doc.setFillColor(...WARN);
+    doc.rect(x + r - 0.11, cy - r * 0.35, 0.22, 0.85, 'F');
+    doc.rect(x + r - 0.11, cy + r * 0.62, 0.22, 0.2, 'F');
   }
 
   /** Leading marks, drawn as vectors — no glyph in any font is relied on. */
@@ -558,32 +611,57 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
     return y + plan.h;
   }
 
+  /**
+   * Notes run in TWO COLUMNS once there are three or more. The page is 265mm
+   * wide; a single stacked column of four notes is both ugly and expensive —
+   * it was costing ~11mm of height, which is precisely what pushed a day's
+   * notes onto a page of their own.
+   */
+  const NOTE_COLS = (count) => (count >= 3 ? 2 : 1);
+  const NOTE_GUTTER = 8;
+
   function planNotes(pageNotes) {
-    if (!pageNotes.length) return { rows: [], h: 0 };
+    if (!pageNotes.length) return { rows: [], h: 0, cols: 1, colW: 0 };
+    const cols = NOTE_COLS(pageNotes.length);
+    const colW = (CW - NOTE_GUTTER * (cols - 1)) / cols;
     const rows = pageNotes.map((n) => {
       const head = S(`${n.col} — ${n.row}`);
       const headW = measure(head, ST.noteHead);
-      const bodyX = M + 5.5 + headW + 2.5;
-      const body = wrapText(S(`${n.text}${n.authorName ? `  (${n.authorName})` : ''}`), ST.noteBody, Math.max(30, PW - M - bodyX));
-      return { n: n.n, head, bodyX, body };
+      const indent = 5.5 + headW + 2.5;
+      const body = wrapText(
+        S(`${n.text}${n.authorName ? `  (${n.authorName})` : ''}`),
+        ST.noteBody,
+        Math.max(30, colW - indent),
+      );
+      return { n: n.n, head, indent, body, h: body.length * 3.5 + 0.9 };
     });
-    return { rows, h: 5.4 + rows.reduce((a, r) => a + r.body.length * 3.5 + 0.9, 0) };
+    // Balance by height, not by count, so a long note does not leave one
+    // column short and the other running past the page.
+    const perCol = Math.ceil(rows.length / cols);
+    let h = 0;
+    for (let c = 0; c < cols; c += 1) {
+      const slice = rows.slice(c * perCol, (c + 1) * perCol);
+      h = Math.max(h, slice.reduce((a, r) => a + r.h, 0));
+    }
+    return { rows, cols, colW, perCol, h: 4.6 + h };
   }
 
   function drawNotes(plan, startY) {
-    let y = startY;
-    draw('NOTES', ST.notesTitle, M, y);
+    draw('NOTES', ST.notesTitle, M, startY);
     doc.setDrawColor(...N200); doc.setLineWidth(RULE.hair);
-    doc.line(M + 16, y - 1.0, PW - M, y - 1.0);
-    y += 5.4;
-    for (const r of plan.rows) {
-      draw(String(r.n), ST.noteNum, M + 0.5, y);
-      draw(r.head, ST.noteHead, M + 5.5, y);
-      draw(r.body[0], ST.noteBody, r.bodyX, y);
-      y += 3.5;
-      for (let i = 1; i < r.body.length; i += 1) { draw(r.body[i], ST.noteBody, M + 5.5, y); y += 3.5; }
-      y += 0.9;
-    }
+    doc.line(M + 16, startY - 1.0, PW - M, startY - 1.0);
+    const top = startY + 4.6;
+
+    plan.rows.forEach((r, i) => {
+      const c = Math.floor(i / plan.perCol);
+      const x = M + c * (plan.colW + NOTE_GUTTER);
+      let y = top + plan.rows.slice(c * plan.perCol, i).reduce((a, p) => a + p.h, 0);
+      draw(String(r.n), ST.noteNum, x + 0.5, y);
+      draw(r.head, ST.noteHead, x + 5.5, y);
+      draw(r.body[0], ST.noteBody, x + r.indent, y);
+      y += 3.3;
+      for (let k = 1; k < r.body.length; k += 1) { draw(r.body[k], ST.noteBody, x + 5.5, y); y += 3.3; }
+    });
   }
 
   function drawFooter(pageNum, totalPages) {
@@ -619,10 +697,15 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
         for (const word of S(c.name || '').split(/\s+/)) w = Math.max(w, measure(word, ST.colName));
         return w + PAD_X * 2;
       });
+      // `want` stays the widest SINGLE entry, not the whole cell on one line.
+      // Summing every entry was tried and made a column of eight ushers demand
+      // ~100mm, which starved its neighbours, narrowed them into extra wrapping
+      // and cost a whole page. Entries flow inline regardless; the allocator
+      // just should not bid for a width no page can give.
       const want = cols.map((c, ci) => {
         let w = 0;
         for (let ri = 0; ri < rows.length; ri += 1)
-          for (const b of blocksByCell[ri][ci]) w = Math.max(w, blockWant(b));
+          for (const b of blocksByCell[ri][ci]) w = Math.max(w, blockSoloW(b));
         return w + PAD_X * 2;
       });
       const widths = planColumnWidths(minNeed, want, GRID_W);
@@ -654,8 +737,15 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
         }
         return cells;
       });
-      const natural = layouts.map((ls) => {
-        const raw = Math.max(ROW_MIN_H, ...ls.map((l) => l.height));
+      // The row LABEL has to be measured too, not just the cells. A label like
+      // '65TH ST HELP DESK/LOBBY' wraps to three lines and needs ~13mm, while a
+      // row whose cells are all short would otherwise be ROW_MIN_H (7.2mm) —
+      // and the label then overran into the row beneath it.
+      const labelH = (row) =>
+        LABEL_LEAD + (wrapText(S(row.label || '').toUpperCase(), ST.rowLabel, LABEL_W - PAD_X * 2).length - 1) * LABEL_LINE
+        + LABEL_TAIL;
+      const natural = layouts.map((ls, ri) => {
+        const raw = Math.max(ROW_MIN_H, labelH(rows[ri]), ...ls.map((l) => l.height));
         return Math.ceil(raw / RHYTHM) * RHYTHM;
       });
 
@@ -675,11 +765,11 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
 
       const last = groups[groups.length - 1];
       const lastUsed = last.rows.reduce((a, i) => a + natural[i], 0);
-      const notesInline = notesPlan.h > 0 && lastUsed + notesPlan.h + 6 <= last.avail;
+      const notesInline = notesPlan.h > 0 && lastUsed + notesPlan.h + 4 <= last.avail;
 
       groups.forEach((group, physIdx) => {
         newPage();
-        pageHasDagger = false;
+        pageHasWarn = false;
         let y = drawMasthead(day, part, colPages.length);
         if (showContents && physIdx === 0) y = drawContents(y, contents);
         y = drawTableHeader(cols, xs, y, headerPlan);
@@ -700,11 +790,11 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
           }
 
           wrapText(S(row.label || '').toUpperCase(), ST.rowLabel, LABEL_W - PAD_X * 2)
-            .forEach((ln, i) => draw(ln, ST.rowLabel, M + PAD_X, y + 4.4 + i * 3.4));
+            .forEach((ln, i) => draw(ln, ST.rowLabel, M + PAD_X, y + LABEL_LEAD + i * LABEL_LINE));
 
           cols.forEach((c, i) => {
             const cellLayout = layouts[rowIdx][i];
-            if (cellLayout.blocks.some((b) => b.runs.some((r) => String(r.t).includes('†')))) pageHasDagger = true;
+            if (cellLayout.blocks.some((b) => b.warn)) pageHasWarn = true;
             drawCell(cellLayout, xs[i], y);
           });
 
@@ -725,11 +815,12 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
         });
 
         if (physIdx === groups.length - 1 && notesPlan.h > 0) {
-          if (notesInline) drawNotes(notesPlan, y + 7);
+          if (notesInline) drawNotes(notesPlan, y + 5);
           else { newPage(); const ny = drawMasthead(day, part, colPages.length); drawNotes(notesPlan, ny + 4); }
         }
-        if (pageHasDagger) {
-          draw(S('† also assigned to another post whose times overlap'), ST.legend, M, PH - M + 1.5);
+        if (pageHasWarn) {
+          drawWarn(M + 0.6, PH - M + 1.5);
+          draw(S('also assigned to another post whose times overlap'), ST.legend, M + WARN_W + 1.2, PH - M + 1.5);
         }
       });
     });

@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -226,6 +226,23 @@ describe('SchedulingSheetGrid — keyboard navigation', () => {
       segments: [{ type: 'text', text: '5:00 PM' }],
     }));
   });
+
+  it('SSI-26: a blur commit leaves focus where the user put it, instead of pulling it back', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rCall:c1'));
+    expect(screen.getByTestId('inline-cell-input')).toHaveFocus();
+
+    // A real click on another cell focuses that cell on mousedown, and THAT is
+    // what blurs the editor. Pulling focus back here is not cosmetic: the grid
+    // lives in a scrollport, so re-focusing a cell the user has scrolled away
+    // from scrolls the sheet back between mousedown and mouseup. The content
+    // moves out from under the pointer and the click on the new cell is never
+    // dispatched at all.
+    act(() => { screen.getByTestId('cell-rUshers:c2').focus(); });
+
+    expect(onCellSave).toHaveBeenCalled();
+    expect(screen.getByTestId('cell-rUshers:c2')).toHaveFocus();
+  });
 });
 
 describe('SchedulingSheetGrid — the expanded editor', () => {
@@ -316,7 +333,7 @@ describe('SchedulingSheetGrid — print output', () => {
   it.each([
     ['the in-cell editor', '.ss-inline-cell-editor'],
     ['the expand affordance', '.ss-cell-expand'],
-    ['the copy and paste tools', '.ss-cell-tools'],
+    ['the keyboard-shortcut hint', '.ss-corner-hint'],
     ['the suggestion list', '.ss-cell-suggestions'],
   ])('SSI-21: %s is excluded from the printed sheet', (_label, selector) => {
     expect(hiddenSelectors).toContain(selector);
@@ -336,6 +353,22 @@ describe('SchedulingSheetGrid — print output', () => {
     expect(rule).toMatch(/border:\s*none/);
     // ...and the :focus state must reset it too, or the glow returns on click.
     expect(rule.slice(rule.indexOf(':focus'))).toMatch(/box-shadow:\s*none/);
+  });
+
+  it('SSI-25: the label editors opt out of the global input chrome too', () => {
+    // Same defect as SSI-23, two inputs further on: renaming a row or column
+    // and the add-a-row box all sit INSIDE a grid label, where index.css's
+    // border + 8px radius + 3px focus glow render as an oval in the cell.
+    const rule = sheetCss.slice(
+      sheetCss.indexOf('.ss-rename-input,'),
+      sheetCss.indexOf('.ss-add-btn {')
+    );
+    expect(rule).toContain('.ss-add-row-input');
+    expect(rule).toContain('border: none');
+    expect(rule).toContain('border-radius: 0');
+    expect(rule).toContain('box-shadow: none');
+    // ...and the :focus state must reset the glow too, or it returns on click.
+    expect(rule.slice(rule.indexOf(':focus'))).toContain('box-shadow: none');
   });
 
   it('SSI-24: the page is height-bounded, which is what lets the sticky header actually stick', () => {
