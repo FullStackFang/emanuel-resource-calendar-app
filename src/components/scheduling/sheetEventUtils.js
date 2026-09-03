@@ -232,3 +232,42 @@ export function computeDoubleBookedEmails(day) {
   }
   return flagged;
 }
+
+/**
+ * Immutably write one cell into a loaded sheet document.
+ *
+ * This backs the optimistic cache patch behind a cell save. The in-cell
+ * editor closes the instant it commits, so without this the grid re-renders
+ * from the PRE-write document and the cell reads empty for the whole server
+ * round trip — a visible blank flash on every entry. Cell writes are ungated
+ * last-write-wins per cell (backend design D2), so painting the write
+ * immediately is exactly what the server will agree to.
+ *
+ * Returns the SAME sheet reference when the day is not in it, so a caller can
+ * skip a pointless cache write.
+ */
+export function applyCellToSheet(sheet, dayId, rowId, colId, cell) {
+  if (!sheet || !Array.isArray(sheet.days)) return sheet;
+  const key = cellKeyOf(rowId, colId);
+  let matched = false;
+  const days = sheet.days.map((d) => {
+    if (String(d._id) !== String(dayId)) return d;
+    matched = true;
+    return { ...d, cells: { ...(d.cells || {}), [key]: cell } };
+  });
+  return matched ? { ...sheet, days } : sheet;
+}
+
+/**
+ * A cell as one line of plain text: what a copied cell puts on the SYSTEM
+ * clipboard, so a copy can also land in an email or a spreadsheet. The grid
+ * pastes from its own richer stash, never from this — parsing it back would
+ * demote a tagged person to a bare string and lose the identity that drives
+ * double-booking detection and the email fan-out.
+ */
+export function cellPlainText(cell) {
+  return ((cell && cell.segments) || [])
+    .map((seg) => (seg.type === 'text' ? seg.text : seg.name))
+    .filter(Boolean)
+    .join(', ');
+}

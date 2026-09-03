@@ -10,7 +10,7 @@
 
 import React, { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, createEvent } from '@testing-library/react';
 
 import InlineCellEditor from '../../../../components/scheduling/InlineCellEditor';
 
@@ -69,6 +69,29 @@ describe('InlineCellEditor — existing content', () => {
     const input = open({ segments: [{ type: 'text', text: 'Ch. 4' }, PERSON_SEG], note: null });
     fireEvent.click(screen.getByLabelText('Remove Ch. 4'));
     fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ segments: [PERSON_SEG] }), 'down');
+  });
+
+  it('ICE-23: removing a chip survives the blur-commit a real mouse click causes', () => {
+    // fireEvent.click alone (ICE-2) never blurs the input, so it cannot see
+    // this bug. A real browser runs mousedown -> blur -> click, and blur
+    // commits and unmounts the editor: unless mousedown is defaultPrevented,
+    // the click lands on a detached node and the chip is never removed.
+    const input = open({ segments: [{ type: 'text', text: 'Ch. 4' }, PERSON_SEG], note: null });
+    const remove = screen.getByLabelText('Remove Ch. 4');
+
+    const mouseDown = createEvent.mouseDown(remove);
+    fireEvent(remove, mouseDown);
+    // The guard is the whole fix: focus must NOT leave the input.
+    expect(mouseDown.defaultPrevented).toBe(true);
+    if (!mouseDown.defaultPrevented) fireEvent.blur(input);
+    fireEvent.click(remove);
+
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Remove Ch. 4')).not.toBeInTheDocument();
+
+    // And the removal is what commits, rather than the pre-click snapshot.
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Enter' });
     expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ segments: [PERSON_SEG] }), 'down');
   });
 
@@ -200,6 +223,73 @@ describe('InlineCellEditor — commit and discard', () => {
     expect(onCommit).toHaveBeenCalledWith(
       expect.objectContaining({ segments: [{ type: 'text', text: 'Ch. 4 backup' }] }),
       'right'
+    );
+  });
+
+  it('ICE-24: Tab walks the suggestion rows instead of leaving the cell, and Enter takes the highlighted one', () => {
+    const input = open();
+    fireEvent.change(input, { target: { value: '@sa' } });
+    // Both people match '@sa'; the first is highlighted for Enter from the start.
+    const rows = () => screen.getAllByTestId('cell-suggestions').length && screen.getByTestId('cell-suggestions');
+    expect(within(rows()).getByText('Sarah Levine').closest('button')).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(within(rows()).getByText('Sam Alto').closest('button')).toHaveAttribute('aria-selected', 'true');
+    expect(onCommit).not.toHaveBeenCalled();  // Tab did NOT leave the cell
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [expect.objectContaining({ name: 'Sam Alto' })] }),
+      'down'
+    );
+  });
+
+  it('ICE-25: Shift+Tab walks back, and the highlight wraps rather than stranding', () => {
+    const input = open();
+    fireEvent.change(input, { target: { value: '@sa' } });
+    const list = () => screen.getByTestId('cell-suggestions');
+    const selected = () => within(list()).getAllByRole('option').findIndex((b) => b.getAttribute('aria-selected') === 'true');
+    const rowCount = () => within(list()).getAllByRole('option').length;
+
+    expect(selected()).toBe(0);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(selected()).toBe(1);
+    fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
+    expect(selected()).toBe(0);
+    // Back past the first row lands on the last, not on nothing.
+    fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
+    expect(selected()).toBe(rowCount() - 1);
+  });
+
+  it('ICE-26: Enter on a term that matched nobody still commits the term, rather than taking an escape hatch', () => {
+    // The only rows left are the placeholder and add-an-outsider hatches, so
+    // nothing starts highlighted — a mutation that highlights row 0
+    // unconditionally turns every unmatched name into a form popup.
+    const input = open();
+    fireEvent.change(input, { target: { value: '@zzzz' } });
+    const list = screen.getByTestId('cell-suggestions');
+    expect(within(list).queryByRole('option', { selected: true })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [{ type: 'text', text: '@zzzz' }] }),
+      'down'
+    );
+  });
+
+  it('ICE-27: Tab can still reach those escape hatches deliberately', () => {
+    const input = open();
+    fireEvent.change(input, { target: { value: '@zzzz' } });
+    fireEvent.keyDown(input, { key: 'Tab' });
+    const first = within(screen.getByTestId('cell-suggestions')).getAllByRole('option')[0];
+    expect(first).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [expect.objectContaining({ placeholder: true, name: '@zzzz' })] }),
+      'down'
     );
   });
 

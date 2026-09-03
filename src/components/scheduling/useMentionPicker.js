@@ -69,6 +69,28 @@ export function textSegment(text) {
   return { type: 'text', text: String(text) };
 }
 
+
+/**
+ * Run a suggestion row's action. One definition shared by the list (a click)
+ * and the editor (Enter on the highlighted row), so the two can never disagree
+ * about what a row does.
+ */
+export function applyChoice(choice, handlers) {
+  if (!choice) return;
+  switch (choice.kind) {
+    case 'time': return handlers.onPickTime(choice.payload);
+    case 'person': return handlers.onPickPerson(choice.payload);
+    case 'location': return handlers.onPickLocation(choice.payload);
+    case 'placeholder': return handlers.onAddPlaceholder();
+    case 'external': return handlers.onStartExternal();
+    case 'text': return handlers.onUseAsText();
+    default: return undefined;
+  }
+}
+
+/** Kinds the picker would act on unprompted; the escape hatches are not. */
+export const MATCH_KINDS = new Set(['time', 'person', 'location']);
+
 // ── The hook ───────────────────────────────────────────────────────────────
 
 export default function useMentionPicker({ input, people, locations }) {
@@ -116,9 +138,53 @@ export default function useMentionPicker({ input, people, locations }) {
     return textSegment(timePreview ? timePreview.display : trimmed);
   };
 
+
+  /**
+   * The suggestion rows in the exact order they are shown, as ONE ordered list.
+   * Both consumers read it — the list renders from it, the editor's keyboard
+   * walks it — so a row can never be highlighted in one place and picked in
+   * another. Overflow notices are not in here: they are counts, not choices.
+   *
+   * 'match' kinds are the ones the picker would act on by itself; the escape
+   * hatches trail them and are reachable only by an explicit Tab/arrow, so
+   * Enter on a term that matched nothing still commits the term.
+   */
+  const choices = useMemo(() => {
+    const out = [];
+    const trimmed = term.trim();
+    if (mode === 'mention' && mentionTime) {
+      out.push({
+        key: 'time', kind: 'time', group: 'Time', icon: 'clock',
+        testId: 'cell-suggestions-time-row', name: mentionTime.display, payload: mentionTime,
+      });
+    }
+    if (mode === 'mention') {
+      for (const person of personMatches) {
+        out.push({ key: `person:${person.userId}`, kind: 'person', name: person.name, sub: person.email, payload: person });
+      }
+    }
+    for (const location of locationMatches) {
+      out.push({
+        key: `location:${String(location._id)}`, kind: 'location', icon: 'pin',
+        group: mode === 'mention' ? 'Locations' : null, name: location.displayName, payload: location,
+      });
+    }
+    if (mode === 'mention' && personMatches.length === 0 && trimmed) {
+      out.push({ key: 'placeholder', kind: 'placeholder', className: 'ss-picker-placeholder', payload: trimmed });
+    }
+    if (mode === 'mention') {
+      out.push({ key: 'external', kind: 'external', className: 'ss-picker-escape', payload: trimmed });
+    }
+    if (mode === 'location' && locationMatches.length === 0 && trimmed) {
+      out.push({ key: 'text', kind: 'text', className: 'ss-picker-escape', payload: trimmed });
+    }
+    return out;
+  }, [mode, term, mentionTime, personMatches, locationMatches]);
+
   return {
     mode,
     term,
+    choices,
     personMatches,
     personOverflow: Math.max(0, allPersonMatches.length - MATCH_CAP),
     locationMatches,

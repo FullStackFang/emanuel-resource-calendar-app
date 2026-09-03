@@ -15077,6 +15077,17 @@ app.post('/api/users', verifyToken, async (req, res) => {
     userData.updatedAt = new Date();
     userData.createdBy = callerEmail;
 
+    // An admin-created user has no Azure AD object id yet — it is only learned
+    // when they first sign in, and findUserByIdentity's email fallback then
+    // reconciles `userId` to the real oid. Production carries a NON-sparse
+    // unique index on `userId` (Cosmos DB cannot rebuild it sparse on a
+    // populated collection), and a missing field indexes as `null`, so the
+    // second such user ever inserted would collide with the first (E11000 →
+    // 500). Stamp a provisional, per-document-unique placeholder instead.
+    // Never returned to clients: `userId` is not in USER_READ_FIELDS.
+    userData._id = new ObjectId();
+    userData.userId = `pending:${userData._id.toHexString()}`;
+
     const result = await usersCollection.insertOne(userData);
     const createdUser = await usersCollection.findOne({ _id: result.insertedId });
 

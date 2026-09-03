@@ -316,6 +316,7 @@ describe('SchedulingSheetGrid — print output', () => {
   it.each([
     ['the in-cell editor', '.ss-inline-cell-editor'],
     ['the expand affordance', '.ss-cell-expand'],
+    ['the copy and paste tools', '.ss-cell-tools'],
     ['the suggestion list', '.ss-cell-suggestions'],
   ])('SSI-21: %s is excluded from the printed sheet', (_label, selector) => {
     expect(hiddenSelectors).toContain(selector);
@@ -335,6 +336,23 @@ describe('SchedulingSheetGrid — print output', () => {
     expect(rule).toMatch(/border:\s*none/);
     // ...and the :focus state must reset it too, or the glow returns on click.
     expect(rule.slice(rule.indexOf(':focus'))).toMatch(/box-shadow:\s*none/);
+  });
+
+  it('SSI-24: the page is height-bounded, which is what lets the sticky header actually stick', () => {
+    // The header row and the row-label column are both position: sticky, but
+    // they stick inside .ss-grid-scroll — and a scrollport that never scrolls
+    // never moves a sticky child. Signed in, .app-container carries only
+    // min-height, so without this cap every box in the chain grows to fit the
+    // whole table and the page scrolls instead. jsdom does no layout, so the
+    // cap is asserted at the source, like the print rules above.
+    const pageRule = sheetCss.slice(sheetCss.indexOf('.ss-page {'), sheetCss.indexOf('.ss-topbar {'));
+    expect(pageRule).toContain('max-height: calc(100vh');
+    expect(pageRule).toContain('min-height: 0');
+
+    const headerRule = sheetCss.slice(sheetCss.indexOf('.ss-grid thead th {'));
+    expect(headerRule.slice(0, headerRule.indexOf('}'))).toContain('position: sticky');
+    const scrollRule = sheetCss.slice(sheetCss.indexOf('.ss-grid-scroll {'));
+    expect(scrollRule.slice(0, scrollRule.indexOf('}'))).toContain('overflow-y: auto');
   });
 
   it('SSI-22: committed cell content is still printed', () => {

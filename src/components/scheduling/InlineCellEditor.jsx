@@ -18,6 +18,8 @@
 import React, { useRef, useState } from 'react';
 
 import useMentionPicker, {
+  applyChoice,
+  MATCH_KINDS,
   personSegment,
   locationSegment,
   timeSegment,
@@ -27,14 +29,33 @@ import useMentionPicker, {
 } from './useMentionPicker';
 import CellSuggestionList from './CellSuggestionList';
 
+/**
+ * Removing a chip has to survive the input's blur-commit. mousedown moves
+ * focus off the input, which commits and unmounts this editor BEFORE the
+ * click can land, so an unguarded × is inert — it looks like a delete button
+ * and does nothing. Suppressing the default mousedown keeps focus in the
+ * input; it is the same guard CellSuggestionList uses for its own rows.
+ */
+function RemoveButton({ label, onRemove }) {
+  return (
+    <button
+      type="button"
+      className="ss-chip-remove"
+      aria-label={`Remove ${label}`}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onRemove}
+    >
+      &times;
+    </button>
+  );
+}
+
 function InlineChip({ segment, index, onRemove }) {
   if (segment.type === 'text') {
     return (
       <span className="ss-chip ss-chip-text" data-testid="inline-chip-text">
         {segment.text}
-        <button type="button" className="ss-chip-remove" aria-label={`Remove ${segment.text}`} onClick={() => onRemove(index)}>
-          &times;
-        </button>
+        <RemoveButton label={segment.text} onRemove={() => onRemove(index)} />
       </span>
     );
   }
@@ -42,9 +63,7 @@ function InlineChip({ segment, index, onRemove }) {
     return (
       <span className="ss-chip ss-chip-location" data-testid="inline-chip-location">
         <span aria-hidden="true">&#128205;</span> {segment.name}
-        <button type="button" className="ss-chip-remove" aria-label={`Remove ${segment.name}`} onClick={() => onRemove(index)}>
-          &times;
-        </button>
+        <RemoveButton label={segment.name} onRemove={() => onRemove(index)} />
       </span>
     );
   }
@@ -54,9 +73,7 @@ function InlineChip({ segment, index, onRemove }) {
       {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
       {segment.name}
       {segment.callTimeOverride && <span className="ss-chip-calltime">{segment.callTimeOverride}</span>}
-      <button type="button" className="ss-chip-remove" aria-label={`Remove ${segment.name}`} onClick={() => onRemove(index)}>
-        &times;
-      </button>
+      <RemoveButton label={segment.name} onRemove={() => onRemove(index)} />
     </span>
   );
 }
@@ -83,7 +100,43 @@ export default function InlineCellEditor({
   const doneRef = useRef(false);
 
   const picker = useMentionPicker({ input, people, locations });
-  const { mode, term, personMatches, locationMatches, mentionTime, pendingSegment } = picker;
+  const { mode, term, choices, pendingSegment } = picker;
+
+  // What each suggestion row does. Defined once and handed to BOTH the list
+  // (a click) and applyChoice (Enter on the highlighted row).
+  const choiceHandlers = {
+    onPickPerson: (person) => addSegment(personSegment(person)),
+    onPickLocation: (location) => addSegment(locationSegment(location)),
+    onPickTime: (time) => addSegment(timeSegment(time)),
+    onAddPlaceholder: () => addSegment(placeholderSegment(term)),
+    onUseAsText: () => addSegment(textSegment(term.trim())),
+    onStartExternal: () => setExternalDraft({ name: term.trim(), email: '' }),
+  };
+
+  // Keyboard highlight over the suggestion rows. -1 means 'nothing chosen
+  // yet', which is deliberately what an escape-hatch-only list starts at:
+  // Enter on a term that matched nobody must still COMMIT the term rather
+  // than silently open the add-an-outsider form.
+  const defaultActiveIndex = choices.length && MATCH_KINDS.has(choices[0].kind) ? 0 : -1;
+  const [activeIndex, setActiveIndex] = useState(defaultActiveIndex);
+  const [renderedChoiceKey, setRenderedChoiceKey] = useState('');
+  const choiceKey = choices.map((c) => c.key).join('|');
+  if (renderedChoiceKey !== choiceKey) {
+    // Re-derive during render, not in an effect: an effect would leave the
+    // highlight pointing at a row that no longer exists for one frame, and
+    // Enter in that frame would pick the wrong person.
+    setRenderedChoiceKey(choiceKey);
+    setActiveIndex(defaultActiveIndex);
+  }
+
+  /** Walk the rows, wrapping — a short closed list, so wrapping never strands. */
+  const moveActive = (delta) => {
+    const n = choices.length;
+    setActiveIndex((i) => {
+      const base = i < 0 ? (delta > 0 ? -1 : 0) : i;
+      return (((base + delta) % n) + n) % n;
+    });
+  };
 
   const buildCell = (extraSegments) => ({
     segments: extraSegments,
@@ -129,20 +182,27 @@ export default function InlineCellEditor({
       cancel();
       return;
     }
+    // Arrows walk the suggestion rows while a list is up; with no list they
+    // belong to the text caret.
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && choices.length) {
+      e.preventDefault();
+      moveActive(e.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
-      // A live suggestion list means Enter picks; only plain text commits.
-      if (mode === 'mention' && mentionTime) { addSegment(timeSegment(mentionTime)); return; }
-      if (mode === 'mention' && personMatches.length) { addSegment(personSegment(personMatches[0])); return; }
-      if ((mode === 'mention' || mode === 'location') && locationMatches.length) {
-        addSegment(locationSegment(locationMatches[0]));
-        return;
-      }
+      // A live suggestion list means Enter picks the highlighted row; only
+      // plain text (or a list of escape hatches nobody stepped onto) commits.
+      const choice = activeIndex >= 0 ? choices[activeIndex] : null;
+      if (choice) { applyChoice(choice, choiceHandlers); return; }
       commit('down');
       return;
     }
     if (e.key === 'Tab') {
       e.preventDefault();
+      // With suggestions up, Tab steps through them (Shift+Tab back) instead
+      // of leaving the cell — the list is the thing the user is aiming at.
+      if (choices.length) { moveActive(e.shiftKey ? -1 : 1); return; }
       commit('right');
       return;
     }
@@ -174,18 +234,18 @@ export default function InlineCellEditor({
         onBlur={handleBlur}
         placeholder="6pm, text, or @"
         aria-label="Cell content"
+        role="combobox"
+        aria-expanded={choices.length > 0}
+        aria-controls="ss-cell-suggestions"
+        aria-activedescendant={activeIndex >= 0 ? `ss-choice-${activeIndex}` : undefined}
       />
       {(mode !== 'text' || externalDraft) && (
         <CellSuggestionList
           anchorRef={anchorRef}
           picker={picker}
+          activeIndex={activeIndex}
           externalDraft={externalDraft}
-          onPickPerson={(p) => addSegment(personSegment(p))}
-          onPickLocation={(l) => addSegment(locationSegment(l))}
-          onPickTime={(t) => addSegment(timeSegment(t))}
-          onAddPlaceholder={() => addSegment(placeholderSegment(term))}
-          onUseAsText={() => addSegment(textSegment(term.trim()))}
-          onStartExternal={() => setExternalDraft({ name: term.trim(), email: '' })}
+          {...choiceHandlers}
           onChangeExternal={setExternalDraft}
           onAddExternal={() => addSegment(externalPersonSegment(externalDraft.name, externalDraft.email))}
           onCancelExternal={() => {

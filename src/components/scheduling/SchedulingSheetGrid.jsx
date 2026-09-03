@@ -15,6 +15,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SheetCellEditor from './SheetCellEditor';
 import InlineCellEditor from './InlineCellEditor';
 import {
+  cellPlainText,
   toLocationNameArray,
   computeDoubleBookedEmails,
   customRowsOf,
@@ -251,6 +252,42 @@ export default function SchedulingSheetGrid({
     setFocusedCell(advance ? neighbourOf({ rowId, colId }, advance) : { rowId, colId });
   };
 
+  // ── Cell clipboard ───────────────────────────────────────────────────────
+  // A grid-local clipboard, deliberately not the system one. What makes a
+  // copied cell worth copying is the PEOPLE in it, and a person only survives
+  // as a person while userId and email travel with the name — those are what
+  // drive double-booking detection and the email fan-out. Round-tripping
+  // through text/plain would hand back bare strings and quietly demote every
+  // tagged member of staff to an unmatched outsider.
+  //
+  // The system clipboard still receives a plain-text line, so a copied cell
+  // can be pasted into an email or a spreadsheet. Nothing ever reads it back.
+  const [clipboard, setClipboard] = useState(null);   // { segments, sourceKey }
+
+  const copyCell = (rowId, colId) => {
+    const key = cellKeyOf(rowId, colId);
+    const cell = (day.cells || {})[key];
+    setClipboard({ segments: ((cell && cell.segments) || []).map((seg) => ({ ...seg })), sourceKey: key });
+    const text = cellPlainText(cell);
+    if (text && navigator.clipboard && navigator.clipboard.writeText) {
+      // Best effort only: a denied permission or an insecure origin must not
+      // take the in-grid copy down with it.
+      Promise.resolve(navigator.clipboard.writeText(text)).catch(() => {});
+    }
+  };
+
+  const pasteCell = (rowId, colId) => {
+    if (!clipboard) return;
+    const existing = (day.cells || {})[cellKeyOf(rowId, colId)];
+    onCellSave(rowId, colId, {
+      segments: clipboard.segments.map((seg) => ({ ...seg })),
+      // The note is the DESTINATION's own commentary, not part of what was
+      // copied — pasting people over a cell must not silently bin it.
+      note: (existing && existing.note) || null,
+    });
+    setFocusedCell({ rowId, colId });
+  };
+
   const handleCellKeyDown = (e, rowId, colId) => {
     if (!canEdit) return;
     const ARROWS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -262,6 +299,18 @@ export default function SchedulingSheetGrid({
     if (e.key === 'Enter') {
       e.preventDefault();
       startEditing(rowId, colId);
+      return;
+    }
+    // Ctrl/Cmd+C and +V move a whole cell, people included. These sit ABOVE
+    // the printable-character branch, which already excludes modified keys.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+      e.preventDefault();
+      copyCell(rowId, colId);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+      e.preventDefault();
+      pasteCell(rowId, colId);
       return;
     }
     // Any printable character starts editing seeded with it, so a column of
@@ -647,6 +696,7 @@ export default function SchedulingSheetGrid({
               {(day.columns || []).map((col) => {
                 const key = cellKeyOf(row.id, col.id);
                 const cell = (day.cells || {})[key];
+                const hasContent = !!(cell && cell.segments && cell.segments.length);
                 const isEditing = !!editingCell && editingCell.rowId === row.id && editingCell.colId === col.id;
                 const isFocused = !!focusedCell && focusedCell.rowId === row.id && focusedCell.colId === col.id;
                 return (
@@ -656,7 +706,7 @@ export default function SchedulingSheetGrid({
                       cellRefs.current[key] = el;
                       if (isEditing) editingCellRef.current = el;
                     }}
-                    className={`ss-cell ${canEdit ? 'editable' : ''}${isFocused && !isEditing ? ' ss-cell-focused' : ''}${isEditing ? ' ss-cell-editing' : ''}`}
+                    className={`ss-cell ${canEdit ? 'editable' : ''}${isFocused && !isEditing ? ' ss-cell-focused' : ''}${isEditing ? ' ss-cell-editing' : ''}${clipboard && clipboard.sourceKey === key ? ' ss-cell-copied' : ''}`}
                     data-testid={`cell-${key}`}
                     tabIndex={canEdit ? 0 : undefined}
                     onKeyDown={canEdit && !isEditing ? (e) => handleCellKeyDown(e, row.id, col.id) : undefined}
@@ -675,10 +725,50 @@ export default function SchedulingSheetGrid({
                     ) : (
                       <CellContent cell={cell} doubleBooked={doubleBooked} />
                     )}
+                    {/* Copy/paste ride in the TOP corner beside the note
+                        marker; the expand button keeps the bottom one. Copy
+                        only appears on a cell with something in it, but paste
+                        appears on any cell — the usual move is filling an
+                        empty one. Both are absolutely positioned, so no cell
+                        grows a pixel for having them. */}
+                    {canEdit && (hasContent || (clipboard && clipboard.sourceKey !== key)) && (
+                      <div className={`ss-cell-tools${cell && cell.note ? ' has-note' : ''}`}>
+                        {hasContent && (
+                          <button
+                            type="button"
+                            className="ss-cell-tool ss-cell-copy"
+                            data-testid={`cell-copy-${key}`}
+                            title="Copy this cell, people and all — then paste it onto another cell (Ctrl+V)"
+                            aria-label="Copy this cell"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyCell(row.id, col.id);
+                            }}
+                          >
+                            <span aria-hidden="true">&#10697;</span>
+                          </button>
+                        )}
+                        {clipboard && clipboard.sourceKey !== key && (
+                          <button
+                            type="button"
+                            className="ss-cell-tool ss-cell-paste"
+                            data-testid={`cell-paste-${key}`}
+                            title="Paste the copied cell here, replacing what is in it"
+                            aria-label="Paste into this cell"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              pasteCell(row.id, col.id);
+                            }}
+                          >
+                            <span aria-hidden="true">&#128203;</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {canEdit && (
                       <button
                         type="button"
-                        className="ss-cell-expand"
+                        className="ss-cell-tool ss-cell-expand"
                         data-testid={`cell-expand-${key}`}
                         title="Open the full editor — notes and per-person call times"
                         aria-label="Open the full cell editor"

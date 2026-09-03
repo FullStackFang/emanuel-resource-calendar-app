@@ -14,6 +14,16 @@
      the Calendar's. */
   flex: 1;
   position: relative;
+  /* And BOUND it, which is what actually makes the grid's sticky header work.
+     Signed in, .app-container carries only min-height: 100vh, so main's
+     flex: 1 resolves against content rather than the viewport: every box in
+     the chain grows to fit the whole table and .ss-grid-scroll — which is
+     still a scrollport, because it sets overflow — never scrolls. A sticky
+     header inside a scrollport that does not scroll simply never moves.
+     Capping the page at the same height main already claims as its minimum
+     hands the scrolling back to .ss-grid-scroll, where the sticky header row
+     and sticky row-label column both live. */
+  max-height: calc(100vh - var(--header-height) - var(--nav-height));
 }
 
 /* ── Top bar: workbook picker + day tabs ─────────────────────────────── */
@@ -318,6 +328,14 @@
 .ss-cell.editable { cursor: pointer; }
 .ss-cell.editable:hover { outline: 2px solid var(--color-primary-300, #9dbde4); outline-offset: -2px; }
 .ss-cell-empty { display: inline-block; min-height: 18px; min-width: 40px; }
+/* The cell a copy came from, marked until the next copy replaces it. No
+   timer: a copy sits on the clipboard until something else is copied, so a
+   marker that expired on its own would be lying. Declared ABOVE the focus
+   and editing outlines, which should win when a cell is both. */
+.ss-cell-copied {
+  outline: 2px dashed var(--color-accent-400, #facc15);
+  outline-offset: -2px;
+}
 
 /* ── In-cell editing ───────────────────────────────────────────────────────
    Two distinct states: focused (the keyboard is here) and editing (this cell
@@ -372,6 +390,43 @@
 /* Reaches the expanded editor — the only place a cell note is edited. Quiet
    until the cell is hovered, focused, or being edited, so a printed-looking
    grid stays printed-looking on screen too. */
+/* Per-cell chrome. The expand button holds the bottom corner; copy/paste sit
+   in the top one beside the note marker. All of it is absolutely positioned,
+   so no cell grows a pixel taller for having tools. */
+.ss-cell-tools {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* The note marker is a 9px triangle pinned to the same corner - step aside. */
+.ss-cell-tools.has-note { right: 12px; }
+
+.ss-cell-tools, .ss-cell-expand {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.ss-cell:hover .ss-cell-tools,
+.ss-cell-focused .ss-cell-tools,
+.ss-cell-editing .ss-cell-tools,
+.ss-cell-tools:focus-within { opacity: 1; }
+
+.ss-cell-tool {
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-400, #a8a29e);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+}
+.ss-cell-tool:hover { background: var(--bg-secondary); color: var(--text-primary, #2d3748); }
+/* Paste is the one that overwrites, so it is the one that reads as an action. */
+.ss-cell-paste { color: var(--color-primary-500); }
+
 .ss-cell-expand {
   position: absolute;
   right: 2px;
@@ -384,8 +439,6 @@
   line-height: 1;
   padding: 1px 3px;
   border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 .ss-cell:hover .ss-cell-expand,
 .ss-cell-focused .ss-cell-expand,
@@ -394,7 +447,7 @@
 .ss-cell-expand:hover { background: var(--bg-secondary); color: var(--text-primary, #2d3748); }
 
 @media (prefers-reduced-motion: reduce) {
-  .ss-cell-expand { transition: none; }
+  .ss-cell-tools, .ss-cell-expand { transition: none; }
 }
 
 .ss-col-name { cursor: default; }
@@ -727,6 +780,13 @@ tr.ss-drop-target .ss-row-label {
   cursor: pointer;
 }
 .ss-picker-row:hover { background: var(--bg-secondary); }
+/* The keyboard highlight. Deliberately stronger than :hover — the pointer
+   only ever hovers where the user is already looking, whereas Tab moves the
+   selection somewhere they have to FIND. */
+.ss-picker-row.ss-picker-active {
+  background: var(--color-primary-50, #eef4fb);
+  box-shadow: inset 2px 0 0 var(--color-primary-500);
+}
 .ss-picker-sub { color: var(--text-secondary); font-size: 12px; }
 .ss-picker-overflow { padding: 6px 10px; font-size: 12px; color: var(--text-secondary); font-style: italic; }
 .ss-picker-escape { color: var(--color-primary-500); }
@@ -966,9 +1026,10 @@ tr.ss-drop-target .ss-row-label {
   /* In-cell editing chrome. The suggestion list is portaled OUTSIDE
      .ss-sheet-card, so `body * { visibility: hidden }` already hides it —
      display:none makes that intentional rather than incidental. */
-  .ss-cell-expand, .ss-inline-cell-editor, .ss-cell-suggestions { display: none !important; }
+  .ss-cell-expand, .ss-cell-tools, .ss-inline-cell-editor,
+  .ss-cell-suggestions { display: none !important; }
   /* An editing cell is mid-edit, not sheet content: print what is committed. */
-  .ss-cell-editing, .ss-cell-focused { outline: none !important; }
+  .ss-cell-editing, .ss-cell-focused, .ss-cell-copied { outline: none !important; }
   .ss-grid-scroll { overflow: visible; }
   .ss-grid thead th, .ss-row-label { position: static; }
   /* Rows grow: every chip visible, no truncation. */

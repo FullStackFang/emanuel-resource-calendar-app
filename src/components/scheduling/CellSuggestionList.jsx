@@ -19,6 +19,8 @@
 import React, { useCallback, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { applyChoice } from './useMentionPicker';
+
 // Matches the max-height in SchedulingSheets.css. Used only to decide whether
 // there is room below the cell; the CSS remains the source of truth for size.
 const LIST_MAX_HEIGHT = 260;
@@ -34,6 +36,7 @@ function measure(anchorRef) {
 export default function CellSuggestionList({
   anchorRef,
   picker,
+  activeIndex = -1,
   externalDraft,
   onPickPerson,
   onPickLocation,
@@ -75,13 +78,20 @@ export default function CellSuggestionList({
     ...(flip ? { bottom: `${window.innerHeight - rect.top}px` } : { top: `${rect.bottom}px` }),
   };
 
-  const { mode, term, personMatches, personOverflow, locationMatches, locationOverflow, mentionTime } = picker;
-  const trimmedTerm = (term || '').trim();
+  const { choices, personOverflow, locationOverflow } = picker;
+  const handlers = {
+    onPickTime, onPickPerson, onPickLocation, onAddPlaceholder, onStartExternal, onUseAsText,
+  };
 
   return createPortal(
     <div
       className="ss-picker ss-cell-suggestions"
       data-testid="cell-suggestions"
+      id="ss-cell-suggestions"
+      // The rows are a listbox the cell input drives, not a toolbar: that is
+      // what makes aria-selected legal on them and lets a screen reader
+      // announce the highlight Tab moves.
+      role={externalDraft ? undefined : 'listbox'}
       style={style}
       // A pointer press here must not move focus: the cell input's blur commits
       // and tears this list down, so without suppression a click on a
@@ -110,65 +120,53 @@ export default function CellSuggestionList({
         </div>
       ) : (
         <>
-          {mode === 'mention' && mentionTime && (
-            <>
-              <div className="ss-picker-group">Time</div>
+          {choices.map((choice, index) => (
+            <React.Fragment key={choice.key}>
+              {choice.group && (index === 0 || choices[index - 1].group !== choice.group) && (
+                <div
+                  className="ss-picker-group"
+                  data-testid={choice.kind === 'location' ? 'cell-suggestions-locations-group' : undefined}
+                >
+                  {choice.group}
+                </div>
+              )}
               <button
                 type="button"
-                className="ss-picker-row"
-                data-testid="cell-suggestions-time-row"
-                onClick={() => onPickTime(mentionTime)}
+                role="option"
+                id={`ss-choice-${index}`}
+                className={`ss-picker-row${choice.className ? ` ${choice.className}` : ''}${index === activeIndex ? ' ss-picker-active' : ''}`}
+                data-testid={choice.testId}
+                aria-selected={index === activeIndex}
+                onClick={() => applyChoice(choice, handlers)}
               >
-                <span className="ss-picker-name"><span aria-hidden="true">&#128337;</span> {mentionTime.display}</span>
+                {choice.kind === 'placeholder' && (
+                  <>Keep <strong>@{choice.payload}</strong> as an unassigned placeholder</>
+                )}
+                {choice.kind === 'external' && <>Not a user? Add name &amp; email</>}
+                {choice.kind === 'text' && <>Use &ldquo;{choice.payload}&rdquo; as free text</>}
+                {(choice.kind === 'time' || choice.kind === 'person' || choice.kind === 'location') && (
+                  <>
+                    <span className="ss-picker-name">
+                      {choice.icon === 'clock' && <span aria-hidden="true">&#128337;</span>}
+                      {choice.icon === 'pin' && <span aria-hidden="true">&#128205;</span>}
+                      {choice.icon ? ' ' : ''}{choice.name}
+                    </span>
+                    {choice.sub && <span className="ss-picker-sub">{choice.sub}</span>}
+                  </>
+                )}
               </button>
-            </>
-          )}
-
-          {mode === 'mention' && personMatches.map((p) => (
-            <button key={p.userId} type="button" className="ss-picker-row" onClick={() => onPickPerson(p)}>
-              <span className="ss-picker-name">{p.name}</span>
-              <span className="ss-picker-sub">{p.email}</span>
-            </button>
-          ))}
-          {mode === 'mention' && personOverflow > 0 && (
-            <div className="ss-picker-overflow">
-              {personOverflow} more {personOverflow === 1 ? 'match' : 'matches'}. Keep typing&hellip;
-            </div>
-          )}
-
-          {locationMatches.length > 0 && (
-            <>
-              {mode === 'mention' && (
-                <div className="ss-picker-group" data-testid="cell-suggestions-locations-group">Locations</div>
+              {/* Overflow counts trail the last row of their own kind, so the
+                  honest 'N more' line stays attached to what it counts. */}
+              {choice.kind === 'person' && personOverflow > 0 && choices[index + 1]?.kind !== 'person' && (
+                <div className="ss-picker-overflow">
+                  {personOverflow} more {personOverflow === 1 ? 'match' : 'matches'}. Keep typing&hellip;
+                </div>
               )}
-              {locationMatches.map((l) => (
-                <button key={String(l._id)} type="button" className="ss-picker-row" onClick={() => onPickLocation(l)}>
-                  <span className="ss-picker-name"><span aria-hidden="true">&#128205;</span> {l.displayName}</span>
-                </button>
-              ))}
-              {locationOverflow > 0 && (
+              {choice.kind === 'location' && locationOverflow > 0 && choices[index + 1]?.kind !== 'location' && (
                 <div className="ss-picker-overflow">{locationOverflow} more locations. Keep typing&hellip;</div>
               )}
-            </>
-          )}
-
-          {mode === 'mention' && personMatches.length === 0 && trimmedTerm && (
-            <button type="button" className="ss-picker-row ss-picker-placeholder" onClick={onAddPlaceholder}>
-              Keep <strong>@{trimmedTerm}</strong> as an unassigned placeholder
-            </button>
-          )}
-
-          {mode === 'mention' && (
-            <button type="button" className="ss-picker-row ss-picker-escape" onClick={onStartExternal}>
-              Not a user? Add name &amp; email
-            </button>
-          )}
-
-          {mode === 'location' && locationMatches.length === 0 && trimmedTerm && (
-            <button type="button" className="ss-picker-row ss-picker-escape" onClick={onUseAsText}>
-              Use &ldquo;{trimmedTerm}&rdquo; as free text
-            </button>
-          )}
+            </React.Fragment>
+          ))}
         </>
       )}
     </div>,

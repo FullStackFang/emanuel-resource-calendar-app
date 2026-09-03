@@ -11,9 +11,10 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, renderHook } from '@testing-library/react';
 
 import CellSuggestionList from '../../../../components/scheduling/CellSuggestionList';
+import useMentionPicker from '../../../../components/scheduling/useMentionPicker';
 
 const PEOPLE = [
   { userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' },
@@ -22,19 +23,18 @@ const PEOPLE = [
 
 const LOCATIONS = [{ _id: 'l1', displayName: 'Wise Hall' }];
 
-/** A picker result shaped like useMentionPicker's, overridable per test. */
-const pickerOf = (over = {}) => ({
-  mode: 'mention',
-  term: 'sa',
-  personMatches: PEOPLE,
-  personOverflow: 0,
-  locationMatches: [],
-  locationOverflow: 0,
-  timePreview: null,
-  mentionTime: null,
-  pendingSegment: () => null,
-  ...over,
-});
+/**
+ * The REAL picker, driven by what a user would have typed. Row ORDER now comes
+ * from the picker's own ordered choice list (the same list the editor's
+ * keyboard walks), so a hand-rolled picker literal could let this suite pass
+ * while the list and the hook disagreed about what row 0 is.
+ */
+const pickerFor = (input, { people = PEOPLE, locations = LOCATIONS } = {}) =>
+  renderHook(() => useMentionPicker({ input, people, locations })).result.current;
+
+/** n candidates that all match '@sam' — for exercising the MATCH_CAP overflow. */
+const manyPeople = (n) =>
+  Array.from({ length: n }, (_, k) => ({ userId: 's' + k, name: 'Sam ' + k, email: 's' + k + '@x.org' }));
 
 /**
  * An anchor with a real rect. jsdom reports every rect as zero, so the flip
@@ -65,7 +65,7 @@ const renderList = (props = {}) => {
   render(
     <CellSuggestionList
       anchorRef={anchorRef}
-      picker={pickerOf(props.picker)}
+      picker={props.picker || pickerFor('@sa')}
       externalDraft={props.externalDraft ?? null}
       {...handlers}
       {...(props.overrides || {})}
@@ -90,7 +90,7 @@ describe('CellSuggestionList — entries', () => {
   });
 
   it('CSL-2: locations render as their own group under @', () => {
-    const { onPickLocation } = renderList({ picker: { locationMatches: LOCATIONS } });
+    const { onPickLocation } = renderList({ picker: pickerFor('@wise') });
     const list = screen.getByTestId('cell-suggestions');
     expect(within(list).getByTestId('cell-suggestions-locations-group')).toHaveTextContent(/locations/i);
     fireEvent.click(within(list).getByText(/Wise Hall/));
@@ -98,8 +98,8 @@ describe('CellSuggestionList — entries', () => {
   });
 
   it('CSL-3: a term that reads as a time is offered as a selectable entry', () => {
+    const { onPickTime } = renderList({ picker: pickerFor('@6pm') });
     const time = { value: '18:00', display: '6:00 PM' };
-    const { onPickTime } = renderList({ picker: { term: '6pm', mentionTime: time, personMatches: [] } });
     const row = screen.getByTestId('cell-suggestions-time-row');
     expect(row).toHaveTextContent('6:00 PM');
     fireEvent.click(row);
@@ -107,16 +107,17 @@ describe('CellSuggestionList — entries', () => {
   });
 
   it('CSL-4: the overflow count is honest rather than a silent truncation', () => {
-    renderList({ picker: { personOverflow: 3 } });
+    // MATCH_CAP is 5: eight candidates leave three uncounted, six leave one.
+    renderList({ picker: pickerFor('@sam', { people: manyPeople(8) }) });
     expect(screen.getByText(/3 more matches\. Keep typing/)).toBeInTheDocument();
-    renderList({ picker: { personOverflow: 1 } });
+    renderList({ picker: pickerFor('@sam', { people: manyPeople(6) }) });
     expect(screen.getByText(/1 more match\. Keep typing/)).toBeInTheDocument();
   });
 });
 
 describe('CellSuggestionList — escape hatches', () => {
   it('CSL-5: an unmatched @term can be kept as an unassigned placeholder', () => {
-    const { onAddPlaceholder } = renderList({ picker: { term: 'usher_team', personMatches: [] } });
+    const { onAddPlaceholder } = renderList({ picker: pickerFor('@usher_team') });
     fireEvent.click(screen.getByText(/unassigned placeholder/i));
     expect(onAddPlaceholder).toHaveBeenCalled();
   });
@@ -135,13 +136,13 @@ describe('CellSuggestionList — escape hatches', () => {
   });
 
   it('CSL-7: an unmatched # location term falls back to free text', () => {
-    const { onUseAsText } = renderList({ picker: { mode: 'location', term: 'green room', locationMatches: [], personMatches: [] } });
+    const { onUseAsText } = renderList({ picker: pickerFor('#green room') });
     fireEvent.click(screen.getByText(/as free text/));
     expect(onUseAsText).toHaveBeenCalled();
   });
 
   it('CSL-8: # mode offers locations only — no people, no not-a-user hatch', () => {
-    renderList({ picker: { mode: 'location', locationMatches: LOCATIONS, personMatches: [] } });
+    renderList({ picker: pickerFor('#') });
     const list = screen.getByTestId('cell-suggestions');
     expect(within(list).queryByText('Sarah Levine')).not.toBeInTheDocument();
     expect(within(list).queryByText(/Not a user\?/)).not.toBeInTheDocument();

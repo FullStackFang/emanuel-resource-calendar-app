@@ -17,6 +17,8 @@ import {
   moveCustomRowTo,
   parseTimeToken,
   computeDoubleBookedEmails,
+  applyCellToSheet,
+  cellPlainText,
 } from '../../../../components/scheduling/sheetEventUtils';
 
 const cols = () => [
@@ -204,5 +206,51 @@ describe('computeDoubleBookedEmails with mixed time formats', () => {
 
   it('STU-9: unparseable times are skipped rather than guessed at', () => {
     expect(computeDoubleBookedEmails(day('after kiddush', 'late', '18:30', '20:00')).size).toBe(0);
+  });
+});
+
+describe('applyCellToSheet — the optimistic cell patch', () => {
+  const sheet = () => ({
+    _id: 'sheet1',
+    name: '2026 High Holy Days',
+    days: [
+      { _id: 'd1', date: '2026-09-11', cells: { 'rBegins:c1': { segments: [{ type: 'text', text: '16:30' }], note: null } } },
+      { _id: 'd2', date: '2026-09-12', cells: {} },
+    ],
+  });
+  const cell = { segments: [{ type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' }], note: null };
+
+  it('SRU-14: writes the cell into the named day without mutating the loaded document', () => {
+    const original = sheet();
+    const next = applyCellToSheet(original, 'd1', 'rUshers', 'c2', cell);
+
+    expect(next.days[0].cells['rUshers:c2']).toBe(cell);
+    // The cached document the UI is still rendering must not change under it.
+    expect(original.days[0].cells['rUshers:c2']).toBeUndefined();
+    expect(next).not.toBe(original);
+    expect(next.days[1]).toBe(original.days[1]);
+  });
+
+  it('SRU-15: an existing cell is replaced and its neighbours are left alone', () => {
+    const next = applyCellToSheet(sheet(), 'd1', 'rBegins', 'c1', cell);
+    expect(next.days[0].cells['rBegins:c1']).toBe(cell);
+    expect(Object.keys(next.days[0].cells)).toEqual(['rBegins:c1']);
+  });
+
+  it('SRU-16: a day (or document) that is not there returns the SAME reference, so no pointless cache write happens', () => {
+    const original = sheet();
+    expect(applyCellToSheet(original, 'nope', 'r', 'c', cell)).toBe(original);
+    expect(applyCellToSheet(undefined, 'd1', 'r', 'c', cell)).toBeUndefined();
+    expect(applyCellToSheet({ days: null }, 'd1', 'r', 'c', cell)).toEqual({ days: null });
+  });
+
+  it('SRU-17: cellPlainText renders a cell as one readable line for the system clipboard', () => {
+    expect(cellPlainText({ segments: [
+      { type: 'text', text: '6:30 PM' },
+      { type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' },
+      { type: 'location', locationId: 'l1', name: 'Wise Hall' },
+    ] })).toBe('6:30 PM, Sarah Levine, Wise Hall');
+    expect(cellPlainText(null)).toBe('');
+    expect(cellPlainText({ segments: [] })).toBe('');
   });
 });

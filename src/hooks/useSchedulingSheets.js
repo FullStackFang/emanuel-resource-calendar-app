@@ -14,6 +14,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { keys } from '../queries/keys';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
+import { applyCellToSheet } from '../components/scheduling/sheetEventUtils';
 import { useAuth } from '../context/AuthContext';
 import APP_CONFIG from '../config/config';
 
@@ -149,13 +150,32 @@ export function useSchedulingSheetMutations(sheetId) {
     onSuccess: invalidate,
   });
 
+  // Optimistic by design, not as an optimisation: the in-cell editor closes
+  //  the moment it commits, so a cell painted only from the server response is
+  //  blank for the whole round trip. Cell writes are ungated last-write-wins
+  //  per cell, so the local paint cannot disagree with a version the server
+  //  would have refused. A failure rolls the cache back and the settle
+  //  invalidation resyncs either way.
   const updateCell = useMutation({
     mutationFn: async ({ dayId, rowId, colId, cell }) =>
       readJsonOrThrow(
         await jsonRequest(`${BASE()}/${sheetId}/days/${dayId}/cells/${rowId}/${colId}`, 'PUT', { cell }),
         'Could not save the cell'
       ),
-    onSuccess: invalidate,
+    onMutate: async ({ dayId, rowId, colId, cell }) => {
+      const queryKey = keys.schedulingSheets.detail(sheetId);
+      // Stop an in-flight read from landing on top of the patch.
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old) => applyCellToSheet(old, dayId, rowId, colId, cell));
+      return { previous, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (context && context.previous !== undefined) {
+        queryClient.setQueryData(context.queryKey, context.previous);
+      }
+    },
+    onSettled: invalidate,
   });
 
   const sendSchedules = useMutation({
