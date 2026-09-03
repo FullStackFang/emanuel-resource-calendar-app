@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 import SheetCellEditor from '../../../../components/scheduling/SheetCellEditor';
 import SchedulingSheetGrid from '../../../../components/scheduling/SchedulingSheetGrid';
@@ -510,6 +510,94 @@ describe('SchedulingSheetGrid', () => {
     );
     expect(screen.queryByTestId('column-drag-handle-c1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('row-drag-handle-rUshers')).not.toBeInTheDocument();
+  });
+
+  it('SSG-22: adding a column stays open in a saving state until onStructure reports success, then closes', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const input = screen.getByTestId('add-column-input');
+    fireEvent.change(input, { target: { value: 'Overflow West' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const [, , callbacks] = onStructure.mock.calls[0];
+    // Still visible and disabled — no blank gap between click and the column appearing.
+    expect(screen.getByTestId('add-column-form')).toBeInTheDocument();
+    expect(input).toBeDisabled();
+    expect(screen.getByText('Adding…')).toBeInTheDocument();
+
+    act(() => callbacks.onSuccess());
+    expect(screen.queryByTestId('add-column-form')).not.toBeInTheDocument();
+  });
+
+  it('SSG-23: a failed add-column save re-enables the form instead of closing it, keeping the typed name', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const input = screen.getByTestId('add-column-input');
+    fireEvent.change(input, { target: { value: 'Overflow West' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const [, , callbacks] = onStructure.mock.calls[0];
+    act(() => callbacks.onError());
+
+    expect(screen.getByTestId('add-column-form')).toBeInTheDocument();
+    expect(screen.getByTestId('add-column-input')).not.toBeDisabled();
+    expect(screen.getByTestId('add-column-input')).toHaveValue('Overflow West');
+    expect(screen.getByText('Add')).toBeInTheDocument();
+  });
+
+  it('SSG-24: linking an event also shows a saving state and closes on success', () => {
+    renderGrid({ publishedEvents: LINKABLE });
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    fireEvent.change(screen.getByTestId('add-column-input'), { target: { value: '@din' } });
+    fireEvent.click(screen.getByTestId('event-option-ev9'));
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    const [, , callbacks] = onStructure.mock.calls[0];
+    expect(screen.getByTestId('add-column-form')).toBeInTheDocument();
+    expect(screen.getByTestId('add-column-input')).toBeDisabled();
+
+    act(() => callbacks.onSuccess());
+    expect(screen.queryByTestId('add-column-form')).not.toBeInTheDocument();
+  });
+
+  it('SSG-25: clicking the modal backdrop cancels the add-column form; clicking inside it does not', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const form = screen.getByTestId('add-column-form');
+
+    fireEvent.mouseDown(form);
+    expect(screen.getByTestId('add-column-form')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.querySelector('.ss-editor-backdrop'));
+    expect(screen.queryByTestId('add-column-form')).not.toBeInTheDocument();
+    expect(onStructure).not.toHaveBeenCalled();
+  });
+
+  it('SSG-26: Escape cancels the add-column form and clears the typed name', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const input = screen.getByTestId('add-column-input');
+    fireEvent.change(input, { target: { value: 'Overflow West' } });
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByTestId('add-column-form')).not.toBeInTheDocument();
+    expect(onStructure).not.toHaveBeenCalled();
+
+    // Reopening starts fresh, not with the cancelled draft.
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    expect(screen.getByTestId('add-column-input')).toHaveValue('');
+  });
+
+  it('SSG-27: the Cancel button closes the add-column modal without saving', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    const form = screen.getByTestId('add-column-form');
+    fireEvent.change(screen.getByTestId('add-column-input'), { target: { value: 'Overflow West' } });
+
+    fireEvent.click(within(form).getByText('Cancel'));
+    expect(screen.queryByTestId('add-column-form')).not.toBeInTheDocument();
+    expect(onStructure).not.toHaveBeenCalled();
   });
 
   it('SSG-12: opening a cell editor refreshes the people directory (stale-tab self-heal)', () => {

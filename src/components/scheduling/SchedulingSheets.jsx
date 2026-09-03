@@ -187,13 +187,19 @@ export default function SchedulingSheets() {
   // prefill). Sequenced AFTER the structure write succeeds so a 409 on the
   // column itself never strands prefill cells for a column that was never
   // created (cell writes are ungated by design D2 and would land regardless).
-  const structureChange = (updates, cellWrites) => {
+  // callbacks: optional { onSuccess, onError } for the CALLER's own UI state
+  // (e.g. the add-column form staying open with a saving indicator instead of
+  // closing into a blank gap) — independent of the toast/refetch handling below.
+  const structureChange = (updates, cellWrites, callbacks) => {
     if (!activeDay) return;
     const dayId = activeDay._id;
     mutations.updateStructure.mutate(
       { dayId, expectedVersion: activeDay._version, ...updates },
       {
-        onError: (e) => onMutationError(e, 'Could not save the change'),
+        onError: (e) => {
+          onMutationError(e, 'Could not save the change');
+          if (callbacks && callbacks.onError) callbacks.onError(e);
+        },
         onSuccess: () => {
           for (const write of cellWrites || []) {
             mutations.updateCell.mutate(
@@ -201,6 +207,7 @@ export default function SchedulingSheets() {
               { onError: (e) => onMutationError(e, 'Could not prefill a cell from the event') }
             );
           }
+          if (callbacks && callbacks.onSuccess) callbacks.onSuccess();
         },
       }
     );
@@ -298,6 +305,37 @@ export default function SchedulingSheets() {
     const lastSent = (activeDay.emailStatus || []).reduce((acc, s) => (s.sentAt && (!acc || s.sentAt > acc) ? s.sentAt : acc), null);
     return { people, assignments, lastSent };
   }, [activeDay]);
+
+  // Export the WHOLE workbook (every day), landscape, one day per page. The
+  // generator is lazy-imported: jsPDF is large and nothing else on this page
+  // needs it, so it must stay out of the initial bundle (same pattern AIChat
+  // uses for calendarPdfGenerator). Everything it needs is already in the
+  // detail query's cache — no extra request.
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const handleExportPdf = async () => {
+    if (!sheet || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      const { generateSchedulingSheetPdf } = await import('../../utils/schedulingSheetPdf');
+      const { blobUrl, fileName, dayCount, omittedDays } = generateSchedulingSheetPdf({ sheet, liveEventsById });
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoked late: Safari reads the blob after the click returns.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      showSuccess(omittedDays > 0
+        ? `Exported the first ${dayCount} days. ${omittedDays} more were left out - print those from their own day tabs.`
+        : `Exported ${dayCount} day${dayCount === 1 ? '' : 's'} to PDF.`);
+    } catch (error) {
+      logger.error('Scheduling sheet PDF export failed', error);
+      showError('Could not generate the PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   const sheetsByYear = useMemo(() => {
     const groups = {};
@@ -490,8 +528,15 @@ export default function SchedulingSheets() {
               <button type="button" className="ss-primary-btn" data-testid="email-schedules-button" onClick={() => setEmailOpen(true)}>
                 ✉ Email Schedules
               </button>
-              <button type="button" className="ss-ghost-btn" title="Print this day sheet" onClick={() => window.print()}>
-                🖨
+              <button
+                type="button"
+                className="ss-ghost-btn"
+                data-testid="export-pdf-button"
+                title="Download this scheduling sheet as a landscape PDF (every day, one per page)"
+                disabled={exportingPdf || !days.length}
+                onClick={handleExportPdf}
+              >
+                {exportingPdf ? '…' : '🖨'}
               </button>
               <div className="ss-menu-wrap">
                 <button type="button" className="ss-ghost-btn" data-testid="sheet-menu-button" onClick={() => { setMenuOpen((v) => !v); setConfirmMenuAction(null); }}>

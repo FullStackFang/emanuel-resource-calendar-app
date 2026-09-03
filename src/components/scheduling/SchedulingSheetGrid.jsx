@@ -15,6 +15,7 @@ import React, { useMemo, useState } from 'react';
 import SheetCellEditor from './SheetCellEditor';
 import {
   toLocationNameArray,
+  computeDoubleBookedEmails,
   customRowsOf,
   moveArrayItem,
   moveArrayItemBy,
@@ -125,55 +126,6 @@ function EventMentionList({ term, events, onPick }) {
   );
 }
 
-function textOfCell(cell) {
-  return ((cell && cell.segments) || [])
-    .filter((s) => s.type === 'text')
-    .map((s) => s.text)
-    .join(' ')
-    .trim() || null;
-}
-
-/**
- * Same person tagged in two columns whose Begins–Ends windows overlap →
- * a soft warning on those chips (never a block; a floater covering two posts
- * is legitimate).
- */
-function computeDoubleBookedEmails(day) {
-  const rowIdByLabel = {};
-  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
-  const beginsRow = rowIdByLabel['begins'];
-  const endsRow = rowIdByLabel['ends'];
-  if (!beginsRow || !endsRow) return new Set();
-
-  const windows = {}; // email -> [{begins, ends, colId}]
-  for (const col of day.columns || []) {
-    const begins = textOfCell((day.cells || {})[cellKeyOf(beginsRow, col.id)]);
-    const ends = textOfCell((day.cells || {})[cellKeyOf(endsRow, col.id)]);
-    if (!begins || !ends) continue;
-    for (const key of Object.keys(day.cells || {})) {
-      const [, colId] = key.split(':');
-      if (colId !== col.id) continue;
-      for (const seg of (day.cells[key].segments || [])) {
-        if (seg.type === 'person' && seg.email) {
-          (windows[seg.email] = windows[seg.email] || []).push({ begins, ends, colId: col.id });
-        }
-      }
-    }
-  }
-
-  const flagged = new Set();
-  for (const email of Object.keys(windows)) {
-    const list = windows[email];
-    for (let i = 0; i < list.length; i += 1) {
-      for (let j = i + 1; j < list.length; j += 1) {
-        if (list[i].colId === list[j].colId) continue;
-        if (list[i].begins < list[j].ends && list[j].begins < list[i].ends) flagged.add(email);
-      }
-    }
-  }
-  return flagged;
-}
-
 function CellContent({ cell, doubleBooked }) {
   if (!cell || !cell.segments || cell.segments.length === 0) {
     return <span className="ss-cell-empty" aria-hidden="true" />;
@@ -221,6 +173,7 @@ export default function SchedulingSheetGrid({
   const [openNoteKey, setOpenNoteKey] = useState(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
+  const [addingColumnSubmitting, setAddingColumnSubmitting] = useState(false);
   const [newRowLabel, setNewRowLabel] = useState('');
   const [renaming, setRenaming] = useState(null); // { kind: 'row'|'column', id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // { kind, id }
@@ -308,12 +261,25 @@ export default function SchedulingSheetGrid({
     });
   };
 
+  // Shared by the Cancel button, the backdrop click, and Esc — a no-op while
+  // a save is in flight (matches the disabled Cancel button below).
+  const closeAddColumnForm = () => {
+    if (addingColumnSubmitting) return;
+    setAddingColumn(false);
+    setNewColumnName('');
+  };
+
+  // Adding a column is a real network round-trip (no optimistic update), so
+  // the form stays open and disabled — not blank — until it settles: closes
+  // on success, re-enables (typed name intact) to retry on failure.
   const addFreeColumn = () => {
     const name = newColumnName.trim() || 'New post';
     const column = { id: newId(), name, linkedEvent: null };
-    onStructure({ columns: [...(day.columns || []), column] });
-    setAddingColumn(false);
-    setNewColumnName('');
+    setAddingColumnSubmitting(true);
+    onStructure({ columns: [...(day.columns || []), column] }, undefined, {
+      onSuccess: () => { setAddingColumn(false); setNewColumnName(''); setAddingColumnSubmitting(false); },
+      onError: () => setAddingColumnSubmitting(false),
+    });
   };
 
   // '@event' in the add-column input: one gesture creates the linked column AND
@@ -322,9 +288,11 @@ export default function SchedulingSheetGrid({
   const linkNewColumn = (event) => {
     const column = { id: newId(), name: event.title || 'Linked event', linkedEvent: snapshotOf(event) };
     const prefills = buildPrefillCells(event, column.id, day, locations);
-    onStructure({ columns: [...(day.columns || []), column] }, prefills);
-    setAddingColumn(false);
-    setNewColumnName('');
+    setAddingColumnSubmitting(true);
+    onStructure({ columns: [...(day.columns || []), column] }, prefills, {
+      onSuccess: () => { setAddingColumn(false); setNewColumnName(''); setAddingColumnSubmitting(false); },
+      onError: () => setAddingColumnSubmitting(false),
+    });
   };
 
   // '@event' while renaming an existing column: link (or relink) it in place.
@@ -497,48 +465,14 @@ export default function SchedulingSheetGrid({
             })}
             {canEdit && (
               <th className="ss-add-col">
-                {addingColumn ? (
-                  <div className="ss-add-col-form ss-mention-anchor" data-testid="add-column-form">
-                    <input
-                      data-testid="add-column-input"
-                      placeholder="Post name — @ links an event"
-                      title="Type a name for a free-standing column, or @ to pick a published event: it links the column and prefills location, call time and times. Nothing writes back to the calendar."
-                      value={newColumnName}
-                      autoFocus
-                      onChange={(e) => setNewColumnName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return;
-                        e.preventDefault();
-                        if (newColumnName.startsWith('@')) {
-                          const q = newColumnName.slice(1).trim().toLowerCase();
-                          const first = (publishedEvents || []).find((ev) => !q || (ev.title || '').toLowerCase().includes(q));
-                          if (first) linkNewColumn(first);
-                        } else {
-                          addFreeColumn();
-                        }
-                      }}
-                    />
-                    {newColumnName.startsWith('@') && (
-                      <EventMentionList
-                        term={newColumnName.slice(1)}
-                        events={publishedEvents}
-                        onPick={linkNewColumn}
-                      />
-                    )}
-                    <div className="ss-add-col-actions">
-                      <button type="button" className="ss-primary-btn" onClick={addFreeColumn} disabled={newColumnName.startsWith('@')}>
-                        Add
-                      </button>
-                      <button type="button" className="ss-ghost-btn" onClick={() => { setAddingColumn(false); setNewColumnName(''); }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button type="button" className="ss-add-btn" data-testid="add-column-button" onClick={() => setAddingColumn(true)}>
-                    + column
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="ss-add-btn"
+                  data-testid="add-column-button"
+                  onClick={() => setAddingColumn(true)}
+                >
+                  + column
+                </button>
               </th>
             )}
           </tr>
@@ -695,6 +629,65 @@ export default function SchedulingSheetGrid({
             setEditingCell(null);
           }}
         />
+      )}
+
+      {addingColumn && (
+        <div className="ss-editor-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) closeAddColumnForm(); }}>
+          <div className="ss-panel" role="dialog" aria-label="Add column" data-testid="add-column-form">
+            <h3>Add a column</h3>
+            <p className="ss-panel-hint">
+              Name a free-standing post, or type @ to link a published event — it prefills Location, Call Time,
+              Doors Open, Begins, and Ends automatically. Nothing writes back to the calendar.
+            </p>
+            <span className="ss-mention-anchor" style={{ display: 'block' }}>
+              <input
+                className="ss-add-col-input"
+                data-testid="add-column-input"
+                placeholder="Post name — @ links an event"
+                value={newColumnName}
+                autoFocus
+                disabled={addingColumnSubmitting}
+                onChange={(e) => setNewColumnName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeAddColumnForm();
+                    return;
+                  }
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  if (newColumnName.startsWith('@')) {
+                    const q = newColumnName.slice(1).trim().toLowerCase();
+                    const first = (publishedEvents || []).find((ev) => !q || (ev.title || '').toLowerCase().includes(q));
+                    if (first) linkNewColumn(first);
+                  } else {
+                    addFreeColumn();
+                  }
+                }}
+              />
+              {!addingColumnSubmitting && newColumnName.startsWith('@') && (
+                <EventMentionList
+                  term={newColumnName.slice(1)}
+                  events={publishedEvents}
+                  onPick={linkNewColumn}
+                />
+              )}
+            </span>
+            <div className="ss-editor-actions">
+              <button type="button" className="ss-ghost-btn" disabled={addingColumnSubmitting} onClick={closeAddColumnForm}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ss-primary-btn"
+                onClick={addFreeColumn}
+                disabled={newColumnName.startsWith('@') || addingColumnSubmitting}
+              >
+                {addingColumnSubmitting ? 'Adding…' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

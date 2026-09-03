@@ -90,3 +90,57 @@ export function moveCustomRowTo(rows, id, toIndex) {
   if (reordered === custom) return rows;
   return withCustomRows(rows, reordered);
 }
+
+const cellKeyOf = (rowId, colId) => `${rowId}:${colId}`;
+
+function textOfCell(cell) {
+  return ((cell && cell.segments) || [])
+    .filter((s) => s.type === 'text')
+    .map((s) => s.text)
+    .join(' ')
+    .trim() || null;
+}
+
+/**
+ * Same person tagged in two columns whose Begins-Ends windows overlap ->
+ * a soft warning on those chips (never a block; a floater covering two posts
+ * is legitimate).
+ *
+ * Shared by SchedulingSheetGrid (on-screen chips) and schedulingSheetPdf (the
+ * printed sheet) so both surface the same warnings from one definition.
+ */
+export function computeDoubleBookedEmails(day) {
+  const rowIdByLabel = {};
+  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
+  const beginsRow = rowIdByLabel['begins'];
+  const endsRow = rowIdByLabel['ends'];
+  if (!beginsRow || !endsRow) return new Set();
+
+  const windows = {}; // email -> [{begins, ends, colId}]
+  for (const col of day.columns || []) {
+    const begins = textOfCell((day.cells || {})[cellKeyOf(beginsRow, col.id)]);
+    const ends = textOfCell((day.cells || {})[cellKeyOf(endsRow, col.id)]);
+    if (!begins || !ends) continue;
+    for (const key of Object.keys(day.cells || {})) {
+      const [, colId] = key.split(':');
+      if (colId !== col.id) continue;
+      for (const seg of (day.cells[key].segments || [])) {
+        if (seg.type === 'person' && seg.email) {
+          (windows[seg.email] = windows[seg.email] || []).push({ begins, ends, colId: col.id });
+        }
+      }
+    }
+  }
+
+  const flagged = new Set();
+  for (const email of Object.keys(windows)) {
+    const list = windows[email];
+    for (let i = 0; i < list.length; i += 1) {
+      for (let j = i + 1; j < list.length; j += 1) {
+        if (list[i].colId === list[j].colId) continue;
+        if (list[i].begins < list[j].ends && list[j].begins < list[i].ends) flagged.add(email);
+      }
+    }
+  }
+  return flagged;
+}

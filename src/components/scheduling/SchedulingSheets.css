@@ -330,10 +330,31 @@
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
-.ss-add-col-form { display: flex; flex-direction: column; gap: 6px; min-width: 220px; font-weight: 400; }
-.ss-add-col-form input { font-size: 13px; padding: 5px 6px; width: 100%; box-sizing: border-box; }
-.ss-add-col-actions { display: flex; gap: 6px; }
+.ss-add-btn:hover {
+  border-color: var(--color-primary-300, #9dbde4);
+  color: var(--color-primary-600, #2f5a99);
+  background: var(--color-primary-50, #eef4fb);
+}
+
+/* Add-column is a modal (`.ss-editor-backdrop` + `.ss-panel`, same as New
+   sheet / New day above) rather than an inline or anchored-dropdown form —
+   a long linked-event title and its date/time get the panel's full width,
+   and it isn't tied to the column header cell's own (often narrow) width. */
+.ss-add-col-input {
+  font-size: 14px;
+  padding: 8px 10px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+}
+.ss-add-col-input:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100, #dae6ff);
+}
 
 /* '@event' mention dropdown anchored under a column-name input. */
 .ss-mention-anchor { position: relative; display: block; }
