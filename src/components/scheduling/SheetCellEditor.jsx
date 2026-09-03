@@ -10,6 +10,8 @@
 
 import React, { useMemo, useState } from 'react';
 
+import { parseTimeToken } from './sheetEventUtils';
+
 const MATCH_CAP = 5;
 
 function PersonChip({ segment, onRemove, onSetCallTime, canEdit }) {
@@ -73,6 +75,26 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     return q ? all.filter((l) => (l.displayName || '').toLowerCase().includes(q)) : all;
   }, [mode, term, locations]);
 
+  // A time typed anywhere in the cell normalizes to one sheet-wide format;
+  // anything that is not a time ('after kiddush') commits exactly as typed.
+  const timePreview = useMemo(() => (mode === 'text' ? parseTimeToken(input) : null), [mode, input]);
+
+  // '@' is a lookup sigil, and a time has nothing to look up — so it is
+  // optional here. Typing '@6pm' still works because people reach for it.
+  const mentionTime = useMemo(() => (mode === 'mention' ? parseTimeToken(term) : null), [mode, term]);
+
+  /**
+   * The segment the input box currently represents, or null when it is empty.
+   * save() and Enter BOTH go through this: text left in the box used to be
+   * discarded on save, which read as 'times cannot be entered' because chips
+   * are committed by a picker click and only text needs the Enter step.
+   */
+  const pendingTextSegment = () => {
+    const value = input.trim();
+    if (!value) return null;
+    return { type: 'text', text: timePreview ? timePreview.display : value };
+  };
+
   const addSegment = (segment) => {
     setSegments((prev) => [...prev, segment]);
     setInput('');
@@ -80,14 +102,15 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   };
 
   const commitText = () => {
-    if (!input.trim()) return;
-    addSegment({ type: 'text', text: input.trim() });
+    const segment = pendingTextSegment();
+    if (segment) addSegment(segment);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (mode === 'text') commitText();
+      else if (mode === 'mention' && mentionTime) pickTime(mentionTime);
       else if (mode === 'mention' && personMatches.length) pickPerson(personMatches[0]);
       else if ((mode === 'mention' || mode === 'location') && locationMatches.length) pickLocation(locationMatches[0]);
     }
@@ -99,6 +122,8 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   const pickPerson = (p) =>
     addSegment({ type: 'person', userId: p.userId, name: p.name, email: p.email, placeholder: false, callTimeOverride: null });
 
+  const pickTime = (t) => addSegment({ type: 'text', text: t.display });
+
   const pickLocation = (l) =>
     addSegment({ type: 'location', locationId: String(l._id), name: l.displayName });
 
@@ -107,8 +132,9 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
 
   const save = () => {
     const trimmedNote = note.trim();
+    const pending = pendingTextSegment();
     onSave({
-      segments,
+      segments: pending ? [...segments, pending] : segments,
       note: trimmedNote ? { text: trimmedNote, authorName: null, at: new Date().toISOString() } : null,
     });
   };
@@ -155,17 +181,21 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
         {callTimeIndex !== null && (
           <div className="ss-editor-calltime" data-testid="call-time-editor">
             <label>
-              Personal call time (HH:MM)
+              Personal call time
               <input
                 value={callTimeDraft}
                 onChange={(e) => setCallTimeDraft(e.target.value)}
-                placeholder="16:00"
+                placeholder="6pm or 18:00"
               />
             </label>
             <button
               type="button"
               onClick={() => {
-                const value = callTimeDraft.trim();
+                // The server validates this field as strict HH:MM, so accept a
+                // loosely-typed time here and normalize rather than 400 on '6pm'.
+                const typed = callTimeDraft.trim();
+                const parsed = parseTimeToken(typed);
+                const value = parsed ? parsed.value : typed;
                 setSegments((prev) =>
                   prev.map((s, j) => (j === callTimeIndex ? { ...s, callTimeOverride: value || null } : s))
                 );
@@ -185,11 +215,26 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
           autoFocus
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type text, @ to tag a person or location"
+          placeholder="Type a time (6pm), free text, or @ to tag a person or location"
         />
+
+        {timePreview && (
+          <div className="ss-time-hint" data-testid="cell-time-hint">
+            <span aria-hidden="true">&#128337;</span> {timePreview.display}
+            <span className="ss-time-hint-key">Enter to add</span>
+          </div>
+        )}
 
         {mode === 'mention' && !externalDraft && (
           <div className="ss-picker" data-testid="person-picker">
+            {mentionTime && (
+              <>
+                <div className="ss-picker-group">Time</div>
+                <button type="button" className="ss-picker-row" data-testid="mention-time-row" onClick={() => pickTime(mentionTime)}>
+                  <span className="ss-picker-name"><span aria-hidden="true">&#128337;</span> {mentionTime.display}</span>
+                </button>
+              </>
+            )}
             {personMatches.slice(0, MATCH_CAP).map((p) => (
               <button key={p.userId} type="button" className="ss-picker-row" onClick={() => pickPerson(p)}>
                 <span className="ss-picker-name">{p.name}</span>

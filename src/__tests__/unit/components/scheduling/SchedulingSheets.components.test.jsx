@@ -141,7 +141,7 @@ describe('SheetCellEditor', () => {
 
     fireEvent.click(screen.getByTitle(/personal call time/i));
     const editor = screen.getByTestId('call-time-editor');
-    fireEvent.change(within(editor).getByPlaceholderText('16:00'), { target: { value: '15:45' } });
+    fireEvent.change(within(editor).getByPlaceholderText('6pm or 18:00'), { target: { value: '15:45' } });
     fireEvent.click(within(editor).getByText('Set'));
 
     fireEvent.click(screen.getByTestId('cell-editor-save'));
@@ -149,6 +149,90 @@ describe('SheetCellEditor', () => {
       expect.objectContaining({
         segments: [expect.objectContaining({ callTimeOverride: '15:45' })],
       })
+    );
+  });
+
+  it('SCE-14: the per-person call time accepts 6pm and stores the strict HH:MM the server requires', () => {
+    openEditor({ segments: [{ type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org', placeholder: false, callTimeOverride: null }], note: null });
+
+    fireEvent.click(screen.getByTitle(/personal call time/i));
+    const editor = screen.getByTestId('call-time-editor');
+    fireEvent.change(within(editor).getByPlaceholderText('6pm or 18:00'), { target: { value: '6pm' } });
+    fireEvent.click(within(editor).getByText('Set'));
+
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [expect.objectContaining({ callTimeOverride: '18:00' })] })
+    );
+  });
+
+  // ── Time entry (SCE-8..13) ────────────────────────────────────────────────
+
+  it('SCE-8: a typed time is committed by Save cell — no Enter required', () => {
+    // Regression: save() used to read only `segments`, silently discarding
+    // whatever was still in the input. Times were the visible casualty because
+    // people and locations commit via a picker click instead.
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: '6:00pm' } });
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [{ type: 'text', text: '6:00 PM' }] })
+    );
+  });
+
+  it.each([['6pm'], ['6 PM'], ['6:00'], ['630pm'], ['18:00'], ['1800']])(
+    'SCE-9: %s normalizes to one consistent sheet format',
+    (typed) => {
+      openEditor();
+      const input = screen.getByTestId('cell-editor-input');
+      fireEvent.change(input, { target: { value: typed } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.click(screen.getByTestId('cell-editor-save'));
+
+      const { segments } = onSave.mock.calls[0][0];
+      expect(segments[0].text).toBe(typed === '630pm' ? '6:30 PM' : '6:00 PM');
+    }
+  );
+
+  it('SCE-10: a time-shaped entry previews its normalized value before commit', () => {
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: '6p' } });
+    expect(screen.getByTestId('cell-time-hint')).toHaveTextContent('6:00 PM');
+  });
+
+  it('SCE-11: @6pm offers a Time row, so the @ muscle memory works for times too', () => {
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: '@6pm' } });
+
+    const row = screen.getByTestId('mention-time-row');
+    expect(row).toHaveTextContent('6:00 PM');
+    fireEvent.click(row);
+
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [{ type: 'text', text: '6:00 PM' }] })
+    );
+  });
+
+  it('SCE-12: non-time free text is committed verbatim, never coerced to a clock value', () => {
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: 'after kiddush' } });
+    expect(screen.queryByTestId('cell-time-hint')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [{ type: 'text', text: 'after kiddush' }] })
+    );
+  });
+
+  it('SCE-13: an unpicked @term is kept as text on save rather than silently dropped', () => {
+    openEditor();
+    fireEvent.change(screen.getByTestId('cell-editor-input'), { target: { value: '@Marcus' } });
+    fireEvent.click(screen.getByTestId('cell-editor-save'));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ segments: [{ type: 'text', text: '@Marcus' }] })
     );
   });
 });
@@ -342,10 +426,12 @@ describe('SchedulingSheetGrid', () => {
       expect.objectContaining({ type: 'location', locationId: 'l1', name: 'Wise Hall' }),
       expect.objectContaining({ type: 'location', locationId: null, name: 'Uptown Annex' }),
     ]);
-    expect(byRow.rCall.cell.segments).toEqual([{ type: 'text', text: '17:00' }]);
-    expect(byRow.rDoors.cell.segments).toEqual([{ type: 'text', text: '17:30' }]);
-    expect(byRow.rBegins.cell.segments).toEqual([{ type: 'text', text: '18:00' }]);
-    expect(byRow.rEnds.cell.segments).toEqual([{ type: 'text', text: '21:00' }]);
+    // Event HH:MM is normalized to the sheet's one time format, so a prefilled
+    // row and a hand-typed one read identically on the printed sheet.
+    expect(byRow.rCall.cell.segments).toEqual([{ type: 'text', text: '5:00 PM' }]);
+    expect(byRow.rDoors.cell.segments).toEqual([{ type: 'text', text: '5:30 PM' }]);
+    expect(byRow.rBegins.cell.segments).toEqual([{ type: 'text', text: '6:00 PM' }]);
+    expect(byRow.rEnds.cell.segments).toEqual([{ type: 'text', text: '9:00 PM' }]);
   });
 
   it('SSG-9: plain text in the add-column input still adds a free-standing column, no link, no prefill', () => {

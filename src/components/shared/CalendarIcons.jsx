@@ -113,3 +113,18 @@ export const CalendarIcon = ({ size = 12, className = '' }) => (
     <line x1="11" y1="1" x2="11" y2="4" />
   </svg>
 );
+
+export const PrinterIcon = ({ size = 12, className = '' }) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M4.5 6V2.5h7V6" />
+    <path d="M4.5 11.5H3A1.5 1.5 0 0 1 1.5 10V7.5A1.5 1.5 0 0 1 3 6h10a1.5 1.5 0 0 1 1.5 1.5V10a1.5 1.5 0 0 1-1.5 1.5h-1.5" />
+    <rect x="4.5" y="9.5" width="7" height="4" rx="0.5" />
+  </svg>
+);
+
+export const MailIcon = ({ size = 12, className = '' }) => (
+  <svg {...svgProps(size, className)}>
+    <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+    <polyline points="2,4 8,8.5 14,4" />
+  </svg>
+);

@@ -219,6 +219,12 @@
   font-size: 13px;
   font-weight: var(--font-semibold);
   cursor: pointer;
+  /* Buttons pair an inline SVG with their label; flex keeps the glyph on the
+     text's optical centre instead of its baseline. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 .ss-primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .ss-primary-btn.ss-confirm {
@@ -233,8 +239,18 @@
   font-size: 13px;
   cursor: pointer;
   color: var(--text-primary, #2d3748);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
-.ss-ghost-btn:hover { background: var(--bg-secondary); }
+.ss-ghost-btn:hover:not(:disabled) { background: var(--bg-secondary); }
+.ss-ghost-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Square-ish padding for a button whose whole content is a 14px glyph. The
+   SVG inherits currentColor, so it follows hover, disabled and dark mode
+   with no extra rules — which a colour emoji never did. */
+.ss-icon-btn { padding: 7px 9px; }
 
 /* ── Grid ────────────────────────────────────────────────────────────── */
 
@@ -625,6 +641,29 @@ tr.ss-drop-target .ss-row-label {
 .ss-picker-overflow { padding: 6px 10px; font-size: 12px; color: var(--text-secondary); font-style: italic; }
 .ss-picker-escape { color: var(--color-primary-500); }
 .ss-picker-placeholder { font-family: var(--font-mono, monospace); font-size: 12px; }
+
+/* Live preview of a normalized time. Normalization is never silent: the user
+   sees what will be committed before committing it. */
+.ss-time-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: var(--font-medium, 500);
+  color: var(--text-secondary);
+  background: var(--color-neutral-50, #f7f7f8);
+  border: 1px solid var(--color-neutral-200, #e5e5e8);
+  border-radius: var(--radius-md);
+}
+.ss-time-hint-key {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--text-secondary));
+}
 
 .ss-editor-external { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .ss-editor-external input { flex: 1; min-width: 140px; padding: 6px 8px; font-size: 13px; }

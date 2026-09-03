@@ -23,6 +23,7 @@ import {
   moveCustomRowBy,
   moveCustomRowTo,
   reorderCustomRows,
+  parseTimeToken,
 } from './sheetEventUtils';
 
 const newId = () =>
@@ -93,7 +94,11 @@ function buildPrefillCells(event, colId, day, locations) {
       });
       writes.push({ rowId, colId, cell: { segments, note: null } });
     } else if (event[spec.field]) {
-      writes.push({ rowId, colId, cell: { segments: [{ type: 'text', text: event[spec.field] }], note: null } });
+      // Event times arrive as 24h HH:MM. Normalize through the same parser the
+      // cell editor uses so a prefilled row and a hand-typed one never disagree.
+      const parsed = parseTimeToken(event[spec.field]);
+      const text = parsed ? parsed.display : event[spec.field];
+      writes.push({ rowId, colId, cell: { segments: [{ type: 'text', text }], note: null } });
     }
   }
   return writes;

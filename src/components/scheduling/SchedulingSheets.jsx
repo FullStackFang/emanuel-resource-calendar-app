@@ -28,6 +28,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
+import { PrinterIcon, MailIcon } from '../shared/CalendarIcons';
 import SchedulingSheetGrid from './SchedulingSheetGrid';
 import { toLocationNameArray } from './sheetEventUtils';
 import SeedDatePicker from './SeedDatePicker';
@@ -526,17 +527,21 @@ export default function SchedulingSheets() {
 
             <div className="ss-actions">
               <button type="button" className="ss-primary-btn" data-testid="email-schedules-button" onClick={() => setEmailOpen(true)}>
-                ✉ Email Schedules
+                <MailIcon size={14} /> Email Schedules
               </button>
+              {/* Icon-only, so the accessible name has to be explicit — the
+                  emoji this replaced was carrying it (badly). */}
               <button
                 type="button"
-                className="ss-ghost-btn"
+                className="ss-ghost-btn ss-icon-btn"
                 data-testid="export-pdf-button"
+                aria-label={exportingPdf ? 'Preparing PDF' : 'Export scheduling sheet as PDF'}
+                aria-busy={exportingPdf}
                 title="Download this scheduling sheet as a landscape PDF (every day, one per page)"
                 disabled={exportingPdf || !days.length}
                 onClick={handleExportPdf}
               >
-                {exportingPdf ? '…' : '🖨'}
+                <PrinterIcon size={14} />
               </button>
               <div className="ss-menu-wrap">
                 <button type="button" className="ss-ghost-btn" data-testid="sheet-menu-button" onClick={() => { setMenuOpen((v) => !v); setConfirmMenuAction(null); }}>

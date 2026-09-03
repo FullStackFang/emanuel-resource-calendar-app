@@ -152,6 +152,19 @@ describe('SchedulingSheets - PDF export', () => {
     expect(screen.getByTestId('export-pdf-button')).not.toBeDisabled();
   });
 
+  // The button is icon-only now (an inline SVG, per CalendarIcons' convention).
+  // The emoji it replaced was acting as the accessible name, so dropping it
+  // without an aria-label would leave screen readers announcing an empty
+  // button - a silent regression no visual check would catch.
+  it('SSPE-7: the icon-only button still exposes an accessible name', async () => {
+    renderPage();
+
+    const button = screen.getByRole('button', { name: /export scheduling sheet as pdf/i });
+    expect(button).toBe(screen.getByTestId('export-pdf-button'));
+    expect(button.textContent).toBe('');       // no text label to fall back on
+    expect(button.querySelector('svg')).toBeTruthy();
+  });
+
   it('SSPE-6: a workbook with no days cannot be exported', async () => {
     mockDetailQuery = { data: { ...SHEET, days: [] }, isFetching: false, isPending: false, refetch: vi.fn() };
     renderPage();

@@ -15,6 +15,8 @@ import {
   reorderCustomRows,
   moveCustomRowBy,
   moveCustomRowTo,
+  parseTimeToken,
+  computeDoubleBookedEmails,
 } from '../../../../components/scheduling/sheetEventUtils';
 
 const cols = () => [
@@ -106,5 +108,101 @@ describe('custom row reorder helpers', () => {
     expect(moveCustomRowBy(original, 'rSecurity', 5).map((r) => r.id)).toEqual(
       ['rLoc', 'rCall', 'rBegins', 'rUshers', 'rGreeters', 'rSecurity']
     );
+  });
+});
+
+// ── Time parsing (STU-*) ────────────────────────────────────────────────────
+//
+// One definition of "what is a time" for this feature, consumed by the cell
+// commit path, the '@event' prefill, and the double-booking overlap check.
+
+describe('parseTimeToken', () => {
+  const cases = [
+    // [input, canonical HH:MM, display]
+    ['6pm', '18:00', '6:00 PM'],
+    ['6PM', '18:00', '6:00 PM'],
+    ['6 pm', '18:00', '6:00 PM'],
+    ['6p', '18:00', '6:00 PM'],
+    ['6:00pm', '18:00', '6:00 PM'],
+    ['6:00 PM', '18:00', '6:00 PM'],
+    ['630pm', '18:30', '6:30 PM'],
+    ['6:30 p.m.', '18:30', '6:30 PM'],
+    ['18:00', '18:00', '6:00 PM'],
+    ['1800', '18:00', '6:00 PM'],
+    ['9am', '09:00', '9:00 AM'],
+    ['9:05am', '09:05', '9:05 AM'],
+    ['12pm', '12:00', '12:00 PM'],   // noon
+    ['12am', '00:00', '12:00 AM'],   // midnight
+    ['12:30am', '00:30', '12:30 AM'],
+    ['00:30', '00:30', '12:30 AM'],
+    ['23:45', '23:45', '11:45 PM'],
+  ];
+
+  it.each(cases)('STU-1: parses %s -> %s', (input, value, display) => {
+    expect(parseTimeToken(input)).toEqual({ value, display });
+  });
+
+  it('STU-2: a bare hour uses the 7-12 AM / 1-6 PM convention', () => {
+    expect(parseTimeToken('7').display).toBe('7:00 AM');
+    expect(parseTimeToken('11').display).toBe('11:00 AM');
+    expect(parseTimeToken('12').display).toBe('12:00 PM');
+    expect(parseTimeToken('1').display).toBe('1:00 PM');
+    expect(parseTimeToken('6').display).toBe('6:00 PM');
+    expect(parseTimeToken('6:30').display).toBe('6:30 PM');
+    expect(parseTimeToken('7:30').display).toBe('7:30 AM');
+  });
+
+  it('STU-3: an explicit meridiem always beats the bare-hour convention', () => {
+    expect(parseTimeToken('7pm').display).toBe('7:00 PM');
+    expect(parseTimeToken('6am').display).toBe('6:00 AM');
+  });
+
+  it('STU-4: non-times return null so they commit as ordinary free text', () => {
+    for (const input of ['after kiddush', 'TBD', '', '   ', 'Wise Hall', '25:00', '6:75', '13pm', '0pm', 'usher']) {
+      expect(parseTimeToken(input)).toBeNull();
+    }
+  });
+
+  it('STU-5: surrounding whitespace is tolerated', () => {
+    expect(parseTimeToken('  6:00 pm  ').value).toBe('18:00');
+  });
+
+  it('STU-6: an already-normalized display value round-trips unchanged', () => {
+    const once = parseTimeToken('6pm');
+    expect(parseTimeToken(once.display)).toEqual(once);
+  });
+});
+
+describe('computeDoubleBookedEmails with mixed time formats', () => {
+  const day = (beginsA, endsA, beginsB, endsB) => ({
+    rows: [
+      { id: 'rBegins', kind: 'starter', label: 'Begins' },
+      { id: 'rEnds', kind: 'starter', label: 'Ends' },
+      { id: 'rUshers', kind: 'custom', label: 'Ushers' },
+    ],
+    columns: [{ id: 'c1', name: 'Sanctuary' }, { id: 'c2', name: 'Chapel' }],
+    cells: {
+      'rBegins:c1': { segments: [{ type: 'text', text: beginsA }] },
+      'rEnds:c1': { segments: [{ type: 'text', text: endsA }] },
+      'rBegins:c2': { segments: [{ type: 'text', text: beginsB }] },
+      'rEnds:c2': { segments: [{ type: 'text', text: endsB }] },
+      'rUshers:c1': { segments: [{ type: 'person', name: 'Sarah', email: 'sarah@x.org' }] },
+      'rUshers:c2': { segments: [{ type: 'person', name: 'Sarah', email: 'sarah@x.org' }] },
+    },
+  });
+
+  it('STU-7: flags an overlap written in two different formats', () => {
+    // 6:00 PM-9:00 PM overlaps 18:30-20:00. String comparison misses this.
+    expect(computeDoubleBookedEmails(day('6:00 PM', '9:00 PM', '18:30', '20:00'))).toEqual(
+      new Set(['sarah@x.org'])
+    );
+  });
+
+  it('STU-8: does not flag non-overlapping windows across formats', () => {
+    expect(computeDoubleBookedEmails(day('9:00 AM', '11:00 AM', '18:00', '20:00')).size).toBe(0);
+  });
+
+  it('STU-9: unparseable times are skipped rather than guessed at', () => {
+    expect(computeDoubleBookedEmails(day('after kiddush', 'late', '18:30', '20:00')).size).toBe(0);
   });
 });

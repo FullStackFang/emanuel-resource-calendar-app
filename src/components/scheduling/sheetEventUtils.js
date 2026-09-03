@@ -91,6 +91,91 @@ export function moveCustomRowTo(rows, id, toIndex) {
   return withCustomRows(rows, reordered);
 }
 
+// ── Time parsing ────────────────────────────────────────────────────────────
+//
+// ONE definition of "what is a time" for scheduling sheets, shared by the cell
+// commit path, the '@event' starter-row prefill, and the double-booking
+// overlap check below. Consistency is structural rather than a convention
+// people have to follow: only this function produces a sheet time string.
+//
+// Returns { value: 'HH:MM' (24h, sortable), display: '6:00 PM' } or null when
+// the input is not a time at all — 'after kiddush' must stay ordinary free
+// text, never a silently mangled clock value.
+
+const MERIDIEM_RE = /^(\d{1,2})(?::?(\d{2}))?\s*([ap])m?$/;
+const COLON_RE = /^(\d{1,2}):(\d{2})$/;
+const COMPACT_RE = /^(\d{3,4})$/;
+const BARE_HOUR_RE = /^(\d{1,2})$/;
+
+/** 24h hour for a bare hour with no meridiem: 7-12 read as AM, 1-6 as PM. */
+function disambiguateBareHour(hour) {
+  if (hour === 0 || hour >= 13) return hour;   // already unambiguous 24h
+  return hour <= 6 ? hour + 12 : hour;         // 1-6 -> evening, 7-12 literal
+}
+
+function buildTime(hour24, minute) {
+  if (!Number.isInteger(hour24) || !Number.isInteger(minute)) return null;
+  if (hour24 < 0 || hour24 > 23 || minute < 0 || minute > 59) return null;
+  const value = `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const suffix = hour24 < 12 ? 'AM' : 'PM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return { value, display: `${hour12}:${String(minute).padStart(2, '0')} ${suffix}` };
+}
+
+/**
+ * Parse a loosely-typed time. Accepts 6, 6p, 6pm, 6 PM, 630pm, 6:00pm,
+ * 6:30 p.m., 18:00 and 1800. Returns null for anything that is not a time.
+ */
+export function parseTimeToken(input) {
+  if (typeof input !== 'string') return null;
+  // Lowercase and drop the dots in 'p.m.' so one regex covers every spelling.
+  const raw = input.trim().toLowerCase().replace(/\./g, '');
+  if (!raw) return null;
+
+  const meridiem = raw.match(MERIDIEM_RE);
+  if (meridiem) {
+    const hour = Number(meridiem[1]);
+    const minute = meridiem[2] ? Number(meridiem[2]) : 0;
+    // A meridiem forces a 12-hour reading, so '13pm' and '0pm' are not times.
+    if (hour < 1 || hour > 12) return null;
+    const isPm = meridiem[3] === 'p';
+    const hour24 = isPm ? (hour === 12 ? 12 : hour + 12) : (hour === 12 ? 0 : hour);
+    return buildTime(hour24, minute);
+  }
+
+  const colon = raw.match(COLON_RE);
+  if (colon) {
+    const hour = Number(colon[1]);
+    if (hour > 23) return null;
+    return buildTime(disambiguateBareHour(hour), Number(colon[2]));
+  }
+
+  const compact = raw.match(COMPACT_RE);
+  if (compact) {
+    const digits = compact[1];
+    const hour = Number(digits.slice(0, digits.length - 2));
+    if (hour > 23) return null;
+    return buildTime(disambiguateBareHour(hour), Number(digits.slice(-2)));
+  }
+
+  const bare = raw.match(BARE_HOUR_RE);
+  if (bare) {
+    const hour = Number(bare[1]);
+    if (hour > 23) return null;
+    return buildTime(disambiguateBareHour(hour), 0);
+  }
+
+  return null;
+}
+
+/** Minutes since midnight for a sheet time string, or null if it is not one. */
+function timeToMinutes(text) {
+  const parsed = parseTimeToken(text);
+  if (!parsed) return null;
+  const [h, m] = parsed.value.split(':');
+  return Number(h) * 60 + Number(m);
+}
+
 const cellKeyOf = (rowId, colId) => `${rowId}:${colId}`;
 
 function textOfCell(cell) {
@@ -118,9 +203,12 @@ export function computeDoubleBookedEmails(day) {
 
   const windows = {}; // email -> [{begins, ends, colId}]
   for (const col of day.columns || []) {
-    const begins = textOfCell((day.cells || {})[cellKeyOf(beginsRow, col.id)]);
-    const ends = textOfCell((day.cells || {})[cellKeyOf(endsRow, col.id)]);
-    if (!begins || !ends) continue;
+    // Compare on parsed minutes, never on the raw strings: a sheet legitimately
+    // mixes '6:00 PM' with a legacy '18:00', and lexical order gets that wrong
+    // ('6:00 PM' < '18:00' is false), silently missing a real double-booking.
+    const begins = timeToMinutes(textOfCell((day.cells || {})[cellKeyOf(beginsRow, col.id)]));
+    const ends = timeToMinutes(textOfCell((day.cells || {})[cellKeyOf(endsRow, col.id)]));
+    if (begins === null || ends === null) continue;
     for (const key of Object.keys(day.cells || {})) {
       const [, colId] = key.split(':');
       if (colId !== col.id) continue;
