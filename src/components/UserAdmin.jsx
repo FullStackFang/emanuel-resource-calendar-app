@@ -736,7 +736,12 @@ export default function UserAdmin({ apiToken }) {
                     <div className="ua-avatar">{getInitials(user.displayName)}</div>
                     <div className="ua-person-text">
                       <span className="ua-name">
-                        <Highlight text={user.displayName || 'Unnamed User'} term={searchTerm} />
+                        {/* Highlight emits one element per segment, so the runs of a
+                            searched name must share a single flex item -- see the
+                            .ua-name-text note in UserAdmin.css. */}
+                        <span className="ua-name-text">
+                          <Highlight text={user.displayName || 'Unnamed User'} term={searchTerm} />
+                        </span>
                         {isCurrentUser && <span className="ua-you-badge">You</span>}
                       </span>
                       <span className="ua-email">

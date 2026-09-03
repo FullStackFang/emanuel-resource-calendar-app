@@ -20,8 +20,9 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import fs from 'fs';
-import path from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import process from 'node:process';
 import { withQueryClient } from '../../../__helpers__/queryClientWrapper';
 
 vi.mock('../../../../config/config', () => ({
@@ -195,8 +196,8 @@ describe('SchedulingSheets — workbook picker', () => {
   // behavioural test — the source assertion is the only thing that can catch a
   // regression back to the cramped 280px column.
   it('SSWP-8: the dropdown is given real width in the stylesheet', () => {
-    const css = fs.readFileSync(
-      path.resolve(__dirname, '../../../../components/scheduling/SchedulingSheets.css'),
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/components/scheduling/SchedulingSheets.css'),
       'utf8'
     );
     const block = css.slice(css.indexOf('.ss-workbook-menu {'));

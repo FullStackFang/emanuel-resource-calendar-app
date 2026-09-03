@@ -122,6 +122,13 @@ export const PrinterIcon = ({ size = 12, className = '' }) => (
   </svg>
 );
 
+export const CopyIcon = ({ size = 12, className = '' }) => (
+  <svg {...svgProps(size, className)}>
+    <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" />
+    <path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5" />
+  </svg>
+);
+
 export const MailIcon = ({ size = 12, className = '' }) => (
   <svg {...svgProps(size, className)}>
     <rect x="1.5" y="3" width="13" height="10" rx="1.5" />

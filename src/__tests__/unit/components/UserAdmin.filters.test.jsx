@@ -12,6 +12,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import process from 'node:process';
+
 import { withQueryClient } from '../../__helpers__/queryClientWrapper';
 
 vi.mock('../../../config/config', () => ({
@@ -55,6 +59,10 @@ vi.mock('../../../hooks/usePermissions', () => ({
 }));
 
 import UserAdmin from '../../../components/UserAdmin';
+
+// `?raw` yields an empty string for CSS under vitest's stylesheet handling, so
+// the rules are read straight off disk (same technique as SSI-23).
+const adminCss = readFileSync(resolve(process.cwd(), 'src/components/UserAdmin.css'), 'utf8');
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY).toISOString();
@@ -169,6 +177,42 @@ describe('UserAdmin roster filters', () => {
 
     const marks = Array.from(document.querySelectorAll('.ua-entry mark.ua-mark')).map((m) => m.textContent);
     expect(marks).toContain('Analy');
+  });
+
+  // UAF-18/19 are the same defect from two sides. `.ua-name` is a flex row so
+  // the 'You' badge can sit beside the name -- but Highlight emits one element
+  // PER SEGMENT, and every segment promoted to a flex item picks up the
+  // container's gap. Searching 'n' turned 'Kavan Monte' into 'Kava n Monte'.
+  it('UAF-18: highlighted name segments stay inside one flex item', async () => {
+    renderRoster();
+    await ready();
+
+    fireEvent.change(search(), { target: { value: 'da' } });
+
+    const name = document.querySelector('.ua-entry .ua-name');
+    // Guards the fixture: without a real split there is nothing to regress.
+    expect(name.querySelectorAll('mark.ua-mark').length).toBeGreaterThan(0);
+    expect(name.querySelector('.ua-name-text').childElementCount).toBeGreaterThan(1);
+
+    // The flex container itself may hold only the text wrapper and the badge.
+    const stray = Array.from(name.children).filter(
+      (el) => !el.classList.contains('ua-name-text') && !el.classList.contains('ua-you-badge')
+    );
+    expect(stray).toEqual([]);
+  });
+
+  it('UAF-19: name truncation lives on the text wrapper, not the flex row', () => {
+    // jsdom applies no stylesheets, so the cascade is asserted at the source.
+    // text-overflow does nothing on a flex container -- a long name has to
+    // ellipsise on the inner span or it is simply clipped mid-letter.
+    const rule = adminCss.slice(
+      adminCss.indexOf('.ua-name-text {'),
+      adminCss.indexOf('.ua-you-badge {')
+    );
+    expect(rule).toContain('white-space: nowrap');
+    expect(rule).toContain('text-overflow: ellipsis');
+    expect(rule).toContain('overflow: hidden');
+    expect(rule).toContain('min-width: 0');
   });
 
   it('UAF-7: role tab, department, and activity compose', async () => {

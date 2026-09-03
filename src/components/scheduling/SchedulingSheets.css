@@ -52,16 +52,21 @@
 
 .ss-workbook-menu {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   left: 0;
   z-index: 40;
-  min-width: 280px;
+  /* Workbook names are full titles ('2026 High Holy Days') sharing a line with
+     a day count and a Duplicate button; 280px wrapped them. Capped against the
+     viewport so a narrow window cannot push it off-screen. */
+  min-width: 400px;
+  max-width: min(520px, calc(100vw - 32px));
   background: var(--bg-primary, #fff);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 6px;
+  padding: 8px;
 }
+.ss-workbook-group + .ss-workbook-group { margin-top: 4px; }
 .ss-workbook-error {
   padding: 8px 10px;
   font-size: 12px;
@@ -85,22 +90,52 @@
   color: var(--text-secondary);
   padding: 6px 8px 2px;
 }
+/* Row = the workbook button plus its Duplicate action. The hover wash lives on
+   the row so the whole line lights up as one target. */
+.ss-workbook-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-md);
+}
+.ss-workbook-row:hover { background: var(--bg-secondary); }
 .ss-workbook-item {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  width: 100%;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
   text-align: left;
   background: transparent;
   border: none;
-  padding: 7px 8px;
+  padding: 9px 4px 9px 10px;
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
 }
-.ss-workbook-item:hover { background: var(--bg-secondary); }
 .ss-workbook-item.active { font-weight: var(--font-semibold); }
-.ss-workbook-sub { color: var(--text-secondary); font-size: 12px; }
+.ss-workbook-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-workbook-sub { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.ss-workbook-dup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ss-workbook-dup:hover,
+.ss-workbook-dup:focus-visible {
+  background: var(--bg-tertiary, #ececec);
+  color: var(--color-primary-500);
+}
 .ss-workbook-new {
   width: 100%;
   text-align: left;
@@ -737,7 +772,7 @@ tr.ss-drop-target .ss-row-label {
   padding: 24px;
 }
 
-.ss-editor, .ss-panel, .ss-email-panel {
+.ss-editor, .ss-panel {
   background: var(--bg-primary, #fff);
   border-radius: var(--modal-radius, 12px);
   padding: 20px;
@@ -850,7 +885,7 @@ tr.ss-drop-target .ss-row-label {
 .ss-editor-addnote { margin-top: 8px; }
 .ss-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
-.ss-panel h3, .ss-email-panel h3 { margin: 0 0 14px; font-size: 16px; }
+.ss-panel h3 { margin: 0 0 14px; font-size: 16px; }
 .ss-panel label { display: block; margin-bottom: 10px; font-size: 13px; color: var(--text-secondary); }
 .ss-panel label input, .ss-panel label select {
   display: block;
@@ -957,46 +992,224 @@ tr.ss-drop-target .ss-row-label {
   color: #92400e;
 }
 
-/* Email panel */
-.ss-email-scope { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; }
-.ss-email-recipients { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--color-neutral-200, #e7e5e4); border-radius: var(--radius-md); }
-.ss-email-recipients li {
+/* ── Email panel ──────────────────────────────────────────────────────────
+   Deliberately NOT sized with .ss-editor / .ss-panel: those hold one form's
+   worth of fields, this holds the whole roster (30+ people is a normal High
+   Holy Days day). It follows the app's modal shape instead — the fixed
+   header / scrolling body / fixed footer of .category-modal — so the send
+   button never scrolls away behind the list. */
+
+.ss-email-panel {
+  background: var(--bg-primary, #fff);
+  border-radius: var(--modal-radius, 12px);
+  width: min(1120px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-2xl, 0 16px 48px rgba(0, 0, 0, 0.2));
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.ss-email-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-default);
+}
+.ss-email-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight, -0.01em);
+}
+.ss-email-subtitle { margin: 3px 0 0; font-size: 12px; color: var(--text-secondary); }
+.ss-email-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ss-email-close:hover { background: var(--bg-tertiary, #ececec); color: var(--text-primary); }
+
+.ss-email-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px 16px; }
+
+.ss-email-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+.ss-email-footer .ss-editor-actions { margin-top: 0; }
+.ss-email-footnote { font-size: 12px; color: var(--text-secondary); }
+
+/* Scope: two side-by-side option cards rather than stacked radios — this is
+   the one choice that changes what every row below means, so it reads as a
+   control, not a footnote. */
+.ss-email-scope { display: flex; gap: 8px; }
+.ss-scope-opt {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ss-scope-opt:hover { border-color: var(--border-strong); }
+.ss-scope-opt.ss-scope-on {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50, #eef4fb);
+}
+.ss-scope-opt input { margin: 2px 0 0; flex: none; }
+.ss-scope-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ss-scope-title { font-weight: var(--font-medium, 500); }
+.ss-scope-sub { font-size: 11px; color: var(--text-secondary); }
+
+.ss-email-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--color-neutral-100, #f5f5f4);
+  margin: 14px 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ss-email-toolbar strong { color: var(--text-primary); font-weight: var(--font-semibold); }
+.ss-email-toolbar-actions { display: flex; gap: 12px; }
+.ss-email-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary-500);
+  cursor: pointer;
+}
+.ss-email-linkbtn:hover:not(:disabled) { text-decoration: underline; }
+.ss-email-linkbtn:disabled { color: var(--text-tertiary, #b6b0aa); cursor: default; }
+
+/* The roster. auto-fill lets the column count fall out of the panel width —
+   three across at 940px, one on a phone — with no breakpoints to keep in
+   sync. 232px is the width an @emanuelnyc.org address needs before it
+   starts ellipsizing. */
+.ss-email-recipients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 8px;
+}
+.ss-email-recipients li {
+  display: flex;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   font-size: 13px;
 }
-.ss-email-recipients label { display: flex; align-items: center; gap: 8px; }
-.ss-recipient-sub { color: var(--text-secondary); font-size: 11px; }
+.ss-email-recipients label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  cursor: pointer;
+}
+.ss-email-recipients label input { margin: 2px 0 0; flex: none; }
+/* Default is everyone selected, so the calm state is "in" and the styled
+   state is "out" — deselecting reads as taking someone off the list. */
+.ss-recipient-off { background: var(--bg-secondary); opacity: 0.55; }
+.ss-recipient-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ss-recipient-name {
+  font-weight: var(--font-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-recipient-sub {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-recipient-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 .ss-recipient-status { font-size: 11px; border-radius: var(--radius-full); padding: 1px 8px; white-space: nowrap; }
 .ss-status-sent { background: var(--color-success-50, #f0fdf4); color: var(--color-success-700, #15803d); }
 .ss-status-stale { background: var(--color-warning-50, #fefce8); color: #92400e; }
 .ss-status-none { color: var(--text-secondary); font-style: italic; }
-.ss-recipient-placeholder { opacity: 0.55; }
+.ss-recipient-placeholder { opacity: 0.55; border-style: dashed; }
 .ss-recipient-placeholder .ss-recipient-name { font-family: var(--font-mono, monospace); font-size: 12px; }
+
 .ss-email-block {
   background: var(--color-error-50, #fef2f2);
   border: 1px solid var(--color-error-200, #fecaca);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 .ss-email-override { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
-.ss-email-error { color: var(--color-error-500); font-size: 13px; margin-bottom: 8px; }
-.ss-email-results ul { list-style: none; margin: 0; padding: 0; }
+.ss-email-error { color: var(--color-error-500); font-size: 13px; margin-top: 10px; }
+
+.ss-email-results-summary { margin: 0 0 10px; font-size: 13px; }
+.ss-email-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 6px;
+}
 .ss-email-results li {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  padding: 6px 8px;
-  font-size: 13px;
-  border-bottom: 1px solid var(--color-neutral-100, #f5f5f4);
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
-.ss-result-fail { background: var(--color-error-50, #fef2f2); }
+.ss-result-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-result-outcome { flex: none; color: var(--text-secondary); }
+.ss-result-ok .ss-result-outcome { color: var(--color-success-700, #15803d); }
+.ss-result-fail { background: var(--color-error-50, #fef2f2); border-color: var(--color-error-200, #fecaca); }
+.ss-result-fail .ss-result-outcome { color: var(--color-error-500); }
 .ss-failed { color: var(--color-error-500); }
+
+/* The backdrop's 24px padding is the panel's only side margin on a phone;
+   below that, drop the option cards to one column so neither clips. */
+@media (max-width: 560px) {
+  .ss-email-scope { flex-direction: column; }
+}
 
 /* ── Empty states ────────────────────────────────────────────────────── */
 

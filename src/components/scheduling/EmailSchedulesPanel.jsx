@@ -8,6 +8,11 @@
 // override plainly says placeholders are skipped, not silently dropped.
 // Two-step in-button confirmation per the app-wide standard; results render
 // per recipient so one bad address is visible without hiding six good sends.
+//
+// Layout follows the app's modal convention (fixed header / scrolling body /
+// fixed footer, as CategorySelectorModal): a real send covers 30+ people, so
+// the roster is a responsive CARD GRID, not one full-width row per address —
+// the whole selection has to be scannable without scrolling past the footer.
 
 import React, { useMemo, useState } from 'react';
 
@@ -42,7 +47,9 @@ function statusFor(email, days) {
     }
   }
   if (!sentAt) return { label: 'not yet emailed', kind: 'none' };
-  if (stale) return { label: 'emailed, but changed since', kind: 'stale' };
+  // Short enough to sit beside the assignment count on one line in a roster
+  // card — a wrapping pill inflates the whole grid row it sits in.
+  if (stale) return { label: 'changed since sent', kind: 'stale' };
   return { label: 'sent', kind: 'sent' };
 }
 
@@ -73,6 +80,8 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
 
   const selectedEmails = recipients.map((r) => r.email).filter(isChecked);
   const blocked = placeholders.length > 0 && !(isAdmin && allowPlaceholders);
+  const totalAssignments = recipients.reduce((sum, r) => sum + r.count, 0);
+  const scopeLabel = scope === 'day' ? (activeDay.title || activeDay.date) : sheet.name;
 
   const send = async () => {
     if (!confirming) { setConfirming(true); return; }
@@ -97,103 +106,163 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
   return (
     <div className="ss-editor-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="ss-email-panel" role="dialog" aria-label="Email schedules" data-testid="email-schedules-panel">
-        <h3>
-          Email Schedules &middot; {scope === 'day' ? (activeDay.title || activeDay.date) : sheet.name}
-        </h3>
+        <header className="ss-email-header">
+          <div className="ss-email-heading">
+            <h3>Email Schedules</h3>
+            <p className="ss-email-subtitle">
+              {scopeLabel}
+              {!results && (
+                <>
+                  {' '}&middot; {recipients.length} {recipients.length === 1 ? 'person' : 'people'}
+                  {' '}&middot; {totalAssignments} assignment{totalAssignments === 1 ? '' : 's'}
+                </>
+              )}
+            </p>
+          </div>
+          <button type="button" className="ss-email-close" onClick={onClose} aria-label="Close">&times;</button>
+        </header>
 
         {!results && (
           <>
-            <div className="ss-email-scope">
-              <label>
-                <input type="radio" name="ss-scope" checked={scope === 'day'} onChange={() => { setScope('day'); setChecked(null); }} />
-                This day only
-              </label>
-              <label>
-                <input type="radio" name="ss-scope" checked={scope === 'sheet'} onChange={() => { setScope('sheet'); setChecked(null); }} />
-                All days in this sheet (one email per person covering everything)
-              </label>
-            </div>
+            <div className="ss-email-body">
+              <div className="ss-email-scope" role="radiogroup" aria-label="Send scope">
+                <label className={`ss-scope-opt ${scope === 'day' ? 'ss-scope-on' : ''}`}>
+                  <input type="radio" name="ss-scope" checked={scope === 'day'} onChange={() => { setScope('day'); setChecked(null); }} />
+                  <span className="ss-scope-text">
+                    <span className="ss-scope-title">This day only</span>
+                    <span className="ss-scope-sub">{activeDay.title || activeDay.date}</span>
+                  </span>
+                </label>
+                <label className={`ss-scope-opt ${scope === 'sheet' ? 'ss-scope-on' : ''}`}>
+                  <input type="radio" name="ss-scope" checked={scope === 'sheet'} onChange={() => { setScope('sheet'); setChecked(null); }} />
+                  <span className="ss-scope-text">
+                    <span className="ss-scope-title">All days in this sheet</span>
+                    <span className="ss-scope-sub">One email per person covering everything</span>
+                  </span>
+                </label>
+              </div>
 
-            <ul className="ss-email-recipients">
-              {recipients.map((r) => {
-                const status = statusFor(r.email, scopeDays);
-                return (
-                  <li key={r.email} data-testid={`recipient-${r.email}`}>
-                    <label>
-                      <input type="checkbox" checked={isChecked(r.email)} onChange={() => toggle(r.email)} />
-                      <span className="ss-recipient-name">{r.name}</span>
-                      <span className="ss-recipient-sub">{r.email} &middot; {r.count} assignment{r.count === 1 ? '' : 's'}</span>
-                    </label>
-                    <span className={`ss-recipient-status ss-status-${status.kind}`} data-testid={`status-${r.email}`}>
-                      {status.label}
+              <div className="ss-email-toolbar">
+                <span data-testid="selection-count">
+                  <strong>{selectedEmails.length}</strong> of {recipients.length} selected
+                </span>
+                <span className="ss-email-toolbar-actions">
+                  <button
+                    type="button"
+                    className="ss-email-linkbtn"
+                    onClick={() => setChecked(null)}
+                    disabled={selectedEmails.length === recipients.length}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="ss-email-linkbtn"
+                    onClick={() => setChecked(new Set())}
+                    disabled={selectedEmails.length === 0}
+                  >
+                    Clear
+                  </button>
+                </span>
+              </div>
+
+              <ul className="ss-email-recipients">
+                {recipients.map((r) => {
+                  const status = statusFor(r.email, scopeDays);
+                  const on = isChecked(r.email);
+                  return (
+                    <li key={r.email} className={on ? '' : 'ss-recipient-off'} data-testid={`recipient-${r.email}`}>
+                      <label>
+                        <input type="checkbox" checked={on} onChange={() => toggle(r.email)} />
+                        <span className="ss-recipient-text">
+                          <span className="ss-recipient-name">{r.name}</span>
+                          <span className="ss-recipient-sub" title={r.email}>{r.email}</span>
+                          <span className="ss-recipient-meta">
+                            <span className="ss-recipient-count">{r.count} assignment{r.count === 1 ? '' : 's'}</span>
+                            <span className={`ss-recipient-status ss-status-${status.kind}`} data-testid={`status-${r.email}`}>
+                              {status.label}
+                            </span>
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+                {placeholders.map((name) => (
+                  <li key={name} className="ss-recipient-placeholder" data-testid={`placeholder-${name}`}>
+                    <span className="ss-recipient-text">
+                      <span className="ss-recipient-name">{name}</span>
+                      <span className="ss-recipient-sub">no email &middot; unassigned placeholder</span>
                     </span>
                   </li>
-                );
-              })}
-              {placeholders.map((name) => (
-                <li key={name} className="ss-recipient-placeholder" data-testid={`placeholder-${name}`}>
-                  <span className="ss-recipient-name">{name}</span>
-                  <span className="ss-recipient-sub">no email &middot; unassigned placeholder</span>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </ul>
 
-            {placeholders.length > 0 && (
-              <div className="ss-email-block" data-testid="placeholder-block">
-                <strong>{placeholders.length}</strong> unassigned placeholder{placeholders.length === 1 ? '' : 's'} remain{placeholders.length === 1 ? 's' : ''} on this
-                {scope === 'day' ? ' day' : ' sheet'}. Sending is blocked until every post has a real person.
-                {isAdmin && (
-                  <label className="ss-email-override">
-                    <input
-                      type="checkbox"
-                      checked={allowPlaceholders}
-                      onChange={(e) => setAllowPlaceholders(e.target.checked)}
-                      data-testid="allow-placeholders"
-                    />
-                    Send anyway (admin) &mdash; placeholders are skipped
-                  </label>
-                )}
-              </div>
-            )}
+              {placeholders.length > 0 && (
+                <div className="ss-email-block" data-testid="placeholder-block">
+                  <strong>{placeholders.length}</strong> unassigned placeholder{placeholders.length === 1 ? '' : 's'} remain{placeholders.length === 1 ? 's' : ''} on this
+                  {scope === 'day' ? ' day' : ' sheet'}. Sending is blocked until every post has a real person.
+                  {isAdmin && (
+                    <label className="ss-email-override">
+                      <input
+                        type="checkbox"
+                        checked={allowPlaceholders}
+                        onChange={(e) => setAllowPlaceholders(e.target.checked)}
+                        data-testid="allow-placeholders"
+                      />
+                      Send anyway (admin) &mdash; placeholders are skipped
+                    </label>
+                  )}
+                </div>
+              )}
 
-            {error && <div className="ss-email-error" data-testid="send-error">{error}</div>}
-
-            <div className="ss-editor-actions">
-              <button type="button" className="ss-ghost-btn" onClick={onClose}>Cancel</button>
-              <button
-                type="button"
-                className={`ss-primary-btn ${confirming ? 'ss-confirm' : ''}`}
-                data-testid="send-schedules-button"
-                disabled={sending || blocked || selectedEmails.length === 0}
-                onClick={send}
-              >
-                {sending ? 'Sending…' : confirming ? 'Confirm send?' : `Email ${selectedEmails.length} ${selectedEmails.length === 1 ? 'person' : 'people'}`}
-              </button>
+              {error && <div className="ss-email-error" data-testid="send-error">{error}</div>}
             </div>
+
+            <footer className="ss-email-footer">
+              <span className="ss-email-footnote">Each person gets one email covering all their cells in scope.</span>
+              <div className="ss-editor-actions">
+                <button type="button" className="ss-ghost-btn" onClick={onClose}>Cancel</button>
+                <button
+                  type="button"
+                  className={`ss-primary-btn ${confirming ? 'ss-confirm' : ''}`}
+                  data-testid="send-schedules-button"
+                  disabled={sending || blocked || selectedEmails.length === 0}
+                  onClick={send}
+                >
+                  {sending ? 'Sending…' : confirming ? 'Confirm send?' : `Email ${selectedEmails.length} ${selectedEmails.length === 1 ? 'person' : 'people'}`}
+                </button>
+              </div>
+            </footer>
           </>
         )}
 
         {results && (
-          <div className="ss-email-results" data-testid="send-results">
-            <p>
-              <strong>{results.sent}</strong> sent
-              {results.failed > 0 && <> &middot; <strong className="ss-failed">{results.failed} failed</strong></>}
-              {results.skippedPlaceholders && results.skippedPlaceholders.length > 0 && (
-                <> &middot; {results.skippedPlaceholders.length} placeholder{results.skippedPlaceholders.length === 1 ? '' : 's'} skipped</>
-              )}
-            </p>
-            <ul>
-              {(results.results || []).map((r) => (
-                <li key={r.email} className={r.success ? 'ss-result-ok' : 'ss-result-fail'} data-testid={`result-${r.email}`}>
-                  <span>{r.email}</span>
-                  <span>{r.success ? 'Sent ✓' : `Failed — ${r.error}`}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="ss-editor-actions">
-              <button type="button" className="ss-primary-btn" onClick={onClose}>Done</button>
+          <>
+            <div className="ss-email-body ss-email-results" data-testid="send-results">
+              <p className="ss-email-results-summary">
+                <strong>{results.sent}</strong> sent
+                {results.failed > 0 && <> &middot; <strong className="ss-failed">{results.failed} failed</strong></>}
+                {results.skippedPlaceholders && results.skippedPlaceholders.length > 0 && (
+                  <> &middot; {results.skippedPlaceholders.length} placeholder{results.skippedPlaceholders.length === 1 ? '' : 's'} skipped</>
+                )}
+              </p>
+              <ul>
+                {(results.results || []).map((r) => (
+                  <li key={r.email} className={r.success ? 'ss-result-ok' : 'ss-result-fail'} data-testid={`result-${r.email}`}>
+                    <span className="ss-result-email" title={r.email}>{r.email}</span>
+                    <span className="ss-result-outcome">{r.success ? 'Sent ✓' : `Failed — ${r.error}`}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+            <footer className="ss-email-footer">
+              <span className="ss-email-footnote" />
+              <div className="ss-editor-actions">
+                <button type="button" className="ss-primary-btn" onClick={onClose}>Done</button>
+              </div>
+            </footer>
+          </>
         )}
       </div>
     </div>

@@ -28,7 +28,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
-import { PrinterIcon, MailIcon } from '../shared/CalendarIcons';
+import { PrinterIcon, MailIcon, CopyIcon } from '../shared/CalendarIcons';
 import SchedulingSheetGrid from './SchedulingSheetGrid';
 import { toLocationNameArray } from './sheetEventUtils';
 import SeedDatePicker from './SeedDatePicker';
@@ -88,6 +88,41 @@ export default function SchedulingSheets() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(null);
   const autoOpenedRef = React.useRef(false);
+  const workbookRef = React.useRef(null);
+  const sheetMenuRef = React.useRef(null);
+
+  // Both top-bar popovers were open-until-clicked-again: nothing dismissed them
+  // when attention moved elsewhere, so the picker hung over the grid and the
+  // '...' menu could linger with a destructive 'Confirm?' still armed. Same
+  // mousedown-containment idiom the rest of the app uses (Navigation.jsx,
+  // MultiSelect.jsx) — mousedown, not click, so a drag that starts outside
+  // dismisses too, and touchstart for the tablet the sheets get printed from.
+  useEffect(() => {
+    if (!pickerOpen && !menuOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (pickerOpen && workbookRef.current && !workbookRef.current.contains(event.target)) {
+        setPickerOpen(false);
+      }
+      if (menuOpen && sheetMenuRef.current && !sheetMenuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+        setConfirmMenuAction(null);
+      }
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      setPickerOpen(false);
+      setMenuOpen(false);
+      setConfirmMenuAction(null);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [pickerOpen, menuOpen]);
 
   const listQuery = useSchedulingSheetList();
   const { isFirstLoad, isSilentRefreshing } = deriveListLoadingState(listQuery);
@@ -245,6 +280,21 @@ export default function SchedulingSheets() {
     );
   };
 
+  // Duplicate needs no endpoint of its own: POST /api/scheduling-sheets already
+  // copies a source workbook's day structures onto sorted seedDates in order.
+  // So it opens the ordinary creation panel prefilled rather than firing a
+  // silent one-click copy — a duplicate is nearly always 'same structure, next
+  // year', and the dates have to stay editable for that to be worth anything.
+  const duplicateSheet = (source) => {
+    setPickerOpen(false);
+    setNewSheet({
+      name: `${source.name} (Copy)`,
+      dates: (source.days || []).map((d) => d.date).filter(Boolean).sort(),
+      copyFrom: String(source._id),
+    });
+    setNewSheetOpen(true);
+  };
+
   const createDay = () => {
     mutations.createDay.mutate(
       {
@@ -380,11 +430,13 @@ export default function SchedulingSheets() {
   return (
     <div className="ss-page" data-testid="scheduling-sheets-page">
       <div className="ss-topbar">
-        <div className="ss-workbook">
+        <div className="ss-workbook" ref={workbookRef}>
           <button
             type="button"
             className="ss-workbook-trigger"
             data-testid="workbook-picker"
+            aria-haspopup="true"
+            aria-expanded={pickerOpen}
             onClick={() => setPickerOpen((v) => !v)}
           >
             {sheet ? sheet.name : 'Scheduling Sheets'} <span aria-hidden="true">&#9662;</span>
@@ -403,17 +455,30 @@ export default function SchedulingSheets() {
                 <div key={year} className="ss-workbook-group">
                   <div className="ss-workbook-year">{year}</div>
                   {group.map((s) => (
-                    <button
-                      key={String(s._id)}
-                      type="button"
-                      className={`ss-workbook-item ${String(s._id) === selectedSheetId ? 'active' : ''}`}
-                      onClick={() => { setSelectedSheetId(String(s._id)); setSelectedDate(null); setPickerOpen(false); }}
-                    >
-                      <span>{s.name}</span>
-                      <span className="ss-workbook-sub">
-                        {(s.days || []).length} day{(s.days || []).length === 1 ? '' : 's'}
-                      </span>
-                    </button>
+                    // A row, not one button: Duplicate is a second action on the
+                    // same line, and a button inside a button is invalid markup.
+                    <div key={String(s._id)} className="ss-workbook-row">
+                      <button
+                        type="button"
+                        className={`ss-workbook-item ${String(s._id) === selectedSheetId ? 'active' : ''}`}
+                        onClick={() => { setSelectedSheetId(String(s._id)); setSelectedDate(null); setPickerOpen(false); }}
+                      >
+                        <span className="ss-workbook-name">{s.name}</span>
+                        <span className="ss-workbook-sub">
+                          {(s.days || []).length} day{(s.days || []).length === 1 ? '' : 's'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ss-workbook-dup"
+                        data-testid={`duplicate-sheet-${String(s._id)}`}
+                        aria-label={`Duplicate ${s.name}`}
+                        title="Duplicate this scheduling sheet"
+                        onClick={() => duplicateSheet(s)}
+                      >
+                        <CopyIcon size={13} />
+                      </button>
+                    </div>
                   ))}
                 </div>
               ))}
@@ -543,8 +608,8 @@ export default function SchedulingSheets() {
               >
                 <PrinterIcon size={14} />
               </button>
-              <div className="ss-menu-wrap">
-                <button type="button" className="ss-ghost-btn" data-testid="sheet-menu-button" onClick={() => { setMenuOpen((v) => !v); setConfirmMenuAction(null); }}>
+              <div className="ss-menu-wrap" ref={sheetMenuRef}>
+                <button type="button" className="ss-ghost-btn" data-testid="sheet-menu-button" aria-haspopup="true" aria-expanded={menuOpen} onClick={() => { setMenuOpen((v) => !v); setConfirmMenuAction(null); }}>
                   &#8943;
                 </button>
                 {menuOpen && (

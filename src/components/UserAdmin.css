@@ -320,6 +320,16 @@
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   line-height: var(--leading-tight);
+  min-width: 0;
+}
+
+/* The gap above exists to separate the name from the 'You' badge, and search
+   highlighting splits the name into several sibling elements -- promote those
+   to flex items and the gap lands INSIDE a word ('Kavan Monte' rendered as
+   'Kava n Monte'). One wrapper keeps them a single item. Truncation belongs
+   here too: text-overflow does nothing on a flex container. */
+.ua-name-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
