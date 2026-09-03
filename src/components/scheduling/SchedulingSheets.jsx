@@ -29,6 +29,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
 import SchedulingSheetGrid from './SchedulingSheetGrid';
+import SeedDatePicker from './SeedDatePicker';
 import EmailSchedulesPanel from './EmailSchedulesPanel';
 import { transformEventToFlatStructure } from '../../utils/eventTransformers';
 import APP_CONFIG from '../../config/config';
@@ -79,7 +80,7 @@ export default function SchedulingSheets() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmMenuAction, setConfirmMenuAction] = useState(null); // 'delete-day' | 'delete-sheet'
   const [newSheetOpen, setNewSheetOpen] = useState(false);
-  const [newSheet, setNewSheet] = useState({ name: '', dates: [''], copyFrom: '' });
+  const [newSheet, setNewSheet] = useState({ name: '', dates: [], copyFrom: '' });
   const [newDayOpen, setNewDayOpen] = useState(false);
   const [newDay, setNewDay] = useState({ date: '', title: '', copyFrom: '' });
   const [emailOpen, setEmailOpen] = useState(false);
@@ -188,7 +189,9 @@ export default function SchedulingSheets() {
   };
 
   const createSheet = () => {
-    const dates = newSheet.dates.map((d) => d.trim()).filter(Boolean);
+    // Calendar clicks arrive in click order, not date order — and copyFromSheetId
+    // maps the source workbook's days onto the seeds IN ORDER, so sort first.
+    const dates = newSheet.dates.map((d) => d.trim()).filter(Boolean).sort();
     mutations.createSheet.mutate(
       {
         name: newSheet.name,
@@ -199,7 +202,7 @@ export default function SchedulingSheets() {
         onSuccess: (created) => {
           showSuccess(`Scheduling sheet '${created.name}' created`);
           setNewSheetOpen(false);
-          setNewSheet({ name: '', dates: [''], copyFrom: '' });
+          setNewSheet({ name: '', dates: [], copyFrom: '' });
           setSelectedSheetId(String(created._id));
           setSelectedDate(dates[0] || null);
         },
@@ -473,7 +476,7 @@ export default function SchedulingSheets() {
 
       {newSheetOpen && (
         <div className="ss-editor-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setNewSheetOpen(false); }}>
-          <div className="ss-panel" role="dialog" aria-label="New scheduling sheet" data-testid="new-sheet-panel">
+          <div className="ss-panel ss-panel-wide" role="dialog" aria-label="New scheduling sheet" data-testid="new-sheet-panel">
             <h3>New Scheduling Sheet</h3>
             <label>
               Name
@@ -485,19 +488,13 @@ export default function SchedulingSheets() {
                 onChange={(e) => setNewSheet((s) => ({ ...s, name: e.target.value }))}
               />
             </label>
-            <div className="ss-panel-dates">
+            <div className="ss-panel-dates" data-testid="new-sheet-dates">
               <span>Seed with dates (optional — each becomes a day tab; days can be disjoint)</span>
-              {newSheet.dates.map((d, i) => (
-                <input
-                  key={i}
-                  type="date"
-                  value={d}
-                  onChange={(e) => setNewSheet((s) => ({ ...s, dates: s.dates.map((x, j) => (j === i ? e.target.value : x)) }))}
-                />
-              ))}
-              <button type="button" className="ss-ghost-btn" onClick={() => setNewSheet((s) => ({ ...s, dates: [...s.dates, ''] }))}>
-                + Add another date
-              </button>
+              <SeedDatePicker
+                selectedDates={newSheet.dates}
+                onChange={(dates) => setNewSheet((s) => ({ ...s, dates }))}
+                disabled={mutations.createSheet.isPending}
+              />
             </div>
             <label>
               Start from a copy of

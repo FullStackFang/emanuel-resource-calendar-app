@@ -519,7 +519,90 @@
   box-sizing: border-box;
 }
 .ss-panel-dates { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
-.ss-panel-dates input { display: block; margin: 6px 0; padding: 6px 8px; }
+
+/* ── Seed-date picker (SeedDatePicker) ────────────────────────────────────
+   Two months across, then the picked days as the day-tab pills they become.
+   Every rule is scoped under .ss-seed: react-datepicker's class names are
+   global, and this page must not restyle the reservation form's pickers. */
+
+.ss-panel-wide { width: min(680px, 100%); }
+
+.ss-seed-calendar {
+  margin-top: 6px;
+  padding: 10px 8px 8px;
+  border: 1px solid var(--color-neutral-200, #e7e5e4);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary, #fff);
+}
+/* Strip the library's own card chrome; .ss-seed-calendar is the container now. */
+.ss-seed-calendar .react-datepicker,
+.ss-seed-calendar .react-datepicker__header {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.ss-seed-calendar .react-datepicker { display: flex; gap: 18px; font-family: inherit; }
+/* Center each month inside its half: the day cells are a fixed 2rem, so a
+   left-aligned grid re-opens the dead flank this layout exists to close. */
+.ss-seed-calendar .react-datepicker__month-container {
+  flex: 1;
+  min-width: 0;
+  float: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/* The arrows are absolutely positioned by the library against the whole
+   two-month box; pull them onto the month-title baseline. */
+.ss-seed-calendar .react-datepicker__navigation { top: 4px; }
+.ss-seed-calendar .react-datepicker__navigation--previous { left: 0; }
+.ss-seed-calendar .react-datepicker__navigation--next { right: 0; }
+.ss-seed-calendar .react-datepicker__current-month {
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  padding-bottom: 6px;
+}
+.ss-seed-calendar .react-datepicker__day-name {
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary, #8a8580);
+  width: 2rem;
+  line-height: 1.4;
+  margin: 0;
+}
+.ss-seed-calendar .react-datepicker__day {
+  width: 2rem;
+  line-height: 1.9rem;
+  margin: 1px 0;
+  font-size: 12px;
+  border-radius: var(--radius-full);
+  color: var(--text-primary);
+}
+.ss-seed-calendar .react-datepicker__day:hover { background: var(--bg-tertiary, #ececec); }
+.ss-seed-calendar .react-datepicker__day--outside-month { color: var(--text-tertiary, #b6b0aa); }
+.ss-seed-calendar .react-datepicker__day--keyboard-selected { background: transparent; }
+/* A seeded day. Filled, not tinted: this is the panel's primary state readout. */
+.ss-seed-calendar .react-datepicker__day--highlighted,
+.ss-seed-calendar .react-datepicker__day--highlighted:hover {
+  background: var(--color-primary-500);
+  color: #fff;
+  font-weight: var(--font-semibold);
+}
+
+.ss-seed-hint { margin: 10px 2px 0; font-size: 12px; font-style: italic; color: var(--text-tertiary, #8a8580); }
+.ss-seed-count { margin: 12px 2px 0; font-size: 12px; color: var(--text-secondary); }
+.ss-seed-count strong { color: var(--text-primary); font-weight: var(--font-semibold); }
+.ss-seed-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ss-seed-tab { padding: 5px 12px; font-size: 12px; }
+.ss-seed-tab:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Two months need ~480px. Below that the panel is narrower than the row, and
+   .ss-panel scrolls vertically only, so stack rather than clip. */
+@media (max-width: 640px) {
+  .ss-seed-calendar .react-datepicker { flex-direction: column; gap: 10px; }
+}
 .ss-panel-hint { font-size: 12px; color: var(--text-secondary); }
 .ss-panel-warn {
   font-size: 12px;
