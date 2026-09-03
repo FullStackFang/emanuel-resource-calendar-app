@@ -337,18 +337,37 @@
   /* The editing cell may grow as chips are added; committed cells are
      unaffected, so the row settles back on commit. */
   white-space: normal;
+  /* Breathing room between the editing ring and the content. Vertical only —
+     changing the horizontal padding would resize the column mid-edit and
+     shunt every other column sideways. */
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .ss-inline-cell-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .ss-inline-cell-input {
-  flex: 1 1 60px;
-  min-width: 60px;
-  border: none;
-  outline: none;
-  background: transparent;
+  /* Full cell width on its own row beneath any chips. Sharing the row with
+     them squeezed the input to its 60px basis, which clipped both the
+     placeholder and anything typed into it. */
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 3px 0;
   font: inherit;
   color: inherit;
-  padding: 1px 0;
+  background: transparent;
+  /* The global input base (index.css) gives EVERY input a border, an 8px
+     radius and a 3px focus glow. At in-cell size that ring reads as an oval
+     floating inside the cell and crowds the text. The cell's own editing
+     outline is the focus affordance here, so reset the lot rather than
+     stacking two focus treatments. */
+  border: none;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+}
+.ss-inline-cell-input:focus {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* Reaches the expanded editor — the only place a cell note is edited. Quiet

@@ -321,6 +321,22 @@ describe('SchedulingSheetGrid — print output', () => {
     expect(hiddenSelectors).toContain(selector);
   });
 
+  it('SSI-23: the in-cell input opts out of the global input chrome', () => {
+    // src/index.css styles EVERY input with a border, an 8px radius and a 3px
+    // focus glow. At in-cell size that ring renders as an oval floating inside
+    // the cell, overlapping the text. jsdom applies no stylesheets, so the
+    // reset is asserted at the source.
+    const rule = sheetCss.slice(
+      sheetCss.indexOf('.ss-inline-cell-input {'),
+      sheetCss.indexOf('.ss-cell-expand {')
+    );
+    expect(rule).toMatch(/border-radius:\s*0/);
+    expect(rule).toMatch(/box-shadow:\s*none/);
+    expect(rule).toMatch(/border:\s*none/);
+    // ...and the :focus state must reset it too, or the glow returns on click.
+    expect(rule.slice(rule.indexOf(':focus'))).toMatch(/box-shadow:\s*none/);
+  });
+
   it('SSI-22: committed cell content is still printed', () => {
     expect(printBlock).not.toMatch(/\.ss-cell\s*,|\.ss-cell\s*\{[^}]*display:\s*none/);
     expect(printBlock).toContain('.ss-sheet-card, .ss-sheet-card * { visibility: visible; }');

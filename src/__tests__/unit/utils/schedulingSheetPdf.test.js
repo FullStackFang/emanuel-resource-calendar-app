@@ -56,6 +56,7 @@ const {
   chunkColumns,
   collectDayNotes,
   distributeRowHeights,
+  planColumnWidths,
   MAX_COLS_PER_PAGE,
 } = await import('../../../utils/schedulingSheetPdf');
 
@@ -93,12 +94,17 @@ describe('chunkColumns', () => {
     expect(chunkColumns(cols(1)).map((c) => c.length)).toEqual([1]);
   });
 
-  // A greedy fill would give 6 + 3; a lone straggler column on page 2 reads as
+  // A greedy fill would give 8 + 1; a lone straggler column on page 2 reads as
   // a bug. Balancing is the whole point of the helper.
   it('SSP-2: balances across pages rather than filling greedily', () => {
     expect(chunkColumns(cols(9)).map((c) => c.length)).toEqual([5, 4]);
-    expect(chunkColumns(cols(7)).map((c) => c.length)).toEqual([4, 3]);
-    expect(chunkColumns(cols(13)).map((c) => c.length)).toEqual([5, 5, 3]);
+    expect(chunkColumns(cols(13)).map((c) => c.length)).toEqual([7, 6]);
+    expect(chunkColumns(cols(17)).map((c) => c.length)).toEqual([6, 6, 5]);
+  });
+
+  it('SSP-2b: a day that fits within the cap is never split', () => {
+    expect(chunkColumns(cols(7)).map((c) => c.length)).toEqual([7]);
+    expect(chunkColumns(cols(8)).map((c) => c.length)).toEqual([8]);
   });
 
   it('SSP-3: never exceeds the per-page cap', () => {
@@ -111,6 +117,42 @@ describe('chunkColumns', () => {
 
   it('SSP-4: a day with no columns still yields one (empty) page', () => {
     expect(chunkColumns([])).toEqual([[]]);
+  });
+});
+
+describe('planColumnWidths', () => {
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+
+  // The point of content-aware widths: a column of clock times stops claiming
+  // as much of the page as a column of full names.
+  it('SSP-24: gives the surplus to the columns that actually want it', () => {
+    const out = planColumnWidths([30, 30], [40, 100], 200, 30);
+    expect(sum(out)).toBeCloseTo(200, 1);
+    expect(out[1]).toBeGreaterThan(out[0]);
+  });
+
+  // No column may fall below its widest single chip, or that chip gets clipped:
+  // several chips wrap onto the next line, but one chip cannot break in half.
+  it('SSP-25: never drops a column below its floor when there is room', () => {
+    const out = planColumnWidths([50, 28], [50, 28], 200, 27);
+    expect(out[0]).toBeGreaterThanOrEqual(50);
+    expect(out[1]).toBeGreaterThanOrEqual(28);
+  });
+
+  it('SSP-26: always fills the width exactly, even with nothing to want', () => {
+    const out = planColumnWidths([30, 30, 30], [30, 30, 30], 210, 30);
+    expect(sum(out)).toBeCloseTo(210, 1);
+    out.forEach((w) => expect(w).toBeCloseTo(70, 1));
+  });
+
+  it('SSP-27: scales back proportionally when the floors cannot all fit', () => {
+    const out = planColumnWidths([60, 60, 60], [60, 60, 60], 90, 27);
+    expect(sum(out)).toBeCloseTo(90, 1);
+    out.forEach((w) => expect(w).toBeCloseTo(30, 1));
+  });
+
+  it('SSP-28: handles a page with no columns', () => {
+    expect(planColumnWidths([], [], 200)).toEqual([]);
   });
 });
 
