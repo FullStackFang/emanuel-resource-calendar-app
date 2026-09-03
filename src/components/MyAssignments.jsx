@@ -47,8 +47,8 @@ export default function MyAssignments() {
 
   if (isFirstLoad) {
     return (
-      <div className="ma-page" data-testid="my-assignments-loading">
-        <LoadingSpinner />
+      <div className="loading-veil-host" data-testid="my-assignments-loading">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading your assignments..." />
       </div>
     );
   }

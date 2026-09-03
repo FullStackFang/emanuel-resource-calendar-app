@@ -986,7 +986,7 @@ export default function SyncHealthReport({ apiToken }) {
   };
 
   return (
-    <div className="sync-health">
+    <div className="sync-health loading-veil-host">
       <header className="sync-health-header">
         <h2>Sync Health</h2>
         <p className="sync-health-subtitle">
@@ -1041,7 +1041,7 @@ export default function SyncHealthReport({ apiToken }) {
 
       <div className="sync-health-results">
         {isRunning || isFetching ? (
-          <LoadingSpinner variant="card" text="Comparing app and Outlook..." />
+          <LoadingSpinner variant="overlay" className="visible initial" text="Comparing app and Outlook..." />
         ) : !data ? (
           <p className="sync-health-idle">
             Choose a date range and click Run Check to compare the app against Outlook.

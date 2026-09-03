@@ -79,7 +79,7 @@ vi.mock('../../../components/shared/EventReviewExperience', () => ({
 
 // Real LoadingSpinner mock with stable testid so we can assert presence/absence.
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 vi.mock('../../../components/shared/FreshnessIndicator', () => ({
@@ -162,6 +162,8 @@ describe('MyReservations — first-paint blank-flash fix', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('loading-spinner')).toBeInTheDocument();
     });
+    // One loading veil across every tab: the Calendar's overlay variant.
+    expect(screen.getByTestId('loading-spinner')).toHaveAttribute('data-variant', 'overlay');
 
     // Critical assertion: at this point isPending=true so the spinner gate
     // fires and the empty-state body is unreachable.

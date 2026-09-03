@@ -53,7 +53,6 @@
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
 import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
-  import RoseSpinner from './shared/RoseSpinner';
   import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
   import RoomReservationReview from './RoomReservationReview';
   import {
@@ -5219,11 +5218,7 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     // LOADING SCREEN
     //---------------------------------------------------------------------------
-    const overlayClass = `loading-spinner-overlay${
-      initializing ? ' visible initial' :
-      (isNavigating || loading) ? ' visible' :
-      ' hidden'
-    }`;
+    const overlayClass = initializing ? 'visible initial' : (isNavigating || loading) ? 'visible' : 'hidden';
 
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
@@ -5237,10 +5232,11 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        <div className={overlayClass}>
-          <RoseSpinner />
-          <p className="loading-spinner-card-text">{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
-        </div>
+        <LoadingSpinner
+          variant="overlay"
+          className={overlayClass}
+          text={initializing ? 'Loading your calendar...' : 'Loading events...'}
+        />
 
         {/* Calendar Header */}
         <CalendarHeader

@@ -471,6 +471,15 @@ export default function UserAdmin({ apiToken }) {
   const showNoMatches = settled && !usersQuery.isError && users.length > 0 && visibleUsers.length === 0;
   const showRoster = !isFirstLoad && !usersQuery.isError && visibleUsers.length > 0;
 
+  // First load: a spinner, never an empty state.
+  if (loading) {
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading users..." />
+      </div>
+    );
+  }
+
   return (
     <div className="user-admin">
       {/* Page Header */}
@@ -627,9 +636,6 @@ export default function UserAdmin({ apiToken }) {
           </div>
         </div>
       </div>
-
-      {/* First load: a spinner, never an empty state. */}
-      {loading && <LoadingSpinner variant="card" text="Loading users..." />}
 
       {/* A failed load is stated plainly. It must never borrow the
           empty-directory message — that is the defect this replaces. */}

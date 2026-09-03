@@ -294,7 +294,7 @@ export default function ConflictReport() {
   const showEmptyState = !isFirstLoad && !isSilentRefreshing && !query.error && conflicts.length === 0;
 
   return (
-    <div className="conflict-report">
+    <div className="conflict-report loading-veil-host">
       <header className="conflict-report-header">
         <div className="conflict-report-heading">
           <h1>Room Conflicts</h1>
@@ -390,7 +390,10 @@ export default function ConflictReport() {
         </div>
       )}
 
-      {isFirstLoad && <LoadingSpinner />}
+      {/* The one loading veil every tab uses; the root is its host. */}
+      {isFirstLoad && (
+        <LoadingSpinner variant="overlay" className="visible initial" text="Scanning the calendar..." />
+      )}
 
       {!isFirstLoad && !query.error && conflicts.length > 0 && (
         <div className={`conflict-report-results${isSilentRefreshing ? ' refreshing' : ''}`}>

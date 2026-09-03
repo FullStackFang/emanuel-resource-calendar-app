@@ -15,7 +15,7 @@ vi.mock('../../../utils/logger', () => ({
   logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 const showSuccess = vi.fn();

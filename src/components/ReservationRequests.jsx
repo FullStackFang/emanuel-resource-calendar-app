@@ -732,7 +732,11 @@ export default function ReservationRequests({ graphToken }) {
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
-    return <LoadingSpinner variant="card" text="Loading..." />;
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading requests..." />
+      </div>
+    );
   }
 
   // Access control - only Approvers and Admins can view this page
@@ -754,7 +758,11 @@ export default function ReservationRequests({ graphToken }) {
   // dim/spinner on `.rr-reservations-list`, so the user never sees the full
   // screen blank out again. This is what the user asked for: quiet refresh.
   if (!countsLoaded) {
-    return <LoadingSpinner variant="card" text="Loading..." />;
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading requests..." />
+      </div>
+    );
   }
 
   return (

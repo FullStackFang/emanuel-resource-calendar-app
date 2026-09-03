@@ -44,7 +44,7 @@ vi.mock('../../../hooks/usePermissions', () => ({
 
 // Stable testid so spinner presence/absence is assertable.
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 import UserAdmin from '../../../components/UserAdmin';
@@ -84,6 +84,8 @@ describe('UserAdmin — first paint and state separation', () => {
     renderRoster();
 
     await waitFor(() => expect(screen.getByTestId('loading-spinner')).toBeInTheDocument());
+    // One loading veil across every tab: the Calendar's overlay variant.
+    expect(screen.getByTestId('loading-spinner')).toHaveAttribute('data-variant', 'overlay');
 
     expect(screen.queryByText('No users yet')).not.toBeInTheDocument();
     expect(screen.queryByText('No accounts match these filters')).not.toBeInTheDocument();

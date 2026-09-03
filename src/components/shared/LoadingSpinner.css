@@ -83,6 +83,21 @@
 }
 
 /* --------------------------------------------------------------------------
+   VEIL HOST — the box an overlay centres in
+   --------------------------------------------------------------------------
+   Every tab renders its page-level loading state the same way: the overlay
+   variant inside a host that fills <main> (a flex column), so the wheel
+   lands at the same point on every screen. Either return a bare host that
+   holds only the spinner, or put the class on a page root whose chrome
+   stays under the veil (Calendar, Room Conflicts, Sync Health).
+   -------------------------------------------------------------------------- */
+
+.loading-veil-host {
+  flex: 1;
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
    OVERLAY VARIANT — absolute backdrop with blur, spinner centered directly
    -------------------------------------------------------------------------- */
 

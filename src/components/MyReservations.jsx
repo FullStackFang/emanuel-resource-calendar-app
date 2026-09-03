@@ -555,7 +555,11 @@ export default function MyReservations() {
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
-    return <LoadingSpinner variant="card" text="Loading..." />;
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading your reservations..." />
+      </div>
+    );
   }
 
   // Access control - hide for Viewer role
@@ -571,7 +575,11 @@ export default function MyReservations() {
   }
 
   if (loading && allReservations.length === 0) {
-    return <LoadingSpinner variant="card" text="Loading..." />;
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading your reservations..." />
+      </div>
+    );
   }
 
   // Determine ReviewModal title (event name only — mode is shown via mode pill)

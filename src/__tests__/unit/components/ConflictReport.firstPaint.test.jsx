@@ -50,7 +50,7 @@ vi.mock('../../../hooks/usePermissions', () => ({
 vi.mock('../../../components/shared/EventReviewExperience', () => ({ default: () => null }));
 
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 vi.mock('../../../hooks/useEventReviewExperience', () => ({
@@ -132,6 +132,8 @@ describe('ConflictReport — first paint', () => {
     expect(authFetch).not.toHaveBeenCalled();
     expect(screen.queryByTestId('loading-spinner')).toBeInTheDocument();
     expect(screen.queryByTestId('conflict-report-empty')).not.toBeInTheDocument();
+    // One loading veil across every tab: the Calendar's overlay variant.
+    expect(screen.getByTestId('loading-spinner')).toHaveAttribute('data-variant', 'overlay');
   });
 
   it('CRFP-1b: no empty state appears at any point while the scan is in flight', async () => {

@@ -23,7 +23,7 @@ vi.mock('../../../context/AuthContext', () => ({
 }));
 
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 let currentAuthFetch = vi.fn();
@@ -69,6 +69,8 @@ describe('MyAssignments — first paint', () => {
     expect(authFetch).not.toHaveBeenCalled();
     expect(screen.getByTestId('my-assignments-loading')).toBeInTheDocument();
     expect(screen.queryByTestId('my-assignments-empty')).not.toBeInTheDocument();
+    // One loading veil across every tab: the Calendar's overlay variant.
+    expect(screen.getByTestId('loading-spinner')).toHaveAttribute('data-variant', 'overlay');
   });
 
   it('MAFP-2: spinner holds while the fetch is in flight', async () => {

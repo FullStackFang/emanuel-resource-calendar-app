@@ -82,7 +82,7 @@ vi.mock('../../../components/shared/EventReviewExperience', () => ({
 }));
 
 vi.mock('../../../components/shared/LoadingSpinner', () => ({
-  default: () => <div data-testid="loading-spinner" />,
+  default: ({ variant }) => <div data-testid="loading-spinner" data-variant={variant} />,
 }));
 
 vi.mock('../../../components/shared/FreshnessIndicator', () => ({
@@ -185,6 +185,8 @@ describe('ReservationRequests — first-paint blank-flash fix', () => {
 
     // While both queries are in-flight: spinner present, empty-state absent.
     expect(screen.queryByTestId('loading-spinner')).toBeInTheDocument();
+    // One loading veil across every tab: the Calendar's overlay variant.
+    expect(screen.getByTestId('loading-spinner')).toHaveAttribute('data-variant', 'overlay');
     expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
     expect(screen.queryByText('No requests')).not.toBeInTheDocument();
     expect(screen.queryByText('No matching requests')).not.toBeInTheDocument();

@@ -204,7 +204,11 @@ export default function CalendarMarkersManagement({ apiToken }) {
   };
 
   if (isLoading) {
-    return <LoadingSpinner variant="card" text="Loading markers..." />;
+    return (
+      <div className="loading-veil-host">
+        <LoadingSpinner variant="overlay" className="visible initial" text="Loading markers..." />
+      </div>
+    );
   }
 
   return (
