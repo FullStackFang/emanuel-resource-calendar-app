@@ -320,6 +320,65 @@
 .ss-cell-empty { display: inline-block; min-height: 18px; min-width: 40px; }
 .ss-cell-text { margin-right: 6px; }
 
+/* ── In-cell editing ───────────────────────────────────────────────────────
+   Two distinct states: focused (the keyboard is here) and editing (this cell
+   is open for entry). The focus ring is deliberately quieter than the editing
+   ring so a swept selection does not read as eight open editors. */
+
+.ss-cell.editable:focus { outline: none; }
+.ss-cell-focused {
+  outline: 2px solid var(--color-primary-400, #6f9cd8) !important;
+  outline-offset: -2px;
+}
+.ss-cell-editing {
+  outline: 2px solid var(--color-primary-500) !important;
+  outline-offset: -2px;
+  background: var(--bg-primary, #fff);
+  /* The editing cell may grow as chips are added; committed cells are
+     unaffected, so the row settles back on commit. */
+  white-space: normal;
+}
+
+.ss-inline-cell-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.ss-inline-cell-input {
+  flex: 1 1 60px;
+  min-width: 60px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  padding: 1px 0;
+}
+
+/* Reaches the expanded editor — the only place a cell note is edited. Quiet
+   until the cell is hovered, focused, or being edited, so a printed-looking
+   grid stays printed-looking on screen too. */
+.ss-cell-expand {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-400, #a8a29e);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.ss-cell:hover .ss-cell-expand,
+.ss-cell-focused .ss-cell-expand,
+.ss-cell-editing .ss-cell-expand,
+.ss-cell-expand:focus-visible { opacity: 1; }
+.ss-cell-expand:hover { background: var(--bg-secondary); color: var(--text-primary, #2d3748); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-cell-expand { transition: none; }
+}
+
 .ss-col-name { cursor: default; }
 .ss-mini-delete {
   border: none;
@@ -642,6 +701,27 @@ tr.ss-drop-target .ss-row-label {
 .ss-picker-escape { color: var(--color-primary-500); }
 .ss-picker-placeholder { font-family: var(--font-mono, monospace); font-size: 12px; }
 
+/* The cell-anchored suggestion list. Portaled to document.body, so it needs
+   its own surface (the modal's .ss-picker inherits the dialog's) — and a
+   z-index above the grid's sticky header and label column, which top out at 4.
+   Positioning itself is inline: it is derived from the anchor cell's rect. */
+.ss-cell-suggestions {
+  background: var(--bg-primary, #fff);
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.15));
+  text-align: left;
+  font-weight: 400;
+}
+.ss-cell-external { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+.ss-cell-external input {
+  flex: 1 1 140px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+}
+
 /* Live preview of a normalized time. Normalization is never silent: the user
    sees what will be committed before committing it. */
 .ss-time-hint {
@@ -851,7 +931,13 @@ tr.ss-drop-target .ss-row-label {
   .ss-sheet-card { position: absolute; left: 0; top: 0; width: 100%; border: none; }
   .ss-actions, .ss-mini-delete, .ss-add-btn, .ss-add-col, .ss-add-row,
   .ss-chip-remove, .ss-chip-action, .ss-note-marker, .ss-cell-spacer,
-  .ss-link-refresh, .ss-drag-handle, .ss-move-menu { display: none !important; }
+  .ss-link-refresh, .ss-drag-handle, .ss-move-menu,
+  /* In-cell editing chrome. The suggestion list is portaled OUTSIDE
+     .ss-sheet-card, so `body * { visibility: hidden }` already hides it —
+     display:none makes that intentional rather than incidental. */
+  .ss-cell-expand, .ss-inline-cell-editor, .ss-cell-suggestions { display: none !important; }
+  /* An editing cell is mid-edit, not sheet content: print what is committed. */
+  .ss-cell-editing, .ss-cell-focused { outline: none !important; }
   .ss-grid-scroll { overflow: visible; }
   .ss-grid thead th, .ss-row-label { position: static; }
   /* Rows grow: every chip visible, no truncation. */

@@ -359,7 +359,7 @@ describe('SchedulingSheetGrid', () => {
     expect(screen.getAllByTestId('double-booking-warning').length).toBeGreaterThan(0);
     // Cells stay clickable/editable — no blocking UI exists.
     fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
-    expect(screen.getByTestId('sheet-cell-editor')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-cell-editor')).toBeInTheDocument();
   });
 
   it('SSG-4: deleting a column is a two-step in-button confirm', () => {
@@ -702,7 +702,7 @@ describe('SchedulingSheetGrid', () => {
       />
     );
     fireEvent.click(screen.getByTestId('cell-rUshers:c3'));
-    expect(screen.getByTestId('sheet-cell-editor')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-cell-editor')).toBeInTheDocument();
     expect(onRefreshPeople).toHaveBeenCalledTimes(1);
   });
 });

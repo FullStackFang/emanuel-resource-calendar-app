@@ -11,8 +11,9 @@
 // (design D6: call/door times are operational overrides; silent live-update
 // is wrong, silence is worse).
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SheetCellEditor from './SheetCellEditor';
+import InlineCellEditor from './InlineCellEditor';
 import {
   toLocationNameArray,
   computeDoubleBookedEmails,
@@ -174,7 +175,13 @@ export default function SchedulingSheetGrid({
   onStructure,
   onRefreshPeople,
 }) {
-  const [editingCell, setEditingCell] = useState(null); // { rowId, colId }
+  // Two DISTINCT cell states. Collapsing them makes arrow-key navigation
+  // impossible to express, because an editing cell needs its arrows for the
+  // text caret. `focusedCell` is where the keyboard is; `editingCell` is the
+  // one cell (if any) currently open for entry.
+  const [focusedCell, setFocusedCell] = useState(null);   // { rowId, colId }
+  const [editingCell, setEditingCell] = useState(null);   // { rowId, colId, initialInput }
+  const [expandedCell, setExpandedCell] = useState(null); // { rowId, colId } — the modal
   const [openNoteKey, setOpenNoteKey] = useState(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
@@ -191,6 +198,77 @@ export default function SchedulingSheetGrid({
   const starterRows = (day.rows || []).filter((r) => r.kind === 'starter');
   const customRows = customRowsOf(day.rows);
   const orderedRows = [...starterRows, ...customRows];
+
+  // ── In-cell editing ──────────────────────────────────────────────────────
+
+  const cellRefs = useRef({});
+  const editingCellRef = useRef(null); // the anchor the suggestion list positions from
+
+  const columnIds = (day.columns || []).map((c) => c.id);
+  const rowIds = orderedRows.map((r) => r.id);
+
+  /**
+   * The neighbouring cell in one direction, or the same cell at an edge.
+   * Enter at the last row and Tab at the last column deliberately STOP rather
+   * than wrap — wrapping moves the user somewhere they did not ask to go.
+   */
+  const neighbourOf = ({ rowId, colId }, direction) => {
+    const r = rowIds.indexOf(rowId);
+    const c = columnIds.indexOf(colId);
+    if (r === -1 || c === -1) return { rowId, colId };
+    const dr = direction === 'down' ? 1 : direction === 'up' ? -1 : 0;
+    const dc = direction === 'right' ? 1 : direction === 'left' ? -1 : 0;
+    const nr = Math.min(Math.max(r + dr, 0), rowIds.length - 1);
+    const nc = Math.min(Math.max(c + dc, 0), columnIds.length - 1);
+    return { rowId: rowIds[nr], colId: columnIds[nc] };
+  };
+
+  // Focus follows the focused cell whenever no cell is being edited — one
+  // effect covers arrow moves, commit-and-advance, and Escape alike.
+  useEffect(() => {
+    if (!canEdit || !focusedCell || editingCell) return;
+    const el = cellRefs.current[cellKeyOf(focusedCell.rowId, focusedCell.colId)];
+    if (el) el.focus();
+  }, [canEdit, focusedCell, editingCell]);
+
+  const startEditing = (rowId, colId, initialInput = '') => {
+    if (!canEdit) return;
+    setFocusedCell({ rowId, colId });
+    setEditingCell({ rowId, colId, initialInput });
+    // Refresh the people directory on open — a tab held open across a backend
+    // restart otherwise keeps a stale page-load snapshot, silently hiding
+    // new/late users.
+    if (onRefreshPeople) onRefreshPeople();
+  };
+
+  const commitEditingCell = (cell, advance) => {
+    if (!editingCell) return;
+    const { rowId, colId } = editingCell;
+    onCellSave(rowId, colId, cell);
+    setEditingCell(null);
+    setFocusedCell(advance ? neighbourOf({ rowId, colId }, advance) : { rowId, colId });
+  };
+
+  const handleCellKeyDown = (e, rowId, colId) => {
+    if (!canEdit) return;
+    const ARROWS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+    if (ARROWS[e.key]) {
+      e.preventDefault();
+      setFocusedCell(neighbourOf({ rowId, colId }, ARROWS[e.key]));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      startEditing(rowId, colId);
+      return;
+    }
+    // Any printable character starts editing seeded with it, so a column of
+    // times can be entered without a separate keystroke per cell.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startEditing(rowId, colId, e.key);
+    }
+  };
 
   const moveColumnBy = (id, delta) => {
     const next = moveArrayItemBy(day.columns || [], id, delta);
@@ -567,21 +645,49 @@ export default function SchedulingSheetGrid({
               {(day.columns || []).map((col) => {
                 const key = cellKeyOf(row.id, col.id);
                 const cell = (day.cells || {})[key];
+                const isEditing = !!editingCell && editingCell.rowId === row.id && editingCell.colId === col.id;
+                const isFocused = !!focusedCell && focusedCell.rowId === row.id && focusedCell.colId === col.id;
                 return (
                   <td
                     key={col.id}
-                    className={`ss-cell ${canEdit ? 'editable' : ''}`}
-                    data-testid={`cell-${key}`}
-                    onClick={() => {
-                      if (!canEdit) return;
-                      setEditingCell({ rowId: row.id, colId: col.id });
-                      // Refresh the people directory on open — a tab held open
-                      // across a backend restart otherwise keeps a stale
-                      // page-load snapshot, silently hiding new/late users.
-                      if (onRefreshPeople) onRefreshPeople();
+                    ref={(el) => {
+                      cellRefs.current[key] = el;
+                      if (isEditing) editingCellRef.current = el;
                     }}
+                    className={`ss-cell ${canEdit ? 'editable' : ''}${isFocused && !isEditing ? ' ss-cell-focused' : ''}${isEditing ? ' ss-cell-editing' : ''}`}
+                    data-testid={`cell-${key}`}
+                    tabIndex={canEdit ? 0 : undefined}
+                    onKeyDown={canEdit && !isEditing ? (e) => handleCellKeyDown(e, row.id, col.id) : undefined}
+                    onClick={canEdit && !isEditing ? () => startEditing(row.id, col.id) : undefined}
                   >
-                    <CellContent cell={cell} doubleBooked={doubleBooked} />
+                    {isEditing ? (
+                      <InlineCellEditor
+                        cell={cell || null}
+                        people={people}
+                        locations={locations}
+                        anchorRef={editingCellRef}
+                        initialInput={editingCell.initialInput}
+                        onCommit={commitEditingCell}
+                        onCancel={() => setEditingCell(null)}
+                      />
+                    ) : (
+                      <CellContent cell={cell} doubleBooked={doubleBooked} />
+                    )}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className="ss-cell-expand"
+                        data-testid={`cell-expand-${key}`}
+                        title="Open the full editor — notes and per-person call times"
+                        aria-label="Open the full cell editor"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedCell({ rowId: row.id, colId: col.id });
+                        }}
+                      >
+                        <span aria-hidden="true">&#8599;</span>
+                      </button>
+                    )}
                     {cell && cell.note && (
                       <button
                         type="button"
@@ -623,15 +729,17 @@ export default function SchedulingSheetGrid({
         </tbody>
       </table>
 
-      {editingCell && (
+      {/* The EXPANDED editor: reached by the explicit affordance on a cell, and
+          still the only place a cell note is edited. */}
+      {canEdit && expandedCell && (
         <SheetCellEditor
-          cell={(day.cells || {})[cellKeyOf(editingCell.rowId, editingCell.colId)] || null}
+          cell={(day.cells || {})[cellKeyOf(expandedCell.rowId, expandedCell.colId)] || null}
           people={people}
           locations={locations}
-          onClose={() => setEditingCell(null)}
+          onClose={() => setExpandedCell(null)}
           onSave={(cell) => {
-            onCellSave(editingCell.rowId, editingCell.colId, cell);
-            setEditingCell(null);
+            onCellSave(expandedCell.rowId, expandedCell.colId, cell);
+            setExpandedCell(null);
           }}
         />
       )}

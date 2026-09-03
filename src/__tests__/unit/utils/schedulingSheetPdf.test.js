@@ -55,6 +55,7 @@ const {
   generateSchedulingSheetPdf,
   chunkColumns,
   collectDayNotes,
+  distributeRowHeights,
   MAX_COLS_PER_PAGE,
 } = await import('../../../utils/schedulingSheetPdf');
 
@@ -110,6 +111,52 @@ describe('chunkColumns', () => {
 
   it('SSP-4: a day with no columns still yields one (empty) page', () => {
     expect(chunkColumns([])).toEqual([[]]);
+  });
+});
+
+describe('distributeRowHeights', () => {
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+
+  // The whole point of the rework: a short sheet must fill its page instead of
+  // floating in the top third of it.
+  it('SSP-19: spends the whole page, adding the leftover equally', () => {
+    const out = distributeRowHeights([10, 10, 10], 60);
+    expect(sum(out)).toBeCloseTo(60, 1);
+    expect(out[0]).toBeCloseTo(20, 1);
+    expect(out[1]).toBeCloseTo(20, 1);
+    expect(out[2]).toBeCloseTo(20, 1);
+  });
+
+  // Equal ADDITION, not proportional scaling: scaling would turn a row that is
+  // merely tall into a monster and wreck the regularity of the grid.
+  it('SSP-20: adds the same amount to every row rather than scaling them', () => {
+    const out = distributeRowHeights([10, 20], 50);
+    expect(out[1] - out[0]).toBeCloseTo(10, 1);   // gap preserved, not doubled
+    expect(sum(out)).toBeCloseTo(50, 1);
+  });
+
+  it('SSP-21: never shrinks a row that already needs its height', () => {
+    const natural = [12, 40, 9];
+    const out = distributeRowHeights(natural, 20);   // avail smaller than needed
+    out.forEach((h, i) => expect(h).toBeGreaterThanOrEqual(natural[i]));
+  });
+
+  // A capped row must hand its refused height to rows still under the cap,
+  // otherwise one short sheet strands space the others could have used.
+  it('SSP-22: caps runaway growth and re-offers the refused height', () => {
+    const out = distributeRowHeights([10, 10], 400);
+    out.forEach((h) => expect(h).toBeLessThanOrEqual(30));
+    // Both hit the cap, so the page cannot be filled - and that is correct.
+    expect(sum(out)).toBeCloseTo(60, 1);
+
+    // One row is already at the cap; the other should still take the leftover.
+    const mixed = distributeRowHeights([30, 10], 55);
+    expect(mixed[0]).toBeCloseTo(30, 1);
+    expect(mixed[1]).toBeCloseTo(25, 1);
+  });
+
+  it('SSP-23: handles an empty page without dividing by zero', () => {
+    expect(distributeRowHeights([], 100)).toEqual([]);
   });
 });
 

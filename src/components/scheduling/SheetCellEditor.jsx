@@ -1,18 +1,30 @@
 // src/components/scheduling/SheetCellEditor.jsx
 //
-// The one place cell content gets edited. A cell is an ordered list of
-// segments (free text, person chips, location chips) plus an optional note.
-// Smart tagging is OPT-IN: plain text commits as a text segment; typing '@'
-// opens a unified mention picker — people first (ReassignOwnerControl
-// contract: 5-cap, honest overflow count, 'not a user' escape hatch,
-// placeholder confirm) with a Locations group beneath; '#' still narrows to
-// locations only, with a free-text fallback.
+// The EXPANDED cell editor. Ordinary editing now happens in the cell itself
+// (InlineCellEditor); this modal is reached by an explicit expand affordance
+// and remains the only place a cell note is edited, plus the roomy surface for
+// cells that have grown too many chips to work with in place.
+//
+// A cell is an ordered list of segments (free text, person chips, location
+// chips) plus an optional note. Smart tagging is OPT-IN: plain text commits as
+// a text segment; typing '@' opens a unified mention picker — people first
+// (ReassignOwnerControl contract: 5-cap, honest overflow count, 'not a user'
+// escape hatch, placeholder confirm) with a Locations group beneath; '#' still
+// narrows to locations only, with a free-text fallback.
+//
+// The mention behavior itself lives in useMentionPicker, shared with the
+// in-cell editor so the two surfaces cannot drift.
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 
 import { parseTimeToken } from './sheetEventUtils';
-
-const MATCH_CAP = 5;
+import useMentionPicker, {
+  personSegment,
+  locationSegment,
+  timeSegment,
+  placeholderSegment,
+  externalPersonSegment,
+} from './useMentionPicker';
 
 function PersonChip({ segment, onRemove, onSetCallTime, canEdit }) {
   const kind = segment.placeholder ? 'placeholder' : segment.userId ? 'user' : 'external';
@@ -54,46 +66,17 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   const [callTimeIndex, setCallTimeIndex] = useState(null);
   const [callTimeDraft, setCallTimeDraft] = useState('');
 
-  // '@' is the universal tag: people AND locations, grouped. '#' narrows to
-  // locations only (kept as a shortcut and for muscle memory).
-  const mode = input.startsWith('@') ? 'mention' : input.startsWith('#') ? 'location' : 'text';
-  const term = mode === 'text' ? input : input.slice(1);
-
-  const personMatches = useMemo(() => {
-    if (mode !== 'mention') return [];
-    const q = term.trim().toLowerCase();
-    const all = people || [];
-    return q
-      ? all.filter((p) => (p.name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q))
-      : all;
-  }, [mode, term, people]);
-
-  const locationMatches = useMemo(() => {
-    if (mode !== 'location' && mode !== 'mention') return [];
-    const q = term.trim().toLowerCase();
-    const all = locations || [];
-    return q ? all.filter((l) => (l.displayName || '').toLowerCase().includes(q)) : all;
-  }, [mode, term, locations]);
-
-  // A time typed anywhere in the cell normalizes to one sheet-wide format;
-  // anything that is not a time ('after kiddush') commits exactly as typed.
-  const timePreview = useMemo(() => (mode === 'text' ? parseTimeToken(input) : null), [mode, input]);
-
-  // '@' is a lookup sigil, and a time has nothing to look up — so it is
-  // optional here. Typing '@6pm' still works because people reach for it.
-  const mentionTime = useMemo(() => (mode === 'mention' ? parseTimeToken(term) : null), [mode, term]);
-
-  /**
-   * The segment the input box currently represents, or null when it is empty.
-   * save() and Enter BOTH go through this: text left in the box used to be
-   * discarded on save, which read as 'times cannot be entered' because chips
-   * are committed by a picker click and only text needs the Enter step.
-   */
-  const pendingTextSegment = () => {
-    const value = input.trim();
-    if (!value) return null;
-    return { type: 'text', text: timePreview ? timePreview.display : value };
-  };
+  const {
+    mode,
+    term,
+    personMatches,
+    personOverflow,
+    locationMatches,
+    locationOverflow,
+    timePreview,
+    mentionTime,
+    pendingSegment,
+  } = useMentionPicker({ input, people, locations });
 
   const addSegment = (segment) => {
     setSegments((prev) => [...prev, segment]);
@@ -102,7 +85,7 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
   };
 
   const commitText = () => {
-    const segment = pendingTextSegment();
+    const segment = pendingSegment();
     if (segment) addSegment(segment);
   };
 
@@ -119,20 +102,17 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     }
   };
 
-  const pickPerson = (p) =>
-    addSegment({ type: 'person', userId: p.userId, name: p.name, email: p.email, placeholder: false, callTimeOverride: null });
+  const pickPerson = (p) => addSegment(personSegment(p));
 
-  const pickTime = (t) => addSegment({ type: 'text', text: t.display });
+  const pickTime = (t) => addSegment(timeSegment(t));
 
-  const pickLocation = (l) =>
-    addSegment({ type: 'location', locationId: String(l._id), name: l.displayName });
+  const pickLocation = (l) => addSegment(locationSegment(l));
 
-  const addPlaceholder = () =>
-    addSegment({ type: 'person', userId: null, name: `@${term.trim()}`, email: null, placeholder: true, callTimeOverride: null });
+  const addPlaceholder = () => addSegment(placeholderSegment(term));
 
   const save = () => {
     const trimmedNote = note.trim();
-    const pending = pendingTextSegment();
+    const pending = pendingSegment();
     onSave({
       segments: pending ? [...segments, pending] : segments,
       note: trimmedNote ? { text: trimmedNote, authorName: null, at: new Date().toISOString() } : null,
@@ -235,27 +215,27 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
                 </button>
               </>
             )}
-            {personMatches.slice(0, MATCH_CAP).map((p) => (
+            {personMatches.map((p) => (
               <button key={p.userId} type="button" className="ss-picker-row" onClick={() => pickPerson(p)}>
                 <span className="ss-picker-name">{p.name}</span>
                 <span className="ss-picker-sub">{p.email}</span>
               </button>
             ))}
-            {personMatches.length > MATCH_CAP && (
+            {personOverflow > 0 && (
               <div className="ss-picker-overflow">
-                {personMatches.length - MATCH_CAP} more {personMatches.length - MATCH_CAP === 1 ? 'match' : 'matches'}. Keep typing&hellip;
+                {personOverflow} more {personOverflow === 1 ? 'match' : 'matches'}. Keep typing&hellip;
               </div>
             )}
             {locationMatches.length > 0 && (
               <>
                 <div className="ss-picker-group" data-testid="mention-locations-group">Locations</div>
-                {locationMatches.slice(0, MATCH_CAP).map((l) => (
+                {locationMatches.map((l) => (
                   <button key={String(l._id)} type="button" className="ss-picker-row" onClick={() => pickLocation(l)}>
                     <span className="ss-picker-name"><span aria-hidden="true">&#128205;</span> {l.displayName}</span>
                   </button>
                 ))}
-                {locationMatches.length > MATCH_CAP && (
-                  <div className="ss-picker-overflow">{locationMatches.length - MATCH_CAP} more locations. Keep typing&hellip;</div>
+                {locationOverflow > 0 && (
+                  <div className="ss-picker-overflow">{locationOverflow} more locations. Keep typing&hellip;</div>
                 )}
               </>
             )}
@@ -285,16 +265,7 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
             <button
               type="button"
               disabled={!externalDraft.name.trim()}
-              onClick={() =>
-                addSegment({
-                  type: 'person',
-                  userId: null,
-                  name: externalDraft.name.trim(),
-                  email: externalDraft.email.trim() || null,
-                  placeholder: false,
-                  callTimeOverride: null,
-                })
-              }
+              onClick={() => addSegment(externalPersonSegment(externalDraft.name, externalDraft.email))}
             >
               Add person
             </button>
@@ -304,14 +275,14 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
 
         {mode === 'location' && (
           <div className="ss-picker" data-testid="location-picker">
-            {locationMatches.slice(0, MATCH_CAP).map((l) => (
+            {locationMatches.map((l) => (
               <button key={String(l._id)} type="button" className="ss-picker-row" onClick={() => pickLocation(l)}>
                 <span className="ss-picker-name">{l.displayName}</span>
               </button>
             ))}
-            {locationMatches.length > MATCH_CAP && (
+            {locationOverflow > 0 && (
               <div className="ss-picker-overflow">
-                {locationMatches.length - MATCH_CAP} more. Keep typing&hellip;
+                {locationOverflow} more. Keep typing&hellip;
               </div>
             )}
             {locationMatches.length === 0 && term.trim() && (
