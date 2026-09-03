@@ -2,12 +2,11 @@
 //
 // The send surface for per-person schedule emails. Day- or workbook-scoped;
 // recipients are the distinct tagged people in scope, each with an honest
-// per-person status (sent / stale / not yet emailed). Placeholder chips
-// HARD-BLOCK the send (a roster being emailed with unassigned posts is
-// exactly what the block catches); only an admin can override, and the
-// override plainly says placeholders are skipped, not silently dropped.
-// Two-step in-button confirmation per the app-wide standard; results render
-// per recipient so one bad address is visible without hiding six good sends.
+// per-person status (sent / stale / not yet emailed). Placeholder chips have
+// no address, so they are listed as skipped and never block the send — the
+// people who DO have a schedule still get it. Two-step in-button confirmation
+// per the app-wide standard; results render per recipient so one bad address
+// is visible without hiding six good sends.
 //
 // Layout follows the app's modal convention (fixed header / scrolling body /
 // fixed footer, as CategorySelectorModal): a real send covers 30+ people, so
@@ -53,14 +52,13 @@ function statusFor(email, days) {
   return { label: 'sent', kind: 'sent' };
 }
 
-export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend, onClose }) {
+export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose }) {
   const [scope, setScope] = useState('day'); // 'day' | 'sheet'
   const [checked, setChecked] = useState(null); // null = all
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
-  const [allowPlaceholders, setAllowPlaceholders] = useState(false);
 
   const scopeDays = useMemo(
     () => (scope === 'day' ? [activeDay] : sheet.days || []),
@@ -79,7 +77,6 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
   };
 
   const selectedEmails = recipients.map((r) => r.email).filter(isChecked);
-  const blocked = placeholders.length > 0 && !(isAdmin && allowPlaceholders);
   const totalAssignments = recipients.reduce((sum, r) => sum + r.count, 0);
   const scopeLabel = scope === 'day' ? (activeDay.title || activeDay.date) : sheet.name;
 
@@ -91,7 +88,6 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
       const body = {
         ...(scope === 'day' ? { dayId: activeDay._id } : { wholeSheet: true }),
         ...(checked ? { recipients: selectedEmails } : {}),
-        ...(isAdmin && allowPlaceholders ? { allowPlaceholders: true } : {}),
       };
       const outcome = await onSend(body);
       setResults(outcome);
@@ -199,20 +195,10 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
               </ul>
 
               {placeholders.length > 0 && (
-                <div className="ss-email-block" data-testid="placeholder-block">
-                  <strong>{placeholders.length}</strong> unassigned placeholder{placeholders.length === 1 ? '' : 's'} remain{placeholders.length === 1 ? 's' : ''} on this
-                  {scope === 'day' ? ' day' : ' sheet'}. Sending is blocked until every post has a real person.
-                  {isAdmin && (
-                    <label className="ss-email-override">
-                      <input
-                        type="checkbox"
-                        checked={allowPlaceholders}
-                        onChange={(e) => setAllowPlaceholders(e.target.checked)}
-                        data-testid="allow-placeholders"
-                      />
-                      Send anyway (admin) &mdash; placeholders are skipped
-                    </label>
-                  )}
+                <div className="ss-email-note" data-testid="placeholder-note">
+                  <strong>{placeholders.length}</strong> unassigned placeholder{placeholders.length === 1 ? '' : 's'} on this
+                  {scope === 'day' ? ' day' : ' sheet'} ha{placeholders.length === 1 ? 's' : 've'} no email address and will be skipped:
+                  {' '}{placeholders.join(', ')}.
                 </div>
               )}
 
@@ -227,7 +213,7 @@ export default function EmailSchedulesPanel({ sheet, activeDay, isAdmin, onSend,
                   type="button"
                   className={`ss-primary-btn ${confirming ? 'ss-confirm' : ''}`}
                   data-testid="send-schedules-button"
-                  disabled={sending || blocked || selectedEmails.length === 0}
+                  disabled={sending || selectedEmails.length === 0}
                   onClick={send}
                 >
                   {sending ? 'Sending…' : confirming ? 'Confirm send?' : `Email ${selectedEmails.length} ${selectedEmails.length === 1 ? 'person' : 'people'}`}

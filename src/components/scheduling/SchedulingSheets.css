@@ -1167,15 +1167,19 @@ tr.ss-drop-target .ss-row-label {
 .ss-recipient-placeholder { opacity: 0.55; border-style: dashed; }
 .ss-recipient-placeholder .ss-recipient-name { font-family: var(--font-mono, monospace); font-size: 12px; }
 
-.ss-email-block {
-  background: var(--color-error-50, #fef2f2);
-  border: 1px solid var(--color-error-200, #fecaca);
+/* Placeholders are a heads-up, not a wall: an unassigned post has no address,
+   so it is skipped and named. Neutral surface, deliberately NOT the error red
+   this used to be — nothing here stops the send. */
+.ss-email-note {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   font-size: 12px;
+  color: var(--text-secondary);
   margin-top: 12px;
 }
-.ss-email-override { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ss-email-note strong { color: var(--text-primary); }
 .ss-email-error { color: var(--color-error-500); font-size: 13px; margin-top: 10px; }
 
 .ss-email-results-summary { margin: 0 0 10px; font-size: 13px; }

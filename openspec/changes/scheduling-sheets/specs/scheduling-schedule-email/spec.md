@@ -13,20 +13,20 @@
 - **WHEN** a person is tagged on Sep 11 and Sep 20 and a whole-sheet send runs
 - **THEN** their single email covers both days
 
-### Requirement: Placeholder hard-block with admin override
-The send SHALL fail with 422 `UNRESOLVED_PLACEHOLDERS` (no emails dispatched) while placeholder person chips exist in scope. An admin MAY pass `allowPlaceholders: true` to send anyway; non-admin managers MUST NOT be able to override.
+### Requirement: Placeholders are skipped and reported, never a block
+REVISED 2026-09-03. A placeholder person chip has no email address, so the send SHALL skip it and name it in `skippedPlaceholders`; it SHALL NOT block delivery to the resolved recipients, for any role. The former 422 `UNRESOLVED_PLACEHOLDERS` response and the admin-only `allowPlaceholders` override are removed from both the endpoint and the send panel — one unassigned post is a reason to tell the sender, not a reason to withhold every other person's schedule.
 
-#### Scenario: Blocked send
-- **WHEN** the scope contains a `@placeholder` chip and no override
-- **THEN** the response is 422 and zero emails are sent
+#### Scenario: Placeholder alongside real people
+- **WHEN** the scope contains a `@placeholder` chip and resolved recipients
+- **THEN** every resolved recipient is emailed and the placeholder is returned in `skippedPlaceholders`
 
-#### Scenario: Admin override
-- **WHEN** an admin sends with `allowPlaceholders: true`
-- **THEN** emails go to all resolved recipients and placeholders are skipped
+#### Scenario: Nothing but placeholders
+- **WHEN** every person chip in scope is a placeholder
+- **THEN** the response is 200 with `sent: 0` and the placeholders named, and no mail is dispatched
 
-#### Scenario: Non-admin cannot override
-- **WHEN** an events-department non-admin sends with `allowPlaceholders: true`
-- **THEN** the response is 422 (override ignored) or 403 for the override flag
+#### Scenario: Non-admin manager
+- **WHEN** an events-department non-admin sends a scope containing placeholders
+- **THEN** the send succeeds identically — there is no override flag to gate
 
 ### Requirement: Per-recipient failure isolation
 Sends SHALL fan out per recipient (via `Promise.allSettled` semantics); one failing address SHALL NOT prevent other sends. The response SHALL report `{ email, success, error }` per recipient. Any retry logic added later MUST use `retryWithBackoff`.

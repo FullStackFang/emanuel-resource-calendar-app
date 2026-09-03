@@ -3,8 +3,8 @@
 // Direct component tests for the grid, the cell editor, and the email panel
 // (tasks 6.3-6.6): the picker's 5-cap + honest overflow + escape hatches,
 // two-step delete confirms, the linked-event drift/missing flags, the soft
-// double-booking warning, and the placeholder hard-block messaging with the
-// admin-only override.
+// double-booking warning, and the placeholder skip messaging (placeholders
+// are reported, never a block).
 //
 // Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel)
 
@@ -824,28 +824,37 @@ describe('EmailSchedulesPanel', () => {
     const { sheet, day } = buildSheetForEmail({
       emailStatus: [{ email: 'sarah@x.org', sentAt: '2027-08-30T00:00:00Z', stale: true }],
     });
-    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} isAdmin={false} onSend={vi.fn()} onClose={vi.fn()} />);
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByTestId('status-sarah@x.org')).toHaveTextContent(/changed since/i);
   });
 
-  it('SEP-2: placeholders hard-block the send for a non-admin manager (no override offered)', () => {
+  it('SEP-2: placeholders never block the send; they are named as skipped', () => {
     const { sheet, day } = buildSheetForEmail({ withPlaceholder: true });
-    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} isAdmin={false} onSend={vi.fn()} onClose={vi.fn()} />);
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.getByTestId('placeholder-block')).toHaveTextContent(/blocked/i);
-    expect(screen.getByTestId('send-schedules-button')).toBeDisabled();
-    expect(screen.queryByTestId('allow-placeholders')).not.toBeInTheDocument();
+    const note = screen.getByTestId('placeholder-note');
+    expect(note).toHaveTextContent(/skipped/i);
+    expect(note).toHaveTextContent('@usher_team');
+    expect(note).not.toHaveTextContent(/blocked/i);
+    expect(screen.getByTestId('send-schedules-button')).not.toBeDisabled();
   });
 
-  it('SEP-3: an admin can override; the override plainly says placeholders are skipped', () => {
+  // The admin-only allowPlaceholders override is GONE along with the block.
+  // This asserts the flag never comes back in the request body — a server that
+  // no longer reads it would silently accept one, so only the client can lock it.
+  it('SEP-3: a send with placeholders in scope carries no allowPlaceholders flag', () => {
     const { sheet, day } = buildSheetForEmail({ withPlaceholder: true });
-    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} isAdmin onSend={vi.fn()} onClose={vi.fn()} />);
+    const onSend = vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: ['@usher_team'] });
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
 
-    expect(screen.getByTestId('send-schedules-button')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('allow-placeholders'));
-    expect(screen.getByTestId('send-schedules-button')).not.toBeDisabled();
-    expect(screen.getByText(/placeholders are skipped/i)).toBeInTheDocument();
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).not.toHaveProperty('allowPlaceholders');
+    expect(screen.queryByTestId('allow-placeholders')).not.toBeInTheDocument();
   });
 
   it('SEP-4: sending is a two-step confirm; results render per recipient', async () => {
@@ -859,7 +868,7 @@ describe('EmailSchedulesPanel', () => {
       ],
       skippedPlaceholders: [],
     });
-    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} isAdmin onSend={onSend} onClose={vi.fn()} />);
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
 
     const button = screen.getByTestId('send-schedules-button');
     fireEvent.click(button);
@@ -877,7 +886,7 @@ describe('EmailSchedulesPanel', () => {
   it('SEP-5: whole-sheet scope sends wholeSheet: true', () => {
     const { sheet, day } = buildSheetForEmail();
     const onSend = vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: [] });
-    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} isAdmin onSend={onSend} onClose={vi.fn()} />);
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByLabelText(/All days in this sheet/));
     const button = screen.getByTestId('send-schedules-button');

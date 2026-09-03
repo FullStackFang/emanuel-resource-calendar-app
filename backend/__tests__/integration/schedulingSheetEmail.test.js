@@ -150,7 +150,10 @@ describe('Scheduling Sheet emails (SE-1 to SE-8)', () => {
     expect(html).toContain('September 20');
   });
 
-  test('SE-3 placeholder in scope hard-blocks with zero dispatches', async () => {
+  // A placeholder has no address. It never withholds the schedule from the
+  // people who DO have one — it is skipped and named back to the sender.
+  // (Replaces the former 422 UNRESOLVED_PLACEHOLDERS block + admin override.)
+  test('SE-3 placeholder in scope is skipped, not blocking, and is reported', async () => {
     const sheet = await createSheet();
     let day = await createDay(sheet._id, { date: '2027-09-11' });
     day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
@@ -160,29 +163,13 @@ describe('Scheduling Sheet emails (SE-1 to SE-8)', () => {
     });
 
     const res = await sendSchedules(sheet._id, { dayId: day._id });
-    expect(res.status).toBe(422);
-    expect(res.body.code).toBe('UNRESOLVED_PLACEHOLDERS');
-    expect(res.body.placeholders).toContain('@usher_team');
-    expect(sendSpy).not.toHaveBeenCalled();
-  });
-
-  test('SE-4 admin allowPlaceholders sends to resolved recipients and reports skipped placeholders', async () => {
-    const sheet = await createSheet();
-    let day = await createDay(sheet._id, { date: '2027-09-11' });
-    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
-
-    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', {
-      segments: [person('A', 'a@x.org'), { type: 'person', name: '@usher_team', placeholder: true }],
-    });
-
-    const res = await sendSchedules(sheet._id, { dayId: day._id, allowPlaceholders: true });
     expect(res.status).toBe(200);
     expect(res.body.sent).toBe(1);
     expect(res.body.skippedPlaceholders).toEqual(['@usher_team']);
     expect(sendSpy).toHaveBeenCalledTimes(1);
   });
 
-  test('SE-5 non-admin manager cannot override the placeholder block', async () => {
+  test('SE-4 a scope of nothing but placeholders sends no mail and says so', async () => {
     const sheet = await createSheet();
     let day = await createDay(sheet._id, { date: '2027-09-11' });
     day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
@@ -191,10 +178,27 @@ describe('Scheduling Sheet emails (SE-1 to SE-8)', () => {
       segments: [{ type: 'person', name: '@usher_team', placeholder: true }],
     });
 
-    const res = await sendSchedules(sheet._id, { dayId: day._id, allowPlaceholders: true }, eventsRequesterToken);
-    expect(res.status).toBe(422);
-    expect(res.body.code).toBe('UNRESOLVED_PLACEHOLDERS');
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(0);
+    expect(res.body.skippedPlaceholders).toEqual(['@usher_team']);
     expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-5 a non-admin events-department manager sends past placeholders too', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', {
+      segments: [person('A', 'a@x.org'), { type: 'person', name: '@usher_team', placeholder: true }],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id }, eventsRequesterToken);
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(1);
+    expect(res.body.skippedPlaceholders).toEqual(['@usher_team']);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
   });
 
   test('SE-6 one bad address of 7 fails alone; emailLog records only successes', async () => {

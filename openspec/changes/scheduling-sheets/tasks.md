@@ -31,7 +31,7 @@
 
 - [x] 5.1 `ASSIGNMENT_SCHEDULE` template + `CTA_CONFIG` entry in `emailTemplates.js` (day-scoped subject, sheet title in body, notes + effective call time, CTA -> My Assignments); EU-14 passes
 - [x] 5.2 `POST /api/scheduling-sheets/:sheetId/email`: scope resolution (day | whole sheet, optional recipients subset), one email per distinct person, `Promise.allSettled` fan-out, per-recipient results; test: 1 bad address of 7 -> 6 sent + failure reported
-- [x] 5.3 Placeholder hard-block: 422 `UNRESOLVED_PLACEHOLDERS` with zero dispatches; `allowPlaceholders` honored for admin only; tests for all three spec scenarios
+- [x] 5.3 Placeholder handling: skipped and named in `skippedPlaceholders`, never blocking (revised 2026-09-03 — the 422 `UNRESOLVED_PLACEHOLDERS` block and `allowPlaceholders` override were removed); tests for all three spec scenarios
 - [x] 5.4 `emailLog` append on success + stale computation (`lastModifiedAt > sentAt`) exposed in the day payload; test: edit-after-send reads stale
 
 ## 6. Workbook frontend

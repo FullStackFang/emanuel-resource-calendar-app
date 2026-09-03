@@ -21062,12 +21062,14 @@ function buildAssignmentsTableHtml(entries) {
 
 /**
  * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
- * Body: { dayId? , wholeSheet?: true, recipients?: [emails], allowPlaceholders?: bool }
+ * Body: { dayId? , wholeSheet?: true, recipients?: [emails] }
  *
  * One email per distinct tagged person in scope, covering ALL their rows in
- * scope chronologically. Hard-blocks (422 UNRESOLVED_PLACEHOLDERS, zero
- * dispatches) while placeholder chips remain in scope; allowPlaceholders is
- * honored for ADMINS only (spec scheduling-schedule-email). Fan-out is
+ * scope chronologically. Placeholder chips have no address to send to, so
+ * they are simply SKIPPED and named back in `skippedPlaceholders` — an
+ * unassigned post is a reason to tell the sender, not a reason to withhold
+ * the schedule from the thirty people who do have one. (This replaced an
+ * earlier 422 UNRESOLVED_PLACEHOLDERS hard-block + admin override.) Fan-out is
  * Promise.allSettled — one bad address never blocks the rest — and each
  * success appends an emailLog entry on every in-scope day that person appears
  * on (staleness is later computed against day.lastModifiedAt). Any future
@@ -21083,7 +21085,7 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
     if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
 
-    const { dayId, wholeSheet, recipients, allowPlaceholders } = req.body || {};
+    const { dayId, wholeSheet, recipients } = req.body || {};
     let scopeDays;
     let scopeLabel;
     if (dayId) {
@@ -21105,17 +21107,9 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
 
     const allEntries = scopeDays.flatMap((d) => extractDayAssignments(d));
 
-    // Placeholder hard-block (design D5): an unresolved slot on a roster being
-    // emailed is exactly what this gate exists to catch.
+    // Placeholders have no address. They are reported, never a block — see the
+    // endpoint comment above.
     const placeholders = allEntries.filter((e) => e.placeholder);
-    const overrideAllowed = allowPlaceholders === true && isAdmin(user, req.user.email);
-    if (placeholders.length && !overrideAllowed) {
-      return res.status(422).json({
-        error: 'Cannot send: unresolved placeholder assignments remain in scope',
-        code: 'UNRESOLVED_PLACEHOLDERS',
-        placeholders: [...new Set(placeholders.map((p) => p.name))]
-      });
-    }
 
     const byEmail = new Map();
     for (const entry of allEntries) {
@@ -21194,7 +21188,7 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       results,
       sent: results.filter((r) => r.success).length,
       failed: results.filter((r) => !r.success).length,
-      skippedPlaceholders: overrideAllowed ? [...new Set(placeholders.map((p) => p.name))] : []
+      skippedPlaceholders: [...new Set(placeholders.map((p) => p.name))]
     });
   } catch (error) {
     sheetOperationalError(res, error, 'send schedule emails');

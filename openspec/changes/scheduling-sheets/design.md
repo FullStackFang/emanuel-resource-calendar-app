@@ -79,8 +79,8 @@ The architecture review flagged that roster prep is multi-editor under deadline 
 
 ### D5. Email: one message per person, fan-out with per-recipient isolation
 
-- `POST /api/scheduling-sheets/:sheetId/email` with `{ scope: { dayId } | { wholeSheet: true }, recipients?: [emails], allowPlaceholders?: bool, expectedNothing }` — day-scoped and workbook-scoped sends (default #11).
-- Recipients = distinct person-chip emails in scope. **Hard-block (422 `UNRESOLVED_PLACEHOLDERS`) while placeholder chips remain in scope**, unless `allowPlaceholders: true` from an admin (default from question 5 + revision).
+- `POST /api/scheduling-sheets/:sheetId/email` with `{ scope: { dayId } | { wholeSheet: true }, recipients?: [emails], expectedNothing }` — day-scoped and workbook-scoped sends (default #11).
+- Recipients = distinct person-chip emails in scope. **Placeholder chips are skipped and reported in `skippedPlaceholders`, never a block** (revised 2026-09-03; the original 422 `UNRESOLVED_PLACEHOLDERS` hard-block and its admin-only `allowPlaceholders` override were removed).
 - Fan-out via `Promise.allSettled` over `emailService.sendEmail` per recipient; response `{ results: [{ email, success, error }] }`; one bad address never blocks the rest. Any future per-recipient retry MUST use `retryWithBackoff` (review note; no hand-rolled loops).
 - New `ASSIGNMENT_SCHEDULE` template in `emailTemplates.js` + `CTA_CONFIG` entry (EU-14 forces the classification). Subject is day-scoped: "Your assignments for Friday, September 11" (workbook scope: one email listing all the person's days). Sheet title in the body. CTA → My Assignments — a deliberate deviation from the `eventUrl` deep-link convention (documented here per review P3); external recipients can ignore it. Body includes cell notes (default: notes are visible to assignees) and the person's effective call time (column default overridden by `callTimeOverride`).
 - Success appends `{ email, sentAt, sentBy }` to the day doc's `emailLog`. **Staleness** is computed, not stored: a person's send is stale when `day.lastModifiedAt > their latest sentAt` (question 2 resolution — "emailed, but changed since" indicator).

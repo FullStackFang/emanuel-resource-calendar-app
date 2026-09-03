@@ -25,7 +25,6 @@ import { useLocationsQuery } from '../../hooks/useLocationsQuery';
 import { deriveListLoadingState } from '../../utils/listLoadingState';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
-import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
 import { PrinterIcon, MailIcon, CopyIcon } from '../shared/CalendarIcons';
@@ -73,7 +72,6 @@ function splitDayTabs(days) {
 export default function SchedulingSheets() {
   const { apiToken } = useAuth();
   const { showSuccess, showError } = useNotification();
-  const { isAdmin } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [selectedSheetId, setSelectedSheetId] = useState(() => searchParams.get('sheet') || null);
@@ -773,7 +771,6 @@ export default function SchedulingSheets() {
         <EmailSchedulesPanel
           sheet={sheet}
           activeDay={activeDay}
-          isAdmin={isAdmin}
           onClose={() => setEmailOpen(false)}
           onSend={(body) =>
             mutations.sendSchedules.mutateAsync(body).catch((e) => {

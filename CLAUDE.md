@@ -693,9 +693,12 @@ deliberately targets `buildMyAssignmentsUrl()`, not the ?eventId= deep link —
 external recipients have no account and the body is self-contained).
 `POST /api/scheduling-sheets/:id/email`: day- or wholeSheet-scoped, ONE email
 per distinct person covering all their cells, Promise.allSettled fan-out with
-per-recipient {email, success, error} results. 422 UNRESOLVED_PLACEHOLDERS
-hard-block while placeholder chips remain; `allowPlaceholders` honored for
-ADMINS only. Success appends per-day `emailLog`; staleness is COMPUTED
+per-recipient {email, success, error} results. Placeholder chips have no
+address, so they are SKIPPED and named back in `skippedPlaceholders` — never
+a block (revised 2026-09-03: the original 422 UNRESOLVED_PLACEHOLDERS gate and
+its admin-only `allowPlaceholders` override are both GONE, server and client;
+one unassigned post must not withhold the schedule from the 30 people who have
+one). Success appends per-day `emailLog`; staleness is COMPUTED
 (`lastModifiedAt > sentAt`), never stored — the structure endpoint also stamps
 `lastModifiedAt` (conditionalUpdate only stamps lastModifiedDateTime) so
 structural edits read as stale too.
