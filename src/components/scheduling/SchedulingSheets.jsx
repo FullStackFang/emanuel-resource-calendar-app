@@ -279,7 +279,15 @@ export default function SchedulingSheets() {
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [sheets]);
 
-  const showWorkbookEmpty = !isFirstLoad && !isSilentRefreshing && sheets.length === 0;
+  // The workbook list and the open sheet are INDEPENDENT queries: a deep link
+  // (?sheet=&date=) resolves the detail without the list ever having succeeded.
+  // So an empty or failed list must not print 'no scheduling sheets yet' over a
+  // sheet the user is populating — and must not trip the auto-open effect below
+  // into throwing the creation panel at them mid-edit.
+  const viewingSheet = !!sheet || (!!selectedSheetId && !!detailQuery.isPending);
+  const listSettled = !isFirstLoad && !isSilentRefreshing;
+  const showListError = listSettled && !!listQuery.isError && !viewingSheet;
+  const showWorkbookEmpty = listSettled && !listQuery.isError && !viewingSheet && sheets.length === 0;
 
   // First run: an empty workbook auto-opens the creation panel once (design
   // D8 #7) — closing it reveals the empty state with its manual button.
@@ -312,6 +320,14 @@ export default function SchedulingSheets() {
           </button>
           {pickerOpen && (
             <div className="ss-workbook-menu" data-testid="workbook-menu">
+              {/* A failed list would otherwise read as 'this is every sheet' —
+                  the same lie the empty state used to tell, one level in. */}
+              {listQuery.isError && (
+                <div className="ss-workbook-error" data-testid="workbook-menu-error">
+                  Could not load the sheet list.{' '}
+                  <button type="button" onClick={() => listQuery.refetch()}>Retry</button>
+                </div>
+              )}
               {sheetsByYear.map(([year, group]) => (
                 <div key={year} className="ss-workbook-group">
                   <div className="ss-workbook-year">{year}</div>
@@ -376,6 +392,13 @@ export default function SchedulingSheets() {
           )}
         </div>
       </div>
+
+      {showListError && (
+        <div className="ss-empty" data-testid="workbook-list-error">
+          <p>Could not load your scheduling sheets. Any existing sheets are still there — this is a read failure, not an empty workbook.</p>
+          <EmptyStateRefreshButton onClick={() => listQuery.refetch()} isRefreshing={listQuery.isFetching} />
+        </div>
+      )}
 
       {showWorkbookEmpty && !newSheetOpen && (
         <div className="ss-empty" data-testid="workbook-empty">
@@ -467,7 +490,7 @@ export default function SchedulingSheets() {
         </div>
       )}
 
-      {sheet && !activeDay && !showWorkbookEmpty && (
+      {sheet && !activeDay && (
         <div className="ss-empty" data-testid="sheet-no-days">
           <p>This scheduling sheet has no days yet.</p>
           <button type="button" className="ss-primary-btn" onClick={() => setNewDayOpen(true)}>+ Add a day</button>
