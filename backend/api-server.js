@@ -20394,6 +20394,10 @@ const {
   extractTaggedEmails: extractSheetTaggedEmails,
   cellKey: sheetCellKey
 } = require('./utils/sheetCells');
+// Required as a MODULE OBJECT, not destructured: the call below must go
+// through the export so a test can force it to throw and prove that a broken
+// calendar file still lets the schedule email out (design D10).
+const icsBuilder = require('./utils/icsBuilder');
 const { buildMyAssignmentsUrl } = require('./utils/eventDeepLink');
 const { randomUUID } = require('crypto');
 
@@ -21029,6 +21033,17 @@ function extractDayAssignments(day) {
         placeholder: !!seg.placeholder,
         dayId: day._id,
         sheetId: day.sheetId,
+        // Calendar-attachment identity (icsBuilder design D6). Row and column
+        // ids are UUIDs assigned at creation and drag-reorder moves array
+        // POSITIONS, never ids — so a reordered sheet does not re-identify
+        // anybody's calendar entries. `sequence` is the day _version, already
+        // $inc'd on every structural and cell write, so a re-send after an
+        // edit carries a strictly higher SEQUENCE. `linkedSnapshot` is the
+        // last fallback for a column whose time cells are prose.
+        rowId,
+        colId,
+        sequence: typeof day._version === 'number' ? day._version : 0,
+        linkedSnapshot: (col && col.linkedEvent && col.linkedEvent.snapshot) || null,
         date: day.date,
         dayTitle: day.title || null,
         rowLabel: row ? row.label : null,
@@ -21223,7 +21238,7 @@ const MAX_SCHEDULE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 /**
  * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
  * Body: { dayId? , wholeSheet?: true, recipients?: [emails],
- *         attachment?: { fileName, contentBase64 } }
+ *         attachment?: { fileName, contentBase64 }, includeCalendar?: true }
  *
  * One email per distinct tagged person in scope, covering ALL their rows in
  * scope chronologically. Placeholder chips have no address to send to, so
@@ -21246,7 +21261,12 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
     if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
 
-    const { dayId, wholeSheet, recipients, attachment } = req.body || {};
+    const { dayId, wholeSheet, recipients, attachment, includeCalendar } = req.body || {};
+
+    // Opt-out-safe by construction: only an explicit `true` turns the calendar
+    // attachment on, so an old client, a replayed body, or a rollback all
+    // reproduce exactly the behavior that existed before this feature.
+    const wantCalendar = includeCalendar === true;
 
     // Optional workbook printout, rendered by the CLIENT with the same
     // generator the Download PDF button uses — that is the whole point: the
@@ -21315,6 +21335,43 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const sentAt = new Date().toISOString();
     const senderEmail = (req.user.email || '').toLowerCase();
 
+    // The calendar file DIFFERS PER RECIPIENT — it carries only that person's
+    // assignments — so unlike the workbook PDF (one blob built once above and
+    // attached identically to all 31 messages) it is built INSIDE the
+    // fan-out. It shares the Graph message budget with the PDF rather than
+    // sitting outside it, and a file that throws or busts that budget warns
+    // and is dropped: the ASSIGNMENT_SCHEDULE body is self-contained, which is
+    // exactly why the PDF is already allowed to fail this way.
+    const pdfBytes = pdfAttachment ? Math.floor(pdfAttachment.contentBase64.length * 0.75) : 0;
+    const calendarFileName = `${String(scopeLabel || 'schedule').replace(/[^A-Za-z0-9._ -]/g, '').trim() || 'schedule'}.ics`;
+    let calendarWarning = null;
+    let calendarAttached = false;
+
+    const buildCalendarAttachment = (email, entries) => {
+      if (!wantCalendar) return null;
+      try {
+        const ics = icsBuilder.buildAssignmentsCalendar(entries, { dtstamp: sentAt, email });
+        if (!ics) return null;
+        if (pdfBytes + Buffer.byteLength(ics, 'utf8') > MAX_SCHEDULE_ATTACHMENT_BYTES) {
+          calendarWarning = `The calendar file did not fit under the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit and was not attached.`;
+          logger.warn('Scheduling sheet calendar attachment rejected:', calendarWarning);
+          return null;
+        }
+        calendarAttached = true;
+        return {
+          name: calendarFileName,
+          // The method= parameter is what prompts several clients to offer an
+          // inline 'Add to Calendar' affordance rather than a bare download.
+          contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+          contentBase64: Buffer.from(ics, 'utf8').toString('base64')
+        };
+      } catch (calendarError) {
+        logger.error('Failed to build the schedule calendar attachment:', calendarError);
+        calendarWarning = 'The calendar attachment could not be generated and was not attached.';
+        return null;
+      }
+    };
+
     const settled = await Promise.allSettled(
       targetEmails.map(async (email) => {
         const entries = [...byEmail.get(email)].sort(
@@ -21331,9 +21388,10 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
             eventUrl: myAssignmentsUrl
           }
         );
+        const attachments = [pdfAttachment, buildCalendarAttachment(email, entries)].filter(Boolean);
         const outcome = await emailService.sendEmail(email, subject, html, {
           reservationId: String(sheet._id),
-          ...(pdfAttachment ? { attachments: [pdfAttachment] } : {})
+          ...(attachments.length ? { attachments } : {})
         });
         // sendEmail RESOLVES (never throws) when delivery is disabled in
         // system settings, returning { skipped: true }. Treating that as a
@@ -21389,7 +21447,9 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       skipped: results.filter((r) => r.skipped).length,
       skippedPlaceholders: [...new Set(placeholders.map((p) => p.name))],
       attached: !!pdfAttachment,
-      ...(attachmentWarning ? { attachmentWarning } : {})
+      ...(attachmentWarning ? { attachmentWarning } : {}),
+      calendarAttached,
+      ...(calendarWarning ? { calendarWarning } : {})
     });
   } catch (error) {
     sheetOperationalError(res, error, 'send schedule emails');
@@ -21425,7 +21485,13 @@ app.get('/api/my-assignments', verifyToken, async (req, res) => {
     const assignments = days.flatMap((day) =>
       extractDayAssignments(day)
         .filter((e) => e.email === email && !e.placeholder)
-        .map(({ placeholder, name, ...entry }) => ({
+        // This SPREADS the extractor's entry, so every field it gains would
+        // otherwise land in this response. The calendar-attachment additions
+        // (rowId/colId/sequence/linkedSnapshot) exist for icsBuilder identity
+        // and time fallback only; they are destructured out here so the
+        // my-assignments contract stays exactly what it has always been.
+        // eslint-disable-next-line no-unused-vars
+        .map(({ placeholder, name, rowId, colId, sequence, linkedSnapshot, ...entry }) => ({
           ...entry,
           sheetName: sheetNameById[String(day.sheetId)] || null
         }))

@@ -54,6 +54,11 @@ function statusFor(email, days) {
 
 export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose }) {
   const [scope, setScope] = useState('day'); // 'day' | 'sheet'
+  // Default ON: the calendar file is worthless if nobody remembers to tick it.
+  // A control at all because how a given mail client handles a multi-event
+  // attachment is the one thing this repository cannot establish — a sender
+  // who hits a bad one needs a lever that is not a deploy.
+  const [includeCalendar, setIncludeCalendar] = useState(true);
   const [checked, setChecked] = useState(null); // null = all
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
@@ -88,6 +93,7 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
       const body = {
         ...(scope === 'day' ? { dayId: activeDay._id } : { wholeSheet: true }),
         ...(checked ? { recipients: selectedEmails } : {}),
+        includeCalendar,
       };
       const outcome = await onSend(body);
       setResults(outcome);
@@ -207,6 +213,15 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
 
             <footer className="ss-email-footer">
               <span className="ss-email-footnote">
+                <label className="ss-email-attach-toggle">
+                  <input
+                    type="checkbox"
+                    data-testid="include-calendar"
+                    checked={includeCalendar}
+                    onChange={(e) => setIncludeCalendar(e.target.checked)}
+                  />
+                  Attach a calendar file (.ics) of each person&rsquo;s own shifts
+                </label>
                 Each person gets one email covering all their cells in scope, with the full schedule PDF attached.
               </span>
               <div className="ss-editor-actions">
@@ -241,6 +256,7 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
                   {results.attached
                     ? 'The full schedule PDF was attached to every email.'
                     : 'Sent without the schedule PDF attachment.'}
+                  {results.calendarAttached && ' Each person also got a calendar file of their own shifts.'}
                 </p>
               )}
               <ul>

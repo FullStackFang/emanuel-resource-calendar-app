@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-11)
+ * Scheduling Sheet email tests (SE-1 to SE-24)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -7,7 +7,8 @@
  * blocking, Promise.allSettled per-recipient failure isolation, the recipients
  * subset, emailLog append + computed staleness (edit-after-send reads stale),
  * the disabled-delivery path that resolves instead of throwing, and the
- * client-rendered PDF attachment with its size guard.
+ * client-rendered PDF attachment with its size guard, and the per-recipient
+ * .ics calendar attachment (scope, opt-out default, identity, failure isolation).
  */
 
 const request = require('supertest');
@@ -20,10 +21,11 @@ const { createMockToken, initTestKeys } = require('../__helpers__/authHelpers');
 const { COLLECTIONS } = require('../__helpers__/testConstants');
 
 const emailService = require('../../services/emailService');
+const icsBuilder = require('../../utils/icsBuilder');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-11)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-24)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -496,5 +498,258 @@ describe('Scheduling Sheet emails (SE-1 to SE-11)', () => {
     const html = sendSpy.mock.calls[0][2];
     expect(html).toContain('Friday, Dec 31, 2027');
     expect(html).toContain('Saturday, Jan 1, 2028');
+  });
+  // --------------------------------------------------------------------------
+  // SE-18..SE-24 - the per-recipient CALENDAR attachment. Unlike the workbook
+  // PDF, which is one identical blob built once and attached to every message,
+  // the .ics differs per person and is therefore built inside the fan-out. The
+  // format itself is covered by unit/utils/icsBuilder.test.js; what these
+  // assert is the wiring: scoping, the opt-out default, identity across sends,
+  // and that a broken file never withholds anybody's schedule.
+  // --------------------------------------------------------------------------
+
+  /** The decoded .ics from one sendEmail call, or null if none rode along. */
+  function calendarFrom(call) {
+    const att = ((call[3] || {}).attachments || []).find(
+      (a) => typeof a.contentType === 'string' && a.contentType.startsWith('text/calendar')
+    );
+    return att ? Buffer.from(att.contentBase64, 'base64').toString('utf8') : null;
+  }
+
+  /** Logical (unfolded) lines, so assertions read as the file does. */
+  const linesOf = (ics) => ics.replace(/\r\n /g, '').split('\r\n');
+  const propsOf = (ics, name) =>
+    linesOf(ics).filter((l) => l.startsWith(name + ':')).map((l) => l.slice(name.length + 1));
+  const callFor = (email) => sendSpy.mock.calls.find((c) => c[0] === email);
+
+  test('SE-18 a day-scoped send gives each recipient a file of only their own shifts', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', { segments: [text('4:30 PM')] });
+    await putCell(sheet._id, day._id, rowId('Begins'), 'c1', { segments: [text('6:00 PM')] });
+    await putCell(sheet._id, day._id, rowId('Ends'), 'c1', { segments: [text('8:00 PM')] });
+    await putCell(sheet._id, day._id, rowId('Location'), 'c1', { segments: [loc('5th Avenue Sanctuary')] });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org'), person('Ben', 'ben@x.org')],
+    });
+    await putCell(sheet._id, day._id, rowId('Doors Open'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(res.body.calendarAttached).toBe(true);
+    expect(res.body.calendarWarning).toBeUndefined();
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+
+    const sarah = calendarFrom(callFor('sarah@x.org'));
+    const ben = calendarFrom(callFor('ben@x.org'));
+
+    // Sarah is on two posts, Ben on one. Neither sees the other's file.
+    expect(linesOf(sarah).filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(2);
+    expect(linesOf(ben).filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(1);
+    expect(sarah).toContain('sarah-x-org@emanuelnyc.org');
+    expect(sarah).not.toContain('ben-x-org@emanuelnyc.org');
+    expect(ben).not.toContain('sarah-x-org@emanuelnyc.org');
+
+    // The CALL TIME is what gets blocked, not the 6:00 PM service start.
+    // 4:30 PM on Sep 11 2027 is EDT, so 20:30Z.
+    expect(propsOf(ben, 'DTSTART')).toEqual(['20270911T203000Z']);
+    expect(propsOf(ben, 'DTEND')).toEqual(['20270912T000000Z']);
+    expect(propsOf(ben, 'LOCATION')).toEqual(['5th Avenue Sanctuary']);
+
+    // PUBLISH, never an invitation.
+    expect(ben).toContain('METHOD:PUBLISH');
+    expect(ben).not.toContain('ATTENDEE');
+  });
+
+  test('SE-19 a whole-workbook send puts both days in one file', async () => {
+    const sheet = await createSheet();
+    const a = await dayWithMetadata(sheet, { date: '2027-09-11', title: 'Erev RH' });
+    const b = await dayWithMetadata(sheet, { date: '2027-09-20', title: 'Kol Nidre' });
+
+    for (const { day, rowId } of [a, b]) {
+      await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', { segments: [text('5:30')] });
+      await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+        segments: [person('Sarah', 'sarah@x.org')],
+      });
+    }
+
+    const res = await sendSchedules(sheet._id, { wholeSheet: true, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    const ics = calendarFrom(sendSpy.mock.calls[0]);
+    expect(linesOf(ics).filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(2);
+    // '5:30' with no meridiem takes the documented PM reading (17:30 EDT = 21:30Z).
+    expect(propsOf(ics, 'DTSTART').sort()).toEqual(['20270911T213000Z', '20270920T213000Z']);
+  });
+
+  test('SE-20 an omitted or false includeCalendar sends the PDF only', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [person('A', 'a@x.org')] });
+
+    const contentBase64 = Buffer.from('%PDF-1.4 pretend').toString('base64');
+
+    // Absent - the pre-change behavior, reproduced exactly.
+    const absent = await sendSchedules(sheet._id, {
+      dayId: day._id,
+      attachment: { fileName: 'sheet.pdf', contentBase64 },
+    });
+    expect(absent.body.calendarAttached).toBe(false);
+    expect(absent.body.attached).toBe(true);
+    expect(sendSpy.mock.calls[0][3].attachments).toEqual([
+      { name: 'sheet.pdf', contentType: 'application/pdf', contentBase64 },
+    ]);
+
+    // Explicitly cleared by the sender.
+    sendSpy.mockClear();
+    const off = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: false });
+    expect(off.body.calendarAttached).toBe(false);
+    expect(sendSpy.mock.calls[0][3].attachments).toBeUndefined();
+  });
+
+  // Mutation check: force the builder to throw and prove the send survives it.
+  test('SE-21 a calendar that cannot be built warns but never withholds the email', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [person('A', 'a@x.org')] });
+
+    const icsSpy = jest.spyOn(icsBuilder, 'buildAssignmentsCalendar').mockImplementation(() => {
+      throw new Error('calendar generation blew up');
+    });
+    try {
+      const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+      expect(res.status).toBe(200);
+      expect(res.body.sent).toBe(1);
+      expect(res.body.results[0]).toMatchObject({ email: 'a@x.org', success: true });
+      expect(res.body.calendarAttached).toBe(false);
+      expect(res.body.calendarWarning).toMatch(/could not be generated/i);
+      expect(sendSpy.mock.calls[0][3].attachments).toBeUndefined();
+    } finally {
+      icsSpy.mockRestore();
+    }
+
+    // The send still counts: the emailLog entry is there, so the roster reads 'sent'.
+    const sheetRes = await request(app).get(`/api/scheduling-sheets/${sheet._id}`).set(auth(adminToken));
+    const status = (sheetRes.body.days[0].emailStatus || []).find((s) => s.email === 'a@x.org');
+    expect(status && status.sentAt).toBeTruthy();
+  });
+
+  test('SE-22 placeholders produce no events and stay reported as skipped', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', {
+      segments: [person('A', 'a@x.org'), { type: 'person', name: '@usher_team', placeholder: true }],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(res.body.skippedPlaceholders).toEqual(['@usher_team']);
+    expect(res.body.calendarAttached).toBe(true);
+
+    const ics = calendarFrom(sendSpy.mock.calls[0]);
+    expect(linesOf(ics).filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(1);
+    expect(ics).not.toContain('usher_team');
+  });
+
+  test('SE-23 a re-send keeps the UID and only advances SEQUENCE after an edit', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const first = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(first.status).toBe(200);
+    const icsA = calendarFrom(sendSpy.mock.calls[0]);
+
+    sendSpy.mockClear();
+    await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    const icsB = calendarFrom(sendSpy.mock.calls[0]);
+
+    // Nothing changed between the sends: same identity, same version.
+    expect(propsOf(icsB, 'UID')).toEqual(propsOf(icsA, 'UID'));
+    expect(propsOf(icsB, 'SEQUENCE')).toEqual(propsOf(icsA, 'SEQUENCE'));
+
+    // An edit bumps the day _version, which IS the sequence source.
+    await putCell(sheet._id, day._id, rowId('Begins'), 'c1', { segments: [text('7:00 PM')] });
+    sendSpy.mockClear();
+    await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    const icsC = calendarFrom(sendSpy.mock.calls[0]);
+
+    expect(propsOf(icsC, 'UID')).toEqual(propsOf(icsA, 'UID'));
+    expect(Number(propsOf(icsC, 'SEQUENCE')[0])).toBeGreaterThan(Number(propsOf(icsA, 'SEQUENCE')[0]));
+  });
+
+  test('SE-24 reordering columns does not re-identify anybody', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [
+      { id: 'c1', name: 'Erev Service' },
+      { id: 'c2', name: 'YP Dinner' },
+    ]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [person('Sarah', 'sarah@x.org')] });
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c2', { segments: [person('Sarah', 'sarah@x.org')] });
+
+    await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    const before = propsOf(calendarFrom(sendSpy.mock.calls[0]), 'UID').sort();
+
+    // Drag reorder moves array POSITIONS, never ids - which is exactly why the
+    // UID can be composed from them.
+    const current = await request(app).get(`/api/scheduling-sheets/${sheet._id}`).set(auth(adminToken));
+    const live = current.body.days[0];
+    const reordered = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${live._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: live._version, columns: [...live.columns].reverse(), rows: live.rows });
+    expect(reordered.status).toBe(200);
+
+    sendSpy.mockClear();
+    await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    const after = propsOf(calendarFrom(sendSpy.mock.calls[0]), 'UID').sort();
+
+    expect(after).toEqual(before);
+    expect(after).toHaveLength(2);
+  });
+
+  // extractDayAssignments gained rowId/colId/sequence/linkedSnapshot for the
+  // calendar file, and GET /api/my-assignments SPREADS the extractor's entry —
+  // so without the destructuring guard in that handler, all four would leak
+  // into a response whose contract predates this change. The key set below was
+  // measured against HEAD before the extractor grew, not assumed.
+  test('SE-25 my-assignments returns exactly the fields it always has', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2099-09-11' });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Events Coordinator', eventsRequesterUser.email)],
+    });
+
+    const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(Object.keys(res.body[0]).sort()).toEqual(
+      [
+        'begins',
+        'callTime',
+        'columnName',
+        'date',
+        'dayId',
+        'dayTitle',
+        'email',
+        'ends',
+        'location',
+        'locationLines',
+        'note',
+        'rowLabel',
+        'sheetId',
+        'sheetName',
+      ].sort()
+    );
   });
 });

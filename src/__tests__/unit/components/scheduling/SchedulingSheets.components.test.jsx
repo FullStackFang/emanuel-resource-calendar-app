@@ -894,4 +894,63 @@ describe('EmailSchedulesPanel', () => {
     fireEvent.click(button);
     expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ wholeSheet: true }));
   });
+
+  // Default ON, because a calendar attachment nobody remembers to tick is
+  // worth nothing. The server reads `includeCalendar === true` and nothing
+  // else, so an unmodified send has to say so explicitly.
+  it('SEP-6: the calendar attachment defaults on and the body says so', () => {
+    const { sheet, day } = buildSheetForEmail();
+    const onSend = vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: [] });
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('include-calendar')).toBeChecked();
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ includeCalendar: true }));
+  });
+
+  // The rollback lever: a sender who hits a mail client that mishandles a
+  // multi-event attachment needs a way out that is not a deploy.
+  it('SEP-7: clearing the control sends includeCalendar: false', () => {
+    const { sheet, day } = buildSheetForEmail();
+    const onSend = vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: [] });
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('include-calendar'));
+    expect(screen.getByTestId('include-calendar')).not.toBeChecked();
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ includeCalendar: false }));
+  });
+
+  it('SEP-8: the results pane reports the calendar file only when one went out', async () => {
+    const { sheet, day } = buildSheetForEmail();
+    const result = {
+      sent: 1,
+      failed: 0,
+      results: [{ email: 'sarah@x.org', success: true }],
+      skippedPlaceholders: [],
+      attached: true,
+      calendarAttached: true,
+    };
+    const onSend = vi.fn().mockResolvedValue(result);
+    const view = render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(await screen.findByTestId('attachment-note')).toHaveTextContent(/calendar file/i);
+
+    view.unmount();
+    const onSendNoCal = vi.fn().mockResolvedValue({ ...result, calendarAttached: false });
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSendNoCal} onClose={vi.fn()} />);
+    const button2 = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button2);
+    fireEvent.click(button2);
+    expect(await screen.findByTestId('attachment-note')).not.toHaveTextContent(/calendar file/i);
+  });
 });

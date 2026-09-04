@@ -1056,7 +1056,25 @@ tr.ss-drop-target .ss-row-label {
   background: var(--bg-secondary);
 }
 .ss-email-footer .ss-editor-actions { margin-top: 0; }
-.ss-email-footnote { font-size: 12px; color: var(--text-secondary); }
+.ss-email-footnote {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* The one attachment control sits with the footnote it qualifies, above it —
+   the sentence describes what the send will carry, and the checkbox changes
+   that sentence. Stacking keeps the send button's column untouched. */
+.ss-email-attach-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.ss-email-attach-toggle input { margin: 0; }
 
 /* Scope: two side-by-side option cards rather than stacked radios — this is
    the one choice that changes what every row below means, so it reads as a

@@ -421,6 +421,9 @@ export default function SchedulingSheets() {
       const outcome = await mutations.sendSchedules.mutateAsync({ ...body, ...(attachment ? { attachment } : {}) });
       if (outcome && outcome.attachmentWarning) showWarning(outcome.attachmentWarning);
       else if (attachment && outcome && !outcome.attached) showWarning('The schedule PDF was not attached.');
+      // Its own warning, not folded into the PDF's: the two attachments fail
+      // independently and a sender needs to know WHICH one is missing.
+      if (outcome && outcome.calendarWarning) showWarning(outcome.calendarWarning);
       return outcome;
     } catch (e) {
       logger.error('Schedule send failed:', e);

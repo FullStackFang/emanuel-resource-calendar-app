@@ -586,6 +586,110 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Schedule email .ics attachment (implemented 2026-09-04)
+
+Spec: `openspec/changes/schedule-email-ics-attachment/`. 33/39 tasks; only 7.x
+(manual, live mailbox — Stephen is running it against
+stephen.fang@emanuelnyc.org) outstanding.
+
+**What it is:** every schedule email now also carries an RFC 5545 `.ics` of
+that recipient's own shifts, so a schedule stops being a document you retype
+into your calendar. The workbook PDF still rides along unchanged.
+
+**The structural difference from the PDF, and the reason for every other
+decision here:** the PDF is ONE blob built once OUTSIDE the
+`Promise.allSettled` map and attached identically to all 31 messages. The
+calendar file DIFFERS PER RECIPIENT, so it is built INSIDE the per-recipient
+callback from that person's own sorted `entries`. It is also built on the
+SERVER — the deliberate opposite of the PDF, which had to be client-side
+because jsPDF and its DM Sans faces are frontend-only. An `.ics` is string
+assembly over data the server already holds.
+
+**`backend/utils/icsBuilder.js`** — pure, dependency-free, no server imports
+(the `sheetCells.js` / `concurrencyRules.js` / `conflictDelta.js` stance).
+Exports `parseCellTime`, `zonedWallClockToUtc`, `resolveEventWindow`,
+`escapeText`, `foldLine`, `buildUid`, `buildAssignmentsCalendar`.
+
+- **Begins / Ends / Call Time are FREE TEXT.** '5:30', '6:00 PM', '17:30',
+  'TBD', 'after Mincha' and empty are all legal, real content. Anything
+  unparseable becomes an ALL-DAY `VEVENT` (exclusive `DTEND;VALUE=DATE` on the
+  next day), NEVER a silent omission — the placeholder decision applied to a
+  second surface.
+- **Bare-time ambiguity rule:** hour 12 and 1-6 read PM, 7-11 read AM.
+  Refusing bare times would push the common case ('5:30', what people actually
+  type) into all-day and gut the feature. A wrong guess stays VISIBLE because
+  `DESCRIPTION` carries the literal cell text.
+- **The window is the person's COMMITMENT, not the event:** `DTSTART` =
+  effective call time (person `callTimeOverride` over the column Call Time row)
+  → Begins → `linkedSnapshot.startDateTime`. `DTEND` = Ends →
+  `snapshot.endDateTime` → start + 2h.
+- **`METHOD:PUBLISH`, never `REQUEST`, and no `ATTENDEE`.** A request makes
+  Exchange treat the shared mailbox as organizer of a 31-attendee meeting with
+  RSVP tracking on every send.
+- **UTC instants, no `VTIMEZONE`.** `Intl.DateTimeFormat` offset lookup with
+  one refinement pass gives the offset on that specific date. A `TZID` without
+  an accompanying `VTIMEZONE` is technically invalid and hand-maintaining DST
+  rules is a liability.
+- **A midnight crossing rolls to the following CALENDAR DAY, not `+24h`.**
+  Found by running a generated file through Mozilla's ICAL.js: the fall-back
+  night is 25 hours long, so `end + DAY_MS` made a 10 PM-1 AM shift two hours
+  instead of three. Only cell-parsed ends are re-resolved; a snapshot end (an
+  absolute instant already) still gets `+24h`. ICS-13b.
+- **Folding measures UTF-8 OCTETS, not `.length`.** An accented name is two
+  bytes per character, so a character-counting folder emits invalid lines only
+  for the people whose names have accents. ICS-16 asserts per-line
+  `Buffer.byteLength` AND an exact unfold round-trip.
+- **`UID` = `<dayId>-<rowId>-<colId>-<sanitized email>@emanuelnyc.org`**,
+  `SEQUENCE` = the day `_version`. Drag reorder moves array POSITIONS, never
+  ids, which is the whole reason a UID can be composed from them (SE-24).
+  Editing anyone's cell bumps the day version, so unrelated recipients get a
+  higher SEQUENCE with identical content — a client no-op, and the honest
+  price of a monotonic sequence (a content hash is not ordered and a DECREASE
+  makes clients discard the update).
+
+**`extractDayAssignments` gained `rowId`, `colId`, `sequence`,
+`linkedSnapshot`** — and design D12's premise was WRONG in a way that matters:
+it says `GET /api/my-assignments` "selects the fields it renders". It does
+not — it SPREADS the entry (`...entry`), so all four would have widened a
+public response, `linkedSnapshot` included. That handler now destructures them
+out, and **SE-25 asserts the exact 14-key set measured from `git show HEAD:`
+before the change**. Any future field added to that extractor must do the same.
+
+**Endpoint:** `includeCalendar === true` and nothing else turns it on, so an
+old client, a replayed body or a rollback all reproduce pre-change behavior
+exactly. The file shares `MAX_SCHEDULE_ATTACHMENT_BYTES` (3MB) with the PDF
+rather than sitting outside it. A throw or an oversize sets `calendarWarning`,
+drops the attachment, and the send still succeeds WITH its `emailLog` entry —
+the `ASSIGNMENT_SCHEDULE` body is self-contained, which is why the PDF is
+already allowed to fail this way. `buildAssignmentsCalendar` is called through
+the MODULE OBJECT (`icsBuilder.buildAssignmentsCalendar`), not a destructured
+reference, specifically so SE-21 can spy it into throwing.
+
+**Frontend:** one checkbox in `EmailSchedulesPanel`'s footer, default ON,
+local state plus one body field (`SchedulingSheets.jsx` passes `body` straight
+through). `calendarWarning` gets its OWN `showWarning`, not folded into the
+PDF's — the two attachments fail independently and a sender needs to know
+which artifact is missing.
+
+**Tests:** new `backend/__tests__/unit/utils/icsBuilder.test.js` (28,
+ICS-1..27 + ICS-13b — note the repo convention is `unit/utils/`, not the
+`unit/` the task file named); `schedulingSheetEmail.test.js` 25 (was 17,
++SE-18..25); frontend `SchedulingSheets.components.test.jsx` 59 (+SEP-6..8),
+new `SchedulingSheets.calendarWarning.test.jsx` (3, SEP-9..11 — mutation
+checked: deleting the `showWarning(outcome.calendarWarning)` line fails
+SEP-9/11). Backend baseline measured by stash: **38 failed suites / 229 failed
+tests before AND after**, passing 1669 → 1705 (+36 = exactly the 36 added).
+Frontend 10 failures / 3 files, identical to the documented baseline.
+Validated with Mozilla's ICAL.js as an independent parser, installed in a
+scratchpad and never in this repo.
+
+**Outstanding:** tasks 7.1-7.6 — manual on a live mailbox. **7.1 is a real
+open question, not a formality:** whether Outlook on the web imports ALL
+events from a multi-`VEVENT` attachment, only the first, or requires a
+download. If it takes only the first, D1 has to become one file per day. Also
+unrecorded: whether a re-send UPDATES in place or DUPLICATES per client
+(7.4) — record the real behavior here when known.
+
 ### Scheduling sheet drag reorder (implemented 2026-09-03)
 
 Spec: `openspec/changes/scheduling-sheet-drag-reorder/`. 17/18 tasks; only 5.3
