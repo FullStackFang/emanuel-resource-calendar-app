@@ -155,10 +155,16 @@ async function getAppAccessToken() {
  * @param {Object} options - Optional settings
  * @param {string[]} options.cc - CC recipients
  * @param {string} options.reservationId - For logging/tracking
+ * @param {Array<{name: string, contentType: string, contentBase64: string}>} options.attachments
+ *        File attachments, sent inline as Graph fileAttachment resources.
+ *        Graph caps a plain sendMail message at ~4MB total including
+ *        base64 overhead; anything larger needs an upload session, which
+ *        this service deliberately does not implement. Callers MUST size-
+ *        check before passing (see the scheduling-sheet email endpoint).
  * @returns {Promise<Object>} Result with success status and correlationId
  */
 async function sendEmail(to, subject, htmlBody, options = {}) {
-  const { cc = [], reservationId = null } = options;
+  const { cc = [], reservationId = null, attachments = [] } = options;
   const correlationId = generateCorrelationId();
 
   // Get effective settings (DB overrides ENV)
@@ -212,7 +218,8 @@ async function sendEmail(to, subject, htmlBody, options = {}) {
     subject,
     reservationId,
     fromAddress: EMAIL_FROM_ADDRESS,
-    redirected: !!emailRedirectTo
+    redirected: !!emailRedirectTo,
+    attachments: attachments.map((a) => a.name)
   });
 
   try {
@@ -240,7 +247,17 @@ async function sendEmail(to, subject, htmlBody, options = {}) {
             address: EMAIL_FROM_ADDRESS,
             name: EMAIL_FROM_NAME
           }
-        }
+        },
+        ...(attachments.length
+          ? {
+            attachments: attachments.map((a) => ({
+              '@odata.type': '#microsoft.graph.fileAttachment',
+              name: a.name,
+              contentType: a.contentType || 'application/octet-stream',
+              contentBytes: a.contentBase64
+            }))
+          }
+          : {})
       },
       saveToSentItems: false
     };

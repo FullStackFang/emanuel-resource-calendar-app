@@ -703,6 +703,61 @@ one). Success appends per-day `emailLog`; staleness is COMPUTED
 `lastModifiedAt` (conditionalUpdate only stamps lastModifiedDateTime) so
 structural edits read as stale too.
 
+**`emailService.sendEmail` RESOLVES, not throws, when delivery is disabled**
+(`{ success: true, skipped: true }`). Counting that as a send stamps an
+`emailLog` entry — and therefore a permanent 'sent' pill — for mail nobody
+received. The endpoint now inspects the return: `skipped` recipients come
+back `{ success: false, skipped: true }`, are counted in a separate `skipped`
+total, and write NO emailLog. SE-9.
+
+**Attachment (2026-09-03):** every schedule email carries the workbook PDF —
+the SAME artifact the Download PDF button produces. It is rendered on the
+CLIENT (`SchedulingSheets.sendSchedules` → `generateSchedulingSheetPdf` →
+base64) and uploaded in the request body as
+`attachment: { fileName, contentBase64 }`, because jsPDF and its embedded
+DM Sans faces are frontend-only — a server-side renderer would be a second,
+drifting copy of a 900-line layout. Consequences to remember:
+`app.use('/api/scheduling-sheets', express.json({ limit: '12mb' }))` is
+mounted BEFORE the global parser (default 100kb would reject the body);
+`MAX_SCHEDULE_ATTACHMENT_BYTES` (3MB decoded) keeps the message under Graph's
+~4MB plain-sendMail ceiling; and an attachment that is bad, oversized, or
+failed to render NEVER fails the send — it warns (`attachmentWarning`) and the
+self-contained body goes out anyway. SE-10/11, SSPE-8/9.
+
+**FRONTEND_URL IS A VANITY REDIRECT, NOT A MOUNT POINT** (fixed 2026-09-03,
+spec `openspec/changes/email-cta-deep-link-fix/`). `https://emanuelnyc.org/scheduler`
+does not host the app — it is a 301 to the Azure app root that matches that
+exact path only. Measured: `/scheduler` → 301, `/scheduler?eventId=abc123` →
+301 **with the query intact**, `/scheduler/my-assignments` → **404**. So the
+redirect preserves the QUERY STRING and drops any deeper PATH.
+`buildMyAssignmentsUrl()` appended `/my-assignments` and every schedule-email
+CTA 404'd; it now sets `?view=my-assignments`. Every other builder was already
+query-only, which is why nothing else ever broke. **Never append a path in
+`backend/utils/eventDeepLink.js`** — EDL-4 guards this by asserting the built
+URL's pathname is unchanged, because the comment that once claimed "mounted at
+the /scheduler sub-path" is what caused the bug.
+`src/utils/emailDestination.js` owns the `?view=` allow-list (a Map, so
+`__proto__` cannot resolve) and the sessionStorage handoff;
+`src/main.jsx` captures at module scope before MSAL strips the query string
+(same reason as the `?eventId=` capture beside it);
+`src/components/EmailDestinationRouter.jsx` consumes it inside `<Router>`,
+gated on `apiToken` so nobody sees an empty assignments list before auth
+resolves. Tests: EDL-1..9, EDST-1..12, EDR-1..9.
+**Emails sent before this fix carry the dead URL and cannot be repaired from
+this repo** — re-send after deploying. **Known gap: phones.** `App.jsx` renders
+`MobileApp` instead of `<Routes>` for `deviceType === 'phone'`, so
+`/my-assignments` is unreachable there and the CTA lands a phone recipient on
+the mobile calendar. **Follow-up options** (both outside this repo): a wildcard
+`/scheduler/*` redirect at the host, or a `scheduler.emanuelnyc.org` custom
+domain — either makes real sub-paths work and retires the `?view=` workaround.
+
+**The ASSIGNMENT_SCHEDULE template is the one WIDE email** (880px vs the
+600px every other template uses): `wrapEmailTemplate(content, width)` takes it
+from the CODE registry, not the DB override, so a customized subject/body
+keeps the layout. Its table also carries explicit per-column width percentages
+and a nowrap date — auto layout otherwise reserves width for the usually-empty
+Location/Notes columns and wraps every other cell to three lines.
+
 **Frontend:** `/admin/scheduling-sheets` (workbook, `?sheet&date` deep link,
 empty workbook auto-opens the creation panel once) + `/my-assignments`
 (derived read-only view, deliberately UNGUARDED route — the email CTA lands

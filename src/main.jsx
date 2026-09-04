@@ -16,6 +16,7 @@ import { bootstrapMsalAccount } from './utils/msalBootstrap';
 import { registerSW } from 'virtual:pwa-register';
 import { watchForServiceWorkerUpdates } from './utils/pwaUpdates';
 import { initInstallCapture } from './utils/pwaInstall';
+import { captureEmailDestination } from './utils/emailDestination';
 import './index.css'; // optional
 
 // Deep-link preservation: capture ?eventId= BEFORE MSAL processes the URL.
@@ -30,6 +31,13 @@ import './index.css'; // optional
     sessionStorage.setItem('deepLinkEventId', eventId);
   }
 })();
+
+// Same reason, different param: schedule emails carry ?view=my-assignments
+// rather than a path, because the emanuelnyc.org/scheduler vanity URL is a
+// redirect that forwards query strings and 404s on deeper paths. App.jsx
+// consumes this once authentication resolves. Only allow-listed destinations
+// are stored — see emailDestination.js.
+captureEmailDestination();
 
 // Capture the browser's install offer before React exists. Chrome dispatches
 // 'beforeinstallprompt' during initial page load — typically before

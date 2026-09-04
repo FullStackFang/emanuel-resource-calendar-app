@@ -1,11 +1,13 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-8)
+ * Scheduling Sheet email tests (SE-1 to SE-11)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
- * and whole-sheet scope), the placeholder hard-block with admin-only override,
- * Promise.allSettled per-recipient failure isolation, the recipients subset,
- * and emailLog append + computed staleness (edit-after-send reads stale).
+ * and whole-sheet scope), placeholders being skipped and reported rather than
+ * blocking, Promise.allSettled per-recipient failure isolation, the recipients
+ * subset, emailLog append + computed staleness (edit-after-send reads stale),
+ * the disabled-delivery path that resolves instead of throwing, and the
+ * client-rendered PDF attachment with its size guard.
  */
 
 const request = require('supertest');
@@ -21,7 +23,7 @@ const emailService = require('../../services/emailService');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-8)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-11)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -261,5 +263,73 @@ describe('Scheduling Sheet emails (SE-1 to SE-8)', () => {
     expect(res.body.sent).toBe(1);
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(sendSpy.mock.calls[0][0]).toBe('b@x.org');
+  });
+
+  // sendEmail RESOLVES with { skipped: true } when delivery is disabled in
+  // system settings — it does not throw. Counting that as a send would stamp
+  // an emailLog entry (and therefore a 'sent' pill) for mail nobody received.
+  test('SE-9 delivery disabled reports not-sent and writes no emailLog', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [person('A', 'a@x.org')] });
+
+    sendSpy.mockResolvedValue({ success: true, skipped: true });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(0);
+    expect(res.body.skipped).toBe(1);
+    expect(res.body.failed).toBe(0);
+    expect(res.body.results[0]).toMatchObject({ email: 'a@x.org', success: false, skipped: true });
+
+    const sheetRes = await request(app).get(`/api/scheduling-sheets/${sheet._id}`).set(auth(adminToken));
+    const status = (sheetRes.body.days[0].emailStatus || []).find((s) => s.email === 'a@x.org');
+    expect(status && status.sentAt).toBeFalsy();
+  });
+
+  test('SE-10 a client-rendered PDF rides along on every recipient email', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', {
+      segments: [person('A', 'a@x.org'), person('B', 'b@x.org')],
+    });
+
+    const contentBase64 = Buffer.from('%PDF-1.4 pretend').toString('base64');
+    const res = await sendSchedules(sheet._id, {
+      dayId: day._id,
+      // Path separators and odd characters must not survive into the name a
+      // mail client hands to a save dialog.
+      attachment: { fileName: '../../2026 High Holy Days*.pdf', contentBase64 },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.attached).toBe(true);
+    expect(res.body.attachmentWarning).toBeUndefined();
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    for (const call of sendSpy.mock.calls) {
+      expect(call[3].attachments).toEqual([
+        { name: '2026 High Holy Days.pdf', contentType: 'application/pdf', contentBase64 },
+      ]);
+    }
+  });
+
+  test('SE-11 an oversized attachment warns but never withholds the schedules', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [person('A', 'a@x.org')] });
+
+    const res = await sendSchedules(sheet._id, {
+      dayId: day._id,
+      attachment: { fileName: 'huge.pdf', contentBase64: 'A'.repeat(4_200_000) },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(1);
+    expect(res.body.attached).toBe(false);
+    expect(res.body.attachmentWarning).toMatch(/over the 3MB mail limit/i);
+    expect(sendSpy.mock.calls[0][3].attachments).toBeUndefined();
   });
 });

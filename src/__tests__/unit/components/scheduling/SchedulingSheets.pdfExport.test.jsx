@@ -6,7 +6,7 @@
 // a download actually fires, and that both the truncated and failed cases are
 // reported honestly instead of looking like success.
 //
-// Test IDs: SSPE-1 to SSPE-6
+// Test IDs: SSPE-1 to SSPE-9 (SSPE-8..9 cover the emailed PDF attachment)
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -35,6 +35,8 @@ vi.mock('../../../../hooks/useLocationsQuery', () => ({ useLocationsQuery: () =>
 vi.mock('../../../../utils/schedulingSheetPdf', () => ({ generateSchedulingSheetPdf }));
 
 const noopMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
+// Stable across renders: the attachment tests assert on what the send received.
+const sendSchedulesMutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 let mockListQuery;
 let mockDetailQuery;
 vi.mock('../../../../hooks/useSchedulingSheets', () => ({
@@ -44,7 +46,7 @@ vi.mock('../../../../hooks/useSchedulingSheets', () => ({
   useSchedulingSheetMutations: () => ({
     createSheet: noopMutation(), renameSheet: noopMutation(), deleteSheet: noopMutation(),
     createDay: noopMutation(), deleteDay: noopMutation(), updateStructure: noopMutation(),
-    updateCell: noopMutation(), sendSchedules: noopMutation(),
+    updateCell: noopMutation(), sendSchedules: sendSchedulesMutation,
   }),
 }));
 
@@ -62,6 +64,26 @@ const SHEET = {
   days: [day('d1', '2099-09-11', 'Erev RH'), day('d2', '2099-09-12', 'RH Day 1')],
 };
 
+// The email panel's send button is disabled with nobody to send to, so the
+// attachment tests need a day carrying a real person chip.
+const SHEET_WITH_PERSON = {
+  ...SHEET,
+  days: [
+    {
+      ...day('d1', '2099-09-11', 'Erev RH'),
+      columns: [{ id: 'c1', name: 'Erev Service' }],
+      cells: {
+        'r1:c1': {
+          segments: [{ type: 'person', userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org', placeholder: false }],
+          note: null,
+        },
+      },
+      taggedEmails: ['sarah@x.org'],
+    },
+    day('d2', '2099-09-12', 'RH Day 1'),
+  ],
+};
+
 function renderPage() {
   vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
   return render(
@@ -71,6 +93,14 @@ function renderPage() {
     { wrapper: withQueryClient() }
   );
 }
+
+// jsdom's Blob implements no arrayBuffer(); every browser the app targets has
+// had it since 2019, and the email attachment path reads the bytes through it.
+const pdfBlob = (text) => {
+  const blob = new Blob([text]);
+  blob.arrayBuffer = async () => new TextEncoder().encode(text).buffer;
+  return blob;
+};
 
 const clickExport = async () => {
   await act(async () => { fireEvent.click(screen.getByTestId('export-pdf-button')); });
@@ -84,7 +114,7 @@ describe('SchedulingSheets - PDF export', () => {
     mockListQuery = { data: [{ _id: 's1', name: SHEET.name, days: SHEET.days }], isPending: false, isFetching: false, isError: false, refetch: vi.fn() };
     mockDetailQuery = { data: SHEET, isFetching: false, isPending: false, refetch: vi.fn() };
     generateSchedulingSheetPdf.mockReturnValue({
-      blob: new Blob(['pdf']), blobUrl: 'blob:mock',
+      blob: pdfBlob('pdf'), blobUrl: 'blob:mock',
       fileName: 'emanu-el-scheduling-2099-high-holy-days-2099-09-11.pdf',
       dayCount: 2, omittedDays: 0,
     });
@@ -132,7 +162,7 @@ describe('SchedulingSheets - PDF export', () => {
   // a binder missing days without ever knowing.
   it('SSPE-4: says so when the day cap left days out', async () => {
     generateSchedulingSheetPdf.mockReturnValue({
-      blob: new Blob(['pdf']), blobUrl: 'blob:mock', fileName: 'x.pdf', dayCount: 31, omittedDays: 4,
+      blob: pdfBlob('pdf'), blobUrl: 'blob:mock', fileName: 'x.pdf', dayCount: 31, omittedDays: 4,
     });
     renderPage();
     await clickExport();
@@ -171,5 +201,43 @@ describe('SchedulingSheets - PDF export', () => {
 
     expect(screen.queryByTestId('export-pdf-button')).not.toBeInTheDocument();
     expect(generateSchedulingSheetPdf).not.toHaveBeenCalled();
+  });
+
+  // ── Emailed attachment (SSPE-8..9) ───────────────────────────────────────
+  // Every schedule email carries the same workbook printout the export button
+  // produces. It is rendered HERE, in the browser, because jsPDF and the
+  // embedded DM Sans faces are frontend-only; the server just forwards bytes.
+
+  const sendFromPanel = async () => {
+    await act(async () => { fireEvent.click(screen.getByTestId('email-schedules-button')); });
+    const button = screen.getByTestId('send-schedules-button');
+    await act(async () => { fireEvent.click(button); });   // arms the confirm
+    await act(async () => { fireEvent.click(button); });   // sends
+  };
+
+  it('SSPE-8: the schedule email carries the workbook PDF as base64', async () => {
+    mockDetailQuery = { data: SHEET_WITH_PERSON, isFetching: false, isPending: false, refetch: vi.fn() };
+    renderPage();
+    await sendFromPanel();
+
+    expect(sendSchedulesMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    const body = sendSchedulesMutation.mutateAsync.mock.calls[0][0];
+    expect(body.attachment.fileName).toBe('emanu-el-scheduling-2099-high-holy-days-2099-09-11.pdf');
+    // 'pdf' is what the mocked generator's blob holds.
+    expect(atob(body.attachment.contentBase64)).toBe('pdf');
+    // The bytes are wanted, not a download: the object URL must not leak.
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock');
+  });
+
+  // The email body is self-contained by design, so a PDF that will not render
+  // is worth a warning — never a reason to withhold everyone's schedule.
+  it('SSPE-9: a failed PDF still sends the schedules, without an attachment', async () => {
+    generateSchedulingSheetPdf.mockImplementation(() => { throw new Error('boom'); });
+    mockDetailQuery = { data: SHEET_WITH_PERSON, isFetching: false, isPending: false, refetch: vi.fn() };
+    renderPage();
+    await sendFromPanel();
+
+    expect(sendSchedulesMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(sendSchedulesMutation.mutateAsync.mock.calls[0][0]).not.toHaveProperty('attachment');
   });
 });

@@ -13,6 +13,7 @@ import LoadingSpinner from './components/shared/LoadingSpinner';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import SessionExpiredDialog from './components/shared/SessionExpiredDialog';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import EmailDestinationRouter from './components/EmailDestinationRouter';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
@@ -337,6 +338,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
+        <EmailDestinationRouter apiToken={apiToken} />
         <RoleSimulationProvider>
         <div className={`app-container ${!apiToken ? 'signed-out' : ''}`}>
         <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />

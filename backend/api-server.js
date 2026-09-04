@@ -286,6 +286,12 @@ app.use(cors({
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
+// The scheduling-sheet email endpoint carries a client-rendered workbook PDF
+// as base64, which blows past express.json's 100kb default. Mounted BEFORE the
+// global parser so it wins on this prefix: whichever parser runs first sets
+// req._body and the other skips. Scoped to one prefix rather than raising the
+// global limit, so no other endpoint accepts a multi-megabyte body.
+app.use('/api/scheduling-sheets', express.json({ limit: '12mb' }));
 app.use(express.json());
 
 // Rate limiting middleware
@@ -21043,13 +21049,28 @@ function buildAssignmentsTableHtml(entries) {
         e.callTime ? `Call ${e.callTime}` : time,
         e.location,
         e.note
-      ].map((v) => `<td style="padding: 8px 10px; color: #2d3748; border-bottom: 1px solid #e2e8f0;">${v ? escapeAssignmentHtml(v) : '&mdash;'}</td>`);
+      ].map((v, i) => {
+        // The date is the row's anchor and has a predictable width, so it gets
+        // the one nowrap in the table. Without it auto-layout hands its space
+        // to Location/Notes — usually the two emptiest columns — and breaks
+        // every date across three lines.
+        const nowrap = i === 0 ? ' white-space: nowrap;' : '';
+        return `<td style="padding: 8px 10px; color: #2d3748; border-bottom: 1px solid #e2e8f0;${nowrap}">${v ? escapeAssignmentHtml(v) : '&mdash;'}</td>`;
+      });
       return `<tr>${cells.join('')}</tr>`;
     })
     .join('\n');
 
-  const headers = ['Date', 'Event / Post', 'Role', 'Call time', 'Location', 'Notes']
-    .map((h) => `<th style="padding: 8px 10px; color: #718096; text-align: left; font-size: 13px; border-bottom: 2px solid #cbd5e0;">${h}</th>`)
+  // Explicit column widths. Auto layout allocates by content, which reserves
+  // width for Location and Notes — usually columns of em-dashes — and squeezes
+  // Role and Call time into three lines each. Percentages are given as BOTH a
+  // width attribute and inline CSS: Outlook renders through Word's engine and
+  // is more reliable with the attribute.
+  const headers = [
+    ['Date', 24], ['Event / Post', 16], ['Role', 18],
+    ['Call time', 22], ['Location', 11], ['Notes', 9]
+  ]
+    .map(([h, pct]) => `<th width="${pct}%" style="width: ${pct}%; padding: 8px 10px; color: #718096; text-align: left; font-size: 13px; border-bottom: 2px solid #cbd5e0;">${h}</th>`)
     .join('');
 
   return `<div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
@@ -21060,9 +21081,15 @@ function buildAssignmentsTableHtml(entries) {
 </div>`;
 }
 
+// Graph caps a plain sendMail message near 4MB including base64 overhead, and
+// the same attachment rides along on every recipient's message. 3MB decoded
+// leaves room for the HTML body and headers without an upload session.
+const MAX_SCHEDULE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
 /**
  * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
- * Body: { dayId? , wholeSheet?: true, recipients?: [emails] }
+ * Body: { dayId? , wholeSheet?: true, recipients?: [emails],
+ *         attachment?: { fileName, contentBase64 } }
  *
  * One email per distinct tagged person in scope, covering ALL their rows in
  * scope chronologically. Placeholder chips have no address to send to, so
@@ -21085,7 +21112,32 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
     if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
 
-    const { dayId, wholeSheet, recipients } = req.body || {};
+    const { dayId, wholeSheet, recipients, attachment } = req.body || {};
+
+    // Optional workbook printout, rendered by the CLIENT with the same
+    // generator the Download PDF button uses — that is the whole point: the
+    // attachment has to be the artifact people already recognize, and jsPDF
+    // plus its embedded DM Sans faces live in the frontend bundle only.
+    // Never a hard failure: a bad or oversized attachment sends plain text
+    // rather than withholding everyone's schedule.
+    let pdfAttachment = null;
+    let attachmentWarning = null;
+    if (attachment && typeof attachment.contentBase64 === 'string') {
+      const b64 = attachment.contentBase64.trim();
+      const approxBytes = Math.floor(b64.length * 0.75);
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) {
+        attachmentWarning = 'The schedule PDF was not valid base64 and was not attached.';
+      } else if (approxBytes > MAX_SCHEDULE_ATTACHMENT_BYTES) {
+        attachmentWarning = `The schedule PDF is ${(approxBytes / 1048576).toFixed(1)}MB, over the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit, and was not attached.`;
+      } else {
+        // Basename only, forced .pdf: the name goes straight into a mail
+        // client's save dialog.
+        const rawName = String(attachment.fileName || 'scheduling-sheet.pdf').split(/[\\/]/).pop();
+        const safeName = rawName.replace(/[^A-Za-z0-9._ -]/g, '').replace(/\.pdf$/i, '') || 'scheduling-sheet';
+        pdfAttachment = { name: `${safeName}.pdf`, contentType: 'application/pdf', contentBase64: b64 };
+      }
+      if (attachmentWarning) logger.warn('Scheduling sheet email attachment rejected:', attachmentWarning);
+    }
     let scopeDays;
     let scopeLabel;
     if (dayId) {
@@ -21144,16 +21196,27 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
             eventUrl: myAssignmentsUrl
           }
         );
-        await emailService.sendEmail(email, subject, html, { reservationId: String(sheet._id) });
-        return email;
+        const outcome = await emailService.sendEmail(email, subject, html, {
+          reservationId: String(sheet._id),
+          ...(pdfAttachment ? { attachments: [pdfAttachment] } : {})
+        });
+        // sendEmail RESOLVES (never throws) when delivery is disabled in
+        // system settings, returning { skipped: true }. Treating that as a
+        // send would stamp an emailLog entry for mail nobody received — and
+        // emailStatus/staleness is computed from that log.
+        return { email, skipped: !!(outcome && outcome.skipped) };
       })
     );
 
     const results = targetEmails.map((email, i) => {
       const outcome = settled[i];
-      return outcome.status === 'fulfilled'
-        ? { email, success: true }
-        : { email, success: false, error: outcome.reason && outcome.reason.message ? outcome.reason.message : 'send failed' };
+      if (outcome.status !== 'fulfilled') {
+        return { email, success: false, error: outcome.reason && outcome.reason.message ? outcome.reason.message : 'send failed' };
+      }
+      if (outcome.value.skipped) {
+        return { email, success: false, skipped: true, error: 'email delivery is turned off in system settings' };
+      }
+      return { email, success: true };
     });
 
     // emailLog: append per successful recipient on every scope day they
@@ -21187,8 +21250,11 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     res.json({
       results,
       sent: results.filter((r) => r.success).length,
-      failed: results.filter((r) => !r.success).length,
-      skippedPlaceholders: [...new Set(placeholders.map((p) => p.name))]
+      failed: results.filter((r) => !r.success && !r.skipped).length,
+      skipped: results.filter((r) => r.skipped).length,
+      skippedPlaceholders: [...new Set(placeholders.map((p) => p.name))],
+      attached: !!pdfAttachment,
+      ...(attachmentWarning ? { attachmentWarning } : {})
     });
   } catch (error) {
     sheetOperationalError(res, error, 'send schedule emails');

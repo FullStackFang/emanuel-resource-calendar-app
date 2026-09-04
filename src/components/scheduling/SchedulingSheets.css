@@ -1182,7 +1182,8 @@ tr.ss-drop-target .ss-row-label {
 .ss-email-note strong { color: var(--text-primary); }
 .ss-email-error { color: var(--color-error-500); font-size: 13px; margin-top: 10px; }
 
-.ss-email-results-summary { margin: 0 0 10px; font-size: 13px; }
+.ss-email-results-summary { margin: 0 0 6px; font-size: 13px; }
+.ss-email-results-attachment { margin: 0 0 10px; font-size: 12px; color: var(--text-secondary); }
 .ss-email-results ul {
   list-style: none;
   margin: 0;
@@ -1207,6 +1208,9 @@ tr.ss-drop-target .ss-row-label {
 .ss-result-ok .ss-result-outcome { color: var(--color-success-700, #15803d); }
 .ss-result-fail { background: var(--color-error-50, #fef2f2); border-color: var(--color-error-200, #fecaca); }
 .ss-result-fail .ss-result-outcome { color: var(--color-error-500); }
+/* Not a failure and not a send: delivery is switched off system-wide. */
+.ss-result-skipped { background: var(--bg-secondary); }
+.ss-result-skipped .ss-result-outcome { color: var(--text-secondary); font-style: italic; }
 .ss-failed { color: var(--color-error-500); }
 
 /* The backdrop's 24px padding is the panel's only side margin on a phone;

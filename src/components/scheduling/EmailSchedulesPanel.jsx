@@ -206,7 +206,9 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
             </div>
 
             <footer className="ss-email-footer">
-              <span className="ss-email-footnote">Each person gets one email covering all their cells in scope.</span>
+              <span className="ss-email-footnote">
+                Each person gets one email covering all their cells in scope, with the full schedule PDF attached.
+              </span>
               <div className="ss-editor-actions">
                 <button type="button" className="ss-ghost-btn" onClick={onClose}>Cancel</button>
                 <button
@@ -229,15 +231,29 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
               <p className="ss-email-results-summary">
                 <strong>{results.sent}</strong> sent
                 {results.failed > 0 && <> &middot; <strong className="ss-failed">{results.failed} failed</strong></>}
+                {results.skipped > 0 && <> &middot; {results.skipped} not sent (delivery is off)</>}
                 {results.skippedPlaceholders && results.skippedPlaceholders.length > 0 && (
                   <> &middot; {results.skippedPlaceholders.length} placeholder{results.skippedPlaceholders.length === 1 ? '' : 's'} skipped</>
                 )}
               </p>
+              {results.sent > 0 && (
+                <p className="ss-email-results-attachment" data-testid="attachment-note">
+                  {results.attached
+                    ? 'The full schedule PDF was attached to every email.'
+                    : 'Sent without the schedule PDF attachment.'}
+                </p>
+              )}
               <ul>
                 {(results.results || []).map((r) => (
-                  <li key={r.email} className={r.success ? 'ss-result-ok' : 'ss-result-fail'} data-testid={`result-${r.email}`}>
+                  <li
+                    key={r.email}
+                    className={r.success ? 'ss-result-ok' : (r.skipped ? 'ss-result-skipped' : 'ss-result-fail')}
+                    data-testid={`result-${r.email}`}
+                  >
                     <span className="ss-result-email" title={r.email}>{r.email}</span>
-                    <span className="ss-result-outcome">{r.success ? 'Sent ✓' : `Failed — ${r.error}`}</span>
+                    <span className="ss-result-outcome">
+                      {r.success ? 'Sent ✓' : (r.skipped ? 'Not sent — delivery off' : `Failed — ${r.error}`)}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -52,6 +52,12 @@ const TEMPLATE_IDS = {
   USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
 };
 
+// Body-column width of the email shell. 600 is the long-standing convention
+// and what every label/value notification uses. WIDE is for templates whose
+// body is a real data table — see wrapEmailTemplate.
+const DEFAULT_EMAIL_WIDTH = 600;
+const WIDE_EMAIL_WIDTH = 880;
+
 /**
  * Default templates - used when no database override exists
  * These contain the subject and body with {{variable}} placeholders
@@ -380,6 +386,9 @@ const DEFAULT_TEMPLATES = {
     id: TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
     name: 'Assignment Schedule',
     description: 'Sent to each person tagged on a scheduling sheet with their personal schedule',
+    // The only wide template in the set: its body is a 6-column schedule
+    // table, which wraps every cell at the default 600px.
+    width: WIDE_EMAIL_WIDTH,
     subject: 'Your assignments for {{scopeLabel}}',
     body: `<h2 style="margin: 0 0 20px 0; color: #2d3748;">Your Schedule</h2>
 
@@ -1333,9 +1342,14 @@ function renderTemplate(template, variables) {
 }
 
 /**
- * Common email wrapper/layout
+ * Common email wrapper/layout.
+ *
+ * `width` defaults to the 600px email convention, which suits the
+ * label/value notification templates. A template MAY declare a wider
+ * `width` (see ASSIGNMENT_SCHEDULE) when its content is a real table —
+ * a 6-column schedule squeezed into 600px wraps every cell.
  */
-function wrapEmailTemplate(content) {
+function wrapEmailTemplate(content, width = DEFAULT_EMAIL_WIDTH) {
   return `
 <!DOCTYPE html>
 <html>
@@ -1348,7 +1362,7 @@ function wrapEmailTemplate(content) {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f5f5f5;">
     <tr>
       <td align="center" style="padding: 20px 10px;">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <table role="presentation" width="${width}" cellspacing="0" cellpadding="0" style="width: 100%; max-width: ${width}px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
           <!-- Header -->
           <tr>
             <td style="background-color: #1a365d; padding: 20px 30px; border-radius: 8px 8px 0 0;">
@@ -1566,7 +1580,9 @@ async function generateFromTemplate(templateId, variables) {
 
   return {
     subject,
-    html: wrapEmailTemplate(body)
+    // Width comes from the CODE registry, not the DB override — an override
+    // replaces subject/body only, so a customized template keeps its layout.
+    html: wrapEmailTemplate(body, DEFAULT_TEMPLATES[templateId]?.width || DEFAULT_EMAIL_WIDTH)
   };
 }
 

@@ -71,7 +71,7 @@ function splitDayTabs(days) {
 
 export default function SchedulingSheets() {
   const { apiToken } = useAuth();
-  const { showSuccess, showError } = useNotification();
+  const { showSuccess, showError, showWarning } = useNotification();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [selectedSheetId, setSelectedSheetId] = useState(() => searchParams.get('sheet') || null);
@@ -383,6 +383,48 @@ export default function SchedulingSheets() {
       showError('Could not generate the PDF.');
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  // Every schedule email carries the workbook printout — the SAME artifact the
+  // Download PDF button produces, rendered here by the same generator and
+  // uploaded with the send. jsPDF and its embedded DM Sans faces live in the
+  // frontend bundle only, so rendering server-side would mean a second,
+  // drifting copy of a 900-line layout.
+  //
+  // Attachment failure NEVER fails the send: the email body is self-contained
+  // (that is the ASSIGNMENT_SCHEDULE template's whole design), so a missing
+  // PDF is worth a warning, not withholding 34 people's schedules.
+  const buildSchedulePdfAttachment = async () => {
+    const { generateSchedulingSheetPdf } = await import('../../utils/schedulingSheetPdf');
+    const { blob, blobUrl, fileName } = generateSchedulingSheetPdf({ sheet, liveEventsById });
+    URL.revokeObjectURL(blobUrl); // we want the bytes, not a download
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // Chunked: String.fromCharCode(...bytes) overflows the call stack on a
+    // PDF this size (the embedded font alone is ~200KB).
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return { fileName, contentBase64: btoa(binary) };
+  };
+
+  const sendSchedules = async (body) => {
+    let attachment = null;
+    try {
+      attachment = await buildSchedulePdfAttachment();
+    } catch (error) {
+      logger.error('Could not build the schedule PDF attachment; sending without it', error);
+    }
+    try {
+      const outcome = await mutations.sendSchedules.mutateAsync({ ...body, ...(attachment ? { attachment } : {}) });
+      if (outcome && outcome.attachmentWarning) showWarning(outcome.attachmentWarning);
+      else if (attachment && outcome && !outcome.attached) showWarning('The schedule PDF was not attached.');
+      return outcome;
+    } catch (e) {
+      logger.error('Schedule send failed:', e);
+      throw e;
     }
   };
 
@@ -772,12 +814,7 @@ export default function SchedulingSheets() {
           sheet={sheet}
           activeDay={activeDay}
           onClose={() => setEmailOpen(false)}
-          onSend={(body) =>
-            mutations.sendSchedules.mutateAsync(body).catch((e) => {
-              logger.error('Schedule send failed:', e);
-              throw e;
-            })
-          }
+          onSend={sendSchedules}
         />
       )}
     </div>
