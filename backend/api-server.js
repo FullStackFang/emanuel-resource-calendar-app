@@ -20966,27 +20966,53 @@ app.put('/api/scheduling-sheets/:id/days/:dayId/cells/:rowId/:colId', verifyToke
 });
 
 /**
+ * One cell as ordered display parts: location-chip names first, then whatever
+ * free text the cell also holds.
+ *
+ * This used to keep `type: 'text'` segments ONLY, which silently dropped every
+ * location chip. A Location row holding two location chips and a stray
+ * '6:00 PM' therefore reported its location as '6:00 PM' — the whole cell's
+ * real content replaced by its annotation. The frontend has always had this
+ * right (`cellPlainText` in src/components/scheduling/sheetEventUtils.js maps
+ * text segments to `.text` and everything else to `.name`); this is the
+ * server's copy of the same rule, and the two must not diverge again.
+ *
+ * Locations lead regardless of authoring order, so a Location row always reads
+ * as places first and annotation second.
+ */
+function cellDisplayParts(cell) {
+  const segments = (cell && cell.segments) || [];
+  const locations = segments
+    .filter((s) => s && s.type === 'location' && typeof s.name === 'string')
+    .map((s) => s.name.trim())
+    .filter(Boolean);
+  const text = segments
+    .filter((s) => s && s.type === 'text' && typeof s.text === 'string')
+    .map((s) => s.text)
+    .join(' ')
+    .trim();
+  return text ? [...locations, text] : locations;
+}
+
+/**
  * Extract every person-chip assignment from one day doc. Shared by
  * GET /api/my-assignments (filters to the caller) and the schedule-email
  * fan-out (groups by recipient). Placeholders are included with email: null
  * and placeholder: true so the email endpoint can hard-block on them.
  */
 function extractDayAssignments(day) {
-  const textOfCell = (cell) =>
-    ((cell && cell.segments) || [])
-      .filter((s) => s.type === 'text')
-      .map((s) => s.text)
-      .join(' ')
-      .trim() || null;
-
   const rowById = Object.fromEntries((day.rows || []).map((r) => [r.id, r]));
   const colById = Object.fromEntries((day.columns || []).map((c) => [c.id, c]));
   const rowIdByLabel = {};
   for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
 
-  const metaCell = (label, colId) => {
+  const metaParts = (label, colId) => {
     const rowId = rowIdByLabel[label];
-    return rowId ? textOfCell((day.cells || {})[sheetCellKey(rowId, colId)]) : null;
+    return rowId ? cellDisplayParts((day.cells || {})[sheetCellKey(rowId, colId)]) : [];
+  };
+  const metaCell = (label, colId) => {
+    const parts = metaParts(label, colId);
+    return parts.length ? parts.join(', ') : null;
   };
 
   const entries = [];
@@ -21013,6 +21039,9 @@ function extractDayAssignments(day) {
         begins: metaCell('begins', colId),
         ends: metaCell('ends', colId),
         location: metaCell('location', colId),
+        // The same locations unjoined, so the email can print one per line
+        // without re-splitting a string on a comma that a room name may contain.
+        locationLines: metaParts('location', colId),
         note: cell.note ? cell.note.text : null
       });
     }
@@ -21035,50 +21064,155 @@ function formatSheetDayLabel(dateStr) {
   }
 }
 
+/** 'Saturday, Sep 11' — or with the year, when a schedule spans two of them. */
+function formatSheetDayHeading(dateStr, withYear) {
+  try {
+    return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      ...(withYear ? { year: 'numeric' } : {})
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 const escapeAssignmentHtml = require('escape-html');
 
-/** Render one recipient's assignments (already sorted) as an email table. */
-function buildAssignmentsTableHtml(entries) {
-  const rows = entries
-    .map((e) => {
-      const time = [e.begins, e.ends].filter(Boolean).join(' - ') || null;
-      const cells = [
-        formatSheetDayLabel(e.date),
-        e.columnName,
-        e.rowLabel,
-        e.callTime ? `Call ${e.callTime}` : time,
-        e.location,
-        e.note
-      ].map((v, i) => {
-        // The date is the row's anchor and has a predictable width, so it gets
-        // the one nowrap in the table. Without it auto-layout hands its space
-        // to Location/Notes — usually the two emptiest columns — and breaks
-        // every date across three lines.
-        const nowrap = i === 0 ? ' white-space: nowrap;' : '';
-        return `<td style="padding: 8px 10px; color: #2d3748; border-bottom: 1px solid #e2e8f0;${nowrap}">${v ? escapeAssignmentHtml(v) : '&mdash;'}</td>`;
-      });
-      return `<tr>${cells.join('')}</tr>`;
-    })
-    .join('\n');
+/** The calendar year of a YYYY-MM-DD sheet date. */
+const sheetDateYear = (dateStr) => String(dateStr || '').slice(0, 4);
 
-  // Explicit column widths. Auto layout allocates by content, which reserves
-  // width for Location and Notes — usually columns of em-dashes — and squeezes
-  // Role and Call time into three lines each. Percentages are given as BOTH a
-  // width attribute and inline CSS: Outlook renders through Word's engine and
-  // is more reliable with the attribute.
-  const headers = [
-    ['Date', 24], ['Event / Post', 16], ['Role', 18],
-    ['Call time', 22], ['Location', 11], ['Notes', 9]
-  ]
-    .map(([h, pct]) => `<th width="${pct}%" style="width: ${pct}%; padding: 8px 10px; color: #718096; text-align: left; font-size: 13px; border-bottom: 2px solid #cbd5e0;">${h}</th>`)
-    .join('');
+/**
+ * Sheet times are FREE TEXT and are printed verbatim — they legitimately read
+ * things like 'HD 4:30pm / Reg 4:45pm', so parsing them would lose content.
+ * The one exception is a bare 24-hour HH:MM, which is exactly what a
+ * per-person `callTimeOverride` stores (sheetCells.js validates it against
+ * HHMM_RE). Left alone, a single email prints '17:30' immediately below
+ * '5:00 PM' in the same position — two clocks in one message, for a reader
+ * checking when they are due. Only that exact shape is converted; everything
+ * else passes through untouched.
+ *
+ * Display-only, deliberately: `extractDayAssignments` still returns the raw
+ * value, because GET /api/my-assignments has always returned the stored string
+ * and its contract is not this change's business.
+ */
+function displaySheetClock(value) {
+  const raw = String(value == null ? '' : value).trim();
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
+  if (!m) return raw;
+  const hour24 = Number(m[1]);
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${m[2]} ${hour24 < 12 ? 'AM' : 'PM'}`;
+}
 
-  return `<div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
-<table style="width: 100%; border-collapse: collapse;">
-  <tr>${headers}</tr>
-  ${rows}
-</table>
-</div>`;
+/** 'three posts across two days' — the intro line's factual summary. */
+function buildAssignmentSummary(entries) {
+  const days = new Set(entries.map((e) => e.date)).size;
+  const posts = entries.length;
+  const years = [...new Set(entries.map((e) => sheetDateYear(e.date)))];
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const span = `${plural(posts, 'post')} across ${plural(days, 'day')}`;
+  // The year is stated once here so it can stay off every day heading, which
+  // is what keeps a heading to one unwrapped line. A schedule that straddles
+  // New Year gets the year on each heading instead (see buildAssignmentsHtml).
+  return years.length === 1 ? `${span}, all in ${years[0]}` : span;
+}
+
+/**
+ * Render one recipient's assignments (already sorted) as a single-column
+ * itinerary: a rule per day, then a block per post led by the call time.
+ *
+ * It replaced a six-column table that could not survive its own content. The
+ * table gave the date a quarter of its width under `white-space: nowrap` for
+ * the long 'Friday, September 11, 2026' form, forced Call time and the event
+ * window to share one column (so a post with a call time printed no window at
+ * all), and at 880px could not be read on a phone at any zoom. Email has no
+ * responsive lever that both Outlook's Word engine and the Gmail app honour,
+ * so the fix is structural: one column reflows everywhere by construction.
+ */
+function buildAssignmentsHtml(entries) {
+  const esc = (v) => escapeAssignmentHtml(String(v));
+  const withYear = new Set(entries.map((e) => sheetDateYear(e.date))).size > 1;
+
+  const byDate = new Map();
+  for (const e of entries) {
+    if (!byDate.has(e.date)) byDate.set(e.date, []);
+    byDate.get(e.date).push(e);
+  }
+
+  const blocks = [...byDate.entries()].map(([date, dayEntries], dayIndex) => {
+    const dayTitle = dayEntries.find((e) => e.dayTitle)?.dayTitle;
+    const rule = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse;${dayIndex ? ' margin-top: 28px;' : ''}">
+  <tr><td style="padding: 0 0 9px; border-bottom: 2px solid #1c2430;">
+    <span style="color: #1c2430; font-size: 15px; font-weight: bold;">${esc(formatSheetDayHeading(date, withYear))}</span>${
+      dayTitle ? `<span style="color: #6b7684; font-size: 13px;">&nbsp;&middot;&nbsp; ${esc(dayTitle)}</span>` : ''
+    }
+  </td></tr>
+</table>`;
+
+    const posts = dayEntries.map((e) => {
+      const callTime = displaySheetClock(e.callTime);
+      const window = [e.begins, e.ends]
+        .filter(Boolean)
+        .map((t) => esc(displaySheetClock(t)))
+        .join(' &ndash; ');
+
+      // Call time leads when there is one, because it is the only value the
+      // recipient acts on; the event window is a caption beside it rather
+      // than a competitor for the same slot. With no call time the window is
+      // promoted to the lead so the block is never headed by nothing. With
+      // neither, the time block is omitted entirely rather than printing an
+      // em-dash that reads like recorded data.
+      let lead = '';
+      if (callTime) {
+        const caption = window ? `call time &nbsp;&middot;&nbsp; event runs ${window}` : 'call time';
+        lead = `<p style="margin: 0 0 3px; color: #3b6eb8; font-size: 19px; font-weight: bold;">${esc(callTime)}</p>
+        <p style="margin: 0 0 7px; color: #6b7684; font-size: 12px;">${caption}</p>`;
+      } else if (window) {
+        lead = `<p style="margin: 0 0 3px; color: #3b6eb8; font-size: 19px; font-weight: bold;">${window}</p>
+        <p style="margin: 0 0 7px; color: #6b7684; font-size: 12px;">event window &nbsp;&middot;&nbsp; no call time recorded</p>`;
+      }
+
+      // rowLabel is the post; columnName is the event it sits under. Either
+      // can be absent on a hand-built sheet, so the title falls through. The
+      // event line is dropped when the day heading already carries that exact
+      // name — a one-event day otherwise prints 'Erev Rosh Hashanah' twice,
+      // four lines apart.
+      const title = e.rowLabel || e.columnName || 'Assignment';
+      const sub = e.rowLabel && e.columnName && e.columnName !== dayTitle
+        ? `<p style="margin: 0 0 8px; color: #4a5568; font-size: 14px;">${esc(e.columnName)}</p>`
+        : '';
+
+      const lines = (e.locationLines && e.locationLines.length
+        ? e.locationLines
+        : (e.location ? [e.location] : [])
+      ).map(esc);
+      const where = lines.length
+        ? `<p style="margin: 0 0 ${e.note ? '8' : '0'}px; color: #4a5568; font-size: 14px; line-height: 1.5;">${lines.join('<br>')}</p>`
+        : '';
+
+      const note = e.note
+        ? `<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse: collapse;"><tr>
+          <td style="background: #fdf8ec; border: 1px solid #e8d9b8; padding: 8px 12px; color: #6b5426; font-size: 13px; line-height: 1.5;">${esc(e.note)}</td>
+        </tr></table>`
+        : '';
+
+      return `<tr><td style="padding: 16px 0 15px; border-bottom: 1px solid #e6e9ed;">
+        ${lead}
+        <p style="margin: 0 0 3px; color: #1c2430; font-size: 16px; font-weight: bold;">${esc(title)}</p>
+        ${sub}${where}${note}
+      </td></tr>`;
+    });
+
+    return `${rule}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse;">
+${posts.join('\n')}
+</table>`;
+  });
+
+  return blocks.join('\n');
 }
 
 // Graph caps a plain sendMail message near 4MB including base64 overhead, and
@@ -21192,7 +21326,8 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
             recipientName: escapeAssignmentHtml(entries[0].name),
             scopeLabel: escapeAssignmentHtml(scopeLabel),
             sheetTitle: dayId && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
-            assignmentsTable: buildAssignmentsTableHtml(entries),
+            assignmentSummary: escapeAssignmentHtml(buildAssignmentSummary(entries)),
+            assignmentsTable: buildAssignmentsHtml(entries),
             eventUrl: myAssignmentsUrl
           }
         );

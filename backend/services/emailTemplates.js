@@ -53,10 +53,11 @@ const TEMPLATE_IDS = {
 };
 
 // Body-column width of the email shell. 600 is the long-standing convention
-// and what every label/value notification uses. WIDE is for templates whose
-// body is a real data table — see wrapEmailTemplate.
+// and what every template now uses; wrapEmailTemplate still accepts a wider
+// value should a template ever need one (ASSIGNMENT_SCHEDULE was the only one
+// that did, at 880px, until its 6-column table became a single-column
+// itinerary that reads on a phone).
 const DEFAULT_EMAIL_WIDTH = 600;
-const WIDE_EMAIL_WIDTH = 880;
 
 /**
  * Default templates - used when no database override exists
@@ -386,32 +387,36 @@ const DEFAULT_TEMPLATES = {
     id: TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
     name: 'Assignment Schedule',
     description: 'Sent to each person tagged on a scheduling sheet with their personal schedule',
-    // The only wide template in the set: its body is a 6-column schedule
-    // table, which wraps every cell at the default 600px.
-    width: WIDE_EMAIL_WIDTH,
+    // Back to the standard width. This was the one wide template in the set,
+    // at 880px, to hold a 6-column schedule table. That table is gone: its
+    // body is now a single-column itinerary (buildAssignmentsHtml in
+    // api-server.js), which reads correctly at 600px and, more to the point,
+    // on the phone the recipient is actually holding when they check where
+    // they are due. Do not widen this again without replacing the layout.
     subject: 'Your assignments for {{scopeLabel}}',
-    body: `<h2 style="margin: 0 0 20px 0; color: #2d3748;">Your Schedule</h2>
-
-<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  Dear {{recipientName}},
+    body: `<p style="margin: 0 0 4px 0; color: #6b7684; font-size: 12px; letter-spacing: 1.3px; text-transform: uppercase; font-weight: bold;">
+  Your schedule
 </p>
 
-<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  Here is your schedule for {{scopeLabel}}.{{#sheetTitle}} ({{sheetTitle}}){{/sheetTitle}}
+<h2 style="margin: 0 0 18px 0; color: #1c2430; font-size: 24px; font-weight: 600;">{{scopeLabel}}</h2>
+
+<p style="margin: 0 0 26px 0; color: #4a5568; font-size: 15px; line-height: 1.6;">
+  {{recipientName}} &mdash; you have <b style="color: #1c2430;">{{assignmentSummary}}</b>.
+  The large time on each line is when you are due.
 </p>
 
 {{assignmentsTable}}
 
-<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  Everything you need is in this email. The button below opens your assignments
-  in the Temple Events app for staff who use it &mdash; if you do not have an
-  account, you can simply ignore it.
+<p style="margin: 26px 0 0 0; color: #4a5568; font-size: 15px; line-height: 1.6;">
+  Everything you need is above, and the full workbook is attached. The button
+  below opens your assignments in the Temple Events app for staff who use it;
+  if you do not have an account, you can ignore it.
 </p>
 
-<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+<p style="color: #718096; font-size: 14px; margin-top: 24px;">
   If anything looks wrong or you have a scheduling conflict, please contact the events office.
 </p>`,
-    variables: ['recipientName', 'scopeLabel', 'sheetTitle', 'assignmentsTable', 'eventUrl']
+    variables: ['recipientName', 'scopeLabel', 'sheetTitle', 'assignmentSummary', 'assignmentsTable', 'eventUrl']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -1345,9 +1350,11 @@ function renderTemplate(template, variables) {
  * Common email wrapper/layout.
  *
  * `width` defaults to the 600px email convention, which suits the
- * label/value notification templates. A template MAY declare a wider
- * `width` (see ASSIGNMENT_SCHEDULE) when its content is a real table —
- * a 6-column schedule squeezed into 600px wraps every cell.
+ * label/value notification templates and is what every template currently
+ * uses. A template MAY declare a wider `width` when its content genuinely
+ * needs one, but prefer restructuring the content: a wide body cannot be read
+ * on a phone, and email has no responsive lever both Outlook's Word engine
+ * and the Gmail app honour.
  */
 function wrapEmailTemplate(content, width = DEFAULT_EMAIL_WIDTH) {
   return `

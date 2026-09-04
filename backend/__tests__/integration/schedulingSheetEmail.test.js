@@ -148,8 +148,12 @@ describe('Scheduling Sheet emails (SE-1 to SE-11)', () => {
 
     const [, subject, html] = sendSpy.mock.calls[0];
     expect(subject).toContain('2026 High Holy Days');
-    expect(html).toContain('September 11');
-    expect(html).toContain('September 20');
+    // Both days get their own heading. The short 'Saturday, Sep 11' form is
+    // the standard one now; the long 'September 11, 2027' wrapped its column.
+    expect(html).toContain('Saturday, Sep 11');
+    expect(html).toContain('Monday, Sep 20');
+    expect(html).toContain('Erev Service');
+    expect(html).toContain('Kol Nidre');
   });
 
   // A placeholder has no address. It never withholds the schedule from the
@@ -331,5 +335,166 @@ describe('Scheduling Sheet emails (SE-1 to SE-11)', () => {
     expect(res.body.attached).toBe(false);
     expect(res.body.attachmentWarning).toMatch(/over the 3MB mail limit/i);
     expect(sendSpy.mock.calls[0][3].attachments).toBeUndefined();
+  });
+
+  // --------------------------------------------------------------------------
+  // SE-12..SE-16 — the email BODY. SE-1..SE-11 above cover fan-out, logging and
+  // attachments and deliberately say almost nothing about what the message
+  // reads like, which is how the dropped-location defect survived: the Location
+  // starter row holds `location` segments, and the server's own text extractor
+  // kept only `text` segments, so a cell holding two location chips plus a
+  // stray '6:00 PM' reported its location as '6:00 PM'.
+  // --------------------------------------------------------------------------
+
+  const loc = (name) => ({ type: 'location', name });
+  const text = (t) => ({ type: 'text', text: t });
+
+  /**
+   * A day with one column and one CUSTOM row ('Greeter') below the five
+   * starter rows, so a person chip can sit on a real post rather than on a
+   * metadata row the extractor also reads back.
+   */
+  async function dayWithMetadata(sheet, { date = '2027-09-11', title = 'Erev Rosh Hashanah' } = {}) {
+    let day = await createDay(sheet._id, { date, title });
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({
+        expectedVersion: day._version,
+        columns: [{ id: 'c1', name: 'Erev Service' }],
+        rows: [...day.rows, { id: 'rGreeter', label: 'Greeter', kind: 'custom' }],
+      });
+    expect(res.status).toBe(200);
+    day = res.body;
+    const rowId = (label) => day.rows.find((r) => r.label === label).id;
+    return { day, rowId };
+  }
+
+  test('SE-12 location chips reach the email, one per line, with stray text after them', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+
+    // The exact reported shape: two location chips and a loose time in the
+    // Location row.
+    await putCell(sheet._id, day._id, rowId('Location'), 'c1', {
+      segments: [loc('5th Avenue Sanctuary'), loc('Live Stream - Temple'), text('6:00 PM')],
+    });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('5th Avenue Sanctuary');
+    expect(html).toContain('Live Stream - Temple');
+    // One per line, locations before the loose text.
+    expect(html).toMatch(/5th Avenue Sanctuary<br>Live Stream - Temple<br>6:00 PM/);
+  });
+
+  test('SE-13 call time and the event window both appear; neither displaces the other', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', { segments: [text('5:00 PM')] });
+    await putCell(sheet._id, day._id, rowId('Begins'), 'c1', { segments: [text('6:00 PM')] });
+    await putCell(sheet._id, day._id, rowId('Ends'), 'c1', { segments: [text('7:30 PM')] });
+
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('5:00 PM');
+    expect(html).toMatch(/6:00 PM\s*&ndash;\s*7:30 PM/);
+  });
+
+  test('SE-14 day headings use the short standardized date, not the long wrapping one', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { wholeSheet: true });
+    expect(res.status).toBe(200);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('Saturday, Sep 11');
+    // The long form no longer appears anywhere in a whole-sheet body: the h2 is
+    // the workbook name, and every day heading is short.
+    expect(html).not.toContain('September 11, 2027');
+    // The day's own title rides along with its heading.
+    expect(html).toContain('Erev Rosh Hashanah');
+  });
+
+  test('SE-15 the corrected location also reaches GET /api/my-assignments', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2099-09-11' });
+
+    await putCell(sheet._id, day._id, rowId('Location'), 'c1', {
+      segments: [loc('5th Avenue Sanctuary'), loc('Live Stream - Temple')],
+    });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Events Coordinator', eventsRequesterUser.email)],
+    });
+
+    const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].location).toBe('5th Avenue Sanctuary, Live Stream - Temple');
+    expect(res.body[0].locationLines).toEqual(['5th Avenue Sanctuary', 'Live Stream - Temple']);
+  });
+
+  test('SE-17 a per-person HH:MM override prints on the same clock as the sheet, free text untouched', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+
+    // The column call time is free text a manager typed; the override is the
+    // HH:MM the cell editor stores. Both land in the same slot of the email.
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', {
+      segments: [text('HD 4:30pm / Reg 4:45pm')],
+    });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org', { callTimeOverride: '17:30' })],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('5:30 PM');
+    expect(html).not.toContain('17:30');
+
+    // Free text is never parsed: it can hold two times and a label at once.
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org')],
+    });
+    sendSpy.mockClear();
+    await sendSchedules(sheet._id, { dayId: day._id });
+    expect(sendSpy.mock.calls[0][2]).toContain('HD 4:30pm / Reg 4:45pm');
+  });
+
+  test('SE-16 a schedule spanning two years carries the year in every day heading', async () => {
+    const sheet = await createSheet({ name: 'Winter Coverage' });
+    const a = await dayWithMetadata(sheet, { date: '2027-12-31', title: 'New Year Eve' });
+    const b = await dayWithMetadata(sheet, { date: '2028-01-01', title: 'New Year Day' });
+
+    for (const { day, rowId } of [a, b]) {
+      await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+        segments: [person('Stephen Fang', 'stephen.fang@emanuelnyc.org')],
+      });
+    }
+
+    const res = await sendSchedules(sheet._id, { wholeSheet: true });
+    expect(res.status).toBe(200);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('Friday, Dec 31, 2027');
+    expect(html).toContain('Saturday, Jan 1, 2028');
   });
 });
