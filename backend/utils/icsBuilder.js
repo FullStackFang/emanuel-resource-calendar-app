@@ -309,7 +309,7 @@ function buildEventLines(entry, email, { dtstamp, timeZone, uidDomain, recipient
   }
 
   lines.push(`SUMMARY:${escapeText(buildSummary(entry))}`);
-  const description = buildDescription(entry);
+  const description = buildDescription(entry, recipientName);
   if (description) lines.push(`DESCRIPTION:${escapeText(description)}`);
   const location = buildLocation(entry);
   if (location) lines.push(`LOCATION:${escapeText(location)}`);
@@ -334,6 +334,12 @@ function buildAssignmentsCalendar(entries, options = {}) {
   const timeZone = options.timeZone || DEFAULT_TIME_ZONE;
   const uidDomain = options.uidDomain || DEFAULT_UID_DOMAIN;
   const prodId = options.prodId || DEFAULT_PRODID;
+  // Defaults to the chip name the way the email greeting does
+  // (`entries[0].name` at the send endpoint), so the body and the attachment
+  // address the same person by the same name.
+  const recipientName = String(
+    options.recipientName == null ? (list[0] && list[0].name) || '' : options.recipientName
+  ).trim();
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -344,8 +350,17 @@ function buildAssignmentsCalendar(entries, options = {}) {
     // RSVP, no organizer relationship, no server-side meeting object.
     'METHOD:PUBLISH'
   ];
+  // Non-standard, but Google and Apple Calendar both label an imported
+  // calendar with it. Outlook ignores it, which is exactly why it is a bonus
+  // and DESCRIPTION carries the attribution that has to work everywhere.
+  const calendarName = String(
+    options.calendarName == null ? (recipientName && `Temple Emanu-El - ${recipientName}`) || '' : options.calendarName
+  ).trim();
+  if (calendarName) lines.push(`X-WR-CALNAME:${escapeText(calendarName)}`);
   for (const entry of list) {
-    lines.push(...buildEventLines(entry, options.email || entry.email, { dtstamp, timeZone, uidDomain }));
+    lines.push(
+      ...buildEventLines(entry, options.email || entry.email, { dtstamp, timeZone, uidDomain, recipientName })
+    );
   }
   lines.push('END:VCALENDAR');
 
@@ -353,8 +368,33 @@ function buildAssignmentsCalendar(entries, options = {}) {
   return `${lines.map(foldLine).join(CRLF)}${CRLF}`;
 }
 
+/**
+ * '2026 High Holy Days - Stephen Fang.ics' — the scope plus whose shifts these
+ * are, because the calendar file differs per recipient while the workbook PDF
+ * beside it does not. A shared filename made 31 different attachments look
+ * like one document.
+ *
+ * The character class keeps Unicode LETTERS and NUMBERS (accented names are
+ * real staff names and must survive) and drops only what a filesystem or a
+ * mail client would object to.
+ */
+function buildCalendarFileName(scopeLabel, recipientName) {
+  const clean = (value) =>
+    String(value == null ? '' : value)
+      .replace(/[^\p{L}\p{N}._ -]/gu, ' ')
+      // A single dot is ordinary in a name ('Sara C.'); a run of them is a
+      // path shape and never part of one.
+      .replace(/\.{2,}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[.\s]+|[.\s]+$/g, '');
+  const parts = [clean(scopeLabel), clean(recipientName)].filter(Boolean);
+  const base = (parts.join(' - ') || 'schedule').slice(0, 120).trim();
+  return `${base}.ics`;
+}
+
 module.exports = {
   parseCellTime,
+  buildCalendarFileName,
   zonedWallClockToUtc,
   zoneOffsetMs,
   resolveEventWindow,

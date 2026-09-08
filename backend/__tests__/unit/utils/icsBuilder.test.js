@@ -7,7 +7,7 @@
  * UID/SEQUENCE identity. The endpoint wiring is covered by
  * integration/schedulingSheetEmail.test.js.
  *
- * Test IDs: ICS-1 through ICS-27
+ * Test IDs: ICS-1 through ICS-33
  */
 
 const {
@@ -17,7 +17,8 @@ const {
   escapeText,
   foldLine,
   buildUid,
-  buildAssignmentsCalendar
+  buildAssignmentsCalendar,
+  buildCalendarFileName
 } = require('../../../utils/icsBuilder');
 
 // ---------------------------------------------------------------------------
@@ -329,5 +330,77 @@ describe('buildAssignmentsCalendar (ICS-20 to ICS-27)', () => {
     ]);
     // Escaped on the wire, identical once a client unescapes it.
     expect(valueOf(ics, 'LOCATION')).toBe('Riverside Park\\; south lawn\\, by the pier');
+  });
+});
+
+// ===========================================================================
+// 5. Recipient attribution (whose schedule is this?)
+//
+// The file differs per recipient while the workbook PDF beside it does not,
+// so every surface that can say whose shifts these are should say it. Only
+// DESCRIPTION survives a forward or a re-save, which is why it carries the
+// line the other two only decorate.
+// ===========================================================================
+
+describe('recipient attribution (ICS-28 to ICS-33)', () => {
+  test('ICS-28 every event names the person the schedule was built for', () => {
+    const ics = build([
+      entry({ rowId: 'r1', callTime: '4:30 PM' }),
+      entry({ rowId: 'r2', begins: 'TBD' })
+    ]);
+    const descriptions = logicalLines(ics).filter((l) => l.startsWith('DESCRIPTION:'));
+    expect(descriptions).toHaveLength(2);
+    // The all-day fallback is attributed too — it is the entry most likely to
+    // be forwarded to somebody asking 'who is covering this?'.
+    for (const line of descriptions) expect(line).toContain('Schedule for: Sarah');
+    // First line, ahead of the cell text, so it survives a truncating preview.
+    expect(valueOf(ics, 'DESCRIPTION').startsWith('Schedule for: Sarah')).toBe(true);
+  });
+
+  test('ICS-29 an explicit recipientName wins over the chip names', () => {
+    // Chips are free text and the same person may be spelled two ways across
+    // cells; the endpoint passes one name so the file cannot disagree with
+    // the greeting in the email body.
+    const ics = build(
+      [entry({ rowId: 'r1', name: 'Sarah' }), entry({ rowId: 'r2', name: 'Sara C.' })],
+      { recipientName: 'Sarah Cohen' }
+    );
+    const descriptions = logicalLines(ics).filter((l) => l.startsWith('DESCRIPTION:'));
+    for (const line of descriptions) expect(line).toContain('Schedule for: Sarah Cohen');
+    expect(ics).not.toContain('Sara C.');
+  });
+
+  test('ICS-30 X-WR-CALNAME labels the imported calendar, and is omitted when nobody is named', () => {
+    expect(logicalLines(build([entry({ callTime: '5:00 PM' })])))
+      .toContain('X-WR-CALNAME:Temple Emanu-El - Sarah');
+    // No name anywhere: label nothing rather than label it wrongly.
+    const anonymous = build([entry({ name: null })], { recipientName: '' });
+    expect(anonymous).not.toContain('X-WR-CALNAME');
+    expect(anonymous).not.toContain('Schedule for:');
+  });
+
+  test('ICS-31 the filename carries the scope AND the person', () => {
+    expect(buildCalendarFileName('2026 High Holy Days', 'Sarah Cohen'))
+      .toBe('2026 High Holy Days - Sarah Cohen.ics');
+    expect(buildCalendarFileName('Sat, Sep 11', 'Sarah Cohen')).toBe('Sat Sep 11 - Sarah Cohen.ics');
+  });
+
+  test('ICS-32 accented names survive; path and quoting characters do not', () => {
+    // Staff names are real names. A sanitizer that ASCII-strips turns
+    // 'José Ramírez' into 'Jos Ramrez' on his own schedule.
+    expect(buildCalendarFileName('High Holy Days', 'José Ramírez'))
+      .toBe('High Holy Days - José Ramírez.ics');
+    expect(buildCalendarFileName('../../etc', 'a/b\\c:d"e')).toBe('etc - a b c d e.ics');
+    // A single dot belongs to the name; the extension is still ours alone.
+    expect(buildCalendarFileName('High Holy Days', 'Sara C.')).toBe('High Holy Days - Sara C.ics');
+  });
+
+  test('ICS-33 an unnamed scope still yields a legal filename, and length is bounded', () => {
+    expect(buildCalendarFileName('', '')).toBe('schedule.ics');
+    expect(buildCalendarFileName(null, undefined)).toBe('schedule.ics');
+    expect(buildCalendarFileName('', 'Sarah Cohen')).toBe('Sarah Cohen.ics');
+    const long = buildCalendarFileName('x'.repeat(400), 'Sarah Cohen');
+    expect(long.length).toBeLessThanOrEqual(124);
+    expect(long.endsWith('.ics')).toBe(true);
   });
 });

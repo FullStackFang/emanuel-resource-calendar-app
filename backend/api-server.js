@@ -21207,14 +21207,16 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     // and is dropped: the ASSIGNMENT_SCHEDULE body is self-contained, which is
     // exactly why the PDF is already allowed to fail this way.
     const pdfBytes = pdfAttachment ? Math.floor(pdfAttachment.contentBase64.length * 0.75) : 0;
-    const calendarFileName = `${String(scopeLabel || 'schedule').replace(/[^A-Za-z0-9._ -]/g, '').trim() || 'schedule'}.ics`;
     let calendarWarning = null;
     let calendarAttached = false;
 
     const buildCalendarAttachment = (email, entries) => {
       if (!wantCalendar) return null;
       try {
-        const ics = icsBuilder.buildAssignmentsCalendar(entries, { dtstamp: sentAt, email });
+        // The same name the email body greets them by, so the greeting, the
+        // filename and the DESCRIPTION line all agree.
+        const recipientName = (entries[0] && entries[0].name) || '';
+        const ics = icsBuilder.buildAssignmentsCalendar(entries, { dtstamp: sentAt, email, recipientName });
         if (!ics) return null;
         if (pdfBytes + Buffer.byteLength(ics, 'utf8') > MAX_SCHEDULE_ATTACHMENT_BYTES) {
           calendarWarning = `The calendar file did not fit under the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit and was not attached.`;
@@ -21223,7 +21225,10 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
         }
         calendarAttached = true;
         return {
-          name: calendarFileName,
+          // Per RECIPIENT, unlike the workbook PDF beside it: this file holds
+          // only this person's shifts, so it must not share one name with the
+          // 30 other, different files going out in the same batch.
+          name: icsBuilder.buildCalendarFileName(scopeLabel, recipientName),
           // The method= parameter is what prompts several clients to offer an
           // inline 'Add to Calendar' affordance rather than a bare download.
           contentType: 'text/calendar; charset=utf-8; method=PUBLISH',

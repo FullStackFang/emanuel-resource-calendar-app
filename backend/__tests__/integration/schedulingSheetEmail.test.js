@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-27)
+ * Scheduling Sheet email tests (SE-1 to SE-28)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -25,7 +25,7 @@ const icsBuilder = require('../../utils/icsBuilder');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-27)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-28)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -811,6 +811,40 @@ describe('Scheduling Sheet emails (SE-1 to SE-27)', () => {
       ['2099-09-20', 'YP Dinner'],
       ['2099-09-20', 'Erev Service'],
     ]);
+  });
+
+  // --------------------------------------------------------------------------
+  // SE-28 - recipient attribution. The workbook PDF beside it is ONE blob
+  // attached identically to every message; the calendar file is not, so it
+  // must not go out under one shared name.
+  // --------------------------------------------------------------------------
+
+  test('SE-28 each recipient gets a calendar file named and addressed to them', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', { segments: [text('4:30 PM')] });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah Cohen', 'sarah@x.org'), person('Ben Ross', 'ben@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+
+    const nameOf = (email) =>
+      ((callFor(email)[3] || {}).attachments || []).find(
+        (a) => typeof a.contentType === 'string' && a.contentType.startsWith('text/calendar')
+      ).name;
+
+    // Two different files must not arrive under one name.
+    expect(nameOf('sarah@x.org')).not.toBe(nameOf('ben@x.org'));
+    expect(nameOf('sarah@x.org').endsWith(' - Sarah Cohen.ics')).toBe(true);
+    expect(nameOf('ben@x.org').endsWith(' - Ben Ross.ics')).toBe(true);
+
+    // And the attribution that survives a forward, once the filename is gone.
+    expect(calendarFrom(callFor('sarah@x.org'))).toContain('Schedule for: Sarah Cohen');
+    expect(calendarFrom(callFor('ben@x.org'))).toContain('Schedule for: Ben Ross');
+    expect(calendarFrom(callFor('ben@x.org'))).not.toContain('Sarah Cohen');
   });
 
 });
