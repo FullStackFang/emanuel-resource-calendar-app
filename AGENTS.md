@@ -2,6 +2,12 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Deployment Boundary
+
+Never deploy for the user. Deployment is performed by the user only. Do not run
+deployment, promotion, or rollback commands, or trigger deployment pipelines.
+Prepare and verify changes locally; a bug report is not deployment authorization.
+
 ## Development Commands
 
 ### Frontend (Root Directory)

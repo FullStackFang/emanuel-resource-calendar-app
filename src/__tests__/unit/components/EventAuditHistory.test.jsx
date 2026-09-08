@@ -52,6 +52,58 @@ describe('EventAuditHistory', () => {
     expect(screen.queryByText(/None/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    {},
+    { field: 'startDate' },
+    [{ field: 'startDate' }],
+    { field: 'doorOpenTime', oldValue: null, newValue: null },
+    [{ field: 'doorOpenTime', oldValue: null, newValue: null }],
+  ])('keeps the action without inventing a change for %j', async (changes) => {
+    renderHistory({ action: 'edit-request-approved', changes });
+    await screen.findByText('edit-request-approved');
+    expect(screen.queryByText(/None/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Show details')).not.toBeInTheDocument();
+    expect(screen.getByText('No field changes recorded.')).toBeInTheDocument();
+  });
+
+  it('shows from/to values in a legacy single change', async () => {
+    renderHistory({ changeType: 'update', changes: { field: 'startDate', from: '2027-04-26', to: '2027-04-29' } });
+    expect(await screen.findByText(/2027-04-26.*2027-04-29/)).toBeInTheDocument();
+    expect(screen.queryByText(/None/)).not.toBeInTheDocument();
+  });
+
+  it('preserves an explicit removal and distinguishes an unrecorded previous value', async () => {
+    renderHistory({ changeType: 'update', changes: [
+      { field: 'doorOpenTime', oldValue: '16:00', newValue: null },
+      { field: 'startDate', newValue: '2027-04-29' },
+    ] });
+    fireEvent.click(await screen.findByTitle('Show details'));
+    expect(screen.getByText('16:00')).toBeInTheDocument();
+    expect(screen.getAllByText('None')).toHaveLength(1);
+    expect(screen.getByText('Not recorded')).toBeInTheDocument();
+    expect(screen.getByText('2027-04-29')).toBeInTheDocument();
+  });
+
+  it('does not add a bogus inline change beside a valid changeSet', async () => {
+    renderHistory({ changeType: 'update', changes: {}, changeSet: [
+      { field: 'startDate', oldValue: '2027-04-26', newValue: '2027-04-29' },
+    ] });
+    fireEvent.click(await screen.findByTitle('Show details'));
+    expect(screen.getByText('2027-04-26')).toBeInTheDocument();
+    expect(screen.getByText('2027-04-29')).toBeInTheDocument();
+    expect(screen.queryByText(/None/)).not.toBeInTheDocument();
+  });
+
+  it('preserves changes to false and zero', async () => {
+    renderHistory({ changeType: 'update', changes: [
+      { field: 'isAllDayEvent', oldValue: true, newValue: false },
+      { field: 'setupTimeMinutes', oldValue: 30, newValue: 0 },
+    ] });
+    fireEvent.click(await screen.findByTitle('Show details'));
+    expect(screen.getByText('false')).toBeInTheDocument();
+    expect(screen.getByText('0')).toBeInTheDocument();
+  });
+
   it('refreshes an open history after an SSE update and keeps the same entry expanded', async () => {
     const original = { _id: 'old', action: 'edit-request-approved', timestamp: '2026-09-08T13:20:54Z', changes: [
       { field: 'startDate', oldValue: '2027-04-26', newValue: '2027-04-29' },
@@ -89,6 +141,29 @@ describe('EventAuditHistory', () => {
     expect(screen.getByText('Requested changes:')).toBeInTheDocument();
     expect(screen.getByText('2027-04-29')).toBeInTheDocument();
     expect(screen.queryByText('Changes made:')).not.toBeInTheDocument();
+  });
+
+  it('presents requested fields with readable labels, units, and explicit empty values', async () => {
+    renderHistory({ action: 'edit-request-submitted', changes: [], metadata: {
+      proposedChanges: {
+        setupTimeMinutes: 120, teardownTimeMinutes: 120,
+        reservationStartMinutes: 120, reservationEndMinutes: 120,
+        reservationStartTime: '16:00', reservationEndTime: '17:00',
+        doorOpenTime: null, doorCloseTime: null, isOnBehalfOf: false,
+        contactName: '', contactEmail: '',
+      },
+    } });
+    fireEvent.click(await screen.findByTitle('Show details'));
+    expect(screen.getByText('Setup buffer')).toBeInTheDocument();
+    expect(screen.getByText('Reservation start')).toBeInTheDocument();
+    expect(screen.getAllByText('120 min')).toHaveLength(4);
+    expect(screen.getByText('4:00 PM')).toBeInTheDocument();
+    expect(screen.getByText('5:00 PM')).toBeInTheDocument();
+    expect(screen.getByText('On behalf of someone else')).toBeInTheDocument();
+    expect(screen.getByText('No')).toBeInTheDocument();
+    expect(screen.getAllByText('Not set')).toHaveLength(4);
+    expect(screen.getAllByRole('term')).toHaveLength(11);
+    expect(screen.getAllByRole('definition')).toHaveLength(11);
   });
 
   it('shows legacy from/to fields in reservation audits', async () => {

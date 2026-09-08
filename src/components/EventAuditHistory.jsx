@@ -4,6 +4,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { keys } from '../queries/keys';
 import { deriveListLoadingState } from '../utils/listLoadingState';
+import { formatTimeString } from '../utils/appTimeUtils';
 import './EventAuditHistory.css';
 
 /* =========================================================================
@@ -116,6 +117,20 @@ const IconArrowRight = (props) => (
   </Icon>
 );
 
+// Audit writers use both oldValue/newValue and legacy from/to pairs.
+// Empty objects and unchanged values are not field changes.
+const normalizeChanges = (changes) => {
+  const entries = Array.isArray(changes) ? changes : [changes];
+  return entries
+    .filter(change => change && typeof change.field === 'string' && change.field.trim())
+    .map(change => ({
+      field: change.field,
+      oldValue: change.oldValue !== undefined ? change.oldValue : change.from,
+      newValue: change.newValue !== undefined ? change.newValue : change.to,
+    }))
+    .filter(change => !Object.is(change.oldValue, change.newValue));
+};
+
 const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
   const [expandedEntries, setExpandedEntries] = useState(new Set());
   const historyQuery = useInfiniteQuery({
@@ -207,6 +222,19 @@ const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
       'subject': 'Event Title',
       'startTime': 'Start Time',
       'endTime': 'End Time',
+      'setupTimeMinutes': 'Setup buffer',
+      'teardownTimeMinutes': 'Teardown buffer',
+      'reservationStartMinutes': 'Reservation start buffer',
+      'reservationEndMinutes': 'Reservation end buffer',
+      'setupTime': 'Setup start',
+      'teardownTime': 'Teardown end',
+      'reservationStartTime': 'Reservation start',
+      'reservationEndTime': 'Reservation end',
+      'doorOpenTime': 'Doors open',
+      'doorCloseTime': 'Doors close',
+      'isOnBehalfOf': 'On behalf of someone else',
+      'contactName': 'Contact name',
+      'contactEmail': 'Contact email',
       'location': 'Location',
       'source': 'Source',
       'calendarData.categories': 'Categories',
@@ -229,7 +257,8 @@ const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
   };
 
   const formatValue = (value) => {
-    if (value === null || value === undefined) return 'None';
+    if (value === undefined) return 'Not recorded';
+    if (value === null) return 'None';
     if (Array.isArray(value)) return value.join(', ');
     if (typeof value === 'object') return JSON.stringify(value);
     if (typeof value === 'string' && value.includes('T') && value.includes('Z')) {
@@ -255,20 +284,30 @@ const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
             <div className="ah-change-values">
               <div className="ah-old-value">
                 <span className="ah-value-label">From</span>
-                <span className="ah-value">{formatValue(change.oldValue !== undefined ? change.oldValue : change.from)}</span>
+                <span className="ah-value">{formatValue(change.oldValue)}</span>
               </div>
               <div className="ah-value-arrow">
                 <IconArrowRight size={14} />
               </div>
               <div className="ah-new-value">
                 <span className="ah-value-label">To</span>
-                <span className="ah-value">{formatValue(change.newValue !== undefined ? change.newValue : change.to)}</span>
+                <span className="ah-value">{formatValue(change.newValue)}</span>
               </div>
             </div>
           </div>
         ))}
       </div>
     );
+  };
+
+  const formatRequestedValue = (field, value) => {
+    if (value === null || value === '') return 'Not set';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (field.endsWith('Minutes') && typeof value === 'number') return `${value} min`;
+    if (field.endsWith('Time') && typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) {
+      return formatTimeString(value);
+    }
+    return formatValue(value);
   };
 
   if (loading || (auditHistory.length === 0 && historyQuery.isFetching)) {
@@ -337,9 +376,12 @@ const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
           const { dateStr, timeStr } = formatTimestamp(entry.timestamp);
           const entryKey = entry._id || entry.timestamp;
           const isExpanded = expandedEntries.has(entryKey);
-          const changeSet = entry.changeSet?.length
-            ? entry.changeSet
-            : (Array.isArray(entry.changes) ? entry.changes : []);
+          const legacyChangeSet = normalizeChanges(entry.changeSet);
+          const changes = normalizeChanges(entry.changes);
+          const changeSet = legacyChangeSet.length
+            ? legacyChangeSet
+            : (Array.isArray(entry.changes) ? changes : []);
+          const singleChange = !Array.isArray(entry.changes) ? changes[0] : null;
           const proposedChanges = Object.entries(entry.metadata?.proposedChanges || {});
           const hasDetails = changeSet.length > 0 || proposedChanges.length > 0;
           const TypeIcon = getChangeTypeIcon(entry.changeType);
@@ -414,20 +456,25 @@ const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
                   </>}
                   {proposedChanges.length > 0 && <>
                     <div className="ah-details-label">Requested changes:</div>
-                    {proposedChanges.map(([field, value]) => (
-                      <div className="ah-change-item" key={field}>
-                        <div className="ah-change-field">{formatFieldName(field)}</div>
-                        <div className="ah-value">{formatValue(value)}</div>
-                      </div>
-                    ))}
+                    <dl className="ah-requested-changes">
+                      {proposedChanges.map(([field, value]) => (
+                        <div className="ah-change-item" key={field}>
+                          <dt className="ah-change-field">{formatFieldName(field)}</dt>
+                          <dd className="ah-value">{formatRequestedValue(field, value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   </>}
                 </div>
               )}
 
-              {entry.changes && !Array.isArray(entry.changes) && (
+              {singleChange && (
                 <div className="ah-single-change">
-                  <strong>{entry.changes.field}:</strong> {formatValue(entry.changes.oldValue)} → {formatValue(entry.changes.newValue)}
+                  <strong>{formatFieldName(singleChange.field)}:</strong> {formatValue(singleChange.oldValue)} → {formatValue(singleChange.newValue)}
                 </div>
+              )}
+              {!hasDetails && !singleChange && (
+                <div className="ah-meta-note">No field changes recorded.</div>
               )}
             </div>
           );
