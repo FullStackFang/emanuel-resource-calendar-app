@@ -14,13 +14,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import MobileBottomTabs from '../../../../components/mobile/MobileBottomTabs';
 
 describe('MobileBottomTabs', () => {
-  // MBT-1: the default bar for a user without approval rights — Calendar and
-  // Requests, nothing else.
-  it('MBT-1: renders exactly two tabs without canApproveReservations', () => {
+  // MBT-1: the default bar for a user without approval rights — Calendar,
+  // Requests and Assignments, nothing else.
+  it('MBT-1: renders exactly three tabs without canApproveReservations', () => {
     render(<MobileBottomTabs activeTab="calendar" onTabChange={vi.fn()} permissions={{ canApproveReservations: false }} />);
 
     const tabs = screen.getAllByRole('button');
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(3);
+    expect(screen.getByText('Assignments')).toBeInTheDocument();
     expect(screen.getByText('Calendar')).toBeInTheDocument();
     expect(screen.getByText('Requests')).toBeInTheDocument();
   });
@@ -50,7 +51,20 @@ describe('MobileBottomTabs', () => {
   it('MBT-4: renders ungated tabs when no permissions prop is supplied', () => {
     render(<MobileBottomTabs activeTab="my-events" onTabChange={vi.fn()} />);
 
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.getAllByRole('button')).toHaveLength(3);
     expect(screen.getByText('Requests').closest('button')).toHaveAttribute('aria-current', 'page');
+  });
+
+  // MBT-5: the Assignments tab. Its id is the wire identifier the phone shell
+  // maps to /my-assignments — the same path the schedule email's
+  // ?view=my-assignments handoff resolves to. It is ungated, like Requests:
+  // the email CTA must land any authenticated recipient on a visible tab.
+  it('MBT-5: the Assignments tab reports the my-assignments identifier and is ungated', () => {
+    const onTabChange = vi.fn();
+    render(<MobileBottomTabs activeTab="calendar" onTabChange={onTabChange} permissions={{}} />);
+
+    fireEvent.click(screen.getByText('Assignments'));
+
+    expect(onTabChange).toHaveBeenCalledWith('my-assignments');
   });
 });

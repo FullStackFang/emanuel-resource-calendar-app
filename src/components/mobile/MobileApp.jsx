@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuth } from '../../context/AuthContext';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
@@ -7,12 +8,34 @@ import MobileHeader from './MobileHeader';
 import MobileBottomTabs from './MobileBottomTabs';
 import MobileCalendarTab from './MobileCalendarTab';
 import MobileRequests from './MobileRequests';
+import MyAssignments from '../MyAssignments';
 import InstallAppNudge from './InstallAppNudge';
 import InstallAppSheet from './InstallAppSheet';
 import './MobileApp.css';
 
+// Tab <-> path. The phone shell has NO route table — App.jsx renders this
+// component instead of <Routes> — but the URL is still what an emailed link
+// (EmailDestinationRouter resolves ?view=my-assignments to /my-assignments),
+// a reload, and a desktop-shaped link hand us. So the active tab is derived
+// from the pathname and a tap navigates; nothing here holds tab state of its
+// own. Paths with no phone tab (admin screens, the booking form) fall back to
+// the calendar rather than rendering nothing.
+const TAB_PATHS = {
+  calendar: '/',
+  'my-events': '/my-reservations',
+  'my-assignments': '/my-assignments',
+};
+const PATH_TABS = Object.fromEntries(
+  Object.entries(TAB_PATHS).map(([tab, path]) => [path, tab])
+);
+
 function MobileApp() {
-  const [activeTab, setActiveTab] = useState('calendar');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = PATH_TABS[location.pathname] || 'calendar';
+  // replace, not push: a bottom tab bar has never written history here, and
+  // Back should leave the app rather than replay every tab tap.
+  const handleTabChange = (tabId) => navigate(TAB_PATHS[tabId] || '/', { replace: true });
   const { canApproveReservations } = usePermissions();
 
   // Install affordance (design D9): this component is its single owner. Two
@@ -59,6 +82,10 @@ function MobileApp() {
         return <MobileCalendarTab />;
       case 'my-events':
         return <MobileRequests />;
+      case 'my-assignments':
+        // The same read-only component the desktop route renders; its
+        // stylesheet carries the phone adaptations under `.mobile-app`.
+        return <MyAssignments />;
       default:
         return null;
     }
@@ -72,7 +99,7 @@ function MobileApp() {
       </div>
       <MobileBottomTabs
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         permissions={{ canApproveReservations }}
       />
       <InstallAppNudge

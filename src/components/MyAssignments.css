@@ -156,3 +156,35 @@
 @media (max-width: 560px) {
   .ma-feature-when { border-right: none; padding-right: 0; max-width: none; }
 }
+
+/* ── Inside the phone shell ─────────────────────────────────────────────── */
+/* MobileApp renders this same component for its Assignments tab. Scoped on
+   the shell's root (`.mobile-app`), not a width query: the desktop route at a
+   narrow window keeps its own chrome, and a user who pinned the desktop
+   layout on a phone gets the desktop page they asked for. */
+
+/* The tab bar already names the view and the shell header owns the top of
+   the screen; a second title would spend 60px of a 740px viewport saying
+   'Assignments' twice. Kept for assistive tech, hidden from sight. */
+.mobile-app .ma-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Same gutter and corner radius as the mobile request cards, so the three
+   tabs read as one app rather than a desktop page dropped into a phone. */
+.mobile-app .ma-page { padding: var(--space-3); }
+.mobile-app .ma-card { border-radius: var(--radius-xl); }
+
+/* Desktop pushes an assignment's secondary detail (runs / where) to the far
+   edge of a wide card. On a phone that turns into a right-aligned orphan line
+   under a left-aligned post; stack it beneath instead. */
+.mobile-app .ma-slot-extras,
+.mobile-app .ma-feature-meta { margin-left: 0; width: 100%; }

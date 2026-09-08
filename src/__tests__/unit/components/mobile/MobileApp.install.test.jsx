@@ -17,6 +17,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import MobileApp from '../../../../components/mobile/MobileApp';
 import { NUDGE_DONE_KEY, VISIT_COUNT_KEY } from '../../../../utils/pwaInstall';
 
@@ -50,6 +51,12 @@ vi.mock('../../../../components/mobile/MobileCalendarTab', () => ({
 vi.mock('../../../../components/mobile/MobileRequests', () => ({
   default: () => <div data-testid="requests-tab" />,
 }));
+vi.mock('../../../../components/MyAssignments', () => ({
+  default: () => <div data-testid="assignments-tab" />,
+}));
+
+// MobileApp reads the pathname for its active tab, so it needs a router.
+const inRouter = (ui) => <MemoryRouter>{ui}</MemoryRouter>;
 
 const sheet = () => screen.queryByRole('dialog', { name: /install temple events/i });
 const menuEntry = () => screen.queryByRole('button', { name: /install app/i });
@@ -72,7 +79,7 @@ describe('MobileApp install action', () => {
   }
 
   it('MAI-1: menu entry installs directly when the browser can prompt', () => {
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
     openMenu();
 
     fireEvent.click(menuEntry());
@@ -84,7 +91,7 @@ describe('MobileApp install action', () => {
 
   it('MAI-2: menu entry opens the instruction sheet when there is nothing to fire', () => {
     installState = { isAvailable: true, canPrompt: false, platform: 'ios-safari' };
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
     openMenu();
 
     fireEvent.click(menuEntry());
@@ -96,7 +103,7 @@ describe('MobileApp install action', () => {
 
   it('MAI-3: the nudge takes the same direct path', () => {
     seedSecondVisit();
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
 
     fireEvent.click(
       screen.getByRole('button', { name: /^install$/i })
@@ -109,7 +116,7 @@ describe('MobileApp install action', () => {
   it('MAI-4: the nudge falls back to the sheet on a platform that cannot prompt', () => {
     installState = { isAvailable: true, canPrompt: false, platform: 'ios-safari' };
     seedSecondVisit();
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
 
     fireEvent.click(screen.getByRole('button', { name: /^install$/i }));
 
@@ -120,13 +127,13 @@ describe('MobileApp install action', () => {
   it('MAI-5: a dismissed dialog leaves the entry reachable, now via the sheet', () => {
     // consumeDeferredPrompt is single-use: after a dismissal canPrompt flips
     // false and detectPlatform reports 'manual'. The entry must still work.
-    const { rerender } = render(<MobileApp />);
+    const { rerender } = render(inRouter(<MobileApp />));
     openMenu();
     fireEvent.click(menuEntry());
     expect(promptInstall).toHaveBeenCalledTimes(1);
 
     installState = { isAvailable: true, canPrompt: false, platform: 'manual' };
-    rerender(<MobileApp />);
+    rerender(inRouter(<MobileApp />));
     openMenu();
     fireEvent.click(menuEntry());
 
@@ -138,7 +145,7 @@ describe('MobileApp install action', () => {
   it('MAI-6: nothing is offered once the app is installed or running standalone', () => {
     installState = { isAvailable: false, canPrompt: false, platform: 'manual' };
     seedSecondVisit();
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
     openMenu();
 
     expect(menuEntry()).not.toBeInTheDocument();
@@ -148,7 +155,7 @@ describe('MobileApp install action', () => {
   it('MAI-7: a retired nudge does not reappear, and the menu entry is unaffected', () => {
     window.localStorage.setItem(NUDGE_DONE_KEY, 'true');
     seedSecondVisit();
-    render(<MobileApp />);
+    render(inRouter(<MobileApp />));
 
     expect(screen.queryByTestId('install-nudge')).not.toBeInTheDocument();
     openMenu();

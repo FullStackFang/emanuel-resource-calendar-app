@@ -32,6 +32,21 @@ const TABS = [
       </svg>
     ),
   },
+  // Ungated, like Requests: the schedule email's CTA (?view=my-assignments)
+  // must land any authenticated recipient on a VISIBLE tab, and the desktop
+  // /my-assignments route is unguarded for the same reason. MobileApp maps
+  // this id to that path.
+  {
+    id: 'my-assignments',
+    label: 'Assignments',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+        <path d="m9 14 2 2 4-4" />
+      </svg>
+    ),
+  },
 ];
 
 function MobileBottomTabs({ activeTab, onTabChange, permissions = {} }) {

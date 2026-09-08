@@ -848,10 +848,21 @@ the /scheduler sub-path" is what caused the bug.
 gated on `apiToken` so nobody sees an empty assignments list before auth
 resolves. Tests: EDL-1..9, EDST-1..12, EDR-1..9.
 **Emails sent before this fix carry the dead URL and cannot be repaired from
-this repo** — re-send after deploying. **Known gap: phones.** `App.jsx` renders
-`MobileApp` instead of `<Routes>` for `deviceType === 'phone'`, so
-`/my-assignments` is unreachable there and the CTA lands a phone recipient on
-the mobile calendar. **Follow-up options** (both outside this repo): a wildcard
+this repo** — re-send after deploying. **Phones (closed 2026-09-08):** `App.jsx`
+renders `MobileApp` instead of `<Routes>` for `deviceType === 'phone'`, so the
+pathname used to be carried but never read and the CTA landed a phone
+recipient on the mobile calendar. `MobileApp` now DERIVES its active tab from
+`useLocation().pathname` (`TAB_PATHS`: `/` calendar, `/my-reservations`
+requests, `/my-assignments` assignments; unmapped paths fall back to the
+calendar) and a tab tap `navigate()`s with `replace` — it holds no tab state of
+its own. A third, ungated Assignments tab (`id: 'my-assignments'`) renders the
+SAME `MyAssignments` component the desktop route does; its phone adaptations
+live in `MyAssignments.css` scoped under `.mobile-app` (title visually hidden,
+mobile gutters/radius, secondary detail stacked instead of pushed right) —
+scoped on the shell root, not a width query, so a pinned-desktop layout on a
+phone keeps the desktop page. Tests: `MobileApp.tabs.test.jsx` (MAT-1..6),
+MBT-5; `MobileApp.install.test.jsx` now renders inside a `MemoryRouter`.
+**Follow-up options** (both outside this repo): a wildcard
 `/scheduler/*` redirect at the host, or a `scheduler.emanuelnyc.org` custom
 domain — either makes real sub-paths work and retires the `?view=` workaround.
 
