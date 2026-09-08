@@ -105,6 +105,9 @@ export const keys = {
   },
   myAssignments: {
     all: () => ['myAssignments'],
+    // Keyed by the window so a different pastDays is a different cache entry;
+    // still under all(), so sheet mutations invalidate every window at once.
+    list: (params) => params === undefined ? ['myAssignments', 'list'] : ['myAssignments', 'list', params],
   },
 
   // ─── Users ─────────────────────────────────────────────────────────────

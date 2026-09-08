@@ -11,6 +11,20 @@
 // width went unused — a seven-post High Holy Days ran ~800px down the page.
 // Making the DAY the panel converts that growth from vertical to horizontal.
 //
+// PAST: the server is asked for the last PAST_WINDOW_DAYS as well, and days
+// before the device's local today are folded away under one toggle, newest
+// first when opened. The featured card is always the soonest UPCOMING day. A
+// day dated today is upcoming until midnight — the evening-service usher must
+// still see it at 8 PM.
+//
+// TAP TO HIGHLIGHT: a DAY card is a toggle button that does nothing but draw
+// a border around itself. It lets a reader mark their place without the page
+// pretending it can open or change anything. Single selection; tap again to
+// clear. The unit is the day, not the row — per-row highlights carved a card
+// into competing boxes and read as a list of buttons. Deliberately not a link
+// to the event: most posts are not event-linked, and the endpoint carries no
+// event id (SE-25).
+//
 // Call time leads every card because it is the only value on this page anyone
 // acts on. It is rendered verbatim, never parsed: sheet call times are free
 // text and read things like 'HD 4:30pm / Reg 4:45pm'.
@@ -27,6 +41,15 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import EmptyStateRefreshButton from './shared/EmptyStateRefreshButton';
 import './MyAssignments.css';
 
+/** How far back the Past section reaches. A season, not a history dump. */
+export const PAST_WINDOW_DAYS = 90;
+
+/** The device's local date as YYYY-MM-DD — the same calendar sheet days use. */
+function localDateKey(d = new Date()) {
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
 function formatDayHeading(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(d.getTime())) return dateStr;
@@ -40,6 +63,28 @@ function daySubtitle(group) {
 /** The window an assignment runs for, when the sheet recorded one. */
 function timeRange(a) {
   return [a.begins, a.ends].filter(Boolean).join(' – ');
+}
+
+/**
+ * The props that make a day card a highlight toggle. A real <button> would
+ * swallow the block layout the card depends on, so this is the ARIA toggle
+ * pattern on the section: role, tabindex, aria-pressed, and Enter/Space.
+ */
+function toggleProps(dayKey, selectedKey, onToggle) {
+  const selected = selectedKey === dayKey;
+  return {
+    role: 'button',
+    tabIndex: 0,
+    'aria-pressed': selected,
+    onClick: () => onToggle(dayKey),
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onToggle(dayKey);
+      }
+    },
+    className: selected ? ' ma-selected' : '',
+  };
 }
 
 /** One assignment inside a normal (non-featured) day card. */
@@ -75,13 +120,14 @@ function AssignmentRow({ assignment: a }) {
  * normal card would split one morning across two visual weights. Extra posts
  * on the featured day list compactly beneath a divider in the same card.
  */
-function FeaturedDay({ group }) {
+function FeaturedDay({ group, selectedKey, onToggle }) {
   const [first, ...rest] = group.items;
   const range = timeRange(first);
   const subtitle = daySubtitle(group);
+  const { className, ...toggle } = toggleProps(group.key, selectedKey, onToggle);
 
   return (
-    <section className="ma-card ma-card-feature" data-testid={`assignment-day-${group.date}`}>
+    <section className={`ma-card ma-card-feature${className}`} data-testid={`assignment-day-${group.date}`} {...toggle}>
       <header className="ma-card-head">
         <h2>{formatDayHeading(group.date)}</h2>
         <span className="ma-next-tag">Next</span>
@@ -133,11 +179,16 @@ function FeaturedDay({ group }) {
   );
 }
 
-/** A later day. */
-function DayCard({ group }) {
+/** A later day — or, with `past`, one that has gone by. */
+function DayCard({ group, past = false, selectedKey, onToggle }) {
   const subtitle = daySubtitle(group);
+  const { className, ...toggle } = toggleProps(group.key, selectedKey, onToggle);
   return (
-    <section className="ma-card" data-testid={`assignment-day-${group.date}`}>
+    <section
+      className={`ma-card${past ? ' ma-card-past' : ''}${className}`}
+      data-testid={`assignment-day-${group.date}`}
+      {...toggle}
+    >
       <header className="ma-card-head">
         <h2>{formatDayHeading(group.date)}</h2>
         {subtitle && <span className="ma-card-sub">{subtitle}</span>}
@@ -151,26 +202,36 @@ function DayCard({ group }) {
 }
 
 export default function MyAssignments() {
-  const query = useMyAssignments();
+  const query = useMyAssignments({ pastDays: PAST_WINDOW_DAYS });
   const { isFirstLoad, isSilentRefreshing } = deriveListLoadingState(query);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
+  const [selectedKey, setSelectedKey] = useState(null);
 
   const assignments = useMemo(() => query.data || [], [query.data]);
 
-  const groups = useMemo(() => {
+  const { upcoming, past } = useMemo(() => {
     const byDay = new Map();
     for (const a of assignments) {
       const key = `${a.date}|${String(a.sheetId)}`;
-      if (!byDay.has(key)) byDay.set(key, { date: a.date, dayTitle: a.dayTitle, sheetName: a.sheetName, items: [] });
+      if (!byDay.has(key)) byDay.set(key, { key, date: a.date, dayTitle: a.dayTitle, sheetName: a.sheetName, items: [] });
       byDay.get(key).items.push(a);
     }
-    return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const today = localDateKey();
+    const groups = [...byDay.values()];
+    return {
+      upcoming: groups.filter((g) => g.date >= today).sort((a, b) => a.date.localeCompare(b.date)),
+      // Newest first: a past list is read backwards from today.
+      past: groups.filter((g) => g.date < today).sort((a, b) => b.date.localeCompare(a.date)),
+    };
   }, [assignments]);
 
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
     try { await query.refetch(); } finally { setIsManualRefreshing(false); }
   };
+
+  const toggleSelected = (dayKey) => setSelectedKey((cur) => (cur === dayKey ? null : dayKey));
 
   if (isFirstLoad) {
     return (
@@ -180,8 +241,9 @@ export default function MyAssignments() {
     );
   }
 
-  const showEmpty = !isFirstLoad && assignments.length === 0 && !isSilentRefreshing;
-  const [featured, ...later] = groups;
+  // Empty means no UPCOMING assignments; past ones may still sit below.
+  const showEmpty = !isFirstLoad && upcoming.length === 0 && !isSilentRefreshing;
+  const [featured, ...later] = upcoming;
 
   return (
     <div className="ma-page" data-testid="my-assignments-page">
@@ -201,12 +263,38 @@ export default function MyAssignments() {
         </div>
       )}
 
-      {featured && <FeaturedDay group={featured} />}
+      {featured && <FeaturedDay group={featured} selectedKey={selectedKey} onToggle={toggleSelected} />}
 
       {later.length > 0 && (
         <div className="ma-grid">
-          {later.map((group) => <DayCard key={`${group.date}-${group.sheetName}`} group={group} />)}
+          {later.map((group) => (
+            <DayCard key={group.key} group={group} selectedKey={selectedKey} onToggle={toggleSelected} />
+          ))}
         </div>
+      )}
+
+      {past.length > 0 && (
+        <section className="ma-past" data-testid="my-assignments-past">
+          <button
+            type="button"
+            className="ma-past-toggle"
+            aria-expanded={pastOpen}
+            onClick={() => setPastOpen((open) => !open)}
+          >
+            <span className={`ma-past-chevron${pastOpen ? ' open' : ''}`} aria-hidden="true">▸</span>
+            Past assignments
+            <span className="ma-past-count">
+              {past.length} day{past.length === 1 ? '' : 's'} · last {PAST_WINDOW_DAYS} days
+            </span>
+          </button>
+          {pastOpen && (
+            <div className="ma-grid">
+              {past.map((group) => (
+                <DayCard key={group.key} group={group} past selectedKey={selectedKey} onToggle={toggleSelected} />
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

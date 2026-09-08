@@ -29,11 +29,12 @@ const {
 } = require('../__helpers__/userFactory');
 const { createMockToken, initTestKeys } = require('../__helpers__/authHelpers');
 const { COLLECTIONS } = require('../__helpers__/testConstants');
+const { todayInZone, shiftDateString } = require('../../utils/localDate');
 
 const SHEETS = 'templeEvents__SchedulingSheets';
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheets (SS-1 to SS-27)', () => {
+describe('Scheduling Sheets (SS-1 to SS-30)', () => {
   let mongoClient, db, app;
   let adminUser, approverUser, eventsRequesterUser, viewerUser;
   let adminToken, approverToken, eventsRequesterToken, viewerToken;
@@ -486,6 +487,62 @@ describe('Scheduling Sheets (SS-1 to SS-27)', () => {
     const res = await request(app).get('/api/my-assignments').set(auth(viewerToken));
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+
+  // The window is bounded by the TEMPLE-LOCAL date, not the UTC date (see
+  // localDate.test.js LD-1 for the evening-shift bug that motivates this).
+  // A day dated today stays in the list until midnight in New York.
+  test('SS-28 a day dated the local today is upcoming; yesterday is not, by default', async () => {
+    const today = todayInZone();
+    const yesterday = shiftDateString(today, -1);
+    const sheet = await createSheet(adminToken);
+    const dToday = await createDay(adminToken, sheet._id, { date: today, title: 'Today' });
+    const dPast = await createDay(adminToken, sheet._id, { date: yesterday, title: 'Yesterday' });
+    for (const d of [dToday, dPast]) {
+      await putCell(adminToken, sheet._id, d._id, d.rows[0].id, 'c1', {
+        segments: [{ type: 'person', name: 'EC', email: 'eventscoord@emanuelnyc.org' }],
+      });
+    }
+
+    const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
+    expect(res.status).toBe(200);
+    expect(res.body.map((a) => a.dayTitle)).toEqual(['Today']);
+  });
+
+  // pastDays widens the window backwards. The entry shape is untouched (SE-25
+  // locks it), the order stays ascending, and 0 means exactly the default.
+  test('SS-29 pastDays=N includes the last N days, ascending, same entry shape', async () => {
+    const today = todayInZone();
+    const sheet = await createSheet(adminToken, { name: '2026 High Holy Days' });
+    const dates = [shiftDateString(today, -10), shiftDateString(today, -3), today, shiftDateString(today, 5)];
+    for (const date of dates) {
+      const d = await createDay(adminToken, sheet._id, { date, title: date });
+      await putCell(adminToken, sheet._id, d._id, d.rows[0].id, 'c1', {
+        segments: [{ type: 'person', name: 'EC', email: 'eventscoord@emanuelnyc.org' }],
+      });
+    }
+
+    const seven = await request(app).get('/api/my-assignments?pastDays=7').set(auth(eventsRequesterToken));
+    expect(seven.status).toBe(200);
+    expect(seven.body.map((a) => a.date)).toEqual([dates[1], dates[2], dates[3]]);
+    expect(seven.body[0].sheetName).toBe('2026 High Holy Days');
+    expect(Object.keys(seven.body[0])).not.toEqual(expect.arrayContaining(['rowId', 'linkedSnapshot']));
+
+    const ninety = await request(app).get('/api/my-assignments?pastDays=90').set(auth(eventsRequesterToken));
+    expect(ninety.body.map((a) => a.date)).toEqual(dates);
+
+    const zero = await request(app).get('/api/my-assignments?pastDays=0').set(auth(eventsRequesterToken));
+    expect(zero.body.map((a) => a.date)).toEqual([dates[2], dates[3]]);
+  });
+
+  // 400, not clamped: a silently narrowed window would misstate its own
+  // coverage (same stance as the conflict report's `days`).
+  test('SS-30 a non-integer, negative, or oversized pastDays is a 400', async () => {
+    for (const bad of ['abc', '-1', '1.5', '366']) {
+      const res = await request(app).get(`/api/my-assignments?pastDays=${bad}`).set(auth(eventsRequesterToken));
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_PAST_DAYS');
+    }
   });
 
   // -------------------------------------------------------------------------

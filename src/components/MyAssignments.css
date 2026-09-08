@@ -145,6 +145,81 @@
 }
 .ma-feature-rest { margin-top: 10px; border-top: 1px solid var(--border-default); }
 
+/* ── Tap to highlight ───────────────────────────────────────────────────── */
+/* A day card is a toggle button that only draws a border around itself. The
+   ring is a 2px box-shadow, not a wider border, so selecting a card does not
+   shift its neighbours in the grid. */
+
+.ma-card {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ma-card:focus-visible {
+  outline: 2px solid var(--border-focus, var(--color-primary-500));
+  outline-offset: 2px;
+}
+.ma-card.ma-selected {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-500);
+  background: var(--color-primary-50, #eef4ff);
+}
+/* The featured card already wears a soft 3px halo; when selected the solid
+   ring replaces it rather than stacking on top. */
+.ma-card-feature.ma-selected { box-shadow: 0 0 0 2px var(--color-primary-500); }
+
+/* ── Past ───────────────────────────────────────────────────────────────── */
+/* Folded away by default. The toggle is a full-width row rather than a link:
+   a thumb target on a phone, and a visible seam between what is coming and
+   what has gone. */
+
+.ma-past { margin-top: 20px; }
+
+.ma-past-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: none;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg, 10px);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.ma-past-toggle:hover { background: var(--bg-secondary); }
+.ma-past-toggle:focus-visible {
+  outline: 2px solid var(--border-focus, var(--color-primary-500));
+  outline-offset: 1px;
+}
+.ma-past-chevron {
+  display: inline-block;
+  color: var(--text-tertiary, #8a8580);
+  transition: transform 0.15s ease;
+}
+.ma-past-chevron.open { transform: rotate(90deg); }
+.ma-past-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary, #8a8580);
+  white-space: nowrap;
+}
+
+/* A day that has gone by recedes: flat tint, quieter type, no blue call time
+   — nothing on it is still something to act on. */
+.ma-card-past { background: var(--bg-secondary); }
+.ma-card-past .ma-card-head h2 { color: var(--text-secondary); }
+.ma-card-past .ma-slot-call { color: var(--text-tertiary, #8a8580); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ma-past-chevron { transition: none; }
+}
+
 /* ── States ─────────────────────────────────────────────────────────────── */
 
 .ma-empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); }

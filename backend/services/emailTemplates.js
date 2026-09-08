@@ -7,6 +7,7 @@
 const escapeHtml = require('escape-html');
 const logger = require('../utils/logger');
 const { buildEventDeepLinkUrl } = require('../utils/eventDeepLink');
+const { sortAssignments, buildAssignmentSummary, buildAssignmentsHtml } = require('../utils/assignmentSchedule');
 
 // Database connection for fetching template overrides
 let dbConnection = null;
@@ -385,12 +386,12 @@ const DEFAULT_TEMPLATES = {
 
   [TEMPLATE_IDS.ASSIGNMENT_SCHEDULE]: {
     id: TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
-    name: 'Assignment Schedule',
-    description: 'Sent to each person tagged on a scheduling sheet with their personal schedule',
+    name: 'Scheduling Sheet Assignments',
+    description: 'Sent from Scheduling Sheets to each person tagged on a sheet, with their personal schedule. The itinerary itself is generated from the sheet and inserted at {{assignmentsTable}}; the text around it is editable here.',
     // Back to the standard width. This was the one wide template in the set,
     // at 880px, to hold a 6-column schedule table. That table is gone: its
     // body is now a single-column itinerary (buildAssignmentsHtml in
-    // api-server.js), which reads correctly at 600px and, more to the point,
+    // utils/assignmentSchedule.js), which reads correctly at 600px and, more to the point,
     // on the phone the recipient is actually holding when they check where
     // they are due. Do not widen this again without replacing the layout.
     subject: 'Your assignments for {{scopeLabel}}',
@@ -1839,7 +1840,33 @@ async function generateUserReportAcknowledgment(reportData, userContext = {}) {
  * the recipient actually receives. Without this, admins editing an override
  * see no CTA button in the preview even though the send path now appends one.
  */
+/**
+ * Sample posts for the Scheduling Sheet Assignments preview. Deliberately
+ * given OUT of chronological order: the preview sorts them exactly as the
+ * send path does, so an admin sees the real ordering rule, not a hand-typed
+ * approximation of it.
+ */
+const SAMPLE_ASSIGNMENTS = [
+  {
+    date: '2026-09-11', dayTitle: 'Erev Rosh Hashanah', columnName: 'Erev Service', rowLabel: 'Greeter',
+    callTime: '7:30 PM', begins: '8:00 PM', ends: '9:30 PM',
+    location: '5th Avenue Sanctuary', locationLines: ['5th Avenue Sanctuary'], note: null, linkedSnapshot: null
+  },
+  {
+    date: '2026-09-11', dayTitle: 'Erev Rosh Hashanah', columnName: 'YP Dinner', rowLabel: 'Host',
+    callTime: '5:00 PM', begins: '5:30 PM', ends: '7:00 PM',
+    location: 'Lowenstein Sanctuary', locationLines: ['Lowenstein Sanctuary'],
+    note: 'Nametags are at the front desk.', linkedSnapshot: null
+  },
+  {
+    date: '2026-09-12', dayTitle: 'Rosh Hashanah Day 1', columnName: 'Morning Service', rowLabel: 'Usher',
+    callTime: '8:30 AM', begins: '9:00 AM', ends: '12:30 PM',
+    location: '5th Avenue Sanctuary', locationLines: ['5th Avenue Sanctuary'], note: null, linkedSnapshot: null
+  }
+];
+
 async function previewTemplate(templateId, customSubject = null, customBody = null) {
+  const sampleAssignments = sortAssignments(SAMPLE_ASSIGNMENTS);
   const sampleData = {
     eventTitle: 'Annual Board Meeting',
     requesterName: 'John Smith',
@@ -1852,6 +1879,14 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
     adminNotes: 'Please arrive 15 minutes early for setup.',
     rejectionReason: 'The requested space is not available on this date.',
     cancellationReason: 'The requested space is no longer available.',
+    // Scheduling Sheet Assignments: the body is mostly one generated block, so
+    // without these the preview printed the literal {{assignmentsTable}} and an
+    // admin editing the template was working blind.
+    recipientName: 'Sarah Levine',
+    scopeLabel: '2026 High Holy Days',
+    sheetTitle: 'Erev Rosh Hashanah',
+    assignmentSummary: buildAssignmentSummary(sampleAssignments),
+    assignmentsTable: buildAssignmentsHtml(sampleAssignments),
     // Sample deep-link URL — without this, applyCta would suppress the CTA in
     // previews (eventUrl falsy), diverging from real sent emails.
     eventUrl: buildEventDeepLinkUrl('preview-sample-id')

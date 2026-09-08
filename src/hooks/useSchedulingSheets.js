@@ -79,14 +79,20 @@ export function useSheetUserLookup(enabled) {
   });
 }
 
-export function useMyAssignments() {
+/**
+ * @param {{ pastDays?: number }} [options] `pastDays` widens the server window
+ *   backwards by that many calendar days (the endpoint caps it at 365 and
+ *   400s beyond). Omitted → upcoming only, the original contract.
+ */
+export function useMyAssignments({ pastDays } = {}) {
   const authFetch = useAuthenticatedFetch();
   const { apiToken } = useAuth();
+  const search = pastDays ? `?pastDays=${encodeURIComponent(pastDays)}` : '';
   return useQuery({
-    queryKey: keys.myAssignments.all(),
+    queryKey: keys.myAssignments.list(pastDays ? { pastDays } : undefined),
     enabled: !!apiToken,
     queryFn: async () => {
-      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/my-assignments`, {
+      const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/my-assignments${search}`, {
         headers: { 'Content-Type': 'application/json' },
       });
       return readJsonOrThrow(response, 'Could not load your assignments');

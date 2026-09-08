@@ -586,6 +586,42 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Schedule ordering + Email Management preview (implemented 2026-09-08)
+
+**The bug:** each recipient's schedule (email body, `.ics`, and the
+`GET /api/my-assignments` response) was ordered by date and then COLUMN NAME,
+so a 5:00 PM dinner under 'YP Dinner' printed below a 7:30 PM service under
+'Erev Service'. My Assignments was not ordered within a day at all (cell-key
+iteration order). The PDF is NOT affected: it follows the sheet's own column
+order by design.
+
+**`backend/utils/assignmentSchedule.js`** now owns `compareAssignments` /
+`sortAssignments` AND the itinerary renderer moved verbatim out of
+`api-server.js` (`buildAssignmentsHtml`, `buildAssignmentSummary`,
+`displaySheetClock`, `formatSheetDayHeading`, `sheetDateYear`). Order is date,
+then the moment the person is due as resolved by `icsBuilder.resolveEventWindow`
+(effective call time -> Begins -> linked event start, same bare-time rule as the
+`.ics`), then column name, then row label. Unresolvable times ('TBD') sort
+AFTER every timed post on the day, never dropped. **In the my-assignments
+handler the sort runs BEFORE the projection that strips `linkedSnapshot`**,
+because the comparator's last fallback reads it.
+
+**Email Management:** the template was always listed (as 'Assignment
+Schedule'), but its preview had no sample data, so `{{assignmentsTable}}` and
+friends rendered as literal placeholders and editing was blind. It is renamed
+'Scheduling Sheet Assignments' (id `assignment-schedule` unchanged, so DB
+overrides survive) and `previewTemplate` renders `SAMPLE_ASSIGNMENTS` through
+the SAME renderer and comparator as the send path. Only the text AROUND the
+generated block is editable; the per-post block itself is code.
+
+**Known limitation (pre-existing, all templates):** the editor is ReactQuill
+with a format whitelist, so loading any default body strips its inline styles
+on the first edit. Not changed here.
+
+**Tests:** new `assignmentSchedule.test.js` (9, AO-1..9); `schedulingSheetEmail.test.js`
+27 (+SE-26 email/ics order, +SE-27 my-assignments order — column names chosen so
+alphabetical and chronological order DISAGREE); `emailTemplates.test.js` +EU-15/16.
+
 ### Schedule email .ics attachment (implemented 2026-09-04)
 
 Spec: `openspec/changes/schedule-email-ics-attachment/`. 33/39 tasks; only 7.x
@@ -862,6 +898,31 @@ mobile gutters/radius, secondary detail stacked instead of pushed right) —
 scoped on the shell root, not a width query, so a pinned-desktop layout on a
 phone keeps the desktop page. Tests: `MobileApp.tabs.test.jsx` (MAT-1..6),
 MBT-5; `MobileApp.install.test.jsx` now renders inside a `MemoryRouter`.
+
+**My Assignments past section + tap-to-highlight (2026-09-08).**
+`GET /api/my-assignments?pastDays=N` (integer 0..365, else 400
+`INVALID_PAST_DAYS` — not clamped) widens the window backwards; absent/0 is
+the original upcoming-only contract and the entry shape is unchanged (SE-25
+still locks the 14-key set). **"Today" is now the TEMPLE-LOCAL date** via
+`backend/utils/localDate.js` (`todayInZone`, `shiftDateString`; pure,
+`Intl.DateTimeFormat` with an explicit zone) — the old
+`toISOString().slice(0,10)` was the UTC date, which runs ahead of New York
+every evening, so an Erev service dated the 11th dropped off the list at 8 PM
+on the 11th (LD-1, SS-28). Client: `useMyAssignments({ pastDays })`, key
+`keys.myAssignments.list({ pastDays })` under `all()`; the component asks for
+`PAST_WINDOW_DAYS` (90), splits groups by the DEVICE local date (a day dated
+today is upcoming until midnight), features the soonest UPCOMING day, and
+folds past days under one `aria-expanded` toggle, newest first, styled
+`.ma-card-past`. "No upcoming assignments" and the past toggle can render
+together. DAY CARDS are ARIA toggle buttons (`role=button`, `aria-pressed`,
+Enter/Space) that only draw a ring (`.ma-selected`) — single selection, tap
+again to clear; the rows inside are NOT pressable (a per-row cut was rejected
+as carving each card into competing boxes, MAS-2 locks it); deliberately NOT
+a link to the event (most posts are not event-linked and the response carries
+no event id). Fixture dates in
+`MyAssignments.layout/firstPaint` tests were moved to 2099 because a
+"next week" fixture silently becomes a past day. Tests: LD-1..5, SS-28..30,
+MAP-1..6, MAS-1..5.
 **Follow-up options** (both outside this repo): a wildcard
 `/scheduler/*` redirect at the host, or a `scheduler.emanuelnyc.org` custom
 domain — either makes real sub-paths work and retires the `?view=` workaround.

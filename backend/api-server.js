@@ -20399,7 +20399,12 @@ const {
 // calendar file still lets the schedule email out (design D10).
 const icsBuilder = require('./utils/icsBuilder');
 const { buildMyAssignmentsUrl } = require('./utils/eventDeepLink');
+const { todayInZone, shiftDateString } = require('./utils/localDate');
 const { randomUUID } = require('crypto');
+
+// The furthest back GET /api/my-assignments will look. A season's past
+// assignments are the use case; a year would make the response a history dump.
+const MAX_ASSIGNMENT_PAST_DAYS = 365;
 
 const SHEET_STARTER_ROW_LABELS = ['Location', 'Call Time', 'Doors Open', 'Begins', 'Ends'];
 const SHEET_MAX_ROWS = 200;
@@ -21079,156 +21084,15 @@ function formatSheetDayLabel(dateStr) {
   }
 }
 
-/** 'Saturday, Sep 11' — or with the year, when a schedule spans two of them. */
-function formatSheetDayHeading(dateStr, withYear) {
-  try {
-    return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('en-US', {
-      timeZone: 'UTC',
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric',
-      ...(withYear ? { year: 'numeric' } : {})
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
+// The per-recipient itinerary renderer and its chronological comparator live
+// in utils/assignmentSchedule.js so the Email Management preview can render a
+// real sample schedule through the same code the send path uses.
+const {
+  sortAssignments,
+  buildAssignmentSummary,
+  buildAssignmentsHtml
+} = require('./utils/assignmentSchedule');
 const escapeAssignmentHtml = require('escape-html');
-
-/** The calendar year of a YYYY-MM-DD sheet date. */
-const sheetDateYear = (dateStr) => String(dateStr || '').slice(0, 4);
-
-/**
- * Sheet times are FREE TEXT and are printed verbatim — they legitimately read
- * things like 'HD 4:30pm / Reg 4:45pm', so parsing them would lose content.
- * The one exception is a bare 24-hour HH:MM, which is exactly what a
- * per-person `callTimeOverride` stores (sheetCells.js validates it against
- * HHMM_RE). Left alone, a single email prints '17:30' immediately below
- * '5:00 PM' in the same position — two clocks in one message, for a reader
- * checking when they are due. Only that exact shape is converted; everything
- * else passes through untouched.
- *
- * Display-only, deliberately: `extractDayAssignments` still returns the raw
- * value, because GET /api/my-assignments has always returned the stored string
- * and its contract is not this change's business.
- */
-function displaySheetClock(value) {
-  const raw = String(value == null ? '' : value).trim();
-  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
-  if (!m) return raw;
-  const hour24 = Number(m[1]);
-  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  return `${hour12}:${m[2]} ${hour24 < 12 ? 'AM' : 'PM'}`;
-}
-
-/** 'three posts across two days' — the intro line's factual summary. */
-function buildAssignmentSummary(entries) {
-  const days = new Set(entries.map((e) => e.date)).size;
-  const posts = entries.length;
-  const years = [...new Set(entries.map((e) => sheetDateYear(e.date)))];
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const span = `${plural(posts, 'post')} across ${plural(days, 'day')}`;
-  // The year is stated once here so it can stay off every day heading, which
-  // is what keeps a heading to one unwrapped line. A schedule that straddles
-  // New Year gets the year on each heading instead (see buildAssignmentsHtml).
-  return years.length === 1 ? `${span}, all in ${years[0]}` : span;
-}
-
-/**
- * Render one recipient's assignments (already sorted) as a single-column
- * itinerary: a rule per day, then a block per post led by the call time.
- *
- * It replaced a six-column table that could not survive its own content. The
- * table gave the date a quarter of its width under `white-space: nowrap` for
- * the long 'Friday, September 11, 2026' form, forced Call time and the event
- * window to share one column (so a post with a call time printed no window at
- * all), and at 880px could not be read on a phone at any zoom. Email has no
- * responsive lever that both Outlook's Word engine and the Gmail app honour,
- * so the fix is structural: one column reflows everywhere by construction.
- */
-function buildAssignmentsHtml(entries) {
-  const esc = (v) => escapeAssignmentHtml(String(v));
-  const withYear = new Set(entries.map((e) => sheetDateYear(e.date))).size > 1;
-
-  const byDate = new Map();
-  for (const e of entries) {
-    if (!byDate.has(e.date)) byDate.set(e.date, []);
-    byDate.get(e.date).push(e);
-  }
-
-  const blocks = [...byDate.entries()].map(([date, dayEntries], dayIndex) => {
-    const dayTitle = dayEntries.find((e) => e.dayTitle)?.dayTitle;
-    const rule = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse;${dayIndex ? ' margin-top: 28px;' : ''}">
-  <tr><td style="padding: 0 0 9px; border-bottom: 2px solid #1c2430;">
-    <span style="color: #1c2430; font-size: 15px; font-weight: bold;">${esc(formatSheetDayHeading(date, withYear))}</span>${
-      dayTitle ? `<span style="color: #6b7684; font-size: 13px;">&nbsp;&middot;&nbsp; ${esc(dayTitle)}</span>` : ''
-    }
-  </td></tr>
-</table>`;
-
-    const posts = dayEntries.map((e) => {
-      const callTime = displaySheetClock(e.callTime);
-      const window = [e.begins, e.ends]
-        .filter(Boolean)
-        .map((t) => esc(displaySheetClock(t)))
-        .join(' &ndash; ');
-
-      // Call time leads when there is one, because it is the only value the
-      // recipient acts on; the event window is a caption beside it rather
-      // than a competitor for the same slot. With no call time the window is
-      // promoted to the lead so the block is never headed by nothing. With
-      // neither, the time block is omitted entirely rather than printing an
-      // em-dash that reads like recorded data.
-      let lead = '';
-      if (callTime) {
-        const caption = window ? `call time &nbsp;&middot;&nbsp; event runs ${window}` : 'call time';
-        lead = `<p style="margin: 0 0 3px; color: #3b6eb8; font-size: 19px; font-weight: bold;">${esc(callTime)}</p>
-        <p style="margin: 0 0 7px; color: #6b7684; font-size: 12px;">${caption}</p>`;
-      } else if (window) {
-        lead = `<p style="margin: 0 0 3px; color: #3b6eb8; font-size: 19px; font-weight: bold;">${window}</p>
-        <p style="margin: 0 0 7px; color: #6b7684; font-size: 12px;">event window &nbsp;&middot;&nbsp; no call time recorded</p>`;
-      }
-
-      // rowLabel is the post; columnName is the event it sits under. Either
-      // can be absent on a hand-built sheet, so the title falls through. The
-      // event line is dropped when the day heading already carries that exact
-      // name — a one-event day otherwise prints 'Erev Rosh Hashanah' twice,
-      // four lines apart.
-      const title = e.rowLabel || e.columnName || 'Assignment';
-      const sub = e.rowLabel && e.columnName && e.columnName !== dayTitle
-        ? `<p style="margin: 0 0 8px; color: #4a5568; font-size: 14px;">${esc(e.columnName)}</p>`
-        : '';
-
-      const lines = (e.locationLines && e.locationLines.length
-        ? e.locationLines
-        : (e.location ? [e.location] : [])
-      ).map(esc);
-      const where = lines.length
-        ? `<p style="margin: 0 0 ${e.note ? '8' : '0'}px; color: #4a5568; font-size: 14px; line-height: 1.5;">${lines.join('<br>')}</p>`
-        : '';
-
-      const note = e.note
-        ? `<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse: collapse;"><tr>
-          <td style="background: #fdf8ec; border: 1px solid #e8d9b8; padding: 8px 12px; color: #6b5426; font-size: 13px; line-height: 1.5;">${esc(e.note)}</td>
-        </tr></table>`
-        : '';
-
-      return `<tr><td style="padding: 16px 0 15px; border-bottom: 1px solid #e6e9ed;">
-        ${lead}
-        <p style="margin: 0 0 3px; color: #1c2430; font-size: 16px; font-weight: bold;">${esc(title)}</p>
-        ${sub}${where}${note}
-      </td></tr>`;
-    });
-
-    return `${rule}
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse;">
-${posts.join('\n')}
-</table>`;
-  });
-
-  return blocks.join('\n');
-}
 
 // Graph caps a plain sendMail message near 4MB including base64 overhead, and
 // the same attachment rides along on every recipient's message. 3MB decoded
@@ -21374,9 +21238,7 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
 
     const settled = await Promise.allSettled(
       targetEmails.map(async (email) => {
-        const entries = [...byEmail.get(email)].sort(
-          (a, b) => a.date.localeCompare(b.date) || (a.columnName || '').localeCompare(b.columnName || '')
-        );
+        const entries = sortAssignments(byEmail.get(email));
         const { subject, html } = await emailTemplates.generateFromTemplate(
           emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
           {
@@ -21461,16 +21323,41 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
  * Derives the caller's assignments from person chips: taggedEmails equality
  * (lowercased token email, never $regex) + upcoming dates, then extracts ONLY
  * the caller's own cells — the raw sheet is never exposed here.
+ *
+ * `?pastDays=N` (integer, 0..MAX_ASSIGNMENT_PAST_DAYS) widens the window
+ * backwards by N calendar days; absent or 0 is upcoming-only, so old clients
+ * see exactly what they always did. Invalid values are a 400, not clamped —
+ * a silently narrowed window misstates its own coverage. The response stays a
+ * flat array of the same entries (SE-25 locks the key set); the client splits
+ * past from upcoming by date.
+ *
+ * "Today" is the TEMPLE-LOCAL date. Sheet days are YYYY-MM-DD wall-clock
+ * strings, and the UTC date runs ahead of New York every evening — the old
+ * toISOString() bound dropped an Erev service off the list at 8 PM on the day
+ * of the service (localDate.test.js LD-1, SS-28).
  */
 app.get('/api/my-assignments', verifyToken, async (req, res) => {
   try {
     const email = (req.user.email || '').toLowerCase();
     if (!email) return res.json([]);
 
-    const today = new Date().toISOString().slice(0, 10);
+    let pastDays = 0;
+    const rawPastDays = req.query.pastDays;
+    if (rawPastDays !== undefined && rawPastDays !== '') {
+      pastDays = Number(rawPastDays);
+      if (!Number.isInteger(pastDays) || pastDays < 0 || pastDays > MAX_ASSIGNMENT_PAST_DAYS) {
+        return res.status(400).json({
+          error: `pastDays must be an integer from 0 to ${MAX_ASSIGNMENT_PAST_DAYS}`,
+          code: 'INVALID_PAST_DAYS',
+        });
+      }
+    }
+
+    const today = todayInZone();
+    const since = pastDays > 0 ? shiftDateString(today, -pastDays) : today;
     const days = await withCosmosRetry(() =>
       schedulingSheetDaysCollection
-        .find({ taggedEmails: email, date: { $gte: today } })
+        .find({ taggedEmails: email, date: { $gte: since } })
         .sort({ date: 1 })
         .toArray()
     );
@@ -21482,20 +21369,23 @@ app.get('/api/my-assignments', verifyToken, async (req, res) => {
     );
     const sheetNameById = Object.fromEntries(sheets.map((s) => [String(s._id), s.name]));
 
-    const assignments = days.flatMap((day) =>
-      extractDayAssignments(day)
-        .filter((e) => e.email === email && !e.placeholder)
-        // This SPREADS the extractor's entry, so every field it gains would
-        // otherwise land in this response. The calendar-attachment additions
-        // (rowId/colId/sequence/linkedSnapshot) exist for icsBuilder identity
-        // and time fallback only; they are destructured out here so the
-        // my-assignments contract stays exactly what it has always been.
-        // eslint-disable-next-line no-unused-vars
-        .map(({ placeholder, name, rowId, colId, sequence, linkedSnapshot, ...entry }) => ({
-          ...entry,
-          sheetName: sheetNameById[String(day.sheetId)] || null
-        }))
-    );
+    // Sorted chronologically (date, then the effective call time) BEFORE the
+    // projection below, because the comparator's last fallback reads
+    // linkedSnapshot and the projection removes it.
+    const assignments = sortAssignments(
+      days.flatMap((day) =>
+        extractDayAssignments(day)
+          .filter((e) => e.email === email && !e.placeholder)
+          .map((e) => ({ ...e, sheetName: sheetNameById[String(day.sheetId)] || null }))
+      )
+    )
+      // This SPREADS the extractor's entry, so every field it gains would
+      // otherwise land in this response. The calendar-attachment additions
+      // (rowId/colId/sequence/linkedSnapshot) exist for icsBuilder identity
+      // and time fallback only; they are destructured out here so the
+      // my-assignments contract stays exactly what it has always been.
+      // eslint-disable-next-line no-unused-vars
+      .map(({ placeholder, name, rowId, colId, sequence, linkedSnapshot, ...entry }) => entry);
 
     res.json(assignments);
   } catch (error) {

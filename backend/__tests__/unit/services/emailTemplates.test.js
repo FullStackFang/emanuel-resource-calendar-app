@@ -11,6 +11,7 @@
  * EU-12: ERROR_NOTIFICATION renders no CTA button.
  * EU-13: previewTemplate path renders CTA for an overridden body (parity with send path).
  * EU-14: Every TEMPLATE_ID is classified (has CTA config OR is in NO_CTA set).
+ * EU-15/16: The scheduling-sheet template previews with a real sample itinerary and is findable by name.
  * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
@@ -416,5 +417,38 @@ describe('Recurrence Summary Formatting Tests', () => {
     expect(html).toContain('weekly every 1 on tuesday from 2026-03-01');
     expect(html).not.toContain('"pattern"');
     expect(html).not.toContain('"daysOfWeek"');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Scheduling-sheet schedule template. Its body is mostly one generated block
+// ({{assignmentsTable}}), so a preview with no sample for it rendered the
+// literal placeholder and an admin editing the template was working blind.
+// -----------------------------------------------------------------------------
+describe('Assignment schedule template preview (EU-15, EU-16)', () => {
+  afterEach(() => setDbConnection(null));
+
+  it('EU-15: previewTemplate renders a real, chronologically ordered sample itinerary', async () => {
+    setDbConnection(null);
+    const { subject, html } = await previewTemplate(TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);
+
+    // Every variable has a sample; nothing is left as a raw placeholder.
+    expect(subject).not.toMatch(/\{\{[^}]+\}\}/);
+    expect(html).not.toMatch(/\{\{[^}]+\}\}/);
+
+    // The itinerary is produced by the same renderer the send path uses.
+    expect(html).toContain('call time');
+    expect(html).toContain('View My Assignments');
+
+    // The sample posts are given out of order and come back by call time.
+    expect(html.indexOf('5:00 PM')).toBeLessThan(html.indexOf('7:30 PM'));
+  });
+
+  it('EU-16: the template is named so an admin can find it under Scheduling Sheets', async () => {
+    setDbConnection(null);
+    const { getTemplate } = require('../../../services/emailTemplates');
+    const template = await getTemplate(TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);
+    expect(template.name).toMatch(/Scheduling Sheet/);
+    expect(template.description).toMatch(/assignmentsTable/);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-24)
+ * Scheduling Sheet email tests (SE-1 to SE-27)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -25,7 +25,7 @@ const icsBuilder = require('../../utils/icsBuilder');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-24)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-27)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -752,4 +752,65 @@ describe('Scheduling Sheet emails (SE-1 to SE-24)', () => {
       ].sort()
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Chronological order. The fan-out used to sort each recipient's entries by
+  // date and then COLUMN NAME, so a 5:00 PM dinner under 'YP Dinner' printed
+  // below a 7:30 PM service under 'Erev Service'. Column names are chosen so
+  // that alphabetical and chronological order DISAGREE, otherwise a regression
+  // to the old sort would still pass.
+  // ---------------------------------------------------------------------------
+  test('SE-26 posts are listed by call time, not by column name', async () => {
+    const sheet = await createSheet();
+    let { day, rowId } = await dayWithMetadata(sheet);
+    day = await addColumns(sheet._id, day, [
+      { id: 'c1', name: 'Erev Service' },
+      { id: 'c2', name: 'YP Dinner' },
+    ]);
+
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c1', { segments: [text('7:30 PM')] });
+    await putCell(sheet._id, day._id, rowId('Call Time'), 'c2', { segments: [text('5:00 PM')] });
+    for (const col of ['c1', 'c2']) {
+      await putCell(sheet._id, day._id, rowId('Greeter'), col, { segments: [person('Sarah', 'sarah@x.org')] });
+    }
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html.indexOf('YP Dinner')).toBeLessThan(html.indexOf('Erev Service'));
+    expect(html.indexOf('5:00 PM')).toBeLessThan(html.indexOf('7:30 PM'));
+
+    // The calendar file is emitted in the same order (5:00 PM EDT = 21:00Z).
+    const ics = calendarFrom(sendSpy.mock.calls[0]);
+    expect(propsOf(ics, 'DTSTART')).toEqual(['20270911T210000Z', '20270911T233000Z']);
+  });
+
+  test('SE-27 my-assignments comes back in chronological order across days and within a day', async () => {
+    const sheet = await createSheet();
+    // The LATER day is created first so that insertion order disagrees with date order.
+    let later = await dayWithMetadata(sheet, { date: '2099-09-20', title: 'Kol Nidre' });
+    const earlier = await dayWithMetadata(sheet, { date: '2099-09-11', title: 'Erev RH' });
+    const laterDay = await addColumns(sheet._id, later.day, [
+      { id: 'c1', name: 'Erev Service' },
+      { id: 'c2', name: 'YP Dinner' },
+    ]);
+
+    const me = person('Events Coordinator', eventsRequesterUser.email);
+    await putCell(sheet._id, laterDay._id, later.rowId('Call Time'), 'c1', { segments: [text('7:30 PM')] });
+    await putCell(sheet._id, laterDay._id, later.rowId('Call Time'), 'c2', { segments: [text('5:00 PM')] });
+    await putCell(sheet._id, laterDay._id, later.rowId('Greeter'), 'c1', { segments: [me] });
+    await putCell(sheet._id, laterDay._id, later.rowId('Greeter'), 'c2', { segments: [me] });
+    await putCell(sheet._id, earlier.day._id, earlier.rowId('Greeter'), 'c1', { segments: [me] });
+
+    const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
+    expect(res.status).toBe(200);
+    expect(res.body.map((e) => [e.date, e.columnName])).toEqual([
+      ['2099-09-11', 'Erev Service'],
+      ['2099-09-20', 'YP Dinner'],
+      ['2099-09-20', 'Erev Service'],
+    ]);
+  });
+
 });

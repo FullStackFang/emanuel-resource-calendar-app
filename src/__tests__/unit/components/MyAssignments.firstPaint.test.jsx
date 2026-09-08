@@ -33,17 +33,20 @@ vi.mock('../../../hooks/useAuthenticatedFetch', () => ({
 
 import MyAssignments from '../../../components/MyAssignments';
 
+// Dates sit in 2099 on purpose: the component splits upcoming from past by
+// the real local date, and a fixture dated "next week" would silently become
+// a past day (folded away, never featured) once the calendar caught up.
 const ASSIGNMENTS = [
   {
     dayId: 'd1', sheetId: 's1', sheetName: '2026 High Holy Days',
-    date: '2026-09-11', dayTitle: 'Erev Rosh Hashanah',
+    date: '2099-09-11', dayTitle: 'Erev Rosh Hashanah',
     rowLabel: 'Ushers', columnName: 'Erev Service',
     callTime: '16:00', begins: '16:30', ends: '19:00',
     location: '5th Ave Sanctuary', note: 'North door',
   },
   {
     dayId: 'd2', sheetId: 's1', sheetName: '2026 High Holy Days',
-    date: '2026-09-20', dayTitle: 'Kol Nidre',
+    date: '2099-09-20', dayTitle: 'Kol Nidre',
     rowLabel: 'Corner Greeters', columnName: 'Evening Service',
     callTime: null, begins: '18:00', ends: '21:00',
     location: null, note: null,
@@ -111,13 +114,13 @@ describe('MyAssignments — first paint', () => {
       controllable.resolveCallWith(0, ASSIGNMENTS);
     });
 
-    const day1 = await screen.findByTestId('assignment-day-2026-09-11');
+    const day1 = await screen.findByTestId('assignment-day-2099-09-11');
     expect(day1).toHaveTextContent('Erev Rosh Hashanah');
     expect(day1).toHaveTextContent('2026 High Holy Days');
     expect(within(day1).getByTestId('assignment-calltime')).toHaveTextContent('Call 16:00');
     expect(day1).toHaveTextContent('North door');
 
-    expect(screen.getByTestId('assignment-day-2026-09-20')).toHaveTextContent('Corner Greeters');
+    expect(screen.getByTestId('assignment-day-2099-09-20')).toHaveTextContent('Corner Greeters');
     expect(screen.queryByTestId('my-assignments-empty')).not.toBeInTheDocument();
   });
 });

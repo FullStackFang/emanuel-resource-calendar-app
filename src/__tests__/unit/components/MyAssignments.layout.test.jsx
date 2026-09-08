@@ -28,9 +28,12 @@ vi.mock('../../../components/shared/EmptyStateRefreshButton', () => ({
 
 import MyAssignments from '../../../components/MyAssignments';
 
+// Dates sit in 2099 on purpose: the component splits upcoming from past by
+// the real local date, and a fixture dated "next week" would silently become
+// a past day (folded away, never featured) once the calendar caught up.
 const assignment = (over = {}) => ({
   dayId: 'd1', sheetId: 's1', sheetName: '2026 High Holy Days',
-  date: '2026-09-11', dayTitle: 'Erev Rosh Hashanah',
+  date: '2099-09-11', dayTitle: 'Erev Rosh Hashanah',
   rowLabel: 'Ushers', columnName: 'Erev Service',
   callTime: '16:00', begins: '16:30', ends: '19:00',
   location: null, note: null,
@@ -46,14 +49,14 @@ beforeEach(() => {
 describe('MyAssignments — day-card layout', () => {
   it('MAL-1: the soonest day is the featured card, later days are not', () => {
     mockQuery = resolved([
-      assignment({ date: '2026-09-20', dayTitle: 'Kol Nidre', columnName: 'Evening' }),
-      assignment({ date: '2026-09-11' }),
+      assignment({ date: '2099-09-20', dayTitle: 'Kol Nidre', columnName: 'Evening' }),
+      assignment({ date: '2099-09-11' }),
     ]);
 
     render(<MyAssignments />);
 
-    const first = screen.getByTestId('assignment-day-2026-09-11');
-    const later = screen.getByTestId('assignment-day-2026-09-20');
+    const first = screen.getByTestId('assignment-day-2099-09-11');
+    const later = screen.getByTestId('assignment-day-2099-09-20');
     expect(first).toHaveClass('ma-card-feature');
     expect(within(first).getByText('Next')).toBeInTheDocument();
     expect(later).not.toHaveClass('ma-card-feature');
@@ -64,14 +67,14 @@ describe('MyAssignments — day-card layout', () => {
   // feature must follow that order rather than array position.
   it('MAL-2: ordering comes from the date, not the response order', () => {
     mockQuery = resolved([
-      assignment({ date: '2026-12-25', dayTitle: 'Later' }),
-      assignment({ date: '2026-09-11', dayTitle: 'Sooner' }),
+      assignment({ date: '2099-12-25', dayTitle: 'Later' }),
+      assignment({ date: '2099-09-11', dayTitle: 'Sooner' }),
     ]);
 
     render(<MyAssignments />);
 
-    expect(screen.getByTestId('assignment-day-2026-09-11')).toHaveClass('ma-card-feature');
-    expect(screen.getByTestId('assignment-day-2026-12-25')).not.toHaveClass('ma-card-feature');
+    expect(screen.getByTestId('assignment-day-2099-09-11')).toHaveClass('ma-card-feature');
+    expect(screen.getByTestId('assignment-day-2099-12-25')).not.toHaveClass('ma-card-feature');
   });
 
   // The failure this guards: a featured day rendering only its first post and
@@ -85,7 +88,7 @@ describe('MyAssignments — day-card layout', () => {
 
     render(<MyAssignments />);
 
-    const featured = screen.getByTestId('assignment-day-2026-09-11');
+    const featured = screen.getByTestId('assignment-day-2099-09-11');
     expect(within(featured).getAllByTestId('assignment-item')).toHaveLength(3);
     expect(featured).toHaveTextContent('RH Morning');
     expect(featured).toHaveTextContent('Family Service');
@@ -106,16 +109,16 @@ describe('MyAssignments — day-card layout', () => {
   it('MAL-5: location and note render only when the sheet recorded them', () => {
     mockQuery = resolved([
       assignment({ location: '5th Ave Sanctuary', note: 'North door' }),
-      assignment({ date: '2026-09-20', location: null, note: null }),
+      assignment({ date: '2099-09-20', location: null, note: null }),
     ]);
 
     render(<MyAssignments />);
 
-    const featured = screen.getByTestId('assignment-day-2026-09-11');
+    const featured = screen.getByTestId('assignment-day-2099-09-11');
     expect(featured).toHaveTextContent('5th Ave Sanctuary');
     expect(featured).toHaveTextContent('North door');
 
-    const later = screen.getByTestId('assignment-day-2026-09-20');
+    const later = screen.getByTestId('assignment-day-2099-09-20');
     expect(later.querySelector('.ma-slot-note')).toBeNull();
   });
 
@@ -129,7 +132,7 @@ describe('MyAssignments — day-card layout', () => {
 
     render(<MyAssignments />);
 
-    expect(screen.getAllByTestId('assignment-day-2026-09-11')).toHaveLength(2);
+    expect(screen.getAllByTestId('assignment-day-2099-09-11')).toHaveLength(2);
   });
 
   // A day with no call time must not render an empty emphasis slot.
@@ -138,7 +141,7 @@ describe('MyAssignments — day-card layout', () => {
 
     render(<MyAssignments />);
 
-    const featured = screen.getByTestId('assignment-day-2026-09-11');
+    const featured = screen.getByTestId('assignment-day-2099-09-11');
     expect(within(featured).queryByTestId('assignment-calltime')).not.toBeInTheDocument();
     expect(featured).toHaveTextContent('18:00');
   });
