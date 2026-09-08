@@ -261,9 +261,17 @@ function buildSummary(entry) {
  * The literal cell text, as written on the sheet, plus any note. A time this
  * builder guessed wrong stays visible to the recipient rather than silent —
  * the email body remains authoritative.
+ *
+ * The leading 'Schedule for' line is the ONE attribution that survives
+ * everything: the attachment filename is lost the moment a file is forwarded,
+ * re-saved or imported, and X-WR-CALNAME is ignored by Outlook — but
+ * DESCRIPTION rides inside each VEVENT and is shown by every client. Whose
+ * shifts these are is the one thing a recipient must never have to guess.
  */
-function buildDescription(entry) {
+function buildDescription(entry, recipientName) {
   const lines = [];
+  const forName = String(recipientName == null ? '' : recipientName).trim();
+  if (forName) lines.push(`Schedule for: ${forName}`);
   if (entry.callTime) lines.push(`Call time: ${entry.callTime}`);
   if (entry.begins) lines.push(`Begins: ${entry.begins}`);
   if (entry.ends) lines.push(`Ends: ${entry.ends}`);
@@ -284,7 +292,7 @@ function buildLocation(entry) {
   return entry.location ? String(entry.location) : '';
 }
 
-function buildEventLines(entry, email, { dtstamp, timeZone, uidDomain }) {
+function buildEventLines(entry, email, { dtstamp, timeZone, uidDomain, recipientName }) {
   const lines = ['BEGIN:VEVENT'];
   lines.push(`UID:${buildUid(entry, email, uidDomain)}`);
   lines.push(`DTSTAMP:${formatUtcStamp(dtstamp)}`);

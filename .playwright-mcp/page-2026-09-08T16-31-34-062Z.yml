@@ -1,0 +1,81 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - strong [ref=f1e3]: Emanuel / Resource Calendar
+    - generic [ref=f1e4]: ADMINISTRATION
+  - main [ref=f1e5]:
+    - generic [ref=f1e6]: Communication
+    - heading "Email Management" [level=1] [ref=f1e7]
+    - paragraph [ref=f1e8]: Manage the messages your community receives.
+    - navigation "Section context" [ref=f1e9]:
+      - generic [ref=f1e10]: Settings & Test
+      - generic [ref=f1e11]: Email Templates
+    - paragraph [ref=f1e12]: "A / Compact sidebar: keep the template library beside your work. Only the list scrolls. Prototype with sample data."
+    - generic [ref=f1e13]:
+      - region "Choose an email template" [ref=f1e14]:
+        - generic [ref=f1e15]:
+          - generic [ref=f1e16]:
+            - strong [ref=f1e17]: Templates
+            - generic [ref=f1e18]: "20"
+          - searchbox "Search templates" [ref=f1e19]
+          - combobox "Filter by workflow" [ref=f1e21]:
+            - option "All workflows" [selected]
+            - option "Reservations"
+            - option "Edits"
+            - option "Cancellations"
+            - option "Scheduling"
+            - option "System"
+          - generic [ref=f1e22]:
+            - checkbox "Customized only" [ref=f1e23]
+            - text: Customized only
+        - generic [ref=f1e24]:
+          - button "Submission Confirmation" [ref=f1e25] [cursor=pointer]
+          - button "Admin New Request Alert Customized" [ref=f1e27] [cursor=pointer]:
+            - generic [ref=f1e28]: Admin New Request Alert
+            - generic [ref=f1e29]: Customized
+          - button "Approval Notification" [ref=f1e30] [cursor=pointer]
+          - button "Rejection Notification" [ref=f1e32] [cursor=pointer]
+          - button "Deletion Notification" [ref=f1e34] [cursor=pointer]
+          - button "Ownership Reassignment Notification" [ref=f1e36] [cursor=pointer]
+          - button "Scheduling Sheet Assignments" [pressed] [ref=f1e38] [cursor=pointer]
+          - button "Resubmission Confirmation" [ref=f1e40] [cursor=pointer]
+          - button "Review Started" [ref=f1e42] [cursor=pointer]
+          - button "Edit Request Submitted" [ref=f1e44] [cursor=pointer]
+          - button "Admin Edit Request Alert" [ref=f1e46] [cursor=pointer]
+          - button "Edit Request Approved" [ref=f1e48] [cursor=pointer]
+          - button "Edit Request Rejected" [ref=f1e50] [cursor=pointer]
+          - button "Cancellation Request Submitted" [ref=f1e52] [cursor=pointer]
+          - button "Admin Cancellation Request Alert" [ref=f1e54] [cursor=pointer]
+          - button "Cancellation Request Approved" [ref=f1e56] [cursor=pointer]
+          - button "Cancellation Request Rejected" [ref=f1e58] [cursor=pointer]
+          - button "Event Updated Notification" [ref=f1e60] [cursor=pointer]
+          - button "Error Notification" [ref=f1e62] [cursor=pointer]
+          - button "User Report Acknowledgment" [ref=f1e64] [cursor=pointer]
+        - status [ref=f1e67]: 20 of 20 templates
+      - region "Template editor" [ref=f1e68]:
+        - generic [ref=f1e69]:
+          - generic [ref=f1e70]:
+            - generic [ref=f1e71]: Scheduling / Default template
+            - heading "Scheduling Sheet Assignments" [level=2] [ref=f1e72]
+            - paragraph [ref=f1e73]: Sent to each person tagged on a scheduling sheet with their personal schedule. The itinerary is generated from the sheet; the surrounding message is editable here.
+          - generic [ref=f1e74]:
+            - button "Reset to Default" [disabled] [ref=f1e75]
+            - button "Save Template" [disabled] [ref=f1e76]
+        - generic "Editor view" [ref=f1e77]:
+          - button "Template" [pressed] [ref=f1e78] [cursor=pointer]
+          - button "Preview" [ref=f1e79] [cursor=pointer]
+        - generic [ref=f1e80]:
+          - generic [ref=f1e81]: Subject line
+          - textbox "Subject line" [ref=f1e82]: "Your schedule for {{eventTitle}}"
+          - generic [ref=f1e83]: Email body
+          - generic [ref=f1e84]:
+            - generic [ref=f1e85]: Sample text editor / Editable content for layout review
+            - textbox "Email body" [ref=f1e86]: "Hello {{requesterName}}, Please find your assignments for {{eventTitle}} below. {{assignmentsTable}} If you have any questions about your schedule, please contact the temple office. Thank you, Temple Emanu-El"
+        - generic [ref=f1e87]:
+          - group [ref=f1e88]:
+            - generic "Available variables" [ref=f1e89] [cursor=pointer]
+          - status [ref=f1e90]: Sample content. Changes stay in this page.
+  - generic "Prototype layout switcher" [ref=f1e91]:
+    - generic [ref=f1e92]: LAYOUT STUDY
+    - button "A · Sidebar" [pressed] [ref=f1e93] [cursor=pointer]
+    - button "B · Picker" [ref=f1e94] [cursor=pointer]
+    - button "C · Catalog" [ref=f1e95] [cursor=pointer]

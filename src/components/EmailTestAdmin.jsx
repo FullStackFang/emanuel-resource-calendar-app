@@ -9,6 +9,14 @@ import './Admin.css';
 import { logger } from '../utils/logger';
 import './EmailTestAdmin.css';
 
+const templateWorkflow = (id) => {
+  if (id === 'assignment-schedule') return 'Scheduling';
+  if (id.includes('cancellation')) return 'Cancellations';
+  if (id.includes('edit-request') || id === 'event-updated') return 'Edits';
+  if (id === 'error-notification' || id === 'user-report-acknowledgment') return 'System';
+  return 'Reservations';
+};
+
 export default function EmailTestAdmin({ apiToken }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const { showSuccess, showWarning } = useNotification();
@@ -36,6 +44,10 @@ export default function EmailTestAdmin({ apiToken }) {
 
   // Templates tab state
   const [templates, setTemplates] = useState([]);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [workflow, setWorkflow] = useState('');
+  const [customizedOnly, setCustomizedOnly] = useState(false);
+  const [templateDrafts, setTemplateDrafts] = useState({});
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [editSubject, setEditSubject] = useState('');
@@ -45,6 +57,11 @@ export default function EmailTestAdmin({ apiToken }) {
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [editorView, setEditorView] = useState('template'); // 'template' or 'preview'
+  const filteredTemplates = templates.filter(template =>
+    `${template.name} ${template.description || ''}`.toLowerCase().includes(templateSearch.trim().toLowerCase()) &&
+    (!workflow || templateWorkflow(template.id) === workflow) &&
+    (!customizedOnly || template.isCustomized)
+  );
 
   // Quill editor configuration
   const quillModules = useMemo(() => ({
@@ -213,9 +230,15 @@ export default function EmailTestAdmin({ apiToken }) {
   };
 
   const handleSelectTemplate = (template) => {
+    if (selectedTemplate?.id === template.id) return;
+    if (selectedTemplate) {
+      setTemplateDrafts(drafts => ({ ...drafts, [selectedTemplate.id]: { subject: editSubject, body: editBody } }));
+    }
+    const draft = templateDrafts[template.id];
     setSelectedTemplate(template);
-    setEditSubject(template.subject);
-    setEditBody(template.body);
+    setEditSubject(draft?.subject ?? template.subject);
+    setEditBody(draft?.body ?? template.body);
+    setConfirmResetTemplate(false);
     setPreviewHtml(null);
     setEditorView('template');
     setError(null);
@@ -244,6 +267,11 @@ export default function EmailTestAdmin({ apiToken }) {
 
       if (response.ok) {
         showSuccess('Template saved');
+        setTemplateDrafts(drafts => {
+          const next = { ...drafts };
+          delete next[selectedTemplate.id];
+          return next;
+        });
         await loadTemplates();
         // Update selected template with new data
         if (result.template) {
@@ -285,6 +313,13 @@ export default function EmailTestAdmin({ apiToken }) {
 
       if (response.ok) {
         showSuccess('Template reset to default');
+        setTemplateDrafts(drafts => {
+          const next = { ...drafts };
+          delete next[selectedTemplate.id];
+          return next;
+        });
+        setPreviewHtml(null);
+        setEditorView('template');
         await loadTemplates();
         // Update editor with default values
         if (result.template) {
@@ -579,32 +614,47 @@ export default function EmailTestAdmin({ apiToken }) {
       <div className="templates-grid">
         {/* Template List */}
         <div className="template-list-container">
-          <h3>Email Templates</h3>
-          <p className="settings-description">
-            Click a template to edit its subject and body content.
-          </p>
+          <div className="template-list-controls">
+            <h3>Templates</h3>
+            <input type="search" aria-label="Search templates" placeholder="Search templates..." value={templateSearch} onChange={e => setTemplateSearch(e.target.value)} />
+            <label htmlFor="template-workflow">Workflow</label>
+            <select id="template-workflow" value={workflow} onChange={e => setWorkflow(e.target.value)}>
+              <option value="">All workflows</option>
+              {['Reservations', 'Edits', 'Cancellations', 'Scheduling', 'System'].map(group => <option key={group}>{group}</option>)}
+            </select>
+            <label className="template-customized-filter"><input type="checkbox" checked={customizedOnly} onChange={e => setCustomizedOnly(e.target.checked)} />Customized only</label>
+          </div>
 
           {templatesLoading ? (
             <LoadingSpinner minHeight={150} />
           ) : (
             <div className="template-list">
-              {templates.map((template) => (
-                <div
+              {filteredTemplates.map((template) => (
+                <button
+                  type="button"
                   key={template.id}
+                  aria-pressed={selectedTemplate?.id === template.id}
+                  disabled={savingTemplate || previewLoading}
                   className={`template-item ${selectedTemplate?.id === template.id ? 'selected' : ''} ${template.isCustomized ? 'customized' : ''}`}
                   onClick={() => handleSelectTemplate(template)}
                 >
-                  <div className="template-item-header">
+                  <span className="template-item-header">
                     <span className="template-name">{template.name}</span>
                     {template.isCustomized && (
                       <span className="customized-badge">Customized</span>
                     )}
-                  </div>
-                  <div className="template-description">{template.description}</div>
-                </div>
+                  </span>
+                </button>
               ))}
+              {filteredTemplates.length === 0 && (
+                <div className="template-list-empty">
+                  <p>No matching templates.</p>
+                  <button type="button" className="cancel-button" onClick={() => { setTemplateSearch(''); setWorkflow(''); setCustomizedOnly(false); }}>Clear filters</button>
+                </div>
+              )}
             </div>
           )}
+          {!templatesLoading && <div className="template-list-count" role="status">{filteredTemplates.length} of {templates.length} templates</div>}
         </div>
 
         {/* Template Editor */}
@@ -612,7 +662,10 @@ export default function EmailTestAdmin({ apiToken }) {
           {selectedTemplate ? (
             <>
               <div className="template-editor-header">
-                <h3>Edit: {selectedTemplate.name}</h3>
+                <div className="template-editor-intro">
+                  <h3>{selectedTemplate.name}</h3>
+                  <p className="template-description">{selectedTemplate.description}</p>
+                </div>
                 <div className="template-header-actions">
                   <button
                     className={`reset-button${confirmResetTemplate ? ' confirm' : ''}`}
@@ -676,9 +729,6 @@ export default function EmailTestAdmin({ apiToken }) {
                       }}
                       placeholder="Email subject"
                     />
-                    <small className="form-hint">
-                      Available variables: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
-                    </small>
                   </div>
 
                   <div className="form-group">
@@ -696,10 +746,11 @@ export default function EmailTestAdmin({ apiToken }) {
                         placeholder="Compose your email template..."
                       />
                     </div>
-                    <small className="form-hint template-variables-hint">
+                    <details className="template-variables-hint">
+                      <summary>Available variables</summary>
                       To include dynamic content, type variables like {'{{'}<em>eventTitle</em>{'}}'}.
                       Available: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
-                    </small>
+                    </details>
                   </div>
                 </div>
               )}
@@ -732,7 +783,7 @@ export default function EmailTestAdmin({ apiToken }) {
   );
 
   return (
-    <div className="admin-container email-test-admin">
+    <div className={`admin-container email-test-admin${activeTab === 'templates' ? ' email-templates-active' : ''}`}>
       <h2>Email Management</h2>
       <p className="admin-description">
         Configure email settings, edit templates, and test the notification service.
