@@ -61,6 +61,11 @@ describe('ReviewModal', () => {
     onClose: vi.fn(),
   };
 
+  it('shows History to requesters', () => {
+    render(<ReviewModal {...defaultProps} isRequesterOnly />);
+    expect(screen.getByText('History')).toBeInTheDocument();
+  });
+
   describe('Recurrence tab visibility', () => {
     it('should disable the Recurrence tab for exception documents with no recurrence', () => {
       // canEditRecurrence=true surfaces the tab; exception eventType flags it disabled.

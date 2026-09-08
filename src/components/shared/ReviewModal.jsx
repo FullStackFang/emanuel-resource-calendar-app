@@ -225,7 +225,7 @@ export default function ReviewModal({
   onReturnToOrigin = null
 }) {
   // Get admin status from permissions hook
-  const { isAdmin, canApproveReservations } = usePermissions();
+  const { isAdmin } = usePermissions();
 
   // Determine effective conflict blocking behavior
   // Hard conflicts: block non-admins from Approve/Publish (and requester
@@ -265,7 +265,7 @@ export default function ReviewModal({
   // Auto-detect recurrence from reservation if not explicitly provided
   const hasRecurrenceFromReservation = Boolean(getEventRecurrence(reservation) || reservation?.eventType === 'seriesMaster');
   const [liveHasRecurrence, setLiveHasRecurrence] = useState(false);
-  const [hasServices, setHasServices] = useState(false);
+  const [, setHasServices] = useState(false);
 
   // Re-initialize from reservation when it changes
   useEffect(() => {
@@ -1084,14 +1084,12 @@ export default function ReviewModal({
             >
               {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
             </div>
-            {!isRequesterOnly && (
-              <div
-                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
-                onClick={() => setActiveTab('history')}
-              >
-                {historyCount > 0 ? `History (${historyCount})` : 'History'}
-              </div>
-            )}
+            <div
+              className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => setActiveTab('history')}
+            >
+              {historyCount > 0 ? `History (${historyCount})` : 'History'}
+            </div>
             {isAdmin && (
               <div
                 className={`event-type-tab ${activeTab === 'admin' ? 'active' : ''}`}

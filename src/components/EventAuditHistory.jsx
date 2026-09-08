@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
-import { logger } from '../utils/logger';
+import { keys } from '../queries/keys';
+import { deriveListLoadingState } from '../utils/listLoadingState';
 import './EventAuditHistory.css';
 
 /* =========================================================================
@@ -114,43 +116,42 @@ const IconArrowRight = (props) => (
   </Icon>
 );
 
-const EventAuditHistory = ({ eventId, apiToken }) => {
-  const [auditHistory, setAuditHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+const EventAuditHistory = ({ eventId, apiToken, refreshTrigger }) => {
   const [expandedEntries, setExpandedEntries] = useState(new Set());
-
-  useEffect(() => {
-    if (eventId && apiToken) {
-      fetchAuditHistory();
-    }
-  }, [eventId, apiToken]);
-
-  const fetchAuditHistory = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}/audit-history`, {
+  const historyQuery = useInfiniteQuery({
+    // The SSE bridge invalidates keys.events.all(), including open histories.
+    queryKey: keys.events.auditHistory(eventId),
+    enabled: !!eventId && !!apiToken,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${encodeURIComponent(eventId)}/audit-history?offset=${pageParam}&limit=50`, {
+        signal,
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         }
       });
-
       if (!response.ok) {
         throw new Error(`Failed to fetch audit history: ${response.status}`);
       }
-
-      const data = await response.json();
-      setAuditHistory(data.auditHistory || []);
-    } catch (err) {
-      logger.error('Error fetching audit history:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return response.json();
+    },
+    getNextPageParam: (lastPage) => lastPage.pagination?.hasMore
+      ? lastPage.pagination.offset + lastPage.pagination.limit
+      : undefined,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const { refetch } = historyQuery;
+  useEffect(() => {
+    if (refreshTrigger && eventId && apiToken) refetch();
+  }, [refreshTrigger, eventId, apiToken, refetch]);
+  const auditHistory = historyQuery.data?.pages.flatMap(page => page.auditHistory || []) || [];
+  const { isFirstLoad: loading } = deriveListLoadingState(historyQuery, { enabled: !!eventId && !!apiToken });
+  const error = historyQuery.error?.message;
+  const fetchAuditHistory = () => refetch();
 
   const toggleExpanded = (entryIndex) => {
     const newExpanded = new Set(expandedEntries);
@@ -198,6 +199,11 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
 
   const formatFieldName = (fieldName) => {
     const fieldMap = {
+      'eventTitle': 'Event Title',
+      'startDate': 'Start Date',
+      'endDate': 'End Date',
+      'startDateTime': 'Start Date/Time',
+      'endDateTime': 'End Date/Time',
       'subject': 'Event Title',
       'startTime': 'Start Time',
       'endTime': 'End Time',
@@ -249,14 +255,14 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
             <div className="ah-change-values">
               <div className="ah-old-value">
                 <span className="ah-value-label">From</span>
-                <span className="ah-value">{formatValue(change.oldValue)}</span>
+                <span className="ah-value">{formatValue(change.oldValue !== undefined ? change.oldValue : change.from)}</span>
               </div>
               <div className="ah-value-arrow">
                 <IconArrowRight size={14} />
               </div>
               <div className="ah-new-value">
                 <span className="ah-value-label">To</span>
-                <span className="ah-value">{formatValue(change.newValue)}</span>
+                <span className="ah-value">{formatValue(change.newValue !== undefined ? change.newValue : change.to)}</span>
               </div>
             </div>
           </div>
@@ -265,11 +271,11 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
     );
   };
 
-  if (loading) {
+  if (loading || (auditHistory.length === 0 && historyQuery.isFetching)) {
     return <LoadingSpinner minHeight={150} />;
   }
 
-  if (error) {
+  if (error && auditHistory.length === 0) {
     return (
       <div className="ah-state ah-state--error">
         <div className="ah-state-icon ah-state-icon--error">
@@ -292,7 +298,8 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
           <IconClock size={28} />
         </div>
         <div className="ah-state-text">No history available</div>
-        <div className="ah-state-sub">This event hasn&apos;t been modified since creation</div>
+        <div className="ah-state-sub">No changes have been recorded for this event.</div>
+        <button onClick={fetchAuditHistory} className="ah-retry-btn" disabled={historyQuery.isFetching}>Refresh history</button>
       </div>
     );
   }
@@ -302,7 +309,7 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
       <div className="ah-header">
         <div className="ah-header-left">
           <IconClock size={14} />
-          <span>Event History ({auditHistory.length})</span>
+          <span>Event History ({historyQuery.data?.pages[0]?.pagination?.total ?? auditHistory.length})</span>
         </div>
         <div className="ah-legend">
           <span className="ah-legend-item">
@@ -318,26 +325,36 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
             Imported
           </span>
         </div>
+        <button onClick={fetchAuditHistory} className="ah-retry-btn" disabled={historyQuery.isFetching}>
+          {historyQuery.isFetching ? 'Refreshing...' : 'Refresh history'}
+        </button>
       </div>
+
+      {error && <div role="alert">History could not refresh. {error}</div>}
 
       <div className="ah-timeline">
         {auditHistory.map((entry, index) => {
           const { dateStr, timeStr } = formatTimestamp(entry.timestamp);
-          const isExpanded = expandedEntries.has(index);
-          const hasDetails = entry.changeSet && entry.changeSet.length > 0;
+          const entryKey = entry._id || entry.timestamp;
+          const isExpanded = expandedEntries.has(entryKey);
+          const changeSet = entry.changeSet?.length
+            ? entry.changeSet
+            : (Array.isArray(entry.changes) ? entry.changes : []);
+          const proposedChanges = Object.entries(entry.metadata?.proposedChanges || {});
+          const hasDetails = changeSet.length > 0 || proposedChanges.length > 0;
           const TypeIcon = getChangeTypeIcon(entry.changeType);
           const colorVariant = getChangeTypeColor(entry.changeType);
           const SourceIcon = getSourceIcon(entry.source);
 
           return (
             <div
-              key={index}
+              key={entryKey}
               className={`ah-entry ${hasDetails ? 'ah-entry--expandable' : ''}`}
               style={{ '--ah-entry-index': index }}
             >
               <div
                 className="ah-entry-header"
-                onClick={hasDetails ? () => toggleExpanded(index) : undefined}
+                onClick={hasDetails ? () => toggleExpanded(entryKey) : undefined}
               >
                 <div className="ah-entry-left">
                   <div className={`ah-type-icon ah-type-icon--${colorVariant}`}>
@@ -358,13 +375,18 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
                     <div className="ah-entry-time">
                       {dateStr} at {timeStr}
                     </div>
+                    {(entry.performedByEmail || entry.userEmail || entry.metadata?.userEmail || entry.userId) && (
+                      <div className="ah-entry-time">
+                        {entry.performedByEmail || entry.userEmail || entry.metadata?.userEmail || entry.userId}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {hasDetails && (
                   <button
                     className={`ah-expand-btn ${isExpanded ? 'ah-expand-btn--open' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); toggleExpanded(index); }}
+                    onClick={(e) => { e.stopPropagation(); toggleExpanded(entryKey); }}
                     title={isExpanded ? 'Hide details' : 'Show details'}
                   >
                     {isExpanded ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
@@ -386,12 +408,23 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
 
               {isExpanded && hasDetails && (
                 <div className="ah-details">
-                  <div className="ah-details-label">Changes made:</div>
-                  {renderChangeSet(entry.changeSet)}
+                  {changeSet.length > 0 && <>
+                    <div className="ah-details-label">Changes made:</div>
+                    {renderChangeSet(changeSet)}
+                  </>}
+                  {proposedChanges.length > 0 && <>
+                    <div className="ah-details-label">Requested changes:</div>
+                    {proposedChanges.map(([field, value]) => (
+                      <div className="ah-change-item" key={field}>
+                        <div className="ah-change-field">{formatFieldName(field)}</div>
+                        <div className="ah-value">{formatValue(value)}</div>
+                      </div>
+                    ))}
+                  </>}
                 </div>
               )}
 
-              {entry.changes && (
+              {entry.changes && !Array.isArray(entry.changes) && (
                 <div className="ah-single-change">
                   <strong>{entry.changes.field}:</strong> {formatValue(entry.changes.oldValue)} → {formatValue(entry.changes.newValue)}
                 </div>
@@ -400,6 +433,11 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
           );
         })}
       </div>
+      {historyQuery.hasNextPage && (
+        <button className="ah-retry-btn" onClick={() => historyQuery.fetchNextPage()} disabled={historyQuery.isFetching}>
+          {historyQuery.isFetchingNextPage ? 'Loading...' : 'Load older changes'}
+        </button>
+      )}
     </div>
   );
 };

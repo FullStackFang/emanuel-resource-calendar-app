@@ -6292,15 +6292,16 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     // Normalize events to ensure start/end are populated from calendarData
     // Frontend (Calendar.jsx) expects event.start.dateTime at top level
     const normalizedEvents = events.map(event => {
-      // CRITICAL: Populate top-level start/end from calendarData
+      // Rebuild display wrappers from authoritative calendarData on every read.
+      // Approved edits can leave previously stored start/end wrappers stale.
       // Frontend Calendar.jsx checks event.start.dateTime, not graphData.start.dateTime
-      if (!event.start?.dateTime && event.calendarData?.startDateTime) {
+      if (event.calendarData?.startDateTime) {
         event.start = {
           dateTime: event.calendarData.startDateTime,
           timeZone: 'America/New_York'
         };
       }
-      if (!event.end?.dateTime && event.calendarData?.endDateTime) {
+      if (event.calendarData?.endDateTime) {
         event.end = {
           dateTime: event.calendarData.endDateTime,
           timeZone: 'America/New_York'
@@ -9755,39 +9756,55 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
 app.get('/api/events/:eventId/audit-history', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const userEmail = req.user.email;
     const { eventId } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
-    // Verify user has access to this event
-    const event = await unifiedEventsCollection.findOne({
-      eventId: eventId,
-      userId: userId
-    });
+    const event = await unifiedEventsCollection.findOne({ eventId });
 
     if (!event) {
       return res.status(404).json({ error: 'Event not found or access denied' });
     }
 
-    // Get audit history for this event
-    const auditHistory = await eventAuditHistoryCollection
-      .find({ eventId: eventId })
-      .sort({ timestamp: -1 })
-      .skip(parseInt(offset))
-      .limit(parseInt(limit))
-      .toArray();
+    const user = await getCachedUser(userId);
+    const requestedBy = event.roomReservationData?.requestedBy;
+    // Reservation ownership follows the current requester, including reassignment.
+    // Retain the original userId check for legacy non-reservation events.
+    const isOwner = requestedBy
+      ? isEventOwner(event, userEmail) || requestedBy.userId === userId
+      : event.userId === userId;
+    if (!canViewAllReservations(user, userEmail) && !isOwner && event.status !== 'published') {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
 
-    // Get total count for pagination
-    const totalCount = await eventAuditHistoryCollection.countDocuments({
-      eventId: eventId
-    });
+    const pageLimit = Number(limit);
+    const pageOffset = Number(offset);
+    if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 100 ||
+        !Number.isSafeInteger(pageOffset) || pageOffset < 0) {
+      return res.status(400).json({ error: 'Invalid history pagination' });
+    }
+    // Older owner edits were written to ReservationAuditHistory. Merge both
+    // timelines before pagination so every entry point shows the same history.
+    const eventFilter = { eventId: event.eventId };
+    const reservationFilter = { reservationId: event._id };
+    const [eventEntries, reservationEntries, eventCount, reservationCount] = await Promise.all([
+      eventAuditHistoryCollection.find(eventFilter).sort({ timestamp: -1 }).limit(pageOffset + pageLimit).toArray(),
+      reservationAuditHistoryCollection.find(reservationFilter).sort({ timestamp: -1 }).limit(pageOffset + pageLimit).toArray(),
+      eventAuditHistoryCollection.countDocuments(eventFilter),
+      reservationAuditHistoryCollection.countDocuments(reservationFilter),
+    ]);
+    const auditHistory = [...eventEntries, ...reservationEntries]
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp) || String(b._id).localeCompare(String(a._id)))
+      .slice(pageOffset, pageOffset + pageLimit);
+    const totalCount = eventCount + reservationCount;
 
     res.status(200).json({
       auditHistory,
       pagination: {
         total: totalCount,
-        offset: parseInt(offset),
-        limit: parseInt(limit),
-        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
+        offset: pageOffset,
+        limit: pageLimit,
+        hasMore: totalCount > (pageOffset + pageLimit)
       }
     });
 
@@ -25552,7 +25569,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
     // Post-response side effects. Logged on failure but never blocks the
     // approver — the EditRequest + Event mutations already committed above.
     const auditContext = { eventId: event.eventId, editRequestId: editRequest.editRequestId };
-    eventAuditHistoryCollection.insertOne({
+    await eventAuditHistoryCollection.insertOne({
       eventId: event.eventId,
       reservationId: event._id,
       action: 'edit-request-approved',
@@ -27759,6 +27776,26 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       mongoId: id,
       updatedBy: userEmail
     });
+
+    // Record the committed values before broadcasting so an open History tab
+    // can immediately retrieve the change that triggered its live refresh.
+    const auditRootFields = Object.keys(finalUpdateOperations).filter(field =>
+      !field.includes('.') && !['graphData', 'start', 'end', 'changeKey', '_version', 'lastModifiedDateTime', 'lastModifiedBy'].includes(field)
+    );
+    const savedChanges = [
+      ...generateChangeSet(event.calendarData, updatedEventDoc.calendarData),
+      ...generateChangeSet(event, updatedEventDoc, auditRootFields),
+    ];
+    if (savedChanges.length > 0) {
+      await auditService.recordEvent({
+        eventId: event.eventId,
+        userId,
+        changeType: 'update',
+        source: 'Admin Event Save',
+        changeSet: savedChanges,
+        metadata: { userEmail, previousVersion: event._version, version: updatedEventDoc._version },
+      });
+    }
 
     // Ad-hoc dates added to an already-published series must reach Outlook.
     //

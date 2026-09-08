@@ -1,0 +1,658 @@
+{
+  "database": "emanuelnyc",
+  "events": [
+    {
+      "_id": "6a8472cf38bf7be912b8c838",
+      "eventId": "evt-request-1787065039099-app1elumd",
+      "status": "deleted",
+      "isDeleted": true,
+      "title": "Dash Greenberg Rehearsal",
+      "calendarOwner": "templeevents@emanuelnyc.org",
+      "calendarData": {
+        "eventTitle": "Dash Greenberg Rehearsal",
+        "eventDescription": "",
+        "startDateTime": "2027-04-14T18:00:00",
+        "endDateTime": "2027-04-14T19:00:00",
+        "startDate": "2027-04-14",
+        "startTime": "",
+        "endDate": "2027-04-14",
+        "endTime": "",
+        "isAllDayEvent": false,
+        "setupTime": "18:00",
+        "teardownTime": "19:00",
+        "doorOpenTime": null,
+        "doorCloseTime": null,
+        "setupTimeMinutes": 0,
+        "teardownTimeMinutes": 0,
+        "reservationStartTime": "18:00",
+        "reservationEndTime": "19:00",
+        "reservationStartMinutes": 0,
+        "reservationEndMinutes": 0,
+        "setupNotes": "",
+        "doorNotes": "",
+        "eventNotes": "",
+        "locations": [
+          "6912551e9a0bc143b1444386"
+        ],
+        "locationDisplayNames": "5th Avenue Sanctuary",
+        "isOffsite": false,
+        "offsiteName": "",
+        "offsiteAddress": "",
+        "offsiteLat": null,
+        "offsiteLon": null,
+        "attendeeCount": 4,
+        "specialRequirements": "",
+        "categories": [
+          "B/M Rehearsal"
+        ],
+        "services": {},
+        "assignedTo": "",
+        "virtualMeetingUrl": null,
+        "virtualPlatform": null,
+        "occurrenceOverrides": [],
+        "requiredFeatures": [],
+        "assignedRabbi": [],
+        "assignedCantor": [],
+        "isOnBehalfOf": false,
+        "contactName": "",
+        "contactEmail": "",
+        "organizerName": "",
+        "organizerPhone": "",
+        "organizerEmail": "",
+        "location": "5th Avenue Sanctuary"
+      },
+      "graph": {},
+      "_version": 2,
+      "lastModifiedDateTime": "2026-08-18T15:30:24.528Z",
+      "lastModifiedBy": "rachel.spencer@emanuelnyc.org",
+      "statusHistory": [
+        {
+          "status": "pending",
+          "changedAt": "2026-08-18T14:57:19.253Z",
+          "changedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+          "changedByEmail": "rachel.spencer@emanuelnyc.org",
+          "reason": "Event request submitted"
+        },
+        {
+          "status": "deleted",
+          "changedAt": "2026-08-18T15:30:24.528Z",
+          "changedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+          "changedByEmail": "rachel.spencer@emanuelnyc.org",
+          "reason": "Deleted by requester"
+        }
+      ],
+      "communicationHistory": [
+        {
+          "timestamp": "2026-08-18T14:57:20.534Z",
+          "type": "email_sent",
+          "correlationId": "email-1787065039725-kkp1klfby",
+          "emailType": "submission_confirmation",
+          "subject": "Reservation Request Received: Dash Greenberg Rehearsal",
+          "recipients": [
+            "rachel.spencer@emanuelnyc.org"
+          ],
+          "success": true,
+          "skipped": false,
+          "error": null
+        }
+      ],
+      "syncStatus": "pending"
+    },
+    {
+      "_id": "6a847c0538bf7be912b8c84b",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "status": "published",
+      "isDeleted": false,
+      "title": "Dash Greenberg Rehearsal #1",
+      "calendarOwner": "templeevents@emanuelnyc.org",
+      "calendarData": {
+        "eventTitle": "Dash Greenberg Rehearsal #1",
+        "eventDescription": "",
+        "startDateTime": "2027-04-29T16:29:00",
+        "endDateTime": "2027-04-29T17:30:00",
+        "startDate": "2027-04-29",
+        "startTime": "16:29",
+        "endDate": "2027-04-29",
+        "endTime": "17:30",
+        "isAllDayEvent": false,
+        "setupTime": "16:29",
+        "teardownTime": "17:30",
+        "doorOpenTime": "",
+        "doorCloseTime": "",
+        "setupTimeMinutes": 0,
+        "teardownTimeMinutes": 0,
+        "reservationStartTime": "16:29",
+        "reservationEndTime": "17:30",
+        "reservationStartMinutes": 0,
+        "reservationEndMinutes": 0,
+        "setupNotes": "",
+        "doorNotes": "",
+        "eventNotes": "",
+        "locations": [
+          "6912551e9a0bc143b1444386"
+        ],
+        "locationDisplayNames": "5th Avenue Sanctuary",
+        "isOffsite": false,
+        "offsiteName": "",
+        "offsiteAddress": "",
+        "offsiteLat": null,
+        "offsiteLon": null,
+        "attendeeCount": 4,
+        "specialRequirements": "",
+        "categories": [
+          "B/M Rehearsal"
+        ],
+        "services": {},
+        "assignedTo": "",
+        "virtualMeetingUrl": null,
+        "virtualPlatform": null,
+        "occurrenceOverrides": [],
+        "requiredFeatures": [],
+        "assignedRabbi": [],
+        "assignedCantor": [],
+        "isOnBehalfOf": false,
+        "contactName": "",
+        "contactEmail": "",
+        "organizerName": "",
+        "organizerPhone": "",
+        "organizerEmail": "",
+        "location": "5th Avenue Sanctuary",
+        "reviewNotes": "",
+        "mecCategories": [
+          "B/M Rehearsal"
+        ],
+        "eventSeriesId": null,
+        "seriesIndex": null,
+        "seriesLength": null
+      },
+      "start": {
+        "dateTime": "2027-04-29T16:29:00",
+        "timeZone": "America/New_York"
+      },
+      "graph": {
+        "id": "AAMkADBiY2JlY2NiLTg4YTgtNDQ1MS1hOTE5LTM1ZDE4NmVhMWJiYwBGAAAAAABooQFVLvqCQLJU8d3MLiePBwAO_9qedvEaSJUn0M0Ts527AAAAAAENAAAO_9qedvEaSJUn0M0Ts527AAnC9e2pAAA=",
+        "start": {
+          "dateTime": "2027-04-29T16:29:00.0000000",
+          "timeZone": "America/New_York"
+        },
+        "end": {
+          "dateTime": "2027-04-29T17:30:00.0000000",
+          "timeZone": "America/New_York"
+        },
+        "lastModifiedDateTime": "2026-09-08T13:22:40.9169862Z"
+      },
+      "_version": 7,
+      "lastModifiedDateTime": "2026-09-08T13:22:42.272Z",
+      "lastModifiedBy": "daniela.guitelman@emanuelnyc.org",
+      "statusHistory": [
+        {
+          "status": "pending",
+          "changedAt": "2026-08-18T15:36:37.227Z",
+          "changedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+          "changedByEmail": "rachel.spencer@emanuelnyc.org",
+          "reason": "Event request submitted"
+        },
+        {
+          "status": "published",
+          "changedAt": "2026-08-18T15:37:58.724Z",
+          "changedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+          "changedByEmail": "daniela.guitelman@emanuelnyc.org",
+          "reason": "Published by admin"
+        }
+      ],
+      "communicationHistory": [
+        {
+          "timestamp": "2026-08-18T15:36:38.970Z",
+          "type": "email_sent",
+          "correlationId": "email-1787067397534-4zfhhjs37",
+          "emailType": "submission_confirmation",
+          "subject": "Reservation Request Received: Dash Greenberg Rehearsal #1",
+          "recipients": [
+            "rachel.spencer@emanuelnyc.org"
+          ],
+          "success": true,
+          "skipped": false,
+          "error": null
+        },
+        {
+          "timestamp": "2026-08-18T15:38:02.188Z",
+          "type": "email_sent",
+          "correlationId": "email-1787067481451-gwaoidrwx",
+          "emailType": "publish_notification",
+          "subject": "Reservation Published: Dash Greenberg Rehearsal #1",
+          "recipients": [
+            "rachel.spencer@emanuelnyc.org"
+          ],
+          "success": true,
+          "skipped": false,
+          "error": null
+        },
+        {
+          "timestamp": "2026-08-24T16:04:10.917Z",
+          "type": "email_sent",
+          "correlationId": "email-1787587450618-z7pi3bsm0",
+          "emailType": "event_updated_notification",
+          "subject": "Event Updated: Dash Greenberg Rehearsal #1",
+          "recipients": [
+            "rachel.spencer@emanuelnyc.org"
+          ],
+          "success": true,
+          "skipped": false,
+          "error": null
+        },
+        {
+          "timestamp": "2026-09-08T13:22:43.027Z",
+          "type": "email_sent",
+          "correlationId": "email-1788873762684-5nn98mmul",
+          "emailType": "event_updated_notification",
+          "subject": "Event Updated: Dash Greenberg Rehearsal #1",
+          "recipients": [
+            "rachel.spencer@emanuelnyc.org"
+          ],
+          "success": true,
+          "skipped": false,
+          "error": null
+        }
+      ],
+      "syncStatus": "pending"
+    }
+  ]
+}
+APP_ID and/or TENANT_ID not set in environment — using hardcoded defaults. Set these in .env for production.
+[DEBUG] MSAL client initialized for Graph API service
+[DEBUG] Acquired new Graph API app token
+{
+  "liveGraph": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('templeevents%40emanuelnyc.org')/calendars('AAMkADBiY2JlY2NiLTg4YTgtNDQ1MS1hOTE5LTM1ZDE4NmVhMWJiYwBGAAAAAABooQFVLvqCQLJU8d3MLiePBwAO_9qedvEaSJUn0M0Ts527AAAAAAEGAAAO_9qedvEaSJUn0M0Ts527AAAAAAk7AAA%3D')/events(id,subject,start,end,lastModifiedDateTime,changeKey)/$entity",
+    "@odata.etag": "W/\"DvvannbxGkiVJ9DNE7OduwAJ0gId8g==\"",
+    "id": "AAMkADBiY2JlY2NiLTg4YTgtNDQ1MS1hOTE5LTM1ZDE4NmVhMWJiYwBGAAAAAABooQFVLvqCQLJU8d3MLiePBwAO_9qedvEaSJUn0M0Ts527AAAAAAENAAAO_9qedvEaSJUn0M0Ts527AAnC9e2pAAA=",
+    "lastModifiedDateTime": "2026-09-08T13:22:40.9169862Z",
+    "changeKey": "DvvannbxGkiVJ9DNE7OduwAJ0gId8g==",
+    "subject": "Dash Greenberg Rehearsal #1",
+    "start": {
+      "dateTime": "2027-04-29T20:29:00.0000000",
+      "timeZone": "UTC"
+    },
+    "end": {
+      "dateTime": "2027-04-29T21:30:00.0000000",
+      "timeZone": "UTC"
+    },
+    "calendar@odata.associationLink": "https://graph.microsoft.com/v1.0/users('templeevents@emanuelnyc.org')/calendars('AAMkADBiY2JlY2NiLTg4YTgtNDQ1MS1hOTE5LTM1ZDE4NmVhMWJiYwAuAAAAAABooQFVLvqCQLJU8d3MLiePAQAO_9qedvEaSJUn0M0Ts527AAAAAAENAAA=')/$ref",
+    "calendar@odata.navigationLink": "https://graph.microsoft.com/v1.0/users('templeevents@emanuelnyc.org')/calendars('AAMkADBiY2JlY2NiLTg4YTgtNDQ1MS1hOTE5LTM1ZDE4NmVhMWJiYwAuAAAAAABooQFVLvqCQLJU8d3MLiePAQAO_9qedvEaSJUn0M0Ts527AAAAAAENAAA=')"
+  }
+}
+{
+  "collection": "templeEvents__EventAuditHistory",
+  "records": [
+    {
+      "_id": "6a847c0538bf7be912b8c84c",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "userId": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+      "changeType": "create",
+      "source": "Room Reservation Request",
+      "timestamp": "2026-08-18T15:36:37.304Z",
+      "metadata": {
+        "userAgent": "API",
+        "ipAddress": "Unknown",
+        "reason": null,
+        "importSessionId": null
+      },
+      "changes": [
+        {
+          "field": "status",
+          "oldValue": null,
+          "newValue": "pending"
+        },
+        {
+          "field": "eventTitle",
+          "oldValue": null,
+          "newValue": "Dash Greenberg Rehearsal #1"
+        }
+      ]
+    },
+    {
+      "_id": "6a847c5938bf7be912b8c84e",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "reservationId": "6a847c0538bf7be912b8c84b",
+      "action": "published",
+      "performedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+      "performedByEmail": "daniela.guitelman@emanuelnyc.org",
+      "timestamp": "2026-08-18T15:38:01.303Z",
+      "changes": [
+        {
+          "field": "status",
+          "oldValue": "pending",
+          "newValue": "published"
+        },
+        {
+          "field": "reviewNotes",
+          "oldValue": "",
+          "newValue": ""
+        }
+      ],
+      "reviewChanges": null,
+      "revisionNumber": 2
+    },
+    {
+      "_id": "6a8c5d81594a09b7a4ea976f",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "reservationId": "6a847c0538bf7be912b8c84b",
+      "action": "edit-request-submitted",
+      "performedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+      "performedByEmail": "rachel.spencer@emanuelnyc.org",
+      "timestamp": "2026-08-24T15:04:32.943Z",
+      "changes": [],
+      "metadata": {
+        "editRequestId": "edit-req-1787583872943-kl58pvchz",
+        "editRequestDocId": "6a8c5d80594a09b7a4ea976e",
+        "proposedChanges": {
+          "setupTimeMinutes": 120,
+          "teardownTimeMinutes": 120,
+          "reservationStartMinutes": 120,
+          "reservationEndMinutes": 120,
+          "reservationStartTime": "16:00",
+          "reservationEndTime": "17:00",
+          "doorOpenTime": null,
+          "doorCloseTime": null,
+          "isOnBehalfOf": false,
+          "contactName": "",
+          "contactEmail": ""
+        }
+      }
+    },
+    {
+      "_id": "6a8c6ba3594a09b7a4ea9773",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "reservationId": "6a847c0538bf7be912b8c84b",
+      "action": "edit-request-approved",
+      "performedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+      "performedByEmail": "daniela.guitelman@emanuelnyc.org",
+      "timestamp": "2026-08-24T16:04:50.801Z",
+      "changes": [],
+      "metadata": {
+        "editRequestId": "edit-req-1787583872943-kl58pvchz",
+        "editRequestDocId": "6a8c5d80594a09b7a4ea976e",
+        "requestedBy": "rachel.spencer@emanuelnyc.org",
+        "approvalNotes": ""
+      }
+    },
+    {
+      "_id": "6aa00b569c0f73f57041cdbc",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "reservationId": "6a847c0538bf7be912b8c84b",
+      "action": "edit-request-submitted",
+      "performedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+      "performedByEmail": "rachel.spencer@emanuelnyc.org",
+      "timestamp": "2026-09-08T13:19:18.716Z",
+      "changes": [],
+      "metadata": {
+        "editRequestId": "edit-req-1788873558716-c9gqqm7yp",
+        "editRequestDocId": "6aa00b569c0f73f57041cdbb",
+        "proposedChanges": {
+          "startDateTime": "2027-04-29T16:30:00",
+          "endDateTime": "2027-04-29T17:30:00",
+          "startTime": "16:30",
+          "endTime": "17:30",
+          "setupTime": "16:30",
+          "teardownTime": "17:30",
+          "reservationStartTime": "16:30",
+          "reservationEndTime": "17:30",
+          "doorOpenTime": null,
+          "doorCloseTime": null,
+          "isOnBehalfOf": false,
+          "contactName": "",
+          "contactEmail": ""
+        }
+      }
+    },
+    {
+      "_id": "6aa00bb79c0f73f57041cdbd",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "reservationId": "6a847c0538bf7be912b8c84b",
+      "action": "edit-request-approved",
+      "performedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+      "performedByEmail": "daniela.guitelman@emanuelnyc.org",
+      "timestamp": "2026-09-08T13:20:54.767Z",
+      "changes": [
+        {
+          "field": "startDateTime",
+          "oldValue": "2027-04-26T16:00:00",
+          "newValue": "2027-04-29T16:30"
+        },
+        {
+          "field": "endDateTime",
+          "oldValue": "2027-04-26T17:00:00",
+          "newValue": "2027-04-29T17:30"
+        },
+        {
+          "field": "startTime",
+          "oldValue": "16:00",
+          "newValue": "16:30"
+        },
+        {
+          "field": "endTime",
+          "oldValue": "17:00",
+          "newValue": "17:30"
+        },
+        {
+          "field": "setupTime",
+          "oldValue": "16:00",
+          "newValue": "16:30"
+        },
+        {
+          "field": "teardownTime",
+          "oldValue": "17:00",
+          "newValue": "17:30"
+        },
+        {
+          "field": "reservationStartTime",
+          "oldValue": "16:00",
+          "newValue": "16:30"
+        },
+        {
+          "field": "reservationEndTime",
+          "oldValue": "17:00",
+          "newValue": "17:30"
+        },
+        {
+          "field": "doorOpenTime",
+          "oldValue": "",
+          "newValue": null
+        },
+        {
+          "field": "doorCloseTime",
+          "oldValue": "",
+          "newValue": null
+        },
+        {
+          "field": "isOnBehalfOf",
+          "oldValue": false,
+          "newValue": false
+        },
+        {
+          "field": "contactName",
+          "oldValue": "",
+          "newValue": ""
+        },
+        {
+          "field": "contactEmail",
+          "oldValue": "",
+          "newValue": ""
+        },
+        {
+          "field": "startDate",
+          "oldValue": "2027-04-26",
+          "newValue": "2027-04-29"
+        },
+        {
+          "field": "endDate",
+          "oldValue": "2027-04-26",
+          "newValue": "2027-04-29"
+        }
+      ],
+      "metadata": {
+        "editRequestId": "edit-req-1788873558716-c9gqqm7yp",
+        "editRequestDocId": "6aa00b569c0f73f57041cdbb",
+        "requestedBy": "rachel.spencer@emanuelnyc.org",
+        "approvalNotes": "",
+        "approverChanges": {
+          "startDate": "2027-04-29",
+          "startTime": "16:30",
+          "endDate": "2027-04-29",
+          "endTime": "17:30",
+          "setupTime": "16:30",
+          "teardownTime": "17:30",
+          "reservationStartTime": "16:30",
+          "reservationEndTime": "17:30",
+          "startDateTime": "2027-04-29T16:30",
+          "endDateTime": "2027-04-29T17:30"
+        },
+        "originalProposedChanges": {
+          "startDateTime": "2027-04-29T16:30:00",
+          "endDateTime": "2027-04-29T17:30:00",
+          "startTime": "16:30",
+          "endTime": "17:30",
+          "setupTime": "16:30",
+          "teardownTime": "17:30",
+          "reservationStartTime": "16:30",
+          "reservationEndTime": "17:30",
+          "doorOpenTime": null,
+          "doorCloseTime": null,
+          "isOnBehalfOf": false,
+          "contactName": "",
+          "contactEmail": ""
+        }
+      }
+    }
+  ]
+}
+{
+  "collection": "templeEvents__ReservationAuditHistory",
+  "records": []
+}
+{
+  "collection": "templeEvents__EditRequests",
+  "records": [
+    {
+      "_id": "6a8c5d80594a09b7a4ea976e",
+      "_version": 3,
+      "editRequestId": "edit-req-1787583872943-kl58pvchz",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "eventObjectId": "6a847c0538bf7be912b8c84b",
+      "editScope": null,
+      "occurrenceDate": null,
+      "seriesMasterId": null,
+      "status": "approved",
+      "statusHistory": [
+        {
+          "status": "pending",
+          "changedAt": "2026-08-24T15:04:32.943Z",
+          "changedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e"
+        },
+        {
+          "status": "approved",
+          "changedAt": "2026-08-24T16:04:50.801Z",
+          "changedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3"
+        }
+      ],
+      "requestedBy": {
+        "userId": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+        "email": "rachel.spencer@emanuelnyc.org",
+        "name": "Rachel Spencer",
+        "department": "clergy",
+        "phone": ""
+      },
+      "requestedAt": "2026-08-24T15:04:32.943Z",
+      "proposedChanges": {},
+      "baselineSnapshot": {
+        "_version": 3,
+        "eventTitle": "Dash Greenberg Rehearsal #1",
+        "startDateTime": "2027-04-26T18:00:00",
+        "endDateTime": "2027-04-26T19:00:00",
+        "locations": [
+          "6912551e9a0bc143b1444386"
+        ],
+        "locationDisplayNames": "5th Avenue Sanctuary",
+        "recurrence": null
+      },
+      "reviewedBy": {
+        "userId": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+        "email": "daniela.guitelman@emanuelnyc.org",
+        "name": "Daniela Guitelman"
+      },
+      "reviewedAt": "2026-08-24T16:04:50.801Z",
+      "reviewNotes": "",
+      "createdAt": "2026-08-24T15:04:32.943Z",
+      "lastModifiedDateTime": "2026-08-24T16:04:50.801Z",
+      "lastModifiedBy": "daniela.guitelman@emanuelnyc.org"
+    },
+    {
+      "_id": "6aa00b569c0f73f57041cdbb",
+      "_version": 2,
+      "editRequestId": "edit-req-1788873558716-c9gqqm7yp",
+      "eventId": "evt-request-1787067397075-uoi48kedt",
+      "eventObjectId": "6a847c0538bf7be912b8c84b",
+      "editScope": null,
+      "occurrenceDate": null,
+      "seriesMasterId": null,
+      "status": "approved",
+      "statusHistory": [
+        {
+          "status": "pending",
+          "changedAt": "2026-09-08T13:19:18.716Z",
+          "changedBy": "817d44cc-64e5-41cf-8008-bc4a8339e80e"
+        },
+        {
+          "status": "approved",
+          "changedAt": "2026-09-08T13:20:54.767Z",
+          "changedBy": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3"
+        }
+      ],
+      "requestedBy": {
+        "userId": "817d44cc-64e5-41cf-8008-bc4a8339e80e",
+        "email": "rachel.spencer@emanuelnyc.org",
+        "name": "Rachel Spencer",
+        "department": "clergy",
+        "phone": ""
+      },
+      "requestedAt": "2026-09-08T13:19:18.716Z",
+      "proposedChanges": {
+        "startDateTime": "2027-04-29T16:30:00",
+        "endDateTime": "2027-04-29T17:30:00",
+        "startTime": "16:30",
+        "endTime": "17:30",
+        "setupTime": "16:30",
+        "teardownTime": "17:30",
+        "reservationStartTime": "16:30",
+        "reservationEndTime": "17:30",
+        "doorOpenTime": null,
+        "doorCloseTime": null,
+        "isOnBehalfOf": false,
+        "contactName": "",
+        "contactEmail": ""
+      },
+      "baselineSnapshot": {
+        "_version": 5,
+        "eventTitle": "Dash Greenberg Rehearsal #1",
+        "startDateTime": "2027-04-26T16:00:00",
+        "endDateTime": "2027-04-26T17:00:00",
+        "locations": [
+          "6912551e9a0bc143b1444386"
+        ],
+        "locationDisplayNames": "5th Avenue Sanctuary",
+        "recurrence": null
+      },
+      "reviewedBy": {
+        "userId": "d8c8f245-02a1-4241-ac3e-dfdf18ec37b3",
+        "email": "daniela.guitelman@emanuelnyc.org",
+        "name": "Daniela Guitelman"
+      },
+      "reviewedAt": "2026-09-08T13:20:54.767Z",
+      "reviewNotes": "",
+      "createdAt": "2026-09-08T13:19:18.716Z",
+      "lastModifiedDateTime": "2026-09-08T13:20:54.767Z",
+      "lastModifiedBy": "daniela.guitelman@emanuelnyc.org"
+    }
+  ]
+}
+

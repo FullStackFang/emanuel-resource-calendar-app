@@ -127,6 +127,7 @@ export const keys = {
     list: (scope) => listKey('events', scope),
     counts: (scope) => countsKey('events', scope),
     detail: (eventId) => ['events', 'detail', eventId],
+    auditHistory: (eventId) => ['events', 'audit-history', eventId],
     /**
      * EventSearch full-text/criteria query. Distinct from list to keep search
      * results addressable independently — but still under the `events` prefix

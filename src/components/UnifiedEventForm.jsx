@@ -4,12 +4,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
-import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import UnifiedFormLayout from './UnifiedFormLayout';
 import RoomReservationFormBase from './RoomReservationFormBase';
-import ReservationAuditHistory from './ReservationAuditHistory';
+import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
 import './RoomReservationForm.css';
 
@@ -48,9 +47,7 @@ export default function UnifiedEventForm({
   onDataChange, // Forward form data changes to parent (for draft tracking)
   // Event-specific props
   event,
-  categories,
   availableLocations,
-  schemaExtensions,
   onDelete,
   readOnly,
   userTimeZone,
@@ -69,7 +66,7 @@ export default function UnifiedEventForm({
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isFormValid, setIsFormValid] = useState(false);
+  const [, setIsFormValid] = useState(false);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
   const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
@@ -88,7 +85,6 @@ export default function UnifiedEventForm({
   const location = useLocation();
   const { accounts } = useMsal();
   const { showError } = useNotification();
-  const { isAdmin } = usePermissions();
 
   // Handle prefill data from AI chat or draft modal (either via prop or navigation state)
   useEffect(() => {
@@ -657,7 +653,7 @@ export default function UnifiedEventForm({
         onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
         onValidateRef={(getter) => { validateRef.current = getter; }}
         apiToken={apiToken}
-        renderAdditionalContent={(_liveFormData) => (
+        renderAdditionalContent={() => (
           <>
             {/* Attachments Tab Content */}
             {hideActionBar && activeTab === 'attachments' && (
@@ -684,8 +680,8 @@ export default function UnifiedEventForm({
               <div style={{ marginTop: '20px' }}>
                 <section className="form-section">
                   {mode === 'reservation' && reservation && apiToken ? (
-                    <ReservationAuditHistory
-                      reservationId={reservation?._id}
+                    <EventAuditHistory
+                      eventId={reservation?.eventId}
                       apiToken={apiToken}
                       refreshTrigger={auditRefreshTrigger}
                     />
@@ -739,8 +735,8 @@ export default function UnifiedEventForm({
                         readOnly={reservation?.status === 'inactive'}
                       />
                     ) : (
-                      <ReservationAuditHistory
-                        reservationId={reservation?._id}
+                      <EventAuditHistory
+                        eventId={reservation?.eventId}
                         apiToken={apiToken}
                         refreshTrigger={auditRefreshTrigger}
                       />
