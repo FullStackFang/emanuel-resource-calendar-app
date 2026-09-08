@@ -401,6 +401,15 @@ const DEFAULT_TEMPLATES = {
 
 <h2 style="margin: 0 0 18px 0; color: #1c2430; font-size: 24px; font-weight: 600;">{{scopeLabel}}</h2>
 
+<p style="margin: 0 0 18px 0; color: #4a5568; font-size: 15px; line-height: 1.6;">
+  Your schedule is below for {{scopeLabel}}.
+</p>
+
+<p style="margin: 0 0 18px 0; color: #4a5568; font-size: 15px; line-height: 1.6;">
+  This is the first time we are rolling out this automated system.
+  Please call John O'Hara at ext. 338 if you have any questions.
+</p>
+
 <p style="margin: 0 0 26px 0; color: #4a5568; font-size: 15px; line-height: 1.6;">
   {{recipientName}} &mdash; you have <b style="color: #1c2430;">{{assignmentSummary}}</b>.
   The large time on each line is when you are due.

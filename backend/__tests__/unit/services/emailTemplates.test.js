@@ -428,6 +428,22 @@ describe('Recurrence Summary Formatting Tests', () => {
 describe('Assignment schedule template preview (EU-15, EU-16)', () => {
   afterEach(() => setDbConnection(null));
 
+  it('renders the editable rollout introduction before the personal schedule', async () => {
+    setDbConnection(null);
+    const { generateFromTemplate } = require('../../../services/emailTemplates');
+    const { html } = await generateFromTemplate(TEMPLATE_IDS.ASSIGNMENT_SCHEDULE, {
+      recipientName: 'Sarah Levine',
+      scopeLabel: '2026 High Holy Days',
+      assignmentSummary: '2 assignments',
+      assignmentsTable: '<div>Personal schedule contents</div>',
+    });
+
+    expect(html).toContain('Your schedule is below for 2026 High Holy Days.');
+    expect(html).toContain('This is the first time we are rolling out this automated system.');
+    expect(html).toContain("Please call John O'Hara at ext. 338 if you have any questions.");
+    expect(html.indexOf('Your schedule is below')).toBeLessThan(html.indexOf('Personal schedule contents'));
+  });
+
   it('EU-15: previewTemplate renders a real, chronologically ordered sample itinerary', async () => {
     setDbConnection(null);
     const { subject, html } = await previewTemplate(TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);

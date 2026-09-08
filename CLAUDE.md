@@ -661,7 +661,34 @@ Exports `parseCellTime`, `zonedWallClockToUtc`, `resolveEventWindow`,
   `snapshot.endDateTime` → start + 2h.
 - **`METHOD:PUBLISH`, never `REQUEST`, and no `ATTENDEE`.** A request makes
   Exchange treat the shared mailbox as organizer of a 31-attendee meeting with
-  RSVP tracking on every send.
+  RSVP tracking on every send. **Revisited 2026-09-08 and re-affirmed**: an
+  `ATTENDEE` under `PUBLISH` is decorative (no RSVP, no tracking) AND flips
+  Outlook from rendering an appointment to rendering a meeting the recipient
+  organized; `REQUEST` would buy real Accept/Decline but costs a lifecycle —
+  it is defined per-meeting, so D1's one-file-many-`VEVENT`s would have to
+  become one file per shift, a removed shift would need a matching
+  `METHOD:CANCEL` (nothing tracks what was previously sent to whom), and the
+  RSVPs would land in a mailbox no part of the scheduling workflow reads.
+  If acknowledgement is ever actually wanted, it belongs in the app (a confirm
+  link back to My Assignments), where a decline is visible to whoever staffs
+  the day.
+- **Recipient attribution (2026-09-08), three surfaces, deliberately
+  redundant.** The calendar file differs per recipient while the workbook PDF
+  beside it does not, so it must say whose shifts it holds. `DESCRIPTION`
+  leads with `Schedule for: <name>` — the ONLY one of the three that survives
+  a forward, a re-save or an import, and the only one Outlook reliably shows.
+  The attachment filename is now built per recipient by the pure
+  `buildCalendarFileName(scopeLabel, recipientName)` (it was computed ONCE
+  from `scopeLabel` outside the fan-out, so 31 different files went out as
+  one name); its character class keeps Unicode letters, because the old
+  `[^A-Za-z0-9._ -]` strip turned 'José Ramírez' into 'Jos Ramrez' on his own
+  schedule, and it collapses dot-runs so a path shape cannot survive.
+  `X-WR-CALNAME` labels the imported calendar on Google and Apple and is
+  ignored by Outlook — which is exactly why it is the bonus and `DESCRIPTION`
+  is the mechanism. The name defaults to `entries[0].name`, the same chip name
+  the email greeting uses, so body and attachment cannot address one person
+  two ways; chips are free text, so an explicit `recipientName` option exists
+  if that ever needs to come from `templeEvents__Users` instead.
 - **UTC instants, no `VTIMEZONE`.** `Intl.DateTimeFormat` offset lookup with
   one refinement pass gives the offset on that specific date. A `TZID` without
   an accompanying `VTIMEZONE` is technically invalid and hand-maintaining DST
@@ -709,8 +736,11 @@ which artifact is missing.
 
 **Tests:** new `backend/__tests__/unit/utils/icsBuilder.test.js` (28,
 ICS-1..27 + ICS-13b — note the repo convention is `unit/utils/`, not the
-`unit/` the task file named); `schedulingSheetEmail.test.js` 25 (was 17,
-+SE-18..25); frontend `SchedulingSheets.components.test.jsx` 59 (+SEP-6..8),
+`unit/` the task file named; **34 as of 2026-09-08, +ICS-28..33 for
+attribution — ICS-32 asserts the accented name AND that `../../etc`
+sanitizes to `etc`**); `schedulingSheetEmail.test.js` 25 (was 17,
++SE-18..25; **28 as of 2026-09-08 — SE-26/27 came with the ordering fix,
++SE-28 asserts the two recipients' filenames DIFFER**); frontend `SchedulingSheets.components.test.jsx` 59 (+SEP-6..8),
 new `SchedulingSheets.calendarWarning.test.jsx` (3, SEP-9..11 — mutation
 checked: deleting the `showWarning(outcome.calendarWarning)` line fails
 SEP-9/11). Backend baseline measured by stash: **38 failed suites / 229 failed
