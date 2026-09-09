@@ -55,6 +55,45 @@ const RANGE_START = new Date(2026, 5, 14); // 2026-06-14 local
 const RANGE_END = new Date(2026, 5, 27, 23, 59, 59); // 2026-06-27 local
 
 describe('prepareEventsForAgenda', () => {
+  it.each(['exception', 'addition'])('hides an excluded %s while preserving its customization for restore', (eventType) => {
+    const master = makeMaster({
+      eventTitle: "Men's Club Poker Night",
+      startDateTime: '2026-09-03T17:30:00',
+      endDateTime: '2026-09-03T20:30:00',
+      calendarData: {
+        eventTitle: "Men's Club Poker Night",
+        startDateTime: '2026-09-03T17:30:00',
+        endDateTime: '2026-09-03T20:30:00',
+      },
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'thursday'] },
+        range: { type: 'endDate', startDate: '2026-09-03', endDate: '2026-10-29' },
+        exclusions: ['2026-09-10', '2026-09-14', '2026-09-24', '2026-10-08', '2026-10-22'],
+        additions: [],
+      },
+      occurrenceOverrides: [{ occurrenceDate: '2026-09-14', startTime: '17:30' }],
+    });
+    const child = makeExceptionChild({
+      eventType,
+      occurrenceDate: '2026-09-14',
+      startDateTime: '2026-09-14T17:30:00',
+      endDateTime: '2026-09-14T20:30:00',
+    });
+    const events = [child, master]; // Child order must not bypass exclusions.
+    const before = structuredClone(events);
+    const start = new Date(2026, 8, 13);
+    const end = new Date(2026, 8, 19, 23, 59, 59);
+
+    const out = prepareEventsForAgenda(events, start, end);
+    expect(out.map(e => e.startDateTime)).toEqual(['2026-09-17T17:30:00']);
+    expect(events).toEqual(before);
+
+    const restored = { ...master, recurrence: { ...master.recurrence, exclusions: [] } };
+    const restoredRows = prepareEventsForAgenda([child, restored], start, end);
+    expect(restoredRows.filter(e => e.startDateTime === '2026-09-14T17:30:00')).toHaveLength(1);
+    expect(restoredRows.find(e => e.occurrenceDate === '2026-09-14').hasOccurrenceOverride).toBe(true);
+  });
+
   it('expands a master into occurrence rows and removes the master itself', () => {
     const out = prepareEventsForAgenda([makeMaster()], RANGE_START, RANGE_END);
     expect(out.some(e => e.eventType === 'seriesMaster')).toBe(false);

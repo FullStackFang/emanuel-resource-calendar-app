@@ -14,6 +14,7 @@
  * numbering). Follow-up: refactor Calendar.jsx to consume this util.
  */
 import { expandRecurringSeries } from './recurrenceUtils';
+import { filterExcludedCalendarOccurrences } from './eventTransformers';
 import { logger } from './logger';
 
 function getRecurrence(event) {
@@ -39,7 +40,7 @@ export function prepareEventsForAgenda(rawEvents, rangeStart, rangeEnd) {
   const masters = [];
   const materializedDatesByMaster = new Map();
 
-  for (const event of rawEvents) {
+  for (const event of filterExcludedCalendarOccurrences(rawEvents)) {
     const type = event.eventType || event.graphData?.type;
     const seriesMasterId = event.seriesMasterId || event.graphData?.seriesMasterId;
 

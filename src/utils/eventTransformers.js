@@ -101,6 +101,25 @@ export function getEventRecurrence(event) {
 }
 
 /**
+ * Hide materialized children excluded by their master in calendar views.
+ * Keep master overrides intact so the series editor can still restore them.
+ * Match the original occurrence date, even when a customization moved it.
+ */
+export function filterExcludedCalendarOccurrences(events) {
+  const exclusionsByMaster = new Map();
+  for (const event of events) {
+    if ((event.eventType || event.graphData?.type) === 'seriesMaster') {
+      exclusionsByMaster.set(event.eventId, new Set(getEventRecurrence(event)?.exclusions || []));
+    }
+  }
+
+  return events.filter(event => {
+    if (event.eventType !== 'exception' && event.eventType !== 'addition') return true;
+    return !exclusionsByMaster.get(event.seriesMasterEventId)?.has(event.occurrenceDate);
+  });
+}
+
+/**
  * Check whether an event belongs to a recurring series.
  *
  * Covers: seriesMaster eventType, exception/addition override documents,

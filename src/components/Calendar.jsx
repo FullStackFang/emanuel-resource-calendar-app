@@ -19,7 +19,7 @@
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries, calculateAllSeriesDates } from '../utils/recurrenceUtils';
-  import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence } from '../utils/eventTransformers';
+  import { transformEventToFlatStructure, sortEventsByStartTime, getEventField, getEventRecurrence, filterExcludedCalendarOccurrences } from '../utils/eventTransformers';
   import {
     isPendingEvent,
     isDraftEvent,
@@ -1540,6 +1540,7 @@ import ConflictDialog from './shared/ConflictDialog';
           });
 
           // --- NORMALIZE EXCEPTION/ADDITION DOCS ---
+          eventsToDisplay = filterExcludedCalendarOccurrences(eventsToDisplay);
           // Bridge the field name gap: exception docs carry seriesMasterEventId,
           // but downstream consumers check isRecurringOccurrence/masterEventId.
           // Single pass: build master lookup and collect exception indices simultaneously.
