@@ -326,10 +326,10 @@ describe('permissionUtils', () => {
   });
 
   describe('canManageAssignments flag (Events-department feature grant)', () => {
-    it('role-projection on ROLE_PERMISSIONS: admin only', () => {
+    it('role-projection on ROLE_PERMISSIONS: approver and admin', () => {
       expect(ROLE_PERMISSIONS.viewer.canManageAssignments).toBe(false);
       expect(ROLE_PERMISSIONS.requester.canManageAssignments).toBe(false);
-      expect(ROLE_PERMISSIONS.approver.canManageAssignments).toBe(false);
+      expect(ROLE_PERMISSIONS.approver.canManageAssignments).toBe(true);
       expect(ROLE_PERMISSIONS.admin.canManageAssignments).toBe(true);
     });
 
@@ -342,10 +342,13 @@ describe('permissionUtils', () => {
       expect(getPermissions({ role: 'requester', department: 'events' }, 'r@x.org').canManageAssignments).toBe(true);
     });
 
-    it('getPermissions denies a non-admin outside the events department', () => {
+    it('getPermissions denies viewer and requester roles outside the events department', () => {
       expect(getPermissions({ role: 'viewer' }, 'v@x.org').canManageAssignments).toBe(false);
       expect(getPermissions({ role: 'requester', department: 'security' }, 's@x.org').canManageAssignments).toBe(false);
-      expect(getPermissions({ role: 'approver' }, 'a@x.org').canManageAssignments).toBe(false);
+    });
+
+    it('getPermissions grants to an approver outside the events department', () => {
+      expect(getPermissions({ role: 'approver', department: 'facilities' }, 'a@x.org').canManageAssignments).toBe(true);
     });
 
     it('matches the department case-insensitively and trims whitespace', () => {
@@ -360,6 +363,10 @@ describe('permissionUtils', () => {
 
     it('the exported predicate returns true for an admin', () => {
       expect(canManageAssignments({ role: 'admin' }, 'a@x.org')).toBe(true);
+    });
+
+    it('the exported predicate returns true for a non-Events approver', () => {
+      expect(canManageAssignments({ role: 'approver', department: 'facilities' }, 'a@x.org')).toBe(true);
     });
   });
 

@@ -241,6 +241,7 @@ export default function SchedulingSheets() {
               { onError: (e) => onMutationError(e, 'Could not prefill a cell from the event') }
             );
           }
+          if (callbacks && callbacks.successMessage) showSuccess(callbacks.successMessage);
           if (callbacks && callbacks.onSuccess) callbacks.onSuccess();
         },
       }
@@ -395,10 +396,30 @@ export default function SchedulingSheets() {
   // Attachment failure NEVER fails the send: the email body is self-contained
   // (that is the ASSIGNMENT_SCHEDULE template's whole design), so a missing
   // PDF is worth a warning, not withholding 34 people's schedules.
-  const buildSchedulePdfAttachment = async () => {
+  // `dayIds` scopes the PDF to the days actually being emailed. Without it the
+  // attachment was ALWAYS the whole workbook, so a Friday-only send arrived with
+  // a five-day grid — the body said one thing and the attachment another.
+  const buildSchedulePdfAttachment = async (dayIds) => {
     const { generateSchedulingSheetPdf } = await import('../../utils/schedulingSheetPdf');
-    const { blob, blobUrl, fileName } = generateSchedulingSheetPdf({ sheet, liveEventsById });
+    const wanted = Array.isArray(dayIds) && dayIds.length ? new Set(dayIds.map(String)) : null;
+    const scopedSheet = wanted
+      ? { ...sheet, days: (sheet.days || []).filter((d) => wanted.has(String(d._id))) }
+      : sheet;
+
+    const { blob, blobUrl, fileName, omittedDays } = generateSchedulingSheetPdf({
+      sheet: scopedSheet,
+      liveEventsById,
+    });
     URL.revokeObjectURL(blobUrl); // we want the bytes, not a download
+
+    // The generator TRUNCATES past its day cap and says so on the cover, which
+    // is right for a print button but wrong here: a selected day silently
+    // missing from the attachment misrepresents the send. Refuse instead.
+    if (omittedDays > 0) {
+      throw new Error(
+        `A single PDF cannot cover ${(scopedSheet.days || []).length} days. Choose fewer days.`
+      );
+    }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     // Chunked: String.fromCharCode(...bytes) overflows the call stack on a
     // PDF this size (the embedded font alone is ~200KB).
@@ -411,14 +432,21 @@ export default function SchedulingSheets() {
   };
 
   const sendSchedules = async (body) => {
+    // includePdf is a decision between the panel and this function — the server
+    // only ever sees whether an `attachment` came with the request.
+    const { includePdf = true, ...request } = body || {};
+
     let attachment = null;
-    try {
-      attachment = await buildSchedulePdfAttachment();
-    } catch (error) {
-      logger.error('Could not build the schedule PDF attachment; sending without it', error);
+    if (includePdf) {
+      try {
+        attachment = await buildSchedulePdfAttachment(request.dayIds);
+      } catch (error) {
+        logger.error('Could not build the schedule PDF attachment; sending without it', error);
+        showWarning(error.message || 'The schedule PDF could not be built and was not attached.');
+      }
     }
     try {
-      const outcome = await mutations.sendSchedules.mutateAsync({ ...body, ...(attachment ? { attachment } : {}) });
+      const outcome = await mutations.sendSchedules.mutateAsync({ ...request, ...(attachment ? { attachment } : {}) });
       if (outcome && outcome.attachmentWarning) showWarning(outcome.attachmentWarning);
       else if (attachment && outcome && !outcome.attached) showWarning('The schedule PDF was not attached.');
       // Its own warning, not folded into the PDF's: the two attachments fail

@@ -89,7 +89,7 @@ const ROLE_PERMISSIONS = {
     // Approvers may manage users, but capped to viewer/requester (see ROLE_MAX_ASSIGNABLE)
     canManageUsers: true,
     canManageCalendarMarkers: false,
-    canManageAssignments: false,
+    canManageAssignments: true,
     isAdmin: false
   },
   admin: {
@@ -244,15 +244,15 @@ function canManageCalendarMarkers(user, userEmail) {
 
 /**
  * Whether a user may create/update/delete Scheduling Sheets (holiday staffing
- * workbooks). Same grant shape as canManageCalendarMarkers: admins OR anyone
- * whose department is Events, deliberately role-independent.
+ * workbooks). Granted to approvers/admins OR anyone whose department is Events,
+ * deliberately preserving the role-independent department grant.
  *
  * @param {Object} user - User object from database (can be null)
  * @param {string} userEmail - User's email address
  * @returns {boolean}
  */
 function canManageAssignments(user, userEmail) {
-  if (hasRole(user, userEmail, 'admin')) return true;
+  if (hasRole(user, userEmail, 'approver')) return true;
   return (user?.department || '').toLowerCase().trim() === ASSIGNMENT_MANAGER_DEPARTMENT;
 }
 

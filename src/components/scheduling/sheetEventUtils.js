@@ -17,6 +17,38 @@ export function toLocationNameArray(value) {
   return [];
 }
 
+const METADATA_ROLE_BY_LEGACY_LABEL = Object.freeze({
+  location: 'location',
+  'call time': 'callTime',
+  'doors open': 'doorsOpen',
+  begins: 'begins',
+  ends: 'ends',
+});
+
+/**
+ * Resolve one owner per metadata role without changing stored rows. Explicit
+ * roles win; an unowned role falls back to the last absent-property row whose
+ * trimmed, case-insensitive label is an exact legacy label.
+ */
+export function resolveMetadataRows(rows) {
+  const resolved = {};
+  const explicitRoles = new Set();
+  for (const row of rows || []) {
+    if (row.metadataRole) {
+      resolved[row.metadataRole] = row;
+      explicitRoles.add(row.metadataRole);
+    }
+  }
+  for (const row of rows || []) {
+    if (Object.prototype.hasOwnProperty.call(row, 'metadataRole')) continue;
+    const role = typeof row.label === 'string'
+      ? METADATA_ROLE_BY_LEGACY_LABEL[row.label.trim().toLowerCase()]
+      : null;
+    if (role && !explicitRoles.has(role)) resolved[role] = row;
+  }
+  return resolved;
+}
+
 // ── Reorder helpers (scheduling-sheet-drag-reorder) ─────────────────────────
 //
 // Small pure array-move primitives. Never mutate the input; return the SAME
@@ -48,47 +80,6 @@ export function reorderArrayItem(array, draggedId, targetId) {
   const toIndex = array.findIndex((item) => item.id === targetId);
   if (toIndex === -1) return array;
   return moveArrayItem(array, draggedId, toIndex);
-}
-
-/** The user-created rows of a scheduling sheet day, starter rows excluded. */
-export function customRowsOf(rows) {
-  return (rows || []).filter((r) => r.kind !== 'starter');
-}
-
-/**
- * Rebuild `day.rows` with starter rows locked as a fixed prefix in their
- * existing order, followed by `reorderedCustomRows`.
- */
-function withCustomRows(rows, reorderedCustomRows) {
-  return [...rows.filter((r) => r.kind === 'starter'), ...reorderedCustomRows];
-}
-
-/**
- * Reorder custom rows by dragging one onto another's position. Starter rows
- * are never movable — a starter `draggedId` is a no-op, matching the
- * component only rendering drag handles on custom row labels.
- */
-export function reorderCustomRows(rows, draggedId, targetId) {
-  const custom = customRowsOf(rows);
-  const reordered = reorderArrayItem(custom, draggedId, targetId);
-  if (reordered === custom) return rows;
-  return withCustomRows(rows, reordered);
-}
-
-/** Move a custom row by a relative number of positions within the custom group. */
-export function moveCustomRowBy(rows, id, delta) {
-  const custom = customRowsOf(rows);
-  const reordered = moveArrayItemBy(custom, id, delta);
-  if (reordered === custom) return rows;
-  return withCustomRows(rows, reordered);
-}
-
-/** Move a custom row to an absolute index within the custom group (e.g. top/bottom). */
-export function moveCustomRowTo(rows, id, toIndex) {
-  const custom = customRowsOf(rows);
-  const reordered = moveArrayItem(custom, id, toIndex);
-  if (reordered === custom) return rows;
-  return withCustomRows(rows, reordered);
 }
 
 // ── Time parsing ────────────────────────────────────────────────────────────
@@ -195,10 +186,9 @@ function textOfCell(cell) {
  * printed sheet) so both surface the same warnings from one definition.
  */
 export function computeDoubleBookedEmails(day) {
-  const rowIdByLabel = {};
-  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
-  const beginsRow = rowIdByLabel['begins'];
-  const endsRow = rowIdByLabel['ends'];
+  const metadataRows = resolveMetadataRows(day.rows);
+  const beginsRow = metadataRows.begins?.id;
+  const endsRow = metadataRows.ends?.id;
   if (!beginsRow || !endsRow) return new Set();
 
   const windows = {}; // email -> [{begins, ends, colId}]

@@ -88,6 +88,62 @@ const focusCell = (key) => {
   fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Escape' });
 };
 
+describe('SchedulingSheetGrid - row creation', () => {
+  it('SSI-26: the Add row button submits one trimmed custom row', () => {
+    renderGrid();
+    fireEvent.change(screen.getByTestId('add-row-input'), { target: { value: '  Greeters  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    expect(onStructure.mock.calls[0][0].rows.at(-1)).toMatchObject({
+      label: 'Greeters',
+      kind: 'custom',
+    });
+    expect(onStructure.mock.calls[0][2]).toMatchObject({ successMessage: 'Row added' });
+  });
+
+  it('SSI-27: a failed Add row save retains the label for retry', () => {
+    onStructure.mockImplementation((_updates, _cellWrites, callbacks) => {
+      callbacks.onError(new Error('save failed'));
+    });
+    renderGrid();
+    fireEvent.change(screen.getByTestId('add-row-input'), { target: { value: 'Greeters' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+
+    expect(screen.getByTestId('add-row-input')).toHaveValue('Greeters');
+  });
+
+  it('SSI-28: Add row and Enter share one pending submission guard', () => {
+    renderGrid();
+    const input = screen.getByTestId('add-row-input');
+    fireEvent.change(input, { target: { value: 'Greeters' } });
+    const button = screen.getByRole('button', { name: 'Add row' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onStructure).toHaveBeenCalledTimes(1);
+    expect(input).toBeDisabled();
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onStructure).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSI-29: a successful Add row save clears and re-enables the input', () => {
+    renderGrid();
+    const input = screen.getByTestId('add-row-input');
+    fireEvent.change(input, { target: { value: 'Greeters' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add row' }));
+
+    const [, , callbacks] = onStructure.mock.calls[0];
+    act(() => callbacks.onSuccess());
+
+    expect(input).toHaveValue('');
+    expect(input).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add row' })).toBeDisabled();
+  });
+});
+
 describe('SchedulingSheetGrid — entering edit mode', () => {
   it('SSI-1: clicking an editable cell edits in place and opens no dialog over the sheet', () => {
     renderGrid();

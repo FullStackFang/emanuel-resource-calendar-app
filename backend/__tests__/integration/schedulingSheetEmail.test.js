@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-28)
+ * Scheduling Sheet email tests (SE-1 to SE-43)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -25,7 +25,7 @@ const icsBuilder = require('../../utils/icsBuilder');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-28)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-43)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -564,6 +564,73 @@ describe('Scheduling Sheet emails (SE-1 to SE-28)', () => {
     expect(ben).not.toContain('ATTENDEE');
   });
 
+  test('SE-29 renamed and reordered metadata roles feed the email body and calendar', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+    const renamedRows = [
+      { ...day.rows.find((row) => row.metadataRole === 'ends'), label: 'Wrap' },
+      day.rows.find((row) => row.id === rowId('Greeter')),
+      { ...day.rows.find((row) => row.metadataRole === 'location'), label: 'Where' },
+      { ...day.rows.find((row) => row.metadataRole === 'begins'), label: 'Go' },
+      { ...day.rows.find((row) => row.metadataRole === 'callTime'), label: 'Crew arrival' },
+      { ...day.rows.find((row) => row.metadataRole === 'doorsOpen'), label: 'House' },
+    ];
+    const structure = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: day._version, columns: day.columns, rows: renamedRows });
+    expect(structure.status).toBe(200);
+
+    const byRole = Object.fromEntries(structure.body.rows.map((row) => [row.metadataRole, row.id]));
+    await putCell(sheet._id, day._id, byRole.callTime, 'c1', { segments: [text('4:30 PM')] });
+    await putCell(sheet._id, day._id, byRole.begins, 'c1', { segments: [text('6:00 PM')] });
+    await putCell(sheet._id, day._id, byRole.ends, 'c1', { segments: [text('8:00 PM')] });
+    await putCell(sheet._id, day._id, byRole.location, 'c1', { segments: [loc('Wise Hall')] });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('4:30 PM');
+    expect(html).toMatch(/6:00 PM\s*&ndash;\s*8:00 PM/);
+    expect(html).toContain('Wise Hall');
+
+    const calendar = calendarFrom(sendSpy.mock.calls[0]);
+    expect(propsOf(calendar, 'DTSTART')).toEqual(['20270911T203000Z']);
+    expect(propsOf(calendar, 'DTEND')).toEqual(['20270912T000000Z']);
+    expect(propsOf(calendar, 'LOCATION')).toEqual(['Wise Hall']);
+  });
+
+  test('SE-30 historical orphaned cells do not create recipients, body content, or calendar events', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet);
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+    await db.collection(DAYS).updateOne(
+      { _id: new ObjectId(String(day._id)) },
+      {
+        $set: {
+          'cells.missing-row:missing-column': {
+            segments: [person('Ghost', 'ghost@x.org')],
+            note: null,
+          },
+          taggedEmails: ['ghost@x.org', 'sarah@x.org'],
+        },
+      }
+    );
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(1);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy.mock.calls[0][0]).toBe('sarah@x.org');
+    expect(sendSpy.mock.calls[0][2]).not.toContain('Ghost');
+    expect(calendarFrom(sendSpy.mock.calls[0])).not.toContain('Ghost');
+  });
+
   test('SE-19 a whole-workbook send puts both days in one file', async () => {
     const sheet = await createSheet();
     const a = await dayWithMetadata(sheet, { date: '2027-09-11', title: 'Erev RH' });
@@ -847,4 +914,202 @@ describe('Scheduling Sheet emails (SE-1 to SE-28)', () => {
     expect(calendarFrom(callFor('ben@x.org'))).not.toContain('Sarah Cohen');
   });
 
+  // ---------------------------------------------------------------------------
+  // Arbitrary day selection (dayIds) — openspec change
+  // scheduling-sheet-approver-editing-and-scoped-sharing, capability
+  // scheduling-sheet-scoped-distribution. Scope used to be a two-way branch
+  // (one dayId, or the whole workbook), so there was nothing to validate. An
+  // arbitrary list can be internally inconsistent, and the cost of accepting a
+  // bad one is a mass-mailing — so every rejection below also asserts that NO
+  // message went out, not merely that the status code was right.
+  // ---------------------------------------------------------------------------
+
+  /** Current server _version of a day, for the send snapshot preflight. */
+  async function versionOf(dayId) {
+    const doc = await db.collection(DAYS).findOne({ _id: new ObjectId(String(dayId)) });
+    return doc._version;
+  }
+
+  /** Three days a week apart, one person posted on all three. */
+  async function threeDaySheet() {
+    const sheet = await createSheet();
+    const a = await dayWithMetadata(sheet, { date: '2027-09-11', title: 'Erev RH' });
+    const b = await dayWithMetadata(sheet, { date: '2027-09-15', title: 'Tashlich' });
+    const c = await dayWithMetadata(sheet, { date: '2027-09-20', title: 'Kol Nidre' });
+    for (const d of [a, b, c]) {
+      await putCell(sheet._id, d.day._id, d.rowId('Greeter'), 'c1', {
+        segments: [person('Sarah', 'sarah@x.org')],
+      });
+    }
+    return { sheet, a, b, c };
+  }
+
+  test('SE-31 nonconsecutive dayIds cover exactly those days and skip the one between', async () => {
+    const { sheet, a, c } = await threeDaySheet();
+
+    const res = await sendSchedules(sheet._id, { dayIds: [String(c.day._id), String(a.day._id)] });
+    expect(res.status).toBe(200);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    const html = sendSpy.mock.calls[0][2];
+    expect(html).toContain('Sep 11');
+    expect(html).toContain('Sep 20');
+    // The unselected middle day must not appear at all.
+    expect(html).not.toContain('Sep 15');
+    // ...and the days are chronological even though the ids were not.
+    expect(html.indexOf('Sep 11')).toBeLessThan(html.indexOf('Sep 20'));
+  });
+
+  test('SE-32 an explicitly empty dayIds list is refused and never means every day', async () => {
+    const { sheet } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, { dayIds: [] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('EMPTY_SCOPE');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-33 an unknown day id is a 404 and sends nothing', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(a.day._id), String(new ObjectId())],
+    });
+    expect(res.status).toBe(404);
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-34 a day belonging to another workbook is refused exactly like an unknown one', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const other = await createSheet({ name: '2028 High Holy Days' });
+    const foreign = await dayWithMetadata(other, { date: '2028-09-11', title: 'Erev RH' });
+
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(a.day._id), String(foreign.day._id)],
+    });
+    expect(res.status).toBe(404);
+    // Nothing in the response may reveal the day exists in another workbook.
+    expect(JSON.stringify(res.body)).not.toMatch(/2028 High Holy Days/);
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-35 mixing dayIds with a legacy scope field is refused', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, { dayIds: [String(a.day._id)], wholeSheet: true });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('MIXED_SCOPE');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-36 the same day listed twice is refused rather than silently de-duplicated', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const id = String(a.day._id);
+    const res = await sendSchedules(sheet._id, { dayIds: [id, id] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('DUPLICATE_DAYS');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-37 an explicitly empty recipients list is refused, where it used to mean everyone', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, { dayIds: [String(a.day._id)], recipients: [] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('EMPTY_RECIPIENTS');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-38 a recipient named in different case still resolves to the assigned person', async () => {
+    // Person chips are free text, so the panel cannot guarantee the casing a
+    // caller will use. The cell writer lowercases the stored address, so the
+    // chip below is stored as 'sarah.levine@x.org' whatever case it arrived in;
+    // this pins that BOTH sides are normalized before comparison, so recipient
+    // selection cannot start silently matching nobody.
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2027-09-11' });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah Levine', 'Sarah.Levine@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(day._id)],
+      recipients: ['sarah.levine@X.ORG'],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(1);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy.mock.calls[0][0]).toBe('sarah.levine@x.org');
+  });
+
+  test('SE-39 an unassigned address is refused instead of being quietly dropped', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(a.day._id)],
+      recipients: ['sarah@x.org', 'stranger@x.org'],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INELIGIBLE_RECIPIENT');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-40 a stale send snapshot is a 409 that sends nothing; a current one sends', async () => {
+    const { sheet, a, c } = await threeDaySheet();
+    const dayIds = [String(a.day._id), String(c.day._id)];
+    const current = {
+      [dayIds[0]]: await versionOf(dayIds[0]),
+      [dayIds[1]]: await versionOf(dayIds[1]),
+    };
+
+    const stale = await sendSchedules(sheet._id, {
+      dayIds,
+      expectedDayVersions: { ...current, [dayIds[1]]: current[dayIds[1]] - 1 },
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('STALE_SHEET');
+    expect(stale.body.staleDayIds).toEqual([dayIds[1]]);
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    const fresh = await sendSchedules(sheet._id, { dayIds, expectedDayVersions: current });
+    expect(fresh.status).toBe(200);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('SE-41 a partial version map is a 400 — a new client bug, not an old client', async () => {
+    const { sheet, a, c } = await threeDaySheet();
+    const dayIds = [String(a.day._id), String(c.day._id)];
+    const res = await sendSchedules(sheet._id, {
+      dayIds,
+      expectedDayVersions: { [dayIds[0]]: await versionOf(dayIds[0]) },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INCOMPLETE_VERSIONS');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-42 perDay grouping is refused rather than silently sending one combined email', async () => {
+    const { sheet, a } = await threeDaySheet();
+    const res = await sendSchedules(sheet._id, { dayIds: [String(a.day._id)], grouping: 'perDay' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('UNSUPPORTED_GROUPING');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('SE-43 legacy dayId and wholeSheet requests behave exactly as they did', async () => {
+    const { sheet, a } = await threeDaySheet();
+
+    const oneDay = await sendSchedules(sheet._id, { dayId: String(a.day._id) });
+    expect(oneDay.status).toBe(200);
+    expect(oneDay.body.sent).toBe(1);
+    expect(sendSpy.mock.calls[0][2]).toContain('Sep 11');
+    expect(sendSpy.mock.calls[0][2]).not.toContain('Sep 20');
+
+    sendSpy.mockClear();
+    const whole = await sendSchedules(sheet._id, { wholeSheet: true });
+    expect(whole.status).toBe(200);
+    const html = sendSpy.mock.calls[0][2];
+    for (const d of ['Sep 11', 'Sep 15', 'Sep 20']) expect(html).toContain(d);
+
+    // No scope at all is still the original 400.
+    sendSpy.mockClear();
+    const noScope = await sendSchedules(sheet._id, {});
+    expect(noScope.status).toBe(400);
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
 });

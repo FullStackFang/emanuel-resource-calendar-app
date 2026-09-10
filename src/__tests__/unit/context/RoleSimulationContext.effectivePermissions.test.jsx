@@ -98,11 +98,12 @@ const EVENTS_VIEWER = {
 const EVENTS_ADMIN = { ...ADMIN, department: 'events' };
 
 function Probe() {
-  const { canManageUsers, canManageCalendarMarkers, isAdmin } = usePermissions();
+  const { canManageUsers, canManageCalendarMarkers, canManageAssignments, isAdmin } = usePermissions();
   return (
     <>
       <span data-testid="canManageUsers">{String(canManageUsers)}</span>
       <span data-testid="canManageCalendarMarkers">{String(canManageCalendarMarkers)}</span>
+      <span data-testid="canManageAssignments">{String(canManageAssignments)}</span>
       <span data-testid="isAdmin">{String(isAdmin)}</span>
     </>
   );
@@ -205,5 +206,13 @@ describe('RoleSimulationContext effective permissions passthrough', () => {
     renderProvider();
     await waitForSimulatedApprover();
     expect(screen.getByTestId('canManageCalendarMarkers').textContent).toBe('false');
+  });
+
+  it('EP-8: non-Events admin simulating approver can manage Scheduling Sheets', async () => {
+    localStorage.setItem('role_simulation_session', JSON.stringify({ roleKey: 'approver' }));
+    h.fetchPermissions.mockResolvedValue(ADMIN);
+    renderProvider();
+    await waitForSimulatedApprover();
+    expect(screen.getByTestId('canManageAssignments').textContent).toBe('true');
   });
 });

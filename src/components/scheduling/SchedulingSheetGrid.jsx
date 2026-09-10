@@ -18,14 +18,11 @@ import {
   cellPlainText,
   toLocationNameArray,
   computeDoubleBookedEmails,
-  customRowsOf,
   moveArrayItem,
   moveArrayItemBy,
   reorderArrayItem,
-  moveCustomRowBy,
-  moveCustomRowTo,
-  reorderCustomRows,
   parseTimeToken,
+  resolveMetadataRows,
 } from './sheetEventUtils';
 
 const newId = () =>
@@ -34,6 +31,15 @@ const newId = () =>
 const cellKeyOf = (rowId, colId) => `${rowId}:${colId}`;
 
 const MATCH_CAP = 5;
+
+const METADATA_ROLE_OPTIONS = [
+  { value: null, label: 'Ordinary row' },
+  { value: 'location', label: 'Location' },
+  { value: 'callTime', label: 'Call time' },
+  { value: 'doorsOpen', label: 'Doors open' },
+  { value: 'begins', label: 'Begins' },
+  { value: 'ends', label: 'Ends' },
+];
 
 /** "Thu, Sep 11 · 18:00–21:00" for an event-mention picker row. */
 function formatEventWhen(event) {
@@ -61,14 +67,14 @@ function snapshotOf(event) {
   };
 }
 
-// Starter rows an event link can prefill, matched by label (case-insensitive) so
-// a renamed or deleted starter row simply opts out of prefill.
+// Metadata rows an event link can prefill. Their stable role survives rename
+// and reorder; legacy documents use the shared exact-label compatibility rule.
 const STARTER_PREFILL = [
-  { label: 'location', kind: 'locations' },
-  { label: 'call time', field: 'setupTime' },
-  { label: 'doors open', field: 'doorOpenTime' },
-  { label: 'begins', field: 'startTime' },
-  { label: 'ends', field: 'endTime' },
+  { role: 'location', kind: 'locations' },
+  { role: 'callTime', field: 'setupTime' },
+  { role: 'doorsOpen', field: 'doorOpenTime' },
+  { role: 'begins', field: 'startTime' },
+  { role: 'ends', field: 'endTime' },
 ];
 
 /**
@@ -79,11 +85,10 @@ const STARTER_PREFILL = [
  * unmatched names still become chips with locationId null.
  */
 function buildPrefillCells(event, colId, day, locations) {
-  const rowIdByLabel = {};
-  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
+  const metadataRows = resolveMetadataRows(day.rows);
   const writes = [];
   for (const spec of STARTER_PREFILL) {
-    const rowId = rowIdByLabel[spec.label];
+    const rowId = metadataRows[spec.role]?.id;
     if (!rowId) continue;
     const existing = (day.cells || {})[cellKeyOf(rowId, colId)];
     if (existing && existing.segments && existing.segments.length) continue;
@@ -190,17 +195,22 @@ export default function SchedulingSheetGrid({
   const [newColumnName, setNewColumnName] = useState('');
   const [addingColumnSubmitting, setAddingColumnSubmitting] = useState(false);
   const [newRowLabel, setNewRowLabel] = useState('');
+  const [addingRowSubmitting, setAddingRowSubmitting] = useState(false);
   const [renaming, setRenaming] = useState(null); // { kind: 'row'|'column', id, value }
   const [confirmDelete, setConfirmDelete] = useState(null); // { kind, id }
   const [dragState, setDragState] = useState(null); // { kind: 'column'|'row', id }
   const [dropTarget, setDropTarget] = useState(null); // { kind: 'column'|'row', id }
   const [openMoveMenu, setOpenMoveMenu] = useState(null); // { kind: 'column'|'row', id }
+  const [openMetadataMenu, setOpenMetadataMenu] = useState(null); // row id
+  const [metadataError, setMetadataError] = useState(null);
 
   const doubleBooked = useMemo(() => computeDoubleBookedEmails(day), [day]);
+  const metadataRows = useMemo(() => resolveMetadataRows(day.rows), [day.rows]);
+  const metadataRoleByRowId = useMemo(() => Object.fromEntries(
+    Object.entries(metadataRows).map(([role, row]) => [row.id, role])
+  ), [metadataRows]);
 
-  const starterRows = (day.rows || []).filter((r) => r.kind === 'starter');
-  const customRows = customRowsOf(day.rows);
-  const orderedRows = [...starterRows, ...customRows];
+  const orderedRows = day.rows || [];
 
   // ── In-cell editing ──────────────────────────────────────────────────────
 
@@ -367,18 +377,18 @@ export default function SchedulingSheetGrid({
   };
 
   const moveRowBy = (id, delta) => {
-    const next = moveCustomRowBy(day.rows || [], id, delta);
+    const next = moveArrayItemBy(day.rows || [], id, delta);
     if (next !== day.rows) onStructure({ rows: next });
     setOpenMoveMenu(null);
   };
   const moveRowTo = (id, toIndex) => {
-    const next = moveCustomRowTo(day.rows || [], id, toIndex);
+    const next = moveArrayItem(day.rows || [], id, toIndex);
     if (next !== day.rows) onStructure({ rows: next });
     setOpenMoveMenu(null);
   };
   const dropRow = (targetId) => {
     if (!dragState || dragState.kind !== 'row') return;
-    const next = reorderCustomRows(day.rows || [], dragState.id, targetId);
+    const next = reorderArrayItem(day.rows || [], dragState.id, targetId);
     if (next !== day.rows) onStructure({ rows: next });
     setDragState(null);
     setDropTarget(null);
@@ -472,9 +482,21 @@ export default function SchedulingSheetGrid({
   };
 
   const addRow = () => {
-    if (!newRowLabel.trim()) return;
-    onStructure({ rows: [...(day.rows || []), { id: newId(), label: newRowLabel.trim(), kind: 'custom' }] });
-    setNewRowLabel('');
+    const label = newRowLabel.trim();
+    if (!label || addingRowSubmitting) return;
+    setAddingRowSubmitting(true);
+    onStructure(
+      { rows: [...(day.rows || []), { id: newId(), label, kind: 'custom' }] },
+      undefined,
+      {
+        successMessage: 'Row added',
+        onSuccess: () => {
+          setNewRowLabel('');
+          setAddingRowSubmitting(false);
+        },
+        onError: () => setAddingRowSubmitting(false),
+      }
+    );
   };
 
   const commitRename = () => {
@@ -504,6 +526,28 @@ export default function SchedulingSheetGrid({
     if (kind === 'row') onStructure({ rows: (day.rows || []).filter((r) => r.id !== id) });
     else onStructure({ columns: (day.columns || []).filter((c) => c.id !== id) });
     setConfirmDelete(null);
+  };
+
+  const setRowMetadataRole = (row, role) => {
+    setMetadataError(null);
+    const explicitOwner = role && (day.rows || []).find(
+      (candidate) => candidate.id !== row.id && candidate.metadataRole === role
+    );
+    if (explicitOwner) {
+      const roleLabel = METADATA_ROLE_OPTIONS.find((option) => option.value === role)?.label || role;
+      setMetadataError(`${roleLabel} is already assigned to ${explicitOwner.label}`);
+      return;
+    }
+    onStructure(
+      {
+        rows: (day.rows || []).map((candidate) => (
+          candidate.id === row.id ? { ...candidate, metadataRole: role } : candidate
+        )),
+      },
+      undefined,
+      { successMessage: 'Row metadata updated' }
+    );
+    setOpenMetadataMenu(null);
   };
 
   return (
@@ -649,8 +693,7 @@ export default function SchedulingSheetGrid({
         </thead>
         <tbody>
           {orderedRows.map((row) => {
-            const isCustom = row.kind !== 'starter';
-            const customIndex = isCustom ? customRows.findIndex((r) => r.id === row.id) : -1;
+            const rowIndex = orderedRows.findIndex((r) => r.id === row.id);
             const isDragging = dragState && dragState.kind === 'row' && dragState.id === row.id;
             const isDropTarget = dropTarget && dropTarget.kind === 'row' && dropTarget.id === row.id;
             const menuOpen = openMoveMenu && openMoveMenu.kind === 'row' && openMoveMenu.id === row.id;
@@ -662,15 +705,15 @@ export default function SchedulingSheetGrid({
               <th
                 className="ss-row-label"
                 data-testid={`row-label-${row.id}`}
-                onDragOver={canEdit && isCustom ? (e) => {
+                onDragOver={canEdit ? (e) => {
                   if (!dragState || dragState.kind !== 'row') return;
                   e.preventDefault();
                   setDropTarget({ kind: 'row', id: row.id });
                 } : undefined}
-                onDragLeave={canEdit && isCustom ? () => setDropTarget((dt) => (dt && dt.kind === 'row' && dt.id === row.id ? null : dt)) : undefined}
-                onDrop={canEdit && isCustom ? (e) => { e.preventDefault(); dropRow(row.id); } : undefined}
+                onDragLeave={canEdit ? () => setDropTarget((dt) => (dt && dt.kind === 'row' && dt.id === row.id ? null : dt)) : undefined}
+                onDrop={canEdit ? (e) => { e.preventDefault(); dropRow(row.id); } : undefined}
               >
-                {canEdit && isCustom && (
+                {canEdit && (
                   <span className="ss-reorder-wrap">
                     <button
                       type="button"
@@ -693,10 +736,10 @@ export default function SchedulingSheetGrid({
                     </button>
                     {menuOpen && (
                       <div className="ss-move-menu" data-testid={`row-move-menu-${row.id}`}>
-                        <button type="button" onClick={() => moveRowBy(row.id, -1)} disabled={customIndex <= 0}>Move up</button>
-                        <button type="button" onClick={() => moveRowBy(row.id, 1)} disabled={customIndex === customRows.length - 1}>Move down</button>
-                        <button type="button" onClick={() => moveRowTo(row.id, 0)} disabled={customIndex <= 0}>Move to top</button>
-                        <button type="button" onClick={() => moveRowTo(row.id, customRows.length - 1)} disabled={customIndex === customRows.length - 1}>Move to bottom</button>
+                        <button type="button" onClick={() => moveRowBy(row.id, -1)} disabled={rowIndex <= 0}>Move up</button>
+                        <button type="button" onClick={() => moveRowBy(row.id, 1)} disabled={rowIndex === orderedRows.length - 1}>Move down</button>
+                        <button type="button" onClick={() => moveRowTo(row.id, 0)} disabled={rowIndex <= 0}>Move to top</button>
+                        <button type="button" onClick={() => moveRowTo(row.id, orderedRows.length - 1)} disabled={rowIndex === orderedRows.length - 1}>Move to bottom</button>
                       </div>
                     )}
                   </span>
@@ -716,6 +759,38 @@ export default function SchedulingSheetGrid({
                     title={row.kind === 'starter' ? 'A starter row — rename or delete it like any other row' : undefined}
                   >
                     {row.label}
+                  </span>
+                )}
+                {canEdit && (
+                  <span className="ss-metadata-wrap">
+                    <button
+                      type="button"
+                      className={`ss-metadata-button${metadataRoleByRowId[row.id] ? ' assigned' : ''}`}
+                      aria-label={`Set metadata role for ${row.label}`}
+                      aria-expanded={openMetadataMenu === row.id}
+                      onClick={() => {
+                        setMetadataError(null);
+                        setOpenMetadataMenu((id) => (id === row.id ? null : row.id));
+                      }}
+                      title="Set how this row supplies schedule times or locations"
+                    >
+                      role
+                    </button>
+                    {openMetadataMenu === row.id && (
+                      <div className="ss-metadata-menu" role="group" aria-label={`Metadata role for ${row.label}`}>
+                        {METADATA_ROLE_OPTIONS.map((option) => (
+                          <button
+                            key={option.value || 'ordinary'}
+                            type="button"
+                            className={metadataRoleByRowId[row.id] === option.value ? 'selected' : ''}
+                            onClick={() => setRowMetadataRole(row, option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                        {metadataError && <div className="ss-metadata-error" role="alert">{metadataError}</div>}
+                      </div>
+                    )}
                   </span>
                 )}
                 {canEdit && (
@@ -805,14 +880,26 @@ export default function SchedulingSheetGrid({
           {canEdit && (
             <tr className="ss-add-row">
               <th className="ss-row-label">
-                <input
-                  className="ss-add-row-input"
-                  data-testid="add-row-input"
-                  placeholder="+ Add row"
-                  value={newRowLabel}
-                  onChange={(e) => setNewRowLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addRow()}
-                />
+                <div className="ss-add-row-controls">
+                  <input
+                    className="ss-add-row-input"
+                    data-testid="add-row-input"
+                    aria-label="New row label"
+                    placeholder="New row label"
+                    value={newRowLabel}
+                    disabled={addingRowSubmitting}
+                    onChange={(e) => setNewRowLabel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addRow()}
+                  />
+                  <button
+                    type="button"
+                    className="ss-add-btn"
+                    disabled={!newRowLabel.trim() || addingRowSubmitting}
+                    onClick={addRow}
+                  >
+                    {addingRowSubmitting ? 'Adding...' : 'Add row'}
+                  </button>
+                </div>
               </th>
               <td className="ss-add-row-hint" colSpan={(day.columns || []).length + 1}>
                 Cells take free text; @ tags a person or location. In a column name, @ links an event.

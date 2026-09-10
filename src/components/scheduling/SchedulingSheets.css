@@ -564,6 +564,19 @@
   padding: 2px 0;
   width: 120px;
 }
+.ss-add-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ss-add-row-controls .ss-add-btn {
+  flex: none;
+  white-space: nowrap;
+}
+.ss-add-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .ss-add-row-hint { color: var(--color-neutral-400, #a8a29e); font-size: 11px; }
 
 /* ── Reorder: drag handles + fallback move menu ─────────────────────────
@@ -634,6 +647,64 @@ tr.ss-drop-target .ss-row-label {
 }
 .ss-move-menu button:hover:not(:disabled) { background: var(--bg-secondary); }
 .ss-move-menu button:disabled { color: var(--color-neutral-300); cursor: not-allowed; }
+
+.ss-metadata-wrap { position: relative; display: inline-block; margin-left: 5px; }
+.ss-metadata-button {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  padding: 1px 4px;
+  font-size: 9px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ss-metadata-button.assigned {
+  border-color: var(--color-primary-300);
+  color: var(--color-primary-700);
+  background: var(--color-primary-50);
+}
+.ss-metadata-button:focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 1px; }
+.ss-metadata-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 31;
+  min-width: 160px;
+  margin-top: 3px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary, #fff);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.ss-metadata-menu button {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary, #2d3748);
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ss-metadata-menu button:hover,
+.ss-metadata-menu button:focus-visible,
+.ss-metadata-menu button.selected { background: var(--bg-secondary); }
+.ss-metadata-error {
+  max-width: 220px;
+  padding: 6px 8px;
+  color: var(--color-error-700, #b91c1c);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+}
 
 /* ── Chips ───────────────────────────────────────────────────────────── */
 
@@ -1257,7 +1328,7 @@ tr.ss-drop-target .ss-row-label {
   .ss-sheet-card { position: absolute; left: 0; top: 0; width: 100%; border: none; }
   .ss-actions, .ss-mini-delete, .ss-add-btn, .ss-add-col, .ss-add-row,
   .ss-chip-remove, .ss-chip-action, .ss-note-marker, .ss-cell-spacer,
-  .ss-link-refresh, .ss-drag-handle, .ss-move-menu,
+  .ss-link-refresh, .ss-drag-handle, .ss-move-menu, .ss-metadata-wrap,
   /* In-cell editing chrome. The suggestion list is portaled OUTSIDE
      .ss-sheet-card, so `body * { visibility: hidden }` already hides it —
      display:none makes that intentional rather than incidental. */
@@ -1269,4 +1340,92 @@ tr.ss-drop-target .ss-row-label {
   .ss-grid thead th, .ss-row-label { position: static; }
   /* Rows grow: every chip visible, no truncation. */
   .ss-chip { white-space: normal; }
+}
+
+/* ── Email panel: day rail ────────────────────────────────────────────────────
+   Scope is a checkbox per day rather than two radio buttons, and the day list
+   sits BESIDE the roster instead of above it. The panel is already 1120px wide
+   and its roster grid already scrolls, so horizontal space is free here while
+   extra vertical length pushes the footer off screen. Collapses to one column
+   on a narrow viewport, where that trade reverses. */
+.ss-email-split {
+  display: grid;
+  grid-template-columns: 266px 1fr;
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+}
+.ss-day-rail {
+  border-right: 1px solid var(--border-default);
+  padding: 16px 16px 16px 20px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  overflow-y: auto;
+}
+.ss-rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ss-rail-title {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+.ss-rail-quick { display: flex; gap: 8px; font-size: 11.5px; }
+.ss-day-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ss-day-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 9px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.ss-day-row:hover { border-color: var(--border-strong); }
+.ss-day-row.ss-day-on { border-color: var(--color-primary-500); background: var(--color-primary-50, #eef4fb); }
+/* The day the grid behind this panel is showing, so "This day" is locatable. */
+.ss-day-row.ss-day-active { box-shadow: inset 3px 0 0 var(--color-primary-500); }
+.ss-day-row input { margin: 1px 0 0; flex: none; }
+.ss-day-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.ss-day-when { font-weight: var(--font-medium, 500); white-space: nowrap; }
+.ss-day-what {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ss-day-badge { font-size: 10.5px; color: var(--text-secondary); flex: none; padding-top: 1px; }
+.ss-rail-foot {
+  margin-top: auto;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-default);
+}
+.ss-email-main { padding: 16px 20px; min-width: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.ss-email-note-info {
+  background: var(--color-info-50, #f0f9ff);
+  border-color: #bae6fd;
+  color: #075985;
+}
+
+@media (max-width: 720px) {
+  .ss-email-split { grid-template-columns: 1fr; }
+  .ss-day-rail {
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+    padding: 14px 16px;
+  }
 }

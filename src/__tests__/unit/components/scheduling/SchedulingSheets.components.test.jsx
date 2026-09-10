@@ -6,7 +6,7 @@
 // double-booking warning, and the placeholder skip messaging (placeholders
 // are reported, never a block).
 //
-// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel)
+// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel, 1-16)
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -241,11 +241,11 @@ describe('SheetCellEditor', () => {
 
 function buildDay() {
   const rows = [
-    { id: 'rLoc', label: 'Location', kind: 'starter' },
-    { id: 'rCall', label: 'Call Time', kind: 'starter' },
-    { id: 'rDoors', label: 'Doors Open', kind: 'starter' },
-    { id: 'rBegins', label: 'Begins', kind: 'starter' },
-    { id: 'rEnds', label: 'Ends', kind: 'starter' },
+      { id: 'rLoc', label: 'Location', kind: 'starter', metadataRole: 'location' },
+      { id: 'rCall', label: 'Call Time', kind: 'starter', metadataRole: 'callTime' },
+      { id: 'rDoors', label: 'Doors Open', kind: 'starter', metadataRole: 'doorsOpen' },
+      { id: 'rBegins', label: 'Begins', kind: 'starter', metadataRole: 'begins' },
+      { id: 'rEnds', label: 'Ends', kind: 'starter', metadataRole: 'ends' },
     { id: 'rUshers', label: 'Ushers', kind: 'custom' },
   ];
   const columns = [
@@ -434,6 +434,30 @@ describe('SchedulingSheetGrid', () => {
     expect(byRow.rEnds.cell.segments).toEqual([{ type: 'text', text: '9:00 PM' }]);
   });
 
+  it('SSG-8a: event prefill follows renamed and reordered metadata roles', () => {
+    const day = buildDay();
+    day.rows = [
+      { ...day.rows.find((row) => row.id === 'rEnds'), label: 'Wrap' },
+      day.rows.find((row) => row.id === 'rUshers'),
+      { ...day.rows.find((row) => row.id === 'rLoc'), label: 'Where' },
+      { ...day.rows.find((row) => row.id === 'rBegins'), label: 'Go' },
+      { ...day.rows.find((row) => row.id === 'rCall'), label: 'Crew arrival' },
+      { ...day.rows.find((row) => row.id === 'rDoors'), label: 'House' },
+    ];
+    renderGrid({ day, publishedEvents: LINKABLE });
+    fireEvent.click(screen.getByTestId('add-column-button'));
+    fireEvent.change(screen.getByTestId('add-column-input'), { target: { value: '@din' } });
+    fireEvent.click(screen.getByTestId('event-option-ev9'));
+
+    const [, cellWrites] = onStructure.mock.calls[0];
+    const byRow = Object.fromEntries(cellWrites.map((write) => [write.rowId, write.cell]));
+    expect(byRow.rLoc.segments[0]).toEqual(expect.objectContaining({ type: 'location', name: 'Wise Hall' }));
+    expect(byRow.rCall.segments).toEqual([{ type: 'text', text: '5:00 PM' }]);
+    expect(byRow.rDoors.segments).toEqual([{ type: 'text', text: '5:30 PM' }]);
+    expect(byRow.rBegins.segments).toEqual([{ type: 'text', text: '6:00 PM' }]);
+    expect(byRow.rEnds.segments).toEqual([{ type: 'text', text: '9:00 PM' }]);
+  });
+
   it('SSG-9: plain text in the add-column input still adds a free-standing column, no link, no prefill', () => {
     renderGrid({ publishedEvents: LINKABLE });
     fireEvent.click(screen.getByTestId('add-column-button'));
@@ -538,47 +562,89 @@ describe('SchedulingSheetGrid', () => {
     expect(within(lastMenu).getByText('Move to end')).toBeDisabled();
   });
 
-  it('SSG-17: dragging a custom row onto another custom row reorders rows below the locked starter prefix', () => {
+  it('SSG-17: dragging a starter row below a custom row preserves row identity, metadata, and cells', () => {
     const day = buildDay();
-    day.rows.push({ id: 'rGreeters', label: 'Greeters', kind: 'custom' });
     renderGrid({ day });
 
-    const handle = screen.getByTestId('row-drag-handle-rGreeters');
+    const handle = screen.getByTestId('row-drag-handle-rLoc');
     const target = screen.getByTestId('row-label-rUshers');
     fireEvent.dragStart(handle);
     fireEvent.dragOver(target);
     fireEvent.drop(target);
 
     expect(onStructure).toHaveBeenCalledTimes(1);
-    const rows = onStructure.mock.calls[0][0].rows;
-    expect(rows.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rDoors', 'rBegins', 'rEnds', 'rGreeters', 'rUshers']);
+    const updates = onStructure.mock.calls[0][0];
+    expect(updates.rows.map((r) => r.id)).toEqual(['rCall', 'rDoors', 'rBegins', 'rEnds', 'rUshers', 'rLoc']);
+    expect(updates.rows.at(-1)).toBe(day.rows[0]);
+    expect(updates.rows.at(-1).metadataRole).toBe('location');
+    expect(updates.cells).toBeUndefined();
+    expect(day.cells['rUshers:c1'].note.text).toBe('North door');
   });
 
-  it('SSG-18: starter rows have no drag handle or move menu', () => {
+  it('SSG-18: starter rows expose drag handles and keyboard move menus', () => {
     renderGrid();
-    expect(screen.queryByTestId('row-drag-handle-rLoc')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('row-drag-handle-rBegins')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('row-drag-handle-rLoc'));
+    expect(screen.getByTestId('row-move-menu-rLoc')).toBeInTheDocument();
+    expect(screen.getByTestId('row-drag-handle-rBegins')).toBeInTheDocument();
   });
 
-  it('SSG-19: the custom row move menu moves up/down within the custom group and calls onStructure', () => {
-    const day = buildDay();
-    day.rows.push({ id: 'rGreeters', label: 'Greeters', kind: 'custom' });
-    renderGrid({ day });
-
-    fireEvent.click(screen.getByTestId('row-drag-handle-rGreeters'));
-    const menu = screen.getByTestId('row-move-menu-rGreeters');
-    fireEvent.click(within(menu).getByText('Move up'));
-
-    const rows = onStructure.mock.calls[0][0].rows;
-    expect(rows.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rDoors', 'rBegins', 'rEnds', 'rGreeters', 'rUshers']);
-  });
-
-  it('SSG-20: a single custom row has no-op move up/down disabled', () => {
+  it('SSG-19: the keyboard move menu moves a custom row across a starter row', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('row-drag-handle-rUshers'));
     const menu = screen.getByTestId('row-move-menu-rUshers');
-    expect(within(menu).getByText('Move up')).toBeDisabled();
+    fireEvent.click(within(menu).getByText('Move up'));
+
+    const rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rDoors', 'rBegins', 'rUshers', 'rEnds']);
+  });
+
+  it('SSG-20: row move controls disable only true array boundaries', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('row-drag-handle-rUshers'));
+    const menu = screen.getByTestId('row-move-menu-rUshers');
+    expect(within(menu).getByText('Move up')).not.toBeDisabled();
     expect(within(menu).getByText('Move down')).toBeDisabled();
+    expect(within(menu).getByText('Move to top')).not.toBeDisabled();
+    expect(within(menu).getByText('Move to bottom')).toBeDisabled();
+  });
+
+  it('SSG-21: the row metadata action assigns and removes roles with native buttons', () => {
+    const day = buildDay();
+    day.rows = day.rows.filter((row) => row.metadataRole !== 'doorsOpen');
+    renderGrid({ day });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Ushers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Doors open' }));
+
+    let rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.find((row) => row.id === 'rUshers').metadataRole).toBe('doorsOpen');
+
+    onStructure.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Location' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ordinary row' }));
+    rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.find((row) => row.id === 'rLoc').metadataRole).toBeNull();
+  });
+
+  it('SSG-22: duplicate metadata roles show an accessible error', () => {
+    renderGrid();
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Ushers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Location' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/Location is already assigned to Location/i);
+    expect(onStructure).not.toHaveBeenCalled();
+  });
+
+  it('SSG-23: an ordinary row can recover a role after its metadata row was deleted', () => {
+    const day = buildDay();
+    day.rows = day.rows.filter((row) => row.id !== 'rLoc');
+    renderGrid({ day });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Ushers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Location' }));
+
+    const rows = onStructure.mock.calls[0][0].rows;
+    expect(rows.find((row) => row.id === 'rUshers').metadataRole).toBe('location');
   });
 
   it('SSG-21: read-only users see no reorder handles or move menus', () => {
@@ -819,6 +885,35 @@ function buildSheetForEmail({ withPlaceholder = false, emailStatus = [] } = {}) 
   return { sheet: { _id: 's1', name: '2027 High Holy Days', days: [day] }, day };
 }
 
+/**
+ * Three days whose rosters DIFFER, so a day selection that is wrong in either
+ * direction is visible: only the middle day has Miriam, and only the last has
+ * Ben. Versions differ too, so a send snapshot cannot pass by coincidence.
+ */
+function buildMultiDaySheet() {
+  const chip = (name, email) => ({
+    type: 'person', userId: null, name, email, placeholder: false, callTimeOverride: null,
+  });
+  const mkDay = (_id, date, title, _version, segments) => ({
+    _id, date, title, _version,
+    rows: [{ id: 'rU', label: 'Ushers', kind: 'custom' }],
+    columns: [{ id: 'c1', name: 'Service', linkedEvent: null }],
+    cells: { 'rU:c1': { segments, note: null } },
+    taggedEmails: segments.map((seg) => seg.email).filter(Boolean),
+    emailLog: [],
+    emailStatus: [],
+  });
+  const d1 = mkDay('d1', '2027-09-11', 'Erev RH', 3, [chip('Sarah Levine', 'sarah@x.org')]);
+  const d2 = mkDay('d2', '2027-09-15', 'Tashlich', 5, [chip('Miriam Cohen', 'miriam@x.org')]);
+  const d3 = mkDay('d3', '2027-09-20', 'Kol Nidre', 7, [
+    chip('Sarah Levine', 'sarah@x.org'), chip('Ben Ortiz', 'ben@x.org'),
+  ]);
+  return { sheet: { _id: 's1', name: '2027 High Holy Days', days: [d1, d2, d3] }, d1, d2, d3 };
+}
+
+const resolvedSend = () =>
+  vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: [] });
+
 describe('EmailSchedulesPanel', () => {
   it('SEP-1: recipients render with per-person status (not yet emailed / sent / stale)', () => {
     const { sheet, day } = buildSheetForEmail({
@@ -838,6 +933,20 @@ describe('EmailSchedulesPanel', () => {
     expect(note).toHaveTextContent('@usher_team');
     expect(note).not.toHaveTextContent(/blocked/i);
     expect(screen.getByTestId('send-schedules-button')).not.toBeDisabled();
+  });
+
+  it('SEP-9: historical orphaned cells do not appear in the recipient roster', () => {
+    const { sheet, day } = buildSheetForEmail();
+    day.cells['missing-row:missing-column'] = {
+      segments: [{ type: 'person', name: 'Ghost', email: 'ghost@x.org', placeholder: false }],
+      note: null,
+    };
+    day.taggedEmails.push('ghost@x.org');
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Sarah Levine')).toBeInTheDocument();
+    expect(screen.queryByText('Ghost')).not.toBeInTheDocument();
+    expect(screen.queryByText('ghost@x.org')).not.toBeInTheDocument();
   });
 
   // The admin-only allowPlaceholders override is GONE along with the block.
@@ -876,23 +985,31 @@ describe('EmailSchedulesPanel', () => {
     expect(onSend).not.toHaveBeenCalled();
 
     fireEvent.click(button);
-    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ dayId: 'd1' }));
+    // Was `dayId: 'd1'`. The panel states scope as an explicit day LIST now; the
+    // singular legacy field remains accepted by the server, not emitted here.
+    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ dayIds: ['d1'] }));
 
     const results = await screen.findByTestId('send-results');
     expect(within(results).getByTestId('result-bad@x.org')).toHaveTextContent(/mailbox unavailable/);
     expect(within(results).getByTestId('result-sarah@x.org')).toHaveTextContent(/Sent/);
   });
 
-  it('SEP-5: whole-sheet scope sends wholeSheet: true', () => {
+  // Was 'whole-sheet scope sends wholeSheet: true'. The day rail replaced the
+  // scope radios, and the new panel always states its scope EXPLICITLY — so
+  // 'every day' is a full dayIds list, not the legacy flag. `wholeSheet` stays
+  // a supported input on the server for older clients (SE-43); it is simply no
+  // longer something this panel emits.
+  it('SEP-5: selecting every day sends explicit dayIds, not the legacy wholeSheet flag', () => {
     const { sheet, day } = buildSheetForEmail();
     const onSend = vi.fn().mockResolvedValue({ sent: 1, failed: 0, results: [], skippedPlaceholders: [] });
     render(<EmailSchedulesPanel sheet={sheet} activeDay={day} onSend={onSend} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText(/All days in this sheet/));
+    fireEvent.click(screen.getByTestId('days-all'));
     const button = screen.getByTestId('send-schedules-button');
     fireEvent.click(button);
     fireEvent.click(button);
-    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ wholeSheet: true }));
+    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ dayIds: ['d1'] }));
+    expect(onSend.mock.calls[0][0]).not.toHaveProperty('wholeSheet');
   });
 
   // Default ON, because a calendar attachment nobody remembers to tick is
@@ -952,5 +1069,117 @@ describe('EmailSchedulesPanel', () => {
     fireEvent.click(button2);
     fireEvent.click(button2);
     expect(await screen.findByTestId('attachment-note')).not.toHaveTextContent(/calendar file/i);
+  });
+
+  // ───────────────────── day rail: arbitrary day selection ─────────────────────
+  // openspec change scheduling-sheet-approver-editing-and-scoped-sharing,
+  // capability scheduling-sheet-scoped-distribution. Scope used to be two radio
+  // buttons (this day / every day); it is now a checkbox per day, so a send can
+  // cover any subset.
+
+  it('SEP-10: the rail lists every day and starts on the active day alone', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('day-option-d1')).toBeChecked();
+    expect(screen.getByTestId('day-option-d2')).not.toBeChecked();
+    expect(screen.getByTestId('day-option-d3')).not.toBeChecked();
+
+    // The roster is derived from the selection, so only day one's person shows.
+    expect(screen.getByTestId('recipient-sarah@x.org')).toBeInTheDocument();
+    expect(screen.queryByTestId('recipient-miriam@x.org')).toBeNull();
+  });
+
+  it('SEP-11: nonconsecutive days recompute the roster and send exactly those days', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('day-option-d3'));
+
+    // Day three brings Ben in; day two was never selected, so Miriam stays out.
+    expect(screen.getByTestId('recipient-ben@x.org')).toBeInTheDocument();
+    expect(screen.queryByTestId('recipient-miriam@x.org')).toBeNull();
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ dayIds: ['d1', 'd3'] }));
+  });
+
+  it('SEP-12: All selects every day; None clears it and disables sending', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={vi.fn()} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('days-all'));
+    expect(screen.getByTestId('day-option-d2')).toBeChecked();
+    expect(screen.getByTestId('recipient-miriam@x.org')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('days-none'));
+    expect(screen.getByTestId('day-option-d1')).not.toBeChecked();
+    // An empty selection must never fall through to sending everybody.
+    expect(screen.getByTestId('send-schedules-button')).toBeDisabled();
+  });
+
+  it('SEP-13: changing the day selection restores every eligible recipient', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={vi.fn()} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('days-all'));
+    fireEvent.click(screen.getByTestId('recipient-toggle-sarah@x.org'));
+    expect(screen.getByTestId('recipient-toggle-sarah@x.org')).not.toBeChecked();
+
+    // A different roster invalidates a selection made against the old one, so
+    // the deselection is dropped rather than silently carried across.
+    fireEvent.click(screen.getByTestId('day-option-d2'));
+    expect(screen.getByTestId('recipient-toggle-sarah@x.org')).toBeChecked();
+  });
+
+  it('SEP-14: changing anything after arming requires a fresh first click', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    expect(button).toHaveTextContent(/confirm/i);
+
+    fireEvent.click(screen.getByTestId('day-option-d3'));
+    expect(button).not.toHaveTextContent(/confirm/i);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('SEP-15: the send carries a version snapshot for exactly the selected days', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('day-option-d3'));
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    // Unselected day two must be absent: the server requires an entry for every
+    // selected day and rejects a partial map (SE-41).
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedDayVersions: { d1: 3, d3: 7 } })
+    );
+  });
+
+  it('SEP-16: the PDF attachment defaults on and can be turned off independently', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('include-pdf')).toBeChecked();
+    fireEvent.click(screen.getByTestId('include-pdf'));
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    // The calendar file is a separate decision and stays on.
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({ includePdf: false, includeCalendar: true })
+    );
   });
 });

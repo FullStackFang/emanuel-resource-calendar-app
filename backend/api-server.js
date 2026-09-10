@@ -20418,17 +20418,33 @@ const icsBuilder = require('./utils/icsBuilder');
 const { buildMyAssignmentsUrl } = require('./utils/eventDeepLink');
 const { todayInZone, shiftDateString } = require('./utils/localDate');
 const { randomUUID } = require('crypto');
+const {
+  validateExplicitMetadataRoles,
+  normalizeSheetRows,
+  resolveMetadataRows,
+} = require('./utils/schedulingSheetMetadata');
 
 // The furthest back GET /api/my-assignments will look. A season's past
 // assignments are the use case; a year would make the response a history dump.
 const MAX_ASSIGNMENT_PAST_DAYS = 365;
 
-const SHEET_STARTER_ROW_LABELS = ['Location', 'Call Time', 'Doors Open', 'Begins', 'Ends'];
+const SHEET_STARTER_ROWS = [
+  { label: 'Location', metadataRole: 'location' },
+  { label: 'Call Time', metadataRole: 'callTime' },
+  { label: 'Doors Open', metadataRole: 'doorsOpen' },
+  { label: 'Begins', metadataRole: 'begins' },
+  { label: 'Ends', metadataRole: 'ends' },
+];
 const SHEET_MAX_ROWS = 200;
 const SHEET_MAX_COLUMNS = 100;
 
 function seedStarterRows() {
-  return SHEET_STARTER_ROW_LABELS.map((label) => ({ id: randomUUID(), label, kind: 'starter' }));
+  return SHEET_STARTER_ROWS.map(({ label, metadataRole }) => ({
+    id: randomUUID(),
+    label,
+    kind: 'starter',
+    metadataRole,
+  }));
 }
 
 /** Validate a client rows array (structural update). Returns error string or null. */
@@ -20441,6 +20457,8 @@ function validateSheetRows(rows) {
     if (row.kind !== 'starter' && row.kind !== 'custom') return "row.kind must be 'starter' or 'custom'";
   }
   if (new Set(rows.map((r) => r.id)).size !== rows.length) return 'row ids must be unique';
+  const metadataError = validateExplicitMetadataRoles(rows);
+  if (metadataError) return metadataError;
   return null;
 }
 
@@ -20910,7 +20928,21 @@ app.put('/api/scheduling-sheets/:id/days/:dayId/structure', verifyToken, async (
     if (rows !== undefined) {
       const rowError = validateSheetRows(rows);
       if (rowError) return res.status(400).json({ error: rowError });
-      updates.rows = rows.map((r) => ({ id: r.id, label: r.label, kind: r.kind }));
+      const persistedDay = await withCosmosRetry(() =>
+        schedulingSheetDaysCollection.findOne(
+          { _id: new ObjectId(dayId), sheetId: new ObjectId(id) },
+          { projection: { rows: 1 } }
+        )
+      );
+      if (!persistedDay) return res.status(404).json({ error: 'Day not found' });
+      const normalized = normalizeSheetRows(rows, persistedDay.rows);
+      if (normalized.error) return res.status(400).json({ error: normalized.error });
+      updates.rows = normalized.rows.map((r) => ({
+        id: r.id,
+        label: r.label,
+        kind: r.kind,
+        metadataRole: r.metadataRole,
+      }));
     }
     if (columns !== undefined) {
       const colError = validateSheetColumns(columns);
@@ -21029,11 +21061,10 @@ function cellDisplayParts(cell) {
 function extractDayAssignments(day) {
   const rowById = Object.fromEntries((day.rows || []).map((r) => [r.id, r]));
   const colById = Object.fromEntries((day.columns || []).map((c) => [c.id, c]));
-  const rowIdByLabel = {};
-  for (const r of day.rows || []) rowIdByLabel[(r.label || '').toLowerCase()] = r.id;
+  const metadataRows = resolveMetadataRows(day.rows);
 
-  const metaParts = (label, colId) => {
-    const rowId = rowIdByLabel[label];
+  const metaParts = (role, colId) => {
+    const rowId = metadataRows[role]?.id;
     return rowId ? cellDisplayParts((day.cells || {})[sheetCellKey(rowId, colId)]) : [];
   };
   const metaCell = (label, colId) => {
@@ -21072,7 +21103,7 @@ function extractDayAssignments(day) {
         columnName: col ? col.name : null,
         // Effective call time: person override wins over the column's
         // Call Time metadata cell (design D8 / assignments-view spec).
-        callTime: seg.callTimeOverride || metaCell('call time', colId),
+        callTime: seg.callTimeOverride || metaCell('callTime', colId),
         begins: metaCell('begins', colId),
         ends: metaCell('ends', colId),
         location: metaCell('location', colId),
@@ -21109,6 +21140,21 @@ const {
   buildAssignmentSummary,
   buildAssignmentsHtml
 } = require('./utils/assignmentSchedule');
+// Scope/recipient/snapshot validation for schedule sends. Pure and separate
+// so every rejection path is tested without a database or a mail service —
+// the cost of wrongly accepting a request here is a mass-mailing.
+const {
+  planScope,
+  checkDayVersions,
+  normalizeRecipients
+} = require('./utils/schedulingScopePlan');
+
+/** A schedulingScopePlan rejection as an HTTP body, keeping its extra detail. */
+const scopeError = (rejection) => {
+  // eslint-disable-next-line no-unused-vars
+  const { ok, status, code, message, ...extra } = rejection;
+  return { error: message, code, ...extra };
+};
 const escapeAssignmentHtml = require('escape-html');
 
 // Graph caps a plain sendMail message near 4MB including base64 overhead, and
@@ -21142,7 +21188,10 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
     if (!sheet) return res.status(404).json({ error: 'Scheduling sheet not found' });
 
-    const { dayId, wholeSheet, recipients, attachment, includeCalendar } = req.body || {};
+    // dayIds / dayId / wholeSheet / grouping / expectedDayVersions are read
+    // straight from the body by planScope + checkDayVersions below, which own
+    // every scope decision between them.
+    const { recipients, attachment, includeCalendar } = req.body || {};
 
     // Opt-out-safe by construction: only an explicit `true` turns the calendar
     // attachment on, so an old client, a replayed body, or a rollback all
@@ -21173,24 +21222,60 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       }
       if (attachmentWarning) logger.warn('Scheduling sheet email attachment rejected:', attachmentWarning);
     }
-    let scopeDays;
-    let scopeLabel;
-    if (dayId) {
-      if (!ObjectId.isValid(dayId)) return res.status(404).json({ error: 'Day not found' });
-      const day = await withCosmosRetry(() =>
-        schedulingSheetDaysCollection.findOne({ _id: new ObjectId(dayId), sheetId: sheet._id })
-      );
-      if (!day) return res.status(404).json({ error: 'Day not found' });
-      scopeDays = [day];
-      scopeLabel = formatSheetDayLabel(day.date);
-    } else if (wholeSheet === true) {
-      scopeDays = await withCosmosRetry(() =>
-        schedulingSheetDaysCollection.find({ sheetId: sheet._id }).sort({ date: 1 }).toArray()
-      );
-      scopeLabel = sheet.name;
-    } else {
-      return res.status(400).json({ error: 'Provide dayId or wholeSheet: true' });
+    // Scope resolves in TWO reads, deliberately. The first is a cheap INDEX of
+    // the workbook's days (date and version only) for the pure planner to
+    // validate against: membership, duplicates, ordering, and the legacy
+    // single-day / whole-sheet forms. The second fetches full documents for
+    // exactly the planned days, and those are the ONE captured snapshot behind
+    // the version preflight, the email bodies and the calendar files — so the
+    // versions checked are the versions actually rendered.
+    //
+    // Because the index is scoped to this workbook, a day belonging to another
+    // workbook is simply absent from it and 404s identically to a nonexistent
+    // id. That is what stops the endpoint becoming a probe for other sheets.
+    const dayIndex = await withCosmosRetry(() =>
+      schedulingSheetDaysCollection
+        .find({ sheetId: sheet._id }, { projection: { date: 1, _version: 1 } })
+        .sort({ date: 1 })
+        .toArray()
+    );
+
+    const planned = planScope(req.body || {}, dayIndex);
+    if (!planned.ok) return res.status(planned.status).json(scopeError(planned));
+    const { plan } = planned;
+
+    const scopeDays = plan.dayIds.length
+      ? await withCosmosRetry(() =>
+          schedulingSheetDaysCollection
+            .find({ sheetId: sheet._id, _id: { $in: plan.dayIds.map((d) => new ObjectId(d)) } })
+            .toArray()
+        )
+      : [];
+
+    // $in does not preserve order; the plan's chronological order is the one
+    // the email body and the PDF both present.
+    const dayPosition = new Map(plan.dayIds.map((id, i) => [id, i]));
+    scopeDays.sort((a, b) => dayPosition.get(String(a._id)) - dayPosition.get(String(b._id)));
+
+    // A day deleted between the two reads is treated as never found, rather
+    // than quietly narrowing a send the caller asked for.
+    if (scopeDays.length !== plan.dayIds.length) {
+      return res.status(404).json({ error: 'Day not found', code: 'DAY_NOT_FOUND' });
     }
+
+    const versionCheck = checkDayVersions(scopeDays, (req.body || {}).expectedDayVersions);
+    if (!versionCheck.ok) return res.status(versionCheck.status).json(scopeError(versionCheck));
+
+    // A scope that NAMES exactly one day is labelled by that day's own date,
+    // which is what a legacy dayId send has always used. Anything wider is named
+    // by the workbook, so a subset reads as the workbook name — true, and each
+    // body still lists the exact days that person is on.
+    //
+    // This reads plan.scopeKind rather than dayIds.length on purpose: a
+    // wholeSheet send at a workbook that happens to hold one day is still a
+    // statement about the SHEET and keeps the workbook name (SE-14, SP-17).
+    const namesOneDay = plan.scopeKind === 'days' && plan.dayIds.length === 1;
+    const scopeLabel = namesOneDay ? formatSheetDayLabel(scopeDays[0].date) : sheet.name;
 
     const allEntries = scopeDays.flatMap((d) => extractDayAssignments(d));
 
@@ -21205,12 +21290,19 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       byEmail.get(entry.email).push(entry);
     }
 
-    let targetEmails = [...byEmail.keys()];
-    if (Array.isArray(recipients) && recipients.length) {
-      const wanted = new Set(recipients.map((r) => String(r).toLowerCase()));
-      targetEmails = targetEmails.filter((e) => wanted.has(e));
-    }
-    targetEmails.sort();
+    // Omitting recipients means everyone assigned in scope; an EXPLICIT empty
+    // list is an error rather than a silent send-to-all, and an address that is
+    // not assigned is refused rather than dropped — dropping it would send a
+    // schedule that silently excludes somebody the sender named.
+    //
+    // Matching is case-insensitive on BOTH sides. Person-chip emails are already
+    // lowercased when the cell is written, so the stored side is normalized
+    // today — this keeps working if that ever stops being true, rather than
+    // silently reaching nobody (SE-38).
+    const eligibleEmails = [...byEmail.keys()].sort();
+    const wanted = normalizeRecipients(recipients, eligibleEmails);
+    if (!wanted.ok) return res.status(wanted.status).json(scopeError(wanted));
+    const targetEmails = [...wanted.emails].sort();
 
     const myAssignmentsUrl = buildMyAssignmentsUrl();
     const sentAt = new Date().toISOString();
@@ -21266,7 +21358,7 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
           {
             recipientName: escapeAssignmentHtml(entries[0].name),
             scopeLabel: escapeAssignmentHtml(scopeLabel),
-            sheetTitle: dayId && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
+            sheetTitle: namesOneDay && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
             assignmentSummary: escapeAssignmentHtml(buildAssignmentSummary(entries)),
             assignmentsTable: buildAssignmentsHtml(entries),
             eventUrl: myAssignmentsUrl

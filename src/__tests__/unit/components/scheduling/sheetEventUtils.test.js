@@ -1,8 +1,8 @@
 // sheetEventUtils.test.js
 //
 // Pure reorder-helper behavior (tasks 1.1-1.2 of scheduling-sheet-drag-reorder):
-// column reorder preserves object identity/order, and custom-row reorder keeps
-// starter rows locked as a fixed prefix.
+// column and row reorder preserve object identity and metadata across the
+// complete stored order.
 //
 // Test IDs: SRU-* (sheet reorder utils)
 
@@ -11,15 +11,51 @@ import {
   moveArrayItem,
   moveArrayItemBy,
   reorderArrayItem,
-  customRowsOf,
-  reorderCustomRows,
-  moveCustomRowBy,
-  moveCustomRowTo,
   parseTimeToken,
   computeDoubleBookedEmails,
+  resolveMetadataRows,
   applyCellToSheet,
   cellPlainText,
 } from '../../../../components/scheduling/sheetEventUtils';
+
+describe('metadata row compatibility', () => {
+  it('SMU-1: explicit roles win and the last exact legacy label supplies each unowned role', () => {
+    const rows = [
+      { id: 'legacy-first', label: ' Begins ' },
+      { id: 'explicit', label: 'Service starts', metadataRole: 'begins' },
+      { id: 'legacy-last', label: 'BEGINS' },
+      { id: 'legacy-location-first', label: 'Location' },
+      { id: 'ordinary-location', label: 'Location', metadataRole: null },
+      { id: 'legacy-location-last', label: ' location ' },
+    ];
+
+    const resolved = resolveMetadataRows(rows);
+
+    expect(resolved.begins.id).toBe('explicit');
+    expect(resolved.location.id).toBe('legacy-location-last');
+  });
+
+  it('SMU-2: renamed and reordered explicit roles retain overlap semantics', () => {
+    const day = {
+      rows: [
+        { id: 'rPeople', label: 'Ushers', metadataRole: null },
+        { id: 'rEnd', label: 'Service done', metadataRole: 'ends' },
+        { id: 'rStart', label: 'Service live', metadataRole: 'begins' },
+      ],
+      columns: [{ id: 'c1' }, { id: 'c2' }],
+      cells: {
+        'rStart:c1': { segments: [{ type: 'text', text: '6:00 PM' }] },
+        'rEnd:c1': { segments: [{ type: 'text', text: '9:00 PM' }] },
+        'rStart:c2': { segments: [{ type: 'text', text: '7:00 PM' }] },
+        'rEnd:c2': { segments: [{ type: 'text', text: '10:00 PM' }] },
+        'rPeople:c1': { segments: [{ type: 'person', email: 'sarah@x.org' }] },
+        'rPeople:c2': { segments: [{ type: 'person', email: 'sarah@x.org' }] },
+      },
+    };
+
+    expect(computeDoubleBookedEmails(day)).toEqual(new Set(['sarah@x.org']));
+  });
+});
 
 const cols = () => [
   { id: 'c1', name: 'Erev Service' },
@@ -68,48 +104,35 @@ describe('column reorder helpers', () => {
 });
 
 const rows = () => [
-  { id: 'rLoc', label: 'Location', kind: 'starter' },
-  { id: 'rCall', label: 'Call Time', kind: 'starter' },
-  { id: 'rBegins', label: 'Begins', kind: 'starter' },
+  { id: 'rLoc', label: 'Location', kind: 'starter', metadataRole: 'location' },
+  { id: 'rCall', label: 'Call Time', kind: 'starter', metadataRole: 'callTime' },
+  { id: 'rBegins', label: 'Begins', kind: 'starter', metadataRole: 'begins' },
   { id: 'rUshers', label: 'Ushers', kind: 'custom' },
   { id: 'rGreeters', label: 'Greeters', kind: 'custom' },
   { id: 'rSecurity', label: 'Security', kind: 'custom' },
 ];
 
-describe('custom row reorder helpers', () => {
-  it('SRU-8: customRowsOf splits out only non-starter rows', () => {
-    expect(customRowsOf(rows()).map((r) => r.id)).toEqual(['rUshers', 'rGreeters', 'rSecurity']);
-  });
-
-  it('SRU-9: reorderCustomRows keeps starter rows first in their original order', () => {
-    const next = reorderCustomRows(rows(), 'rSecurity', 'rUshers');
-    expect(next.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rBegins', 'rSecurity', 'rUshers', 'rGreeters']);
-  });
-
-  it('SRU-10: moveCustomRowBy moves within the custom group only, starters untouched', () => {
-    const next = moveCustomRowBy(rows(), 'rUshers', 1);
-    expect(next.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rBegins', 'rGreeters', 'rUshers', 'rSecurity']);
-  });
-
-  it('SRU-11: moveCustomRowTo(0) moves a custom row to the top of the custom group, not above starters', () => {
-    const next = moveCustomRowTo(rows(), 'rSecurity', 0);
-    expect(next.map((r) => r.id)).toEqual(['rLoc', 'rCall', 'rBegins', 'rSecurity', 'rUshers', 'rGreeters']);
-  });
-
-  it('SRU-12: a starter row id passed to a custom-row mover is a no-op (starter rows never move)', () => {
+describe('row reorder helpers', () => {
+  it('SRU-8: a starter row moves across custom rows without changing its object or metadata', () => {
     const original = rows();
-    expect(moveCustomRowBy(original, 'rCall', 1)).toBe(original);
-    expect(reorderCustomRows(original, 'rCall', 'rUshers')).toBe(original);
+    const next = moveArrayItem(original, 'rLoc', 4);
+    expect(next.map((r) => r.id)).toEqual(
+      ['rCall', 'rBegins', 'rUshers', 'rGreeters', 'rLoc', 'rSecurity']
+    );
+    expect(next[4]).toBe(original[0]);
+    expect(next[4].metadataRole).toBe('location');
   });
 
-  it('SRU-13: custom row moves are clamped at the group boundary', () => {
+  it('SRU-9: drag-style reorder uses the complete stored row order', () => {
+    expect(reorderArrayItem(rows(), 'rLoc', 'rGreeters').map((r) => r.id)).toEqual(
+      ['rCall', 'rBegins', 'rUshers', 'rGreeters', 'rLoc', 'rSecurity']
+    );
+  });
+
+  it('SRU-10: row moves are clamped only at the complete array boundary', () => {
     const original = rows();
-    expect(moveCustomRowBy(original, 'rUshers', -5).map((r) => r.id)).toEqual(
-      ['rLoc', 'rCall', 'rBegins', 'rUshers', 'rGreeters', 'rSecurity']
-    );
-    expect(moveCustomRowBy(original, 'rSecurity', 5).map((r) => r.id)).toEqual(
-      ['rLoc', 'rCall', 'rBegins', 'rUshers', 'rGreeters', 'rSecurity']
-    );
+    expect(moveArrayItemBy(original, 'rLoc', -5)).toBe(original);
+    expect(moveArrayItemBy(original, 'rSecurity', 5)).toBe(original);
   });
 });
 

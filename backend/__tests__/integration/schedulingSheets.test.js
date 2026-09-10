@@ -34,7 +34,7 @@ const { todayInZone, shiftDateString } = require('../../utils/localDate');
 const SHEETS = 'templeEvents__SchedulingSheets';
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheets (SS-1 to SS-30)', () => {
+describe('Scheduling Sheets (SS-1 to SS-34)', () => {
   let mongoClient, db, app;
   let adminUser, approverUser, eventsRequesterUser, viewerUser;
   let adminToken, approverToken, eventsRequesterToken, viewerToken;
@@ -105,9 +105,9 @@ describe('Scheduling Sheets (SS-1 to SS-30)', () => {
     expect(res.status).toBe(200);
   });
 
-  test('SS-2 non-events approver is rejected', async () => {
+  test('SS-2 non-events approver is admitted', async () => {
     const res = await request(app).get('/api/scheduling-sheets').set(auth(approverToken));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   test('SS-3 admin is admitted', async () => {
@@ -179,6 +179,109 @@ describe('Scheduling Sheets (SS-1 to SS-30)', () => {
     expect(day.columns).toEqual([]);
     expect(day.cells).toEqual({});
     expect(day._version).toBe(1);
+  });
+
+  test('SMR-1 new day seeds one stable metadata role for each starter row', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-12' });
+
+    expect(day.rows.map((row) => row.metadataRole)).toEqual([
+      'location',
+      'callTime',
+      'doorsOpen',
+      'begins',
+      'ends',
+    ]);
+  });
+
+  test('SMR-2 structural save normalizes legacy labels with explicit precedence and last-match fallback', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-13' });
+    const rows = [
+      { id: 'r-location', label: ' location ', kind: 'starter' },
+      { id: 'r-call-first', label: 'Call Time', kind: 'starter' },
+      { id: 'r-call-last', label: '  call time  ', kind: 'custom' },
+      { id: 'r-explicit-begins', label: 'Service Start', kind: 'custom', metadataRole: 'begins' },
+      { id: 'r-legacy-begins', label: 'Begins', kind: 'starter' },
+      { id: 'r-explicit-null', label: 'Ends', kind: 'custom', metadataRole: null },
+      { id: 'r-renamed', label: 'Arrival', kind: 'custom' },
+    ];
+
+    await db.collection(DAYS).updateOne(
+      { _id: new ObjectId(String(day._id)) },
+      { $set: { rows } }
+    );
+
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: 1, rows });
+
+    expect(res.status).toBe(200);
+    expect(Object.fromEntries(res.body.rows.map((row) => [row.id, row.metadataRole]))).toEqual({
+      'r-location': 'location',
+      'r-call-first': null,
+      'r-call-last': 'callTime',
+      'r-explicit-begins': 'begins',
+      'r-legacy-begins': null,
+      'r-explicit-null': null,
+      'r-renamed': null,
+    });
+  });
+
+  test('SMR-3 older clients omitting metadataRole preserve persisted explicit ownership', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-14' });
+    const callRow = day.rows.find((row) => row.label === 'Call Time');
+    const persistedRows = day.rows.map((row) => (
+      row.id === callRow.id ? { ...row, label: 'Arrival', metadataRole: 'callTime' } : row
+    ));
+    await db.collection(DAYS).updateOne(
+      { _id: new ObjectId(String(day._id)) },
+      { $set: { rows: persistedRows } }
+    );
+
+    const olderClientRows = persistedRows.map(({ metadataRole: _metadataRole, ...row }) => row);
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: 1, rows: olderClientRows });
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows.find((row) => row.id === callRow.id).metadataRole).toBe('callTime');
+  });
+
+  test('SMR-5 structural save rejects an unknown explicit metadata role', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-16' });
+    const rows = day.rows.map((row, index) => (
+      index === 0 ? { ...row, metadataRole: 'venue' } : row
+    ));
+
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: 1, rows });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/metadata role/i);
+  });
+
+  test('SMR-6 structural save rejects duplicate explicit metadata roles', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-17' });
+    const rows = day.rows.map((row, index) => ({
+      ...row,
+      metadataRole: index < 2 ? 'location' : null,
+    }));
+
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: 1, rows });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/metadata role/i);
   });
 
   test('SS-10 duplicate date within one workbook is rejected with DUPLICATE_DATE', async () => {
@@ -335,6 +438,107 @@ describe('Scheduling Sheets (SS-1 to SS-30)', () => {
   });
 
   // -------------------------------------------------------------------------
+  test('SS-31 structural deletion atomically removes orphaned cells and tagged recipients', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-11' });
+    const structure = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({
+        expectedVersion: day._version,
+        rows: [...day.rows, { id: 'rKeep', label: 'Keep', kind: 'custom' }, { id: 'rDelete', label: 'Delete', kind: 'custom' }],
+        columns: [{ id: 'cKeep', name: 'Keep' }, { id: 'cDelete', name: 'Delete' }],
+      });
+    let write = await putCell(adminToken, sheet._id, day._id, 'rKeep', 'cKeep', {
+      segments: [{ type: 'person', name: 'Keep', email: 'keep@x.org' }],
+    });
+    write = await putCell(adminToken, sheet._id, day._id, 'rDelete', 'cKeep', {
+      segments: [{ type: 'person', name: 'Deleted row', email: 'row@x.org' }],
+    });
+    write = await putCell(adminToken, sheet._id, day._id, 'rKeep', 'cDelete', {
+      segments: [{ type: 'person', name: 'Deleted column', email: 'column@x.org' }],
+    });
+
+    const res = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({
+        expectedVersion: write.body._version,
+        rows: structure.body.rows.filter((row) => row.id !== 'rDelete'),
+        columns: structure.body.columns.filter((column) => column.id !== 'cDelete'),
+      });
+
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body.cells)).toEqual(['rKeep:cKeep']);
+    expect(res.body.taggedEmails).toEqual(['keep@x.org']);
+  });
+
+  test('SS-32 historical orphaned cells do not appear in My Assignments', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-30' });
+    await db.collection(DAYS).updateOne(
+      { _id: new ObjectId(String(day._id)) },
+      {
+        $set: {
+          cells: {
+            'missing-row:missing-column': {
+              segments: [{ type: 'person', name: 'Events Coordinator', email: 'eventscoord@emanuelnyc.org' }],
+              note: null,
+            },
+          },
+          taggedEmails: ['eventscoord@emanuelnyc.org'],
+        },
+      }
+    );
+
+    const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  test('SS-33 delete-before-cell rejects a late write to the removed target', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-11' });
+    const structure = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: day._version, rows: day.rows, columns: [{ id: 'c1', name: 'Event' }] });
+    const removedRow = structure.body.rows[0].id;
+    const deleted = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: structure.body._version, rows: structure.body.rows.slice(1), columns: structure.body.columns });
+    expect(deleted.status).toBe(200);
+
+    const late = await putCell(adminToken, sheet._id, day._id, removedRow, 'c1', {
+      segments: [{ type: 'person', name: 'Late', email: 'late@x.org' }],
+    });
+    expect(late.status).toBe(404);
+    const stored = await db.collection(DAYS).findOne({ _id: new ObjectId(String(day._id)) });
+    expect(stored.cells).toEqual({});
+  });
+
+  test('SS-34 cell-before-delete makes the stale structural delete conflict', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-11' });
+    const structure = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: day._version, rows: day.rows, columns: [{ id: 'c1', name: 'Event' }] });
+    const rowId = structure.body.rows[0].id;
+    const cell = await putCell(adminToken, sheet._id, day._id, rowId, 'c1', {
+      segments: [{ type: 'person', name: 'First', email: 'first@x.org' }],
+    });
+    expect(cell.status).toBe(200);
+
+    const staleDelete = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: structure.body._version, rows: structure.body.rows.slice(1), columns: structure.body.columns });
+    expect(staleDelete.status).toBe(409);
+    expect(staleDelete.body.details.code).toBe('VERSION_CONFLICT');
+  });
+
   // Copies (SS-20..21)
   // -------------------------------------------------------------------------
 
@@ -355,6 +559,26 @@ describe('Scheduling Sheets (SS-1 to SS-30)', () => {
     expect(Object.keys(copy.cells)).toHaveLength(1);
     expect(copy.emailLog).toEqual([]);
     expect(copy._version).toBe(1);
+  });
+
+  test('SMR-4 copy-a-day preserves metadata roles after labels change', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-15' });
+    const callRow = day.rows.find((row) => row.label === 'Call Time');
+    const rows = day.rows.map((row) => (
+      row.id === callRow.id ? { ...row, label: 'Arrival', metadataRole: 'callTime' } : row
+    ));
+    const saved = await request(app)
+      .put(`/api/scheduling-sheets/${sheet._id}/days/${day._id}/structure`)
+      .set(auth(adminToken))
+      .send({ expectedVersion: 1, rows });
+    expect(saved.status).toBe(200);
+
+    const copy = await createDay(adminToken, sheet._id, { date: '2028-09-15', copyFromDayId: day._id });
+    expect(copy.rows.find((row) => row.id === callRow.id)).toMatchObject({
+      label: 'Arrival',
+      metadataRole: 'callTime',
+    });
   });
 
   test('SS-21 copy-a-workbook maps source days onto seeded dates in order; extra dates become blank days', async () => {

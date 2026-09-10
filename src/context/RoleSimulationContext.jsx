@@ -68,7 +68,7 @@ export const ROLE_TEMPLATES = {
       // Approvers may manage users, capped to viewer/requester (see userManagementPolicy.js)
       canManageUsers: true,
       canManageCalendarMarkers: false,
-      canManageAssignments: false,
+      canManageAssignments: true,
       isAdmin: false
     }
   },
