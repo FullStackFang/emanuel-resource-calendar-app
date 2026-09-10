@@ -11,9 +11,9 @@
 process.env.EMAIL_ENABLED = 'true';
 process.env.EMAIL_CLIENT_SECRET = 'test-secret';
 
-const acquireTokenByClientCredential = jest.fn();
+const mockAcquireToken = jest.fn();
 jest.mock('@azure/msal-node', () => ({
-  ConfidentialClientApplication: jest.fn(() => ({ acquireTokenByClientCredential })),
+  ConfidentialClientApplication: jest.fn(() => ({ acquireTokenByClientCredential: mockAcquireToken })),
 }));
 
 jest.mock('../../../utils/logger', () => ({
@@ -43,8 +43,8 @@ describe('emailService.sendEmail transport contract', () => {
 
   beforeEach(() => {
     emailService._resetTokenCacheForTest();
-    acquireTokenByClientCredential.mockReset();
-    acquireTokenByClientCredential.mockImplementation(async () => {
+    mockAcquireToken.mockReset();
+    mockAcquireToken.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 10));
       return { accessToken: 'tok', expiresOn: new Date(Date.now() + 3600000) };
     });
@@ -93,7 +93,7 @@ describe('emailService.sendEmail transport contract', () => {
       Array.from({ length: 8 }, (_, i) => emailService.sendEmail(`p${i}@x.org`, 'S', '<p>b</p>'))
     );
 
-    expect(acquireTokenByClientCredential).toHaveBeenCalledTimes(1);
+    expect(mockAcquireToken).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledTimes(8);
   });
 });

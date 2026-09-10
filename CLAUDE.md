@@ -586,6 +586,52 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Schedule email fan-out at Graph limits (implemented 2026-09-10)
+
+**The problem:** `POST /api/scheduling-sheets/:id/email` fanned out with
+`Promise.allSettled(targetEmails.map(send))`, so a 40-person sheet fired 40
+simultaneous `sendMail` calls from the ONE sender mailbox. Graph allows
+**4 concurrent requests per app per mailbox** (fixed, not raisable) and
+REJECTS the rest with 429 rather than queueing them. `emailService.sendEmail`
+threw a bare `Error` with no `status`, so nothing could retry it; each 429
+became a failed recipient with no emailLog entry.
+
+**Shipped:** `backend/utils/settleWithConcurrency.js` (pure allSettled with a
+ceiling; results in input order). The endpoint runs it at
+`SCHEDULE_EMAIL_CONCURRENCY = 4` and wraps each send in `withGraphRetry`.
+`sendEmail` now throws `buildGraphError(status, ...)` plus a numeric
+`retryAfterMs` read from Graph's `Retry-After` header; `parseRetryAfterMs`
+in `retryWithBackoff` honours that property (Cosmos still says it in the
+message). The token cache de-duplicates in-flight acquisition, so a cold
+cache under 40 parallel sends asks Azure AD once. Message rate (30/min) is a
+queue, not a rejection, and the 10,000 recipients/day limit is irrelevant at
+this scale, so neither needed code.
+
+**Stress test:** `cd backend && node stress-test-schedule-email.js --to
+you@emanuelnyc.org` runs the exact production pipeline (window + retry +
+real Graph) and reports sent/failed/retries/in-flight max/latency;
+`--concurrency 40` reproduces the old stampede, `--attachment-kb` mirrors the
+per-message PDF, `--dry-run` sends nothing. It loads `backend/.env` by its
+own path and honours System Settings redirect/disabled like the endpoint.
+**Measured live 2026-09-10** from templeevents@emanuelnyc.org, 40 messages,
+500 KB attachment each, window of 4: 40 sent, 0 failed, 0 retries, in-flight
+max 4, 7.2s elapsed, latency p50 663ms / p90 1016ms / max 1432ms. Forty
+sends in 7 seconds drew no 429, so the 30/min message rate is NOT enforced
+as a rejection on Graph sendMail (it is a delivery-side queue). The old
+unbounded fan-out (`--concurrency 40`) was NOT re-run live; SE-48's measured
+high-water mark of 34 stands as the evidence for it. Sending N messages to
+ONE inbox is an equivalent throttling test to N distinct recipients: every
+relevant limit is per sender mailbox, per request or message, none count
+distinct addresses.
+
+**Tests:** `settleWithConcurrency.test.js` (5, SWC-1..5), new
+`emailServiceSend.test.js` (3, ES-1..3, mutation-checked: reverting either
+production change fails all three), `retryWithBackoff.test.js` +RB-19/20,
+`schedulingSheetEmail.test.js` +SE-48..50 (SE-48 measured a high-water mark
+of 34 in-flight sends of 40 before the fix). SE-30 in that file fails on HEAD
+too (pre-existing). Backend lint reports only `no-undef` on CommonJS globals,
+for every backend file; there is no backend ESLint config.
+
 ### Schedule ordering + Email Management preview (implemented 2026-09-08)
 
 **The bug:** each recipient's schedule (email body, `.ics`, and the

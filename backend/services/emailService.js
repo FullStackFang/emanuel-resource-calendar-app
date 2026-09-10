@@ -7,6 +7,7 @@ const msal = require('@azure/msal-node');
 const logger = require('../utils/logger');
 const emailTemplates = require('./emailTemplates');
 const { calculateLocationDisplayNames } = require('../utils/locationUtils');
+const { buildGraphError } = require('../utils/graphError');
 
 // Environment configuration (defaults - can be overridden by database settings)
 const ENV_EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
@@ -88,6 +89,9 @@ let cca = null;
 // Token cache (same pattern as graphApiService.js)
 let cachedToken = null;
 let tokenExpiry = null;
+// The acquisition in progress, if any. Concurrent senders on a cold cache
+// share it instead of each asking Azure AD for their own token.
+let tokenInFlight = null;
 
 /**
  * Initialize MSAL client (lazy initialization)
@@ -135,16 +139,37 @@ async function getAppAccessToken() {
     return cachedToken;
   }
 
-  const client = getMsalClient();
-  const result = await client.acquireTokenByClientCredential({
-    scopes: ['https://graph.microsoft.com/.default']
-  });
+  if (!tokenInFlight) {
+    tokenInFlight = (async () => {
+      try {
+        const client = getMsalClient();
+        const result = await client.acquireTokenByClientCredential({
+          scopes: ['https://graph.microsoft.com/.default']
+        });
+        const issuedAt = Date.now();
+        cachedToken = result.accessToken;
+        tokenExpiry = issuedAt + (result.expiresOn ? (result.expiresOn.getTime() - issuedAt) : 3600000);
+        return cachedToken;
+      } finally {
+        tokenInFlight = null;
+      }
+    })();
+  }
+  return tokenInFlight;
+}
 
-  // Cache the token
-  cachedToken = result.accessToken;
-  tokenExpiry = now + (result.expiresOn ? (result.expiresOn.getTime() - now) : 3600000);
-
-  return cachedToken;
+/**
+ * Read Graph's Retry-After header (seconds, per RFC 7231) as milliseconds.
+ * Returns undefined when absent or not a plain number (an HTTP-date form is
+ * legal but Graph does not send it; the caller then falls back to backoff).
+ */
+function retryAfterMsFrom(response) {
+  const raw = response && response.headers && typeof response.headers.get === 'function'
+    ? response.headers.get('Retry-After')
+    : null;
+  if (raw == null || raw === '') return undefined;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : undefined;
 }
 
 /**
@@ -282,7 +307,20 @@ async function sendEmail(to, subject, htmlBody, options = {}) {
         error: errorText,
         fromAddress: EMAIL_FROM_ADDRESS
       });
-      throw new Error(`Graph API error: ${response.status} - ${errorText}`);
+      // Carry `status` so withGraphRetry's predicate can tell a 429 from a
+      // 400, and the Retry-After hint so the backoff honours Graph's own
+      // schedule. A bare Error here made every throttled send look permanent.
+      let graphMessage = null;
+      try {
+        graphMessage = JSON.parse(errorText)?.error?.message || null;
+      } catch (_) { /* not JSON: keep the raw text */ }
+      const graphErr = buildGraphError(
+        response.status,
+        graphMessage || `Graph API error: ${response.status} - ${errorText}`
+      );
+      const retryAfterMs = retryAfterMsFrom(response);
+      if (retryAfterMs !== undefined) graphErr.retryAfterMs = retryAfterMs;
+      throw graphErr;
     }
 
     logger.info('Email sent successfully', { correlationId, reservationId });
@@ -1123,4 +1161,14 @@ async function sendDeletionNotificationByEvent(event, { reason = '', deletedByNa
   const reservation = await buildReservationFromEvent(event);
   if (!reservation) return { success: false, error: 'No event provided' };
   return sendDeletionNotification(reservation, reason, deletedByName);
+}
+
+// Test-only exports — guarded so production code cannot reset the token cache.
+if (process.env.NODE_ENV !== 'production') {
+  module.exports._resetTokenCacheForTest = () => {
+    cachedToken = null;
+    tokenExpiry = null;
+    tokenInFlight = null;
+    cca = null;
+  };
 }

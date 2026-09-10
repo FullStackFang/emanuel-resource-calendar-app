@@ -40,6 +40,7 @@ const { getPublicEvents } = require('./utils/publicEventsQuery');
 const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { withGraphRetry } = require('./utils/graphRetry');
+const { settleWithConcurrency } = require('./utils/settleWithConcurrency');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
@@ -21176,6 +21177,9 @@ const escapeAssignmentHtml = require('escape-html');
 // the same attachment rides along on every recipient's message. 3MB decoded
 // leaves room for the HTML body and headers without an upload session.
 const MAX_SCHEDULE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+// Graph's fixed, non-raisable ceiling: 4 concurrent requests per app per
+// mailbox. Every schedule email goes out from the one sender mailbox.
+const SCHEDULE_EMAIL_CONCURRENCY = 4;
 
 /**
  * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
@@ -21190,8 +21194,10 @@ const MAX_SCHEDULE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
  * earlier 422 UNRESOLVED_PLACEHOLDERS hard-block + admin override.) Fan-out is
  * Promise.allSettled — one bad address never blocks the rest — and each
  * success appends an emailLog entry on every in-scope day that person appears
- * on (staleness is later computed against day.lastModifiedAt). Any future
- * retry-on-transient-failure here MUST go through retryWithBackoff.
+ * on (staleness is later computed against day.lastModifiedAt). The fan-out
+ * runs through settleWithConcurrency at Graph's 4-per-mailbox ceiling and
+ * each send through withGraphRetry, so a 429 is retried on Graph's own
+ * Retry-After schedule instead of being reported as a failed recipient.
  */
 app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
   try {
@@ -21368,8 +21374,14 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       }
     };
 
-    const settled = await Promise.allSettled(
-      targetEmails.map(async (email) => {
+    // Graph allows 4 concurrent requests per app per MAILBOX and 429s the
+    // rest rather than queueing them, so the whole fan-out shares one window
+    // of four. A throttled or network-failed send is retried through the
+    // Graph breaker; a 4xx that is not 429 fails fast and is reported as-is.
+    const settled = await settleWithConcurrency(
+      targetEmails,
+      SCHEDULE_EMAIL_CONCURRENCY,
+      async (email) => {
         const entries = sortAssignments(byEmail.get(email));
         const { subject, html } = await emailTemplates.generateFromTemplate(
           emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
@@ -21384,16 +21396,18 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
           { subjectOverride }
         );
         const attachments = [pdfAttachment, buildCalendarAttachment(email, entries)].filter(Boolean);
-        const outcome = await emailService.sendEmail(email, subject, html, {
-          reservationId: String(sheet._id),
-          ...(attachments.length ? { attachments } : {})
-        });
+        const outcome = await withGraphRetry(() =>
+          emailService.sendEmail(email, subject, html, {
+            reservationId: String(sheet._id),
+            ...(attachments.length ? { attachments } : {})
+          })
+        );
         // sendEmail RESOLVES (never throws) when delivery is disabled in
         // system settings, returning { skipped: true }. Treating that as a
         // send would stamp an emailLog entry for mail nobody received — and
         // emailStatus/staleness is computed from that log.
         return { email, skipped: !!(outcome && outcome.skipped) };
-      })
+      }
     );
 
     const results = targetEmails.map((email, i) => {

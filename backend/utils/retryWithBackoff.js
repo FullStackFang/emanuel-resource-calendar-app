@@ -7,7 +7,8 @@
  *
  * Features:
  * - Exponential backoff with jitter to prevent thundering herd at 200+ users
- * - Honors Cosmos DB's RetryAfterMs from error payloads
+ * - Honors Cosmos DB's RetryAfterMs from error payloads and a numeric
+ *   err.retryAfterMs (how Graph callers carry the Retry-After header)
  * - Process-level circuit breaker that opens after sustained throttling
  * - Broad Cosmos error predicate (code 16500, codeName, message variants)
  * - Non-retryable errors fail fast without consuming retry budget
@@ -51,7 +52,11 @@ function isCosmosRetryable(err) {
  * Returns the delay in milliseconds, or null if not present.
  */
 function parseRetryAfterMs(err) {
-  if (!err || typeof err.message !== 'string') return null;
+  if (!err) return null;
+  // Graph callers attach the Retry-After header as a number (see
+  // emailService.sendEmail); Cosmos only ever says it inside the message.
+  if (Number.isFinite(err.retryAfterMs) && err.retryAfterMs >= 0) return err.retryAfterMs;
+  if (typeof err.message !== 'string') return null;
   const match = err.message.match(/RetryAfterMs=(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
