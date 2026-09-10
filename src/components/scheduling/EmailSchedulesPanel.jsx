@@ -24,6 +24,39 @@
 
 import React, { useMemo, useState } from 'react';
 import { buildAssignmentSubject } from './assignmentSubject';
+import { logger } from '../../utils/logger';
+
+// What a failed row SAYS, keyed on the server's reason code. The raw Graph
+// text is console material (see handleSend); a row that printed the payload
+// was a wall of red JSON that also crushed the address to an ellipsis.
+const FAILURE_TEXT = {
+  throttled: 'Mail server was too busy',
+  rejected: 'Address rejected by the mail server',
+  unavailable: 'Mail server unreachable',
+  unknown: 'Send failed',
+};
+// The same reasons as a summary fragment: 'mail server too busy (24)'.
+const FAILURE_SUMMARY_TEXT = {
+  throttled: 'mail server too busy',
+  rejected: 'address rejected',
+  unavailable: 'mail server unreachable',
+  unknown: 'send failed',
+};
+
+const failureText = (r) => FAILURE_TEXT[r.reason] || FAILURE_TEXT.unknown;
+
+/** 'mail server too busy (24), address rejected (1)' in a stable order. */
+function summarizeFailures(rows) {
+  const counts = new Map();
+  for (const r of rows) {
+    const key = FAILURE_SUMMARY_TEXT[r.reason] ? r.reason : 'unknown';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return Object.keys(FAILURE_SUMMARY_TEXT)
+    .filter((k) => counts.has(k))
+    .map((k) => `${FAILURE_SUMMARY_TEXT[k]} (${counts.get(k)})`)
+    .join(', ');
+}
 
 function collectRecipients(days) {
   const byEmail = new Map();
@@ -163,6 +196,16 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
   const subject = customSubject === null ? defaultSubject : customSubject;
 
   const selectedEmails = recipients.map((r) => r.email).filter(isChecked);
+  const failedRows = ((results && results.results) || []).filter((r) => !r.success && !r.skipped);
+
+  // Back to the form with ONLY the people who failed selected, so recovering
+  // from a partial send is one click rather than a hunt through the roster.
+  const retryFailed = () => {
+    setChecked(new Set(failedRows.map((r) => r.email)));
+    setResults(null);
+    setError(null);
+    disarm();
+  };
   const totalAssignments = recipients.reduce((sum, r) => sum + r.count, 0);
   // Whitespace is not a subject, and an empty header is worse than not sending.
   const canSend = selectedDayIds.length > 0 && selectedEmails.length > 0 && subject.trim().length > 0;
@@ -188,6 +231,12 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
       };
       const outcome = await onSend(body);
       setResults(outcome);
+      // One console entry per send, not one per row: the raw server text for
+      // every failure, for the day somebody needs to send it to support.
+      const failedRows = ((outcome && outcome.results) || []).filter((r) => !r.success && !r.skipped);
+      if (failedRows.length) {
+        logger.warn('Schedule emails that failed to send:', failedRows.map((r) => ({ email: r.email, reason: r.reason, error: r.error })));
+      }
     } catch (e) {
       setError(e.message || 'Send failed');
     } finally {
@@ -447,7 +496,13 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
             <div className="ss-email-body ss-email-results" data-testid="send-results">
               <p className="ss-email-results-summary">
                 <strong>{results.sent}</strong> sent
-                {results.failed > 0 && <> &middot; <strong className="ss-failed">{results.failed} failed</strong></>}
+                {results.failed > 0 && (
+                  <> &middot; <strong className="ss-failed">{results.failed} failed</strong>
+                    {failedRows.length > 0 && (
+                      <span className="ss-failure-summary" data-testid="failure-summary"> &mdash; {summarizeFailures(failedRows)}</span>
+                    )}
+                  </>
+                )}
                 {results.skipped > 0 && <> &middot; {results.skipped} not sent (delivery is off)</>}
                 {results.skippedPlaceholders && results.skippedPlaceholders.length > 0 && (
                   <> &middot; {results.skippedPlaceholders.length} placeholder{results.skippedPlaceholders.length === 1 ? '' : 's'} skipped</>
@@ -470,7 +525,7 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
                   >
                     <span className="ss-result-email" title={r.email}>{r.email}</span>
                     <span className="ss-result-outcome">
-                      {r.success ? 'Sent ✓' : (r.skipped ? 'Not sent — delivery off' : `Failed — ${r.error}`)}
+                      {r.success ? 'Sent ✓' : (r.skipped ? 'Not sent — delivery off' : `Failed — ${failureText(r)}`)}
                     </span>
                   </li>
                 ))}
@@ -479,6 +534,11 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
             <footer className="ss-email-footer">
               <span className="ss-email-footnote" />
               <div className="ss-editor-actions">
+                {failedRows.length > 0 && (
+                  <button type="button" className="ss-ghost-btn" onClick={retryFailed} data-testid="retry-failed-button">
+                    Try again for the {failedRows.length} who failed
+                  </button>
+                )}
                 <button type="button" className="ss-primary-btn" onClick={onClose}>Done</button>
               </div>
             </footer>

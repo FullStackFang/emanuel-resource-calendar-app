@@ -41,6 +41,7 @@ const { createIndexesResilient } = require('./utils/createIndexesResilient');
 const { retryWithBackoff } = require('./utils/retryWithBackoff');
 const { withGraphRetry } = require('./utils/graphRetry');
 const { settleWithConcurrency } = require('./utils/settleWithConcurrency');
+const { sendFailureReason } = require('./utils/sendFailureReason');
 const { findWithColdEmptyRetry } = require('./utils/coldEmptyRetry');
 const { buildGraphEventDataFromRecord, buildGraphMarkerEventData } = require('./utils/graphEventBuilder');
 const { buildOccurrenceOverrideFields, applyOccurrenceOverride, validateOccurrenceDateInRange, extractOverrideData, resolveLocationOverride } = require('./utils/occurrenceOverrideUtils');
@@ -21413,7 +21414,15 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     const results = targetEmails.map((email, i) => {
       const outcome = settled[i];
       if (outcome.status !== 'fulfilled') {
-        return { email, success: false, error: outcome.reason && outcome.reason.message ? outcome.reason.message : 'send failed' };
+        // `reason` is what the panel phrases for a person; `error` is the raw
+        // text it logs to the console. Only the server sees the status that
+        // tells a throttle from a refused address, so the mapping lives here.
+        return {
+          email,
+          success: false,
+          reason: sendFailureReason(outcome.reason),
+          error: outcome.reason && outcome.reason.message ? outcome.reason.message : 'send failed'
+        };
       }
       if (outcome.value.skipped) {
         return { email, success: false, skipped: true, error: 'email delivery is turned off in system settings' };

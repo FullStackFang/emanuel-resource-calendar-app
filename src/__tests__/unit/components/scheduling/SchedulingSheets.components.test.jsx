@@ -6,7 +6,7 @@
 // double-booking warning, and the placeholder skip messaging (placeholders
 // are reported, never a block).
 //
-// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel, 1-19)
+// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel, 1-22)
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,6 +15,7 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import SheetCellEditor from '../../../../components/scheduling/SheetCellEditor';
 import SchedulingSheetGrid from '../../../../components/scheduling/SchedulingSheetGrid';
 import EmailSchedulesPanel from '../../../../components/scheduling/EmailSchedulesPanel';
+import { logger } from '../../../../utils/logger';
 
 const PEOPLE = [
   { userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' },
@@ -1000,7 +1001,10 @@ describe('EmailSchedulesPanel', () => {
     expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ dayIds: ['d1'] }));
 
     const results = await screen.findByTestId('send-results');
-    expect(within(results).getByTestId('result-bad@x.org')).toHaveTextContent(/mailbox unavailable/);
+    // The raw server text is console material now (SEP-20); the row says
+    // only that the send failed, in words.
+    expect(within(results).getByTestId('result-bad@x.org')).toHaveTextContent(/Send failed/);
+    expect(within(results).getByTestId('result-bad@x.org')).not.toHaveTextContent(/mailbox unavailable/);
     expect(within(results).getByTestId('result-sarah@x.org')).toHaveTextContent(/Sent/);
   });
 
@@ -1213,6 +1217,86 @@ describe('EmailSchedulesPanel', () => {
     expect(screen.getByTestId('email-subject-input')).toHaveValue(
       'Your assignments for 2027 High Holy Days — Sep 11 & Sep 20'
     );
+  });
+
+  // Failures used to print the raw Graph payload as the row text — a wall of
+  // red JSON that also crushed the address to an ellipsis. The row now carries
+  // a phrase keyed on the server's reason code; the payload goes to the console.
+  it('SEP-20: a failed row keeps its address, says why in words, and sends the raw error to the console', async () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const raw = 'Graph API error: 429 - {"error":{"code":"ApplicationThrottled","message":"Application is over its MailboxConcurrency limit."}}';
+    const onSend = vi.fn().mockResolvedValue({
+      sent: 0,
+      failed: 1,
+      results: [{ email: 'sarah@x.org', success: false, reason: 'throttled', error: raw }],
+      skippedPlaceholders: [],
+    });
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    const row = within(await screen.findByTestId('send-results')).getByTestId('result-sarah@x.org');
+    expect(row).toHaveTextContent('sarah@x.org');
+    expect(row).toHaveTextContent(/Mail server was too busy/);
+    expect(row).not.toHaveTextContent(/ApplicationThrottled/);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warnSpy.mock.calls[0])).toContain('ApplicationThrottled');
+    warnSpy.mockRestore();
+  });
+
+  it('SEP-21: the summary groups failures by reason instead of listing payloads', async () => {
+    const { sheet, d3 } = buildMultiDaySheet();
+    const onSend = vi.fn().mockResolvedValue({
+      sent: 0,
+      failed: 2,
+      results: [
+        { email: 'sarah@x.org', success: false, reason: 'throttled', error: 'x' },
+        { email: 'ben@x.org', success: false, reason: 'rejected', error: 'y' },
+      ],
+      skippedPlaceholders: [],
+    });
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d3} onSend={onSend} onClose={vi.fn()} />);
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    const summary = within(await screen.findByTestId('send-results')).getByTestId('failure-summary');
+    expect(summary).toHaveTextContent(/mail server too busy \(1\)/i);
+    expect(summary).toHaveTextContent(/address rejected \(1\)/i);
+  });
+
+  it('SEP-22: "try again" pre-selects exactly the failed people and returns to the form', async () => {
+    const { sheet, d3 } = buildMultiDaySheet();
+    const onSend = vi.fn().mockResolvedValue({
+      sent: 1,
+      failed: 1,
+      results: [
+        { email: 'sarah@x.org', success: true },
+        { email: 'ben@x.org', success: false, reason: 'throttled', error: 'x' },
+      ],
+      skippedPlaceholders: [],
+    });
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d3} onSend={onSend} onClose={vi.fn()} />);
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await screen.findByTestId('send-results');
+
+    fireEvent.click(screen.getByTestId('retry-failed-button'));
+    // Back on the form, with only Ben selected.
+    expect(screen.queryByTestId('send-results')).toBeNull();
+    expect(screen.getByTestId('email-schedules-panel')).toHaveTextContent(/1 of 2 selected/);
+
+    const again = screen.getByTestId('send-schedules-button');
+    expect(again).toHaveTextContent('Email 1 person');
+    fireEvent.click(again);
+    fireEvent.click(again);
+    expect(onSend).toHaveBeenLastCalledWith(expect.objectContaining({ recipients: ['ben@x.org'] }));
   });
 
   it('SEP-18: an edited subject survives a day change and is what gets sent', () => {

@@ -1292,8 +1292,11 @@ tr.ss-drop-target .ss-row-label {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
 }
-.ss-result-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ss-result-outcome { flex: none; color: var(--text-secondary); }
+/* The address is the row's identity: it may truncate, but it can never be
+   pushed to nothing by a long outcome. The outcome wraps instead. */
+.ss-result-email { flex: 1 1 auto; min-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-result-outcome { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; text-align: right; color: var(--text-secondary); }
+.ss-failure-summary { font-weight: var(--font-normal, 400); color: var(--text-secondary); }
 .ss-result-ok .ss-result-outcome { color: var(--color-success-700, #15803d); }
 .ss-result-fail { background: var(--color-error-50, #fef2f2); border-color: var(--color-error-200, #fecaca); }
 .ss-result-fail .ss-result-outcome { color: var(--color-error-500); }

@@ -624,13 +624,41 @@ ONE inbox is an equivalent throttling test to N distinct recipients: every
 relevant limit is per sender mailbox, per request or message, none count
 distinct addresses.
 
+**Live incident 2026-09-10, before the fix was deployed:** a 47-person
+send from the app returned 23 sent / 24 failed, every failure
+`ApplicationThrottled ... MailboxConcurrency`. Commit 3bcbf1c (made from a
+second session) swept in this change's TEST files without its SOURCE files,
+so HEAD briefly had tests referencing a helper that did not exist; the source
+half is what this entry describes. **Recovery without a deploy:** the panel
+marks each person 'not yet emailed' from the emailLog, so select the failed
+people four at a time (Graph's window) and send. **A person under two
+addresses is two recipients** (`asalzman@` AND `allison.salzman@` on the
+same sheet — one sent, one throttled, so her second roster row read 'not
+yet emailed' while she was CC-visible as sent). That is chip data, not a
+bug; the roster keys on the address by design.
+
+**Failure rendering (same day):** each failed result now carries
+`reason: 'throttled' | 'rejected' | 'unavailable' | 'unknown'` from the pure
+`backend/utils/sendFailureReason.js` (429 / other 4xx / 5xx+network+open
+breaker / else) beside the raw `error`. The panel phrases the reason on the
+row ('Mail server was too busy'), groups the summary ('24 failed — mail
+server too busy (24)'), logs the raw rows ONCE per send via `logger.warn`
+(console, never the screen), and offers 'Try again for the N who failed',
+which pre-selects exactly those addresses and returns to the form. CSS: the
+address can no longer be crushed to an ellipsis by a long outcome — the
+outcome wraps instead (the raw Graph JSON did exactly that, hiding WHO failed).
+
 **Tests:** `settleWithConcurrency.test.js` (5, SWC-1..5), new
 `emailServiceSend.test.js` (3, ES-1..3, mutation-checked: reverting either
 production change fails all three), `retryWithBackoff.test.js` +RB-19/20,
-`schedulingSheetEmail.test.js` +SE-48..50 (SE-48 measured a high-water mark
-of 34 in-flight sends of 40 before the fix). SE-30 in that file fails on HEAD
-too (pre-existing). Backend lint reports only `no-undef` on CommonJS globals,
-for every backend file; there is no backend ESLint config.
+`schedulingSheetEmail.test.js` +SE-48..51 (SE-48 measured a high-water mark
+of 34 in-flight sends of 40 before the fix), new `sendFailureReason.test.js`
+(6, SFR-1..6); frontend `SchedulingSheets.components.test.jsx` SEP-4 revised
+(raw text is off-screen now) + SEP-20..22, all three verified failing against
+the HEAD panel. SE-30 (backend) and SEP-9 (frontend) fail on HEAD too —
+pre-existing from 3bcbf1c, not this change. Backend lint reports only
+`no-undef` on CommonJS globals, for every backend file; there is no backend
+ESLint config.
 
 ### Schedule ordering + Email Management preview (implemented 2026-09-08)
 

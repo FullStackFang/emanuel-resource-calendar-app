@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-50)
+ * Scheduling Sheet email tests (SE-1 to SE-51)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -22,11 +22,11 @@ const { COLLECTIONS } = require('../__helpers__/testConstants');
 
 const emailService = require('../../services/emailService');
 const icsBuilder = require('../../utils/icsBuilder');
-const { graphError } = require('../__helpers__/graphApiMock');
+const { graphError, graphNetworkError } = require('../__helpers__/graphApiMock');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-50)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-51)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -1286,4 +1286,27 @@ describe('Scheduling Sheet emails (SE-1 to SE-50)', () => {
     });
     expect(sendSpy.mock.calls.filter(([to]) => to === 'person1@x.org')).toHaveLength(1);
   });
+  test('SE-51 each failed recipient carries a reason code beside the raw error', async () => {
+    const { sheet, day } = await createCrowdedDay(4);
+
+    sendSpy.mockImplementation(async (to) => {
+      if (to === 'person0@x.org') throw graphError(400, 'Invalid recipient');
+      if (to === 'person1@x.org') throw graphError(429, 'Application is over its MailboxConcurrency limit.');
+      if (to === 'person2@x.org') throw graphNetworkError('ECONNRESET');
+      if (to === 'person3@x.org') throw new Error('No valid email recipients');
+      return { success: true };
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.failed).toBe(4);
+
+    const byEmail = Object.fromEntries(res.body.results.map((r) => [r.email, r]));
+    expect(byEmail['person0@x.org']).toMatchObject({ success: false, reason: 'rejected', error: 'Invalid recipient' });
+    expect(byEmail['person1@x.org']).toMatchObject({ success: false, reason: 'throttled' });
+    expect(byEmail['person2@x.org']).toMatchObject({ success: false, reason: 'unavailable' });
+    expect(byEmail['person3@x.org']).toMatchObject({ success: false, reason: 'unknown', error: 'No valid email recipients' });
+    // A success carries no reason at all.
+    expect(res.body.results.every((r) => r.success === false)).toBe(true);
+  }, 20000);
 });
