@@ -12,6 +12,7 @@
  * EU-13: previewTemplate path renders CTA for an overridden body (parity with send path).
  * EU-14: Every TEMPLATE_ID is classified (has CTA config OR is in NO_CTA set).
  * EU-15/16: The scheduling-sheet template previews with a real sample itinerary and is findable by name.
+ * EU-17: sanitizeSubject makes caller-supplied subject text safe to send as a header.
  * TZ-*: Verifies timezone handling for naive Eastern Time datetime strings.
  */
 
@@ -22,6 +23,7 @@ const {
   generateAdminCancellationRequestAlert,
   generateErrorNotification,
   previewTemplate,
+  sanitizeSubject,
   setDbConnection,
   TEMPLATE_IDS,
   CTA_CONFIG,
@@ -466,5 +468,31 @@ describe('Assignment schedule template preview (EU-15, EU-16)', () => {
     const template = await getTemplate(TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);
     expect(template.name).toMatch(/Scheduling Sheet/);
     expect(template.description).toMatch(/assignmentsTable/);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// A schedule send may now carry its OWN subject, typed by the sender, so that a
+// Friday-only send is distinguishable from a whole-workbook one. That text
+// becomes a mail header, so it is normalized before use: one line, bounded
+// length, no control characters.
+// -----------------------------------------------------------------------------
+describe('sanitizeSubject (EU-17)', () => {
+  it('EU-17: collapses line breaks and control characters, trims, and caps length', () => {
+    // A newline would split a header; a tab and stray control bytes are just
+    // noise in an inbox. All become single spaces, and runs collapse.
+    expect(sanitizeSubject('  Erev\r\nRosh   Hashanah\t posts  ')).toBe('Erev Rosh Hashanah posts');
+
+    // Nothing usable in, nothing out — the caller falls back to its default.
+    expect(sanitizeSubject('   ')).toBe('');
+    expect(sanitizeSubject(null)).toBe('');
+    expect(sanitizeSubject(undefined)).toBe('');
+
+    // Bounded, so a pasted essay cannot become a header.
+    const long = sanitizeSubject('x'.repeat(500));
+    expect(long).toHaveLength(200);
+
+    // Ordinary text is untouched, accents included.
+    expect(sanitizeSubject('Your assignments for José & co.')).toBe('Your assignments for José & co.');
   });
 });

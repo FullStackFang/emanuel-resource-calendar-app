@@ -1429,3 +1429,43 @@ tr.ss-drop-target .ss-row-label {
     padding: 14px 16px;
   }
 }
+
+/* ── Email panel: subject line ────────────────────────────────────────────────
+   Prefilled from the template + the day selection, and editable — one subject
+   per send, so a Friday-only send is distinguishable from a whole-workbook one
+   in an inbox. */
+.ss-email-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ss-subject-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+.ss-subject-input {
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+.ss-subject-input:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-50, #eef4fb);
+}
+.ss-subject-hint { font-size: 11px; color: var(--text-secondary); line-height: 1.45; }

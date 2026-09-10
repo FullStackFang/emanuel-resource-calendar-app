@@ -23,6 +23,7 @@
 // scrolling body / fixed footer, as CategorySelectorModal).
 
 import React, { useMemo, useState } from 'react';
+import { buildAssignmentSubject } from './assignmentSubject';
 
 function collectRecipients(days) {
   const byEmail = new Map();
@@ -100,6 +101,10 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
   const [includePdf, setIncludePdf] = useState(true);
   const [includeCalendar, setIncludeCalendar] = useState(true);
   const [checked, setChecked] = useState(null); // null = all eligible
+  // null = follow the computed default. Same "null means follow" shape as
+  // SchedulingAssistant's seriesViewDate: it lets the subject track the day
+  // selection until somebody types, and stop tracking it the moment they do.
+  const [customSubject, setCustomSubject] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState(null);
@@ -141,9 +146,26 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
     disarm();
   };
 
+  // The subject the sender would get if they never touched the field. Recomputed
+  // as the day selection changes, so a subset send is never mistaken for any
+  // other send from this workbook.
+  const defaultSubject = useMemo(
+    () => buildAssignmentSubject({
+      // Resolved server-side, so a subject customized in Email Management is
+      // honoured here rather than re-guessed.
+      subjectTemplate: sheet.assignmentEmailSubject,
+      sheetName: sheet.name,
+      allDays,
+      selectedDayIds,
+    }),
+    [sheet.assignmentEmailSubject, sheet.name, allDays, selectedDayIds]
+  );
+  const subject = customSubject === null ? defaultSubject : customSubject;
+
   const selectedEmails = recipients.map((r) => r.email).filter(isChecked);
   const totalAssignments = recipients.reduce((sum, r) => sum + r.count, 0);
-  const canSend = selectedDayIds.length > 0 && selectedEmails.length > 0;
+  // Whitespace is not a subject, and an empty header is worse than not sending.
+  const canSend = selectedDayIds.length > 0 && selectedEmails.length > 0 && subject.trim().length > 0;
 
   const send = async () => {
     if (!confirming) { setConfirming(true); return; }
@@ -152,6 +174,10 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
     try {
       const body = {
         dayIds: selectedDayIds,
+        // Always explicit, so what the sender read on screen is what goes out.
+        // The server falls back to its own default only for a client that sends
+        // no subject at all.
+        subject: subject.trim(),
         // One entry per selected day. The server refuses a partial map, because
         // a missing entry is a new-client bug rather than an old client, and it
         // 409s on any drift before a single message goes out.
@@ -260,6 +286,36 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
               </aside>
 
               <div className="ss-email-main">
+                <div className="ss-email-subject">
+                  <label className="ss-subject-label" htmlFor="ss-email-subject-input">
+                    Subject
+                    {customSubject !== null && (
+                      <button
+                        type="button"
+                        className="ss-email-linkbtn"
+                        data-testid="subject-reset"
+                        onClick={() => { setCustomSubject(null); disarm(); }}
+                      >
+                        Reset to default
+                      </button>
+                    )}
+                  </label>
+                  <input
+                    id="ss-email-subject-input"
+                    type="text"
+                    className="ss-subject-input"
+                    data-testid="email-subject-input"
+                    value={subject}
+                    maxLength={200}
+                    onChange={(e) => { setCustomSubject(e.target.value); disarm(); }}
+                    placeholder="Subject line for this send"
+                  />
+                  <span className="ss-subject-hint">
+                    Everyone in this send gets this subject. It follows the days you pick until
+                    you edit it.
+                  </span>
+                </div>
+
                 <div className="ss-email-toolbar">
                   <span data-testid="selection-count">
                     <strong>{selectedEmails.length}</strong> of {recipients.length} selected

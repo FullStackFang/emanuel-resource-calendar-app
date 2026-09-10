@@ -20747,8 +20747,23 @@ app.get('/api/scheduling-sheets/:id', verifyToken, async (req, res) => {
       schedulingSheetDaysCollection.find({ sheetId: sheet._id }).sort({ date: 1 }).toArray()
     );
 
+    // The email panel prefills an EDITABLE subject from this, so a subject
+    // customized in Email Management is honoured rather than re-guessed in the
+    // browser. Carried on the sheet the panel already loads instead of a second
+    // endpoint; it is a point read by _id, the cheapest operation Cosmos has.
+    // Never fatal: a subject the panel cannot prefill is a worse default, not a
+    // reason to fail opening the workbook.
+    let assignmentEmailSubject = '';
+    try {
+      const template = await emailTemplates.getTemplate(emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);
+      assignmentEmailSubject = (template && template.subject) || '';
+    } catch (templateError) {
+      logger.warn('Could not resolve the assignment email subject template:', templateError.message);
+    }
+
     res.json({
       ...sheet,
+      assignmentEmailSubject,
       days: days.map((d) => ({ ...d, emailStatus: buildDayEmailStatus(d) }))
     });
   } catch (error) {
@@ -21191,7 +21206,10 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     // dayIds / dayId / wholeSheet / grouping / expectedDayVersions are read
     // straight from the body by planScope + checkDayVersions below, which own
     // every scope decision between them.
-    const { recipients, attachment, includeCalendar } = req.body || {};
+    // `subject` is the sender's own subject line for THIS send, prefilled in the
+    // panel from the template and editable there. Blank or absent keeps the
+    // template's default, so an older client is unaffected.
+    const { recipients, attachment, includeCalendar, subject: subjectOverride } = req.body || {};
 
     // Opt-out-safe by construction: only an explicit `true` turns the calendar
     // attachment on, so an old client, a replayed body, or a rollback all
@@ -21362,7 +21380,8 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
             assignmentSummary: escapeAssignmentHtml(buildAssignmentSummary(entries)),
             assignmentsTable: buildAssignmentsHtml(entries),
             eventUrl: myAssignmentsUrl
-          }
+          },
+          { subjectOverride }
         );
         const attachments = [pdfAttachment, buildCalendarAttachment(email, entries)].filter(Boolean);
         const outcome = await emailService.sendEmail(email, subject, html, {

@@ -1,5 +1,5 @@
 /**
- * Scheduling Sheet email tests (SE-1 to SE-43)
+ * Scheduling Sheet email tests (SE-1 to SE-50)
  *
  * POST /api/scheduling-sheets/:id/email against the real server with
  * emailService.sendEmail spied. Covers: one-email-per-person aggregation (day
@@ -22,10 +22,11 @@ const { COLLECTIONS } = require('../__helpers__/testConstants');
 
 const emailService = require('../../services/emailService');
 const icsBuilder = require('../../utils/icsBuilder');
+const { graphError } = require('../__helpers__/graphApiMock');
 
 const DAYS = 'templeEvents__SchedulingSheetDays';
 
-describe('Scheduling Sheet emails (SE-1 to SE-43)', () => {
+describe('Scheduling Sheet emails (SE-1 to SE-50)', () => {
   let mongoClient, db, app;
   let adminUser, eventsRequesterUser;
   let adminToken, eventsRequesterToken;
@@ -1111,5 +1112,178 @@ describe('Scheduling Sheet emails (SE-1 to SE-43)', () => {
     const noScope = await sendSchedules(sheet._id, {});
     expect(noScope.status).toBe(400);
     expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-send subject. Every recipient of one send shares a subject, and it used
+  // to be derived solely from scope — so two different sends from the same
+  // workbook were indistinguishable in an inbox. The panel now prefills an
+  // editable field and sends the result; absent or blank keeps the old default.
+  // ---------------------------------------------------------------------------
+
+  test('SE-44 a supplied subject is used verbatim for every recipient', async () => {
+    const sheet = await createSheet();
+    let { day, rowId } = await dayWithMetadata(sheet, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [
+      { id: 'c1', name: 'Erev Service' },
+      { id: 'c2', name: 'YP Dinner' },
+    ]);
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c2', {
+      segments: [person('Ben', 'ben@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(day._id)],
+      subject: 'Erev RH posts - please confirm',
+    });
+    expect(res.status).toBe(200);
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    // Both recipients, one subject: it describes the SEND, not the person.
+    for (const call of sendSpy.mock.calls) {
+      expect(call[1]).toBe('Erev RH posts - please confirm');
+    }
+  });
+
+  test('SE-45 an absent or blank subject keeps the existing default', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2027-09-11' });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const absent = await sendSchedules(sheet._id, { dayIds: [String(day._id)] });
+    expect(absent.status).toBe(200);
+    const defaultSubject = sendSpy.mock.calls[0][1];
+    expect(defaultSubject).toMatch(/Your assignments for/);
+
+    // Whitespace is not a subject. It must not send an empty header.
+    sendSpy.mockClear();
+    const blank = await sendSchedules(sheet._id, { dayIds: [String(day._id)], subject: '   ' });
+    expect(blank.status).toBe(200);
+    expect(sendSpy.mock.calls[0][1]).toBe(defaultSubject);
+  });
+
+  test('SE-46 a subject carrying newlines or excess length is normalized, not rejected', async () => {
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2027-09-11' });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(day._id)],
+      subject: `Erev RH\r\nBcc: sneaky@x.org${' padding'.repeat(60)}`,
+    });
+    expect(res.status).toBe(200);
+
+    const subject = sendSpy.mock.calls[0][1];
+    expect(subject).not.toMatch(/[\r\n]/);
+    expect(subject.length).toBeLessThanOrEqual(200);
+    expect(subject.startsWith('Erev RH Bcc: sneaky@x.org')).toBe(true);
+  });
+
+  test('SE-47 a supplied subject still resolves template variables', async () => {
+    // The subject goes through the same renderer as the default, so a sender who
+    // wants the scope or the person named can still say so.
+    const sheet = await createSheet();
+    const { day, rowId } = await dayWithMetadata(sheet, { date: '2027-09-11' });
+    await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
+      segments: [person('Sarah', 'sarah@x.org')],
+    });
+
+    const res = await sendSchedules(sheet._id, {
+      dayIds: [String(day._id)],
+      subject: '{{recipientName}} - {{scopeLabel}}',
+    });
+    expect(res.status).toBe(200);
+    expect(sendSpy.mock.calls[0][1]).toBe('Sarah - Saturday, September 11, 2027');
+  });
+  // ---------------------------------------------------------------------------
+  // Fan-out under load (SE-48..50). Graph allows 4 concurrent requests per
+  // mailbox and rejects the rest with 429 — it does not queue them. A
+  // 40-person holiday sheet must therefore be sent through a bounded window,
+  // and a throttled send must be retried rather than reported as failed.
+  // ---------------------------------------------------------------------------
+
+  /** A day with N distinct people, one per column, in the first starter row. */
+  async function createCrowdedDay(n) {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11', title: 'Erev RH' });
+    const columns = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, name: `Post ${i}` }));
+    day = await addColumns(sheet._id, day, columns);
+    const r1 = day.rows[0].id;
+    for (let i = 0; i < n; i++) {
+      await putCell(sheet._id, day._id, r1, `c${i}`, {
+        segments: [person(`Person ${i}`, `person${i}@x.org`)],
+      });
+    }
+    return { sheet, day };
+  }
+
+  test('SE-48 forty recipients never have more than four sends in flight, and all forty go out', async () => {
+    const { sheet, day } = await createCrowdedDay(40);
+
+    let inFlight = 0;
+    let highWater = 0;
+    sendSpy.mockImplementation(async () => {
+      inFlight++;
+      highWater = Math.max(highWater, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return { success: true };
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(40);
+    expect(res.body.failed).toBe(0);
+    expect(sendSpy).toHaveBeenCalledTimes(40);
+    expect(highWater).toBeLessThanOrEqual(4);
+    expect(highWater).toBeGreaterThan(1); // still parallel, not serialized
+  }, 30000);
+
+  test('SE-49 a throttled (429) send is retried and reported as sent, not failed', async () => {
+    const { sheet, day } = await createCrowdedDay(3);
+
+    let throttledOnce = false;
+    sendSpy.mockImplementation(async (to) => {
+      if (to === 'person1@x.org' && !throttledOnce) {
+        throttledOnce = true;
+        throw graphError(429, 'Application is over its MailboxConcurrency limit.');
+      }
+      return { success: true };
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(3);
+    expect(res.body.failed).toBe(0);
+    expect(sendSpy.mock.calls.filter(([to]) => to === 'person1@x.org')).toHaveLength(2);
+
+    // The retried recipient is logged exactly once, like everybody else.
+    const stored = await db.collection(DAYS).findOne({ _id: new ObjectId(day._id) });
+    expect(stored.emailLog.filter((e) => e.email === 'person1@x.org')).toHaveLength(1);
+  }, 15000);
+
+  test('SE-50 a permanent (400) failure is reported once and never retried', async () => {
+    const { sheet, day } = await createCrowdedDay(3);
+
+    sendSpy.mockImplementation(async (to) => {
+      if (to === 'person1@x.org') throw graphError(400, 'Invalid recipient');
+      return { success: true };
+    });
+
+    const res = await sendSchedules(sheet._id, { dayId: day._id });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(2);
+    expect(res.body.failed).toBe(1);
+    expect(res.body.results.find((r) => r.email === 'person1@x.org')).toMatchObject({
+      success: false,
+      error: 'Invalid recipient',
+    });
+    expect(sendSpy.mock.calls.filter(([to]) => to === 'person1@x.org')).toHaveLength(1);
   });
 });

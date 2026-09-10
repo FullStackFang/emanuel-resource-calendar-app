@@ -6,7 +6,7 @@
 // double-booking warning, and the placeholder skip messaging (placeholders
 // are reported, never a block).
 //
-// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel, 1-16)
+// Test IDs: SCE-* (cell editor), SSG-* (grid), SEP-* (email panel, 1-19)
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -908,7 +908,17 @@ function buildMultiDaySheet() {
   const d3 = mkDay('d3', '2027-09-20', 'Kol Nidre', 7, [
     chip('Sarah Levine', 'sarah@x.org'), chip('Ben Ortiz', 'ben@x.org'),
   ]);
-  return { sheet: { _id: 's1', name: '2027 High Holy Days', days: [d1, d2, d3] }, d1, d2, d3 };
+  return {
+    sheet: {
+      _id: 's1',
+      name: '2027 High Holy Days',
+      days: [d1, d2, d3],
+      // Supplied by the server so a subject customized in Email Management is
+      // respected in the prefill rather than re-guessed here.
+      assignmentEmailSubject: 'Your assignments for {{scopeLabel}}',
+    },
+    d1, d2, d3,
+  };
 }
 
 const resolvedSend = () =>
@@ -1181,5 +1191,69 @@ describe('EmailSchedulesPanel', () => {
     expect(onSend).toHaveBeenCalledWith(
       expect.objectContaining({ includePdf: false, includeCalendar: true })
     );
+  });
+
+  // ───────────────────── editable subject line ─────────────────────
+  // Every recipient of one send shares a subject, and it used to be derived
+  // purely from scope — so two sends from the same workbook were
+  // indistinguishable in an inbox. It is now prefilled and editable.
+
+  it('SEP-17: the subject is prefilled from the template and follows the day selection', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={vi.fn()} onClose={vi.fn()} />);
+
+    // One day is named by its own date, as a single-day send always has been.
+    expect(screen.getByTestId('email-subject-input')).toHaveValue(
+      'Your assignments for Saturday, September 11, 2027'
+    );
+
+    // Adding a day changes the subject, which is the whole point: a subset send
+    // must not look identical to any other send from this workbook.
+    fireEvent.click(screen.getByTestId('day-option-d3'));
+    expect(screen.getByTestId('email-subject-input')).toHaveValue(
+      'Your assignments for 2027 High Holy Days — Sep 11 & Sep 20'
+    );
+  });
+
+  it('SEP-18: an edited subject survives a day change and is what gets sent', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    const input = screen.getByTestId('email-subject-input');
+    fireEvent.change(input, { target: { value: 'Erev RH posts - please confirm' } });
+
+    // Deliberate wording must not be silently overwritten by a recomputed
+    // default the moment the selection changes.
+    fireEvent.click(screen.getByTestId('day-option-d3'));
+    expect(input).toHaveValue('Erev RH posts - please confirm');
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: 'Erev RH posts - please confirm' })
+    );
+  });
+
+  it('SEP-19: clearing the subject blocks the send, and editing it re-arms the confirm', () => {
+    const { sheet, d1 } = buildMultiDaySheet();
+    const onSend = resolvedSend();
+    render(<EmailSchedulesPanel sheet={sheet} activeDay={d1} onSend={onSend} onClose={vi.fn()} />);
+
+    const button = screen.getByTestId('send-schedules-button');
+    fireEvent.click(button);
+    expect(button).toHaveTextContent(/confirm/i);
+
+    // The armed button described a send whose subject has since changed.
+    const input = screen.getByTestId('email-subject-input');
+    fireEvent.change(input, { target: { value: 'Something else' } });
+    expect(button).not.toHaveTextContent(/confirm/i);
+
+    // An empty subject is not a subject; sending an empty header is worse than
+    // refusing to send.
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(button).toBeDisabled();
+    expect(onSend).not.toHaveBeenCalled();
   });
 });

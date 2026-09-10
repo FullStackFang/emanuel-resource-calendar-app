@@ -90,3 +90,40 @@ field it would not read was avoided.
 SS-31, SS-32, SS-33 and SEP-9 (orphaned cells from deleted rows/columns) were
 already failing before this slice and still are; day selection neither worsens
 nor fixes them.
+
+### Follow-on 2026-09-10: per-send subject line
+
+Not in the original task list; requested once day selection landed and the gap
+became visible. Every recipient of one send shares a subject, and it was derived
+purely from scope — so a subset send and a whole-workbook send arrived looking
+identical, and a follow-up send was indistinguishable from the first.
+
+- The subject is now **prefilled and editable in the panel**. Prefill comes from
+  the template resolved server-side (`assignmentEmailSubject` on the sheet detail
+  response), so a subject customized in Email Management is honoured rather than
+  re-guessed in the browser.
+- The default now **names the dates**: one day keeps its own full date, the whole
+  workbook keeps the workbook name (both unchanged), and a subset reads
+  `<workbook> — Sep 11 & Sep 20`, collapsing to `— 4 days, Sep 11-Sep 21` past
+  three so the subject still fits an inbox.
+- `src/components/scheduling/assignmentSubject.js` (new, pure) owns those rules.
+  They live **client-side only** and are deliberately not shared with the server:
+  the panel always sends the resolved `subject`, so the server's simpler rule is
+  reached only by a client that sends none. Nothing is duplicated.
+- The panel's subject uses the `null` = follow-the-default shape, so it tracks the
+  day selection until somebody types and stops the moment they do. An edit is
+  never silently overwritten; a `Reset to default` link restores tracking.
+- `emailTemplates.sanitizeSubject` normalizes caller text into one bounded line
+  (control characters to spaces, trimmed, 200 chars). Applied to an override only,
+  so the default path is byte-identical to before. An override still renders
+  `{{...}}` variables, so `{{recipientName}}` in a subject works.
+- Blank subject: the panel disables send; the server treats blank as absent and
+  uses the template default.
+
+Tests: `assignmentSubject.test.js` (9, ASJ-1..9), EU-17, SE-44..47, SEP-17..19.
+The `null`-means-follow logic was mutation-checked — forcing the subject to always
+follow the default fails SEP-18 and SEP-19.
+
+**Not addressed:** the subject is one string per send, so it cannot name each
+recipient unless the sender puts `{{recipientName}}` in it themselves. That is
+available but not prefilled.

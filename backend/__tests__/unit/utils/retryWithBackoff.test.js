@@ -4,7 +4,7 @@
  * Tests the shared retry utility including exponential backoff with jitter,
  * Cosmos DB error detection, and process-level circuit breaker.
  *
- * Test IDs: RB-1 through RB-18
+ * Test IDs: RB-1 through RB-20
  */
 
 const {
@@ -182,6 +182,34 @@ describe('retryWithBackoff — delay behavior', () => {
     const { delay } = onRetry.mock.calls[0][0];
     expect(delay).toBeGreaterThanOrEqual(2500);
     expect(delay).toBeLessThanOrEqual(5000);
+  });
+
+  it('RB-19: parseRetryAfterMs reads a numeric err.retryAfterMs (Graph Retry-After header)', () => {
+    const err = new Error('Graph API error: 429');
+    err.status = 429;
+    err.retryAfterMs = 7000;
+    expect(parseRetryAfterMs(err)).toBe(7000);
+    expect(parseRetryAfterMs(new Error('no hint'))).toBeNull();
+  });
+
+  it('RB-20: honors err.retryAfterMs over exponential backoff', async () => {
+    const throttled = new Error('Graph API error: 429');
+    throttled.status = 429;
+    throttled.retryAfterMs = 4000;
+    const fn = jest.fn().mockRejectedValueOnce(throttled).mockResolvedValue('ok');
+
+    const onRetry = jest.fn();
+    await retryWithBackoff(fn, {
+      maxAttempts: 3,
+      initialDelayMs: 100,
+      retryableError: (e) => e.status === 429,
+      onRetry,
+    });
+
+    // Jittered delay is 50%-100% of the server hint, never the 100ms base
+    const { delay } = onRetry.mock.calls[0][0];
+    expect(delay).toBeGreaterThanOrEqual(2000);
+    expect(delay).toBeLessThanOrEqual(4000);
   });
 
   it('RB-14: exponential backoff with jitter stays within bounds', async () => {

@@ -1320,6 +1320,30 @@ function getDefaultTemplates() {
 /**
  * Decode HTML entities back to plain text (for email subjects)
  */
+// A subject is ONE header line, and callers can now supply their own (the
+// scheduling-sheet panel does, so a subset send is distinguishable in an inbox).
+// 200 is generous next to the ~78 characters an inbox actually shows, while
+// still bounding what becomes a header.
+const MAX_SUBJECT_LENGTH = 200;
+
+/**
+ * Normalize caller-supplied subject text into something safe to send.
+ * Returns '' for anything with no usable content, which lets a caller fall back
+ * to its default rather than sending a blank subject.
+ * @param {*} raw
+ * @returns {string}
+ */
+function sanitizeSubject(raw) {
+  if (raw == null) return '';
+  return String(raw)
+    // Control characters — line breaks and tabs included — become spaces. A
+    // break inside a subject is malformed wherever it ends up.
+    .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_SUBJECT_LENGTH);
+}
+
 function decodeHtmlEntities(str) {
   return str
     .replace(/&amp;/g, '&')
@@ -1585,14 +1609,25 @@ function applyCta(bodyTemplate, templateId, variables) {
  * @param {Object} variables - Variables to replace in template
  * @returns {Promise<Object>} { subject, html }
  */
-async function generateFromTemplate(templateId, variables) {
+async function generateFromTemplate(templateId, variables, options = {}) {
   const template = await getTemplate(templateId);
   if (!template) {
     throw new Error(`Template not found: ${templateId}`);
   }
 
+  // A caller may supply its own subject for ONE send — the scheduling-sheet panel
+  // does, so a Friday-only send is distinguishable from a whole-workbook one in
+  // an inbox. It goes through the same render + decode path as the template's
+  // own subject, so {{variables}} keep working in it.
+  //
+  // Sanitizing runs on the override only, so the default path stays byte for
+  // byte what it was: on the way in (a blank override means "use the default")
+  // and again after rendering, in case a substituted variable reintroduced a
+  // line break or pushed it over length.
+  const override = sanitizeSubject(options.subjectOverride);
   // Subject is plain text — decode HTML entities so "Rodney&#39;s" becomes "Rodney's"
-  const subject = decodeHtmlEntities(renderTemplate(template.subject, variables));
+  const rendered = decodeHtmlEntities(renderTemplate(override || template.subject, variables));
+  const subject = override ? sanitizeSubject(rendered) : rendered;
   const body = applyCta(template.body, templateId, variables);
 
   return {
@@ -2003,6 +2038,7 @@ module.exports = {
   getDefaultTemplates,
   previewTemplate,
   renderTemplate,
+  sanitizeSubject,
 
   // Utility functions
   formatDateTime,
