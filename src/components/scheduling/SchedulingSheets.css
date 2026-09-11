@@ -356,6 +356,11 @@
   min-width: 140px;
 }
 .ss-grid thead th.ss-corner { left: 0; z-index: 4; position: sticky; }
+/* A sticky label is its own stacking context, so the role/move menu inside it
+   can only out-rank what shares that cell: every later row's label (also 2)
+   painted over it. Lift the whole open label above the labels (2), header (3)
+   and corner (4) until the menu closes. */
+.ss-row-label.ss-row-label-open { z-index: 5; }
 
 .ss-row-starter .ss-row-label,
 .ss-row-starter td {

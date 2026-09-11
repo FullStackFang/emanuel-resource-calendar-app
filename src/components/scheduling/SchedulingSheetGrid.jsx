@@ -599,7 +599,10 @@ export default function SchedulingSheetGrid({
                           }
                         }}
                         onDragEnd={() => { setDragState(null); setDropTarget(null); }}
-                        onClick={() => setOpenMoveMenu((m) => (m && m.kind === 'column' && m.id === col.id ? null : { kind: 'column', id: col.id }))}
+                        onClick={() => {
+                          setOpenMetadataMenu(null);
+                          setOpenMoveMenu((m) => (m && m.kind === 'column' && m.id === col.id ? null : { kind: 'column', id: col.id }));
+                        }}
                         title="Drag to reorder, or click for move options"
                         aria-label={`Reorder ${col.name || 'column'}`}
                       >
@@ -703,7 +706,7 @@ export default function SchedulingSheetGrid({
               className={`${row.kind === 'starter' ? 'ss-row-starter' : 'ss-row-custom'}${isDragging ? ' ss-dragging' : ''}${isDropTarget ? ' ss-drop-target' : ''}`}
             >
               <th
-                className="ss-row-label"
+                className={`ss-row-label${menuOpen || openMetadataMenu === row.id ? ' ss-row-label-open' : ''}`}
                 data-testid={`row-label-${row.id}`}
                 onDragOver={canEdit ? (e) => {
                   if (!dragState || dragState.kind !== 'row') return;
@@ -728,7 +731,10 @@ export default function SchedulingSheetGrid({
                         }
                       }}
                       onDragEnd={() => { setDragState(null); setDropTarget(null); }}
-                      onClick={() => setOpenMoveMenu((m) => (m && m.kind === 'row' && m.id === row.id ? null : { kind: 'row', id: row.id }))}
+                      onClick={() => {
+                        setOpenMetadataMenu(null);
+                        setOpenMoveMenu((m) => (m && m.kind === 'row' && m.id === row.id ? null : { kind: 'row', id: row.id }));
+                      }}
                       title="Drag to reorder, or click for move options"
                       aria-label={`Reorder ${row.label || 'row'}`}
                     >
@@ -770,6 +776,8 @@ export default function SchedulingSheetGrid({
                       aria-expanded={openMetadataMenu === row.id}
                       onClick={() => {
                         setMetadataError(null);
+                        // One menu at a time: two lifted labels tie and the later row covers the other.
+                        setOpenMoveMenu(null);
                         setOpenMetadataMenu((id) => (id === row.id ? null : row.id));
                       }}
                       title="Set how this row supplies schedule times or locations"

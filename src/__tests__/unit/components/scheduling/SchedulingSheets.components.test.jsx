@@ -11,6 +11,9 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import process from 'node:process';
 
 import SheetCellEditor from '../../../../components/scheduling/SheetCellEditor';
 import SchedulingSheetGrid from '../../../../components/scheduling/SchedulingSheetGrid';
@@ -646,6 +649,53 @@ describe('SchedulingSheetGrid', () => {
 
     const rows = onStructure.mock.calls[0][0].rows;
     expect(rows.find((row) => row.id === 'rUshers').metadataRole).toBe('location');
+  });
+
+  // Each sticky row label is its own stacking context (position: sticky +
+  // z-index), so a menu's own z-index only ranks it INSIDE that cell; every
+  // later row's label painted over it. The open row's label must be lifted.
+  it('SSG-33: the row label is lifted while its role or move menu is open', () => {
+    renderGrid();
+    const label = screen.getByTestId('row-label-rUshers');
+    expect(label).not.toHaveClass('ss-row-label-open');
+
+    const roleButton = screen.getByRole('button', { name: 'Set metadata role for Ushers' });
+    fireEvent.click(roleButton);
+    expect(label).toHaveClass('ss-row-label-open');
+    fireEvent.click(roleButton);
+    expect(label).not.toHaveClass('ss-row-label-open');
+
+    fireEvent.click(screen.getByTestId('row-drag-handle-rUshers'));
+    expect(label).toHaveClass('ss-row-label-open');
+    expect(screen.getByTestId('row-label-rLoc')).not.toHaveClass('ss-row-label-open');
+  });
+
+  it('SSG-34: an open row label out-ranks its sibling sticky labels', () => {
+    // `?raw` yields an empty string for CSS under vitest, so read it off disk.
+    const css = readFileSync(resolve(process.cwd(), 'src/components/scheduling/SchedulingSheets.css'), 'utf8');
+    // z-index of the rule whose selector line is exactly `selector {`.
+    const zIndexOf = (selector) => {
+      const start = css.indexOf(`\n${selector} {`);
+      if (start === -1) return NaN;
+      const body = css.slice(start, css.indexOf('}', start));
+      return Number(body.match(/z-index:\s*(\d+)/)?.[1]);
+    };
+    expect(zIndexOf('.ss-row-label.ss-row-label-open')).toBeGreaterThan(zIndexOf('.ss-row-label'));
+  });
+
+  // Two lifted labels tie at the same z-index and DOM order decides again, so
+  // the lift only holds if the grid never has two menus open at once.
+  it('SSG-35: opening a role or move menu closes the other one', () => {
+    renderGrid();
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Location' }));
+    fireEvent.click(screen.getByTestId('row-drag-handle-rUshers'));
+    expect(screen.queryByRole('group', { name: 'Metadata role for Location' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('row-move-menu-rUshers')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set metadata role for Location' }));
+    expect(screen.queryByTestId('row-move-menu-rUshers')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Metadata role for Location' })).toBeInTheDocument();
+    expect(screen.getByTestId('row-label-rUshers')).not.toHaveClass('ss-row-label-open');
   });
 
   it('SSG-21: read-only users see no reorder handles or move menus', () => {
