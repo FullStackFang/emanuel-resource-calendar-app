@@ -586,6 +586,71 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Schedule email template editing + preview (implemented 2026-09-18)
+
+Spec: `openspec/changes/schedule-email-template-editing/`. 23/24 tasks; only
+8.3 (manual, live MSAL) outstanding.
+
+**Permission:** new `canEditEmailTemplates` (approver + admin, ROLE-ONLY — an
+Events-department requester does NOT get it, unlike `canManageAssignments`),
+threaded through the full chain (permissionUtils → getPermissions →
+RoleSimulationContext templates + actual branch → usePermissions →
+permissionService fallback). Server helper `requireTemplateEditor` re-fetches
+the user and reads `getPermissions(...).canEditEmailTemplates`. The five
+`/api/admin/email/templates*` routes use it; `/config`, `/settings`, `/test`
+stay on `isAdmin`.
+
+**Stale-save guard:** template PUT takes optional `expectedUpdatedAt`
+(`null` = "I loaded the uncustomized default"); mismatch → 409
+`TEMPLATE_CHANGED` with `current: {subject, body, updatedAt, updatedBy}`, no
+write. Presence is tested with `hasOwnProperty` — `null` and "absent" mean
+different things (absent = legacy last-write-wins). Unparseable input compares
+as a mismatch, never a 500.
+
+**One render, three routes:** the send handler's inline steps are now
+`parseScheduleAttachment`, `loadScheduleScope` (index read → planScope →
+day read → order → scopeLabel → byEmail), `renderScheduleEmail`,
+`buildScheduleCalendarAttachment`. `POST .../email/preview` and
+`POST .../email/test-send` (both `requireAssignmentManager`) share
+`loadSchedulePreviewTarget` (case-insensitive, non-placeholder recipient or
+400 `RECIPIENT_NOT_IN_SCOPE`; NO day-version check — a preview is a read).
+**test-send goes to `req.user.email` only** — any body `to` is ignored (STS-1,
+mutation-checked); subject prefixed `[Preview] `; writes no emailLog; delivery
+disabled → `{ sent: false, skipped: true }`. The sheet GET now also returns
+`assignmentEmailBody` so non-editor senders can read the message without the
+approver-gated template API.
+
+**Frontend:** `src/components/shared/EmailTemplateEditor.jsx` (+ its own CSS
+scoped under `.email-template-editor`, because Email Management's stylesheet
+is lazy-loaded and never present inside the scheduling panel). Save AND Reset
+are two-step in-button confirms in both places. Dirty counts only USER edits:
+ReactQuill may re-emit a normalized body on mount, which would otherwise make
+the panel "dirty" (and block sending) just by opening the editor. Read-only
+bodies and every preview render in `sandbox=""` iframes — there is no HTML
+sanitizer in the bundle. Email Management: route guarded by
+`RequireEmailTemplates`; non-admins see the Templates tab only and never
+request `/config`; non-admin approvers get a top-level nav link. Panel:
+collapsible Message (read-only for all senders, Edit for template editors,
+`showSubject={false}` because the panel's subject is per-send), 'Preview as'
+picker over selected addressable recipients, 'Send preview to me'. Unsaved
+template edits disable send AND preview ("Save or discard your template
+changes first."). Preview/test-send results are keyed to (days, subject,
+person, stored body) and hidden on mismatch rather than cleared by effects.
+
+**Tests:** backend `emailTemplateAccess.test.js` (11, ETA-1..5 / ETC-1..5),
+`schedulingSheetEmailPreview.test.js` (18, SAB-1..2 / SPV-1..7 / STS-1..8 —
+SPV-1 compares preview HTML to the send's HTML byte for byte),
+`permissionUtils.test.js` +4. Frontend `EmailTemplateEditor.test.jsx` (10,
+ETE-1..10), `EmailTestAdmin.access.test.jsx` (7, EMA-1..7),
+`SchedulingSheets.components.test.jsx` +SEP-23..30, contract +1. **Current
+frontend baseline measured by stash is 11 failed / 4 files** (the documented
+10/3 predates SEP-9); backend red set in touched files is SE-30 + SS-31..33.
+
+**Outstanding:** 8.3 — as an approver, edit + save from the panel and see it in
+Email Management; preview two recipients; send a preview to self with .ics and
+PDF and confirm nobody is marked sent; as an Events-dept requester, confirm the
+read-only message and no Email Management access.
+
 ### Schedule email fan-out at Graph limits (implemented 2026-09-10)
 
 **The problem:** `POST /api/scheduling-sheets/:id/email` fanned out with

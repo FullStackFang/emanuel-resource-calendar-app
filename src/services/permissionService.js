@@ -80,6 +80,7 @@ export async function fetchPermissions(apiToken, forceRefresh = false) {
       canGenerateReservationTokens: false,
       canManageCalendarMarkers: false,
       canManageAssignments: false,
+      canEditEmailTemplates: false,
       isAdmin: false
     };
   }

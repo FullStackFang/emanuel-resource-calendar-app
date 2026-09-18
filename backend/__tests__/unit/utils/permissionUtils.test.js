@@ -370,6 +370,30 @@ describe('permissionUtils', () => {
     });
   });
 
+  describe('canEditEmailTemplates flag (role-only, approver and above)', () => {
+    it('role-projection on ROLE_PERMISSIONS: approver and admin only', () => {
+      expect(ROLE_PERMISSIONS.viewer.canEditEmailTemplates).toBe(false);
+      expect(ROLE_PERMISSIONS.requester.canEditEmailTemplates).toBe(false);
+      expect(ROLE_PERMISSIONS.approver.canEditEmailTemplates).toBe(true);
+      expect(ROLE_PERMISSIONS.admin.canEditEmailTemplates).toBe(true);
+    });
+
+    it('getPermissions grants to approvers and admins', () => {
+      expect(getPermissions({ role: 'approver' }, 'a@x.org').canEditEmailTemplates).toBe(true);
+      expect(getPermissions({ role: 'admin' }, 'a@x.org').canEditEmailTemplates).toBe(true);
+    });
+
+    it('getPermissions denies viewers and requesters', () => {
+      expect(getPermissions({ role: 'viewer' }, 'v@x.org').canEditEmailTemplates).toBe(false);
+      expect(getPermissions({ role: 'requester' }, 'r@x.org').canEditEmailTemplates).toBe(false);
+    });
+
+    it('the events department grants NOTHING here (unlike canManageAssignments)', () => {
+      expect(getPermissions({ role: 'requester', department: 'events' }, 'r@x.org').canEditEmailTemplates).toBe(false);
+      expect(getPermissions({ role: 'viewer', department: 'events' }, 'v@x.org').canEditEmailTemplates).toBe(false);
+    });
+  });
+
   describe('sanitizeUserWrite', () => {
     it('keeps allowlisted fields', () => {
       const clean = sanitizeUserWrite({

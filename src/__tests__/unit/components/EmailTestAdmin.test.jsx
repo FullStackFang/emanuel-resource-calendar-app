@@ -3,7 +3,8 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import EmailTestAdmin from '../../../components/EmailTestAdmin';
 
 vi.mock('react-quill-new', () => ({ default: ({ value, onChange }) => <textarea aria-label="Email body" value={value} onChange={e => onChange(e.target.value)} /> }));
-vi.mock('../../../context/NotificationContext', () => ({ useNotification: () => ({ showSuccess: vi.fn(), showWarning: vi.fn() }) }));
+vi.mock('../../../context/NotificationContext', () => ({ useNotification: () => ({ showSuccess: vi.fn(), showWarning: vi.fn(), showError: vi.fn() }) }));
+vi.mock('../../../hooks/usePermissions', () => ({ usePermissions: () => ({ isAdmin: true, canEditEmailTemplates: true }) }));
 const templates = [
   { id: 'submission-confirmation', name: 'Submission Confirmation', description: 'Sent after a new reservation', subject: 'Received', body: 'Original', variables: ['eventTitle'] },
   { id: 'admin-new-request', name: 'Admin New Request Alert', description: 'Sent to administrators', subject: 'New request', body: 'Admin body', isCustomized: true },

@@ -110,4 +110,14 @@ describe('usePermissions() contract', () => {
     const { result: r2 } = renderHook(() => usePermissions());
     expect(r2.current.canManageAssignments).toBe(false);
   });
+
+  it('forwards `canEditEmailTemplates` from effective permissions', () => {
+    mockSim = simState({ effectivePermissions: PERMS({ canEditEmailTemplates: true }) });
+    const { result } = renderHook(() => usePermissions());
+    expect(result.current.canEditEmailTemplates).toBe(true);
+
+    mockSim = simState({ effectivePermissions: PERMS({ canEditEmailTemplates: false }) });
+    const { result: r2 } = renderHook(() => usePermissions());
+    expect(r2.current.canEditEmailTemplates).toBe(false);
+  });
 });

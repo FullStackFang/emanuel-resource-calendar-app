@@ -20,6 +20,16 @@ import SchedulingSheetGrid from '../../../../components/scheduling/SchedulingShe
 import EmailSchedulesPanel from '../../../../components/scheduling/EmailSchedulesPanel';
 import { logger } from '../../../../utils/logger';
 
+// The panel's Message section mounts the shared EmailTemplateEditor.
+vi.mock('react-quill-new', () => ({
+  default: ({ value, onChange }) => (
+    <textarea aria-label="Email body" value={value} onChange={(e) => onChange(e.target.value)} />
+  ),
+}));
+vi.mock('../../../../context/NotificationContext', () => ({
+  useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() }),
+}));
+
 const PEOPLE = [
   { userId: 'u1', name: 'Sarah Levine', email: 'sarah@x.org' },
   { userId: 'u2', name: 'Sam Alto', email: 'sam@x.org' },
@@ -1389,5 +1399,136 @@ describe('EmailSchedulesPanel', () => {
     fireEvent.change(input, { target: { value: '   ' } });
     expect(button).toBeDisabled();
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+// openspec/changes/schedule-email-template-editing — the Message section,
+// real-recipient preview, and 'Send preview to me'. SEP-23..30.
+describe('EmailSchedulesPanel — message, preview, send-to-me', () => {
+  const STORED = {
+    id: 'assignment-schedule',
+    subject: 'Your assignments for {{scopeLabel}}',
+    body: '<p>Shared body {{assignmentsTable}}</p>',
+    variables: ['assignmentsTable'],
+    isCustomized: true,
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    updatedBy: 'approver@x.org',
+  };
+
+  const setup = (props = {}) => {
+    const built = buildMultiDaySheet();
+    built.sheet.assignmentEmailBody = STORED.body;
+    const handlers = {
+      onSend: resolvedSend(),
+      onPreview: vi.fn().mockResolvedValue({ subject: 'Your assignments for Erev RH', html: '<p>For Sarah</p>', recipientName: 'Sarah Levine' }),
+      onTestSend: vi.fn().mockResolvedValue({ sent: true, to: 'me@x.org' }),
+      onLoadTemplate: vi.fn().mockResolvedValue(STORED),
+      onTemplateSaved: vi.fn(),
+      ...props,
+    };
+    render(
+      <EmailSchedulesPanel
+        sheet={built.sheet}
+        activeDay={built.d3}
+        onClose={vi.fn()}
+        apiToken="tok"
+        canEditTemplate={false}
+        {...handlers}
+      />
+    );
+    return { ...built, ...handlers };
+  };
+
+  const openMessage = () => fireEvent.click(screen.getByTestId('message-toggle'));
+
+  it('SEP-23: the message is collapsed by default and read-only without template permission', () => {
+    setup();
+    const toggle = screen.getByTestId('message-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTitle('Email message')).not.toBeInTheDocument();
+
+    openMessage();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTitle('Email message').getAttribute('srcdoc')).toContain('Shared body');
+    expect(screen.queryByTestId('message-edit')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Email body')).not.toBeInTheDocument();
+  });
+
+  it('SEP-24: a template editor gets Edit, which loads the stored template into the shared editor', async () => {
+    const { onLoadTemplate } = setup({ canEditTemplate: true });
+    openMessage();
+    fireEvent.click(screen.getByTestId('message-edit'));
+    expect(onLoadTemplate).toHaveBeenCalled();
+    expect(await screen.findByLabelText('Email body')).toHaveValue(STORED.body);
+    // The panel's subject is per-send; the template subject is not edited here.
+    expect(screen.queryByLabelText('Subject Line')).not.toBeInTheDocument();
+  });
+
+  it('SEP-25: unsaved template edits disable send with the explanation; discarding re-enables it', async () => {
+    setup({ canEditTemplate: true });
+    openMessage();
+    fireEvent.click(screen.getByTestId('message-edit'));
+    fireEvent.change(await screen.findByLabelText('Email body'), { target: { value: '<p>Edited</p>' } });
+
+    expect(screen.getByTestId('send-schedules-button')).toBeDisabled();
+    expect(screen.getByTestId('template-dirty-note')).toHaveTextContent('Save or discard your template changes first.');
+    expect(screen.getByTestId('preview-button')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('message-discard'));
+    expect(screen.getByTestId('send-schedules-button')).not.toBeDisabled();
+    expect(screen.queryByTestId('template-dirty-note')).not.toBeInTheDocument();
+  });
+
+  it('SEP-26: the preview renders the chosen recipient\'s email in a sandboxed iframe', async () => {
+    const { onPreview } = setup();
+    fireEvent.change(screen.getByTestId('preview-recipient'), { target: { value: 'ben@x.org' } });
+    fireEvent.click(screen.getByTestId('preview-button'));
+
+    const frame = await screen.findByTitle(/Preview of the email to/);
+    expect(frame.getAttribute('srcdoc')).toBe('<p>For Sarah</p>');
+    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(onPreview).toHaveBeenCalledWith({
+      dayIds: ['d3'], subject: screen.getByTestId('email-subject-input').value, recipientEmail: 'ben@x.org',
+    });
+  });
+
+  it('SEP-27: the preview picker offers only selected, addressable recipients', () => {
+    setup();
+    fireEvent.click(screen.getByTestId('recipient-toggle-sarah@x.org'));
+    const options = [...screen.getByTestId('preview-recipient').querySelectorAll('option')].map((o) => o.value);
+    expect(options).toEqual(['ben@x.org']);
+  });
+
+  it('SEP-28: Send preview to me sends the previewed person with the attachment choices, and marks nobody sent', async () => {
+    const { onTestSend, onSend } = setup();
+    fireEvent.change(screen.getByTestId('preview-recipient'), { target: { value: 'sarah@x.org' } });
+    fireEvent.click(screen.getByTestId('include-calendar'));
+    fireEvent.click(screen.getByTestId('test-send-button'));
+
+    expect(await screen.findByTestId('test-send-status')).toHaveTextContent('Preview sent to me@x.org');
+    expect(onTestSend).toHaveBeenCalledWith({
+      dayIds: ['d3'], subject: screen.getByTestId('email-subject-input').value, recipientEmail: 'sarah@x.org',
+      includeCalendar: false, includePdf: true,
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByTestId('status-sarah@x.org')).toHaveTextContent('not yet emailed');
+    // Still on the form: a preview is not a send.
+    expect(screen.queryByTestId('send-results')).not.toBeInTheDocument();
+  });
+
+  it('SEP-29: delivery disabled is reported as not sent, not as success', async () => {
+    setup({ onTestSend: vi.fn().mockResolvedValue({ sent: false, skipped: true, to: 'me@x.org' }) });
+    fireEvent.click(screen.getByTestId('test-send-button'));
+    const status = await screen.findByTestId('test-send-status');
+    expect(status).toHaveTextContent(/delivery is turned off/i);
+    expect(status).not.toHaveTextContent(/Preview sent/);
+  });
+
+  it('SEP-30: changing the scope clears a preview that no longer matches', async () => {
+    setup();
+    fireEvent.click(screen.getByTestId('preview-button'));
+    await screen.findByTitle(/Preview of the email to/);
+    fireEvent.click(screen.getByTestId('day-option-d1'));
+    expect(screen.queryByTitle(/Preview of the email to/)).not.toBeInTheDocument();
   });
 });

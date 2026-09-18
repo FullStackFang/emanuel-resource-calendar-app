@@ -61,6 +61,7 @@ const ROLE_PERMISSIONS = {
     canManageUsers: false,
     canManageCalendarMarkers: false,
     canManageAssignments: false,
+    canEditEmailTemplates: false,
     isAdmin: false
   },
   requester: {
@@ -75,6 +76,7 @@ const ROLE_PERMISSIONS = {
     canManageUsers: false,
     canManageCalendarMarkers: false,
     canManageAssignments: false,
+    canEditEmailTemplates: false,
     isAdmin: false
   },
   approver: {
@@ -90,6 +92,8 @@ const ROLE_PERMISSIONS = {
     canManageUsers: true,
     canManageCalendarMarkers: false,
     canManageAssignments: true,
+    // Role-only (no department grant): approvers edit every notification template.
+    canEditEmailTemplates: true,
     isAdmin: false
   },
   admin: {
@@ -104,6 +108,7 @@ const ROLE_PERMISSIONS = {
     canManageUsers: true,
     canManageCalendarMarkers: true,
     canManageAssignments: true,
+    canEditEmailTemplates: true,
     isAdmin: true
   }
 };

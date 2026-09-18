@@ -24,6 +24,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { buildAssignmentSubject } from './assignmentSubject';
+import EmailTemplateEditor from '../shared/EmailTemplateEditor';
 import { logger } from '../../utils/logger';
 
 // What a failed row SAYS, keyed on the server's reason code. The raw Graph
@@ -117,7 +118,19 @@ function assignmentCount(day) {
   return n;
 }
 
-export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose }) {
+export default function EmailSchedulesPanel({
+  sheet,
+  activeDay,
+  onSend,
+  onClose,
+  // Message / preview (openspec/changes/schedule-email-template-editing).
+  apiToken,
+  canEditTemplate = false,
+  onLoadTemplate,
+  onTemplateSaved,
+  onPreview,
+  onTestSend,
+}) {
   // Chronological once, here, so the rail, the dayIds sent, and the version
   // snapshot all present the same order the email body will.
   const allDays = useMemo(
@@ -207,8 +220,93 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
     disarm();
   };
   const totalAssignments = recipients.reduce((sum, r) => sum + r.count, 0);
+
+  // ── Message: the ONE shared 'assignment-schedule' template ────────────────
+  // Read-only for every sender; editable in place for template editors. A save
+  // writes the same override Email Management edits — never a per-send draft.
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [templateDirty, setTemplateDirty] = useState(false);
+  // Shown until the sheet refetch brings the saved body back from the server.
+  const [savedBody, setSavedBody] = useState(null);
+  const messageBody = savedBody ?? sheet.assignmentEmailBody ?? '';
+
+  const startEditing = async () => {
+    setLoadingTemplate(true);
+    setError(null);
+    try {
+      setEditingTemplate(await onLoadTemplate());
+    } catch (e) {
+      setError(e.message || 'Could not load the email template');
+    } finally {
+      setLoadingTemplate(false);
+    }
+  };
+  const stopEditing = () => {
+    // The editor reports dirty on change, not on unmount.
+    setEditingTemplate(null);
+    setTemplateDirty(false);
+  };
+  const handleTemplateSaved = (template) => {
+    // Stay in the editor, remounted clean on the saved version.
+    setEditingTemplate(template);
+    setTemplateDirty(false);
+    setSavedBody(template.body);
+    onTemplateSaved?.(template);
+  };
+
+  // ── Preview: the exact email one selected person would receive ───────────
+  const [previewChoice, setPreviewChoice] = useState(null); // null = first selected
+  const previewEmail = previewChoice && selectedEmails.includes(previewChoice) ? previewChoice : (selectedEmails[0] || '');
+  const previewRequest = { dayIds: selectedDayIds, subject: subject.trim(), recipientEmail: previewEmail };
+  // A preview or test-send result belongs to exactly one request (days, subject,
+  // person, stored body). Anything else on screen would describe an email that
+  // is no longer the one being sent, so it is keyed and hidden on mismatch.
+  const previewKey = JSON.stringify([previewRequest, messageBody]);
+  const [preview, setPreview] = useState(null); // { key, html, recipientName }
+  const [previewing, setPreviewing] = useState(false);
+  const [testSending, setTestSending] = useState(false);
+  const [testSendStatus, setTestSendStatus] = useState(null); // { key, kind, text }
+  const canPreview = !!previewEmail && selectedDayIds.length > 0 && subject.trim().length > 0 && !templateDirty;
+
+  const runPreview = async () => {
+    setPreviewing(true);
+    setError(null);
+    try {
+      const result = await onPreview(previewRequest);
+      setPreview({ key: previewKey, html: result.html, recipientName: result.recipientName });
+    } catch (e) {
+      setError(e.message || 'Could not preview the email');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const runTestSend = async () => {
+    setTestSending(true);
+    setError(null);
+    try {
+      const outcome = await onTestSend({ ...previewRequest, includeCalendar, includePdf });
+      setTestSendStatus(
+        outcome && outcome.skipped
+          ? { key: previewKey, kind: 'warn', text: 'Email delivery is turned off, so the preview was not sent.' }
+          : { key: previewKey, kind: 'ok', text: `Preview sent to ${(outcome && outcome.to) || 'you'}.` }
+      );
+    } catch (e) {
+      setTestSendStatus({ key: previewKey, kind: 'error', text: `Could not send the preview: ${e.message || 'send failed'}` });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  const shownPreview = preview && preview.key === previewKey ? preview : null;
+  const shownTestStatus = testSendStatus && testSendStatus.key === previewKey ? testSendStatus : null;
+
   // Whitespace is not a subject, and an empty header is worse than not sending.
-  const canSend = selectedDayIds.length > 0 && selectedEmails.length > 0 && subject.trim().length > 0;
+  // Unsaved template edits block too: sends use the STORED template, so the
+  // text on screen would not be the text anybody receives.
+  const canSend = selectedDayIds.length > 0 && selectedEmails.length > 0 && subject.trim().length > 0 && !templateDirty;
 
   const send = async () => {
     if (!confirming) { setConfirming(true); return; }
@@ -365,6 +463,115 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
                   </span>
                 </div>
 
+                <section className="ss-email-message">
+                  <div className="ss-email-section-head">
+                    <button
+                      type="button"
+                      className="ss-email-disclosure"
+                      data-testid="message-toggle"
+                      aria-expanded={messageOpen}
+                      onClick={() => setMessageOpen((o) => !o)}
+                    >
+                      <span aria-hidden="true">{messageOpen ? '▾' : '▸'}</span> Message
+                    </button>
+                    {messageOpen && canEditTemplate && !editingTemplate && (
+                      <button
+                        type="button"
+                        className="ss-email-linkbtn"
+                        data-testid="message-edit"
+                        onClick={startEditing}
+                        disabled={loadingTemplate}
+                      >
+                        {loadingTemplate ? 'Loading…' : 'Edit message'}
+                      </button>
+                    )}
+                    {messageOpen && editingTemplate && (
+                      <button type="button" className="ss-email-linkbtn" data-testid="message-discard" onClick={stopEditing}>
+                        {templateDirty ? 'Discard changes' : 'Close editor'}
+                      </button>
+                    )}
+                  </div>
+                  {messageOpen && (
+                    <>
+                      <p className="ss-subject-hint">
+                        {editingTemplate
+                          ? 'This message is shared: saving changes every future schedule email, and Email Management shows the same text. Each person’s own schedule fills in {{assignmentsTable}}.'
+                          : 'The text every recipient gets around their own schedule.'}
+                      </p>
+                      {editingTemplate ? (
+                        <EmailTemplateEditor
+                          key={editingTemplate.updatedAt || 'default'}
+                          apiToken={apiToken}
+                          template={editingTemplate}
+                          showSubject={false}
+                          showHeader={false}
+                          onDirtyChange={setTemplateDirty}
+                          onSaved={handleTemplateSaved}
+                        />
+                      ) : (
+                        <EmailTemplateEditor
+                          readOnly
+                          template={{ id: 'assignment-schedule', subject: '', body: messageBody }}
+                        />
+                      )}
+                    </>
+                  )}
+                </section>
+
+                <section className="ss-email-preview">
+                  <div className="ss-email-preview-row">
+                    <label className="ss-subject-label" htmlFor="ss-preview-recipient">Preview as</label>
+                    <select
+                      id="ss-preview-recipient"
+                      className="ss-preview-select"
+                      data-testid="preview-recipient"
+                      value={previewEmail}
+                      onChange={(e) => setPreviewChoice(e.target.value)}
+                      disabled={!selectedEmails.length}
+                    >
+                      {recipients.filter((r) => isChecked(r.email)).map((r) => (
+                        <option key={r.email} value={r.email}>{r.name} ({r.email})</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="ss-ghost-btn"
+                      data-testid="preview-button"
+                      onClick={runPreview}
+                      disabled={!canPreview || previewing}
+                    >
+                      {previewing ? 'Rendering…' : 'Preview'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ss-ghost-btn"
+                      data-testid="test-send-button"
+                      onClick={runTestSend}
+                      disabled={!canPreview || testSending}
+                      title="Sends this person's email, with the chosen attachments, to your own address only"
+                    >
+                      {testSending ? 'Sending…' : 'Send preview to me'}
+                    </button>
+                  </div>
+                  {shownTestStatus && (
+                    <div
+                      className={`ss-email-note ${shownTestStatus.kind === 'ok' ? 'ss-email-note-info' : ''}`}
+                      data-testid="test-send-status"
+                      role="status"
+                    >
+                      {shownTestStatus.text}
+                    </div>
+                  )}
+                  {shownPreview && (
+                    <iframe
+                      className="ss-preview-frame"
+                      title={`Preview of the email to ${shownPreview.recipientName || previewEmail}`}
+                      sandbox=""
+                      srcDoc={shownPreview.html}
+                    />
+                  )}
+                </section>
+
                 <div className="ss-email-toolbar">
                   <span data-testid="selection-count">
                     <strong>{selectedEmails.length}</strong> of {recipients.length} selected
@@ -446,6 +653,12 @@ export default function EmailSchedulesPanel({ sheet, activeDay, onSend, onClose 
                     The PDF carries the <strong>full shared grid</strong> for the selected
                     day{selectedDayIds.length === 1 ? '' : 's'}; each email body and calendar file carries only
                     <strong> that person&rsquo;s own</strong> assignments in the same scope.
+                  </div>
+                )}
+
+                {templateDirty && (
+                  <div className="ss-email-error" data-testid="template-dirty-note">
+                    Save or discard your template changes first.
                   </div>
                 )}
 

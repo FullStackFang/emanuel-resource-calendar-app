@@ -32,6 +32,7 @@ export const ROLE_TEMPLATES = {
       canManageUsers: false,
       canManageCalendarMarkers: false,
       canManageAssignments: false,
+      canEditEmailTemplates: false,
       isAdmin: false
     }
   },
@@ -50,6 +51,7 @@ export const ROLE_TEMPLATES = {
       canManageUsers: false,
       canManageCalendarMarkers: false,
       canManageAssignments: false,
+      canEditEmailTemplates: false,
       isAdmin: false
     }
   },
@@ -69,6 +71,7 @@ export const ROLE_TEMPLATES = {
       canManageUsers: true,
       canManageCalendarMarkers: false,
       canManageAssignments: true,
+      canEditEmailTemplates: true,
       isAdmin: false
     }
   },
@@ -87,6 +90,7 @@ export const ROLE_TEMPLATES = {
       canManageUsers: true,
       canManageCalendarMarkers: true,
       canManageAssignments: true,
+      canEditEmailTemplates: true,
       isAdmin: true
     }
   }
@@ -268,6 +272,7 @@ export function RoleSimulationProvider({ children }) {
         canManageUsers: actualPermissions.canManageUsers ?? false,
         canManageCalendarMarkers: actualPermissions.canManageCalendarMarkers ?? false,
         canManageAssignments: actualPermissions.canManageAssignments ?? false,
+        canEditEmailTemplates: actualPermissions.canEditEmailTemplates ?? false,
         isAdmin: actualPermissions.isAdmin ?? false
       };
     }

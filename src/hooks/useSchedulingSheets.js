@@ -190,5 +190,33 @@ export function useSchedulingSheetMutations(sheetId) {
     onSuccess: invalidate,
   });
 
-  return { createSheet, renameSheet, deleteSheet, createDay, deleteDay, updateStructure, updateCell, sendSchedules };
+  // The exact email one recipient would get, rendered by the send's own code.
+  // A read: nothing to invalidate.
+  const previewSchedule = useMutation({
+    mutationFn: async (body) =>
+      readJsonOrThrow(await jsonRequest(`${BASE()}/${sheetId}/email/preview`, 'POST', body), 'Could not preview the email'),
+  });
+
+  // Sends that rendered email to the signed-in sender ONLY (the server takes
+  // the address from the token). Writes no emailLog, so nothing to invalidate.
+  const testSendSchedule = useMutation({
+    mutationFn: async (body) =>
+      readJsonOrThrow(await jsonRequest(`${BASE()}/${sheetId}/email/test-send`, 'POST', body), 'Could not send the preview'),
+  });
+
+  // The shared 'assignment-schedule' template with its updatedAt, which the
+  // editor sends back as expectedUpdatedAt. Approver-gated server-side; only
+  // called for users who may edit it.
+  const loadScheduleTemplate = async () => {
+    const response = await authFetch(`${APP_CONFIG.API_BASE_URL}/admin/email/templates/assignment-schedule`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const body = await readJsonOrThrow(response, 'Could not load the email template');
+    return body.template;
+  };
+
+  return {
+    createSheet, renameSheet, deleteSheet, createDay, deleteDay, updateStructure, updateCell, sendSchedules,
+    previewSchedule, testSendSchedule, loadScheduleTemplate, invalidate,
+  };
 }

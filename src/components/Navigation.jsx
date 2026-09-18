@@ -16,6 +16,7 @@ export default function Navigation() {
     canManageUsers,
     canManageCalendarMarkers,
     canManageAssignments,
+    canEditEmailTemplates,
     department,
     isAdmin
   } = usePermissions();
@@ -228,6 +229,16 @@ export default function Navigation() {
           <li>
             <NavLink to="/admin/reports/conflicts" className={({ isActive }) => isActive ? 'active' : ''}>
               Room Conflicts
+            </NavLink>
+          </li>
+        )}
+
+        {/* Email Management - approvers edit templates (Templates tab only);
+            admins reach it in the Admin dropdown. */}
+        {canEditEmailTemplates && !isAdmin && (
+          <li>
+            <NavLink to="/admin/email-test" className={({ isActive }) => isActive ? 'active' : ''}>
+              Email Management
             </NavLink>
           </li>
         )}

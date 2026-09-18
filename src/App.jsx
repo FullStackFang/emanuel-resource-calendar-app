@@ -122,6 +122,15 @@ function RequireSchedulingSheets({ children }) {
   return children;
 }
 
+// Guards /admin/email-test (Email Management) — reachable by approvers and
+// admins (canEditEmailTemplates). Non-admins see the Templates tab only. UX
+// redirect; the backend gates each endpoint and is authoritative.
+function RequireEmailTemplates({ children }) {
+  const { effectivePermissions } = useRoleSimulation();
+  if (!effectivePermissions.canEditEmailTemplates) return <Navigate to="/" replace />;
+  return children;
+}
+
 // Guards the approver-facing reports (/admin/sync-health,
 // /admin/reports/conflicts) — reachable by admins and approvers. UX redirect
 // only; the backend gate is authoritative.
@@ -394,7 +403,7 @@ function App() {
                   <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
                   <Route path="/admin/reservation-requests" element={<ReservationRequests graphToken={graphToken} />} />
                   <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
-                  <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
+                  <Route path="/admin/email-test" element={<RequireEmailTemplates><EmailTestAdmin apiToken={apiToken} /></RequireEmailTemplates>} />
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
                   <Route path="/admin/events" element={<EventManagement />} />
                   <Route path="/admin/rsched-mapper" element={<RSchedMapper apiToken={apiToken} />} />

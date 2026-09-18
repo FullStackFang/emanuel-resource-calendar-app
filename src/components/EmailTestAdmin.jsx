@@ -1,9 +1,9 @@
 // src/components/EmailTestAdmin.jsx
-import React, { useState, useEffect, useMemo } from 'react';
-import ReactQuill from 'react-quill-new';
-import 'react-quill-new/dist/quill.snow.css';
+import React, { useState, useEffect, useCallback } from 'react';
 import LoadingSpinner from './shared/LoadingSpinner';
+import EmailTemplateEditor from './shared/EmailTemplateEditor';
 import { useNotification } from '../context/NotificationContext';
+import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import './Admin.css';
 import { logger } from '../utils/logger';
@@ -20,9 +20,15 @@ const templateWorkflow = (id) => {
 export default function EmailTestAdmin({ apiToken }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const { showSuccess, showWarning } = useNotification();
+  // Approvers reach this page for the Templates tab only; delivery settings
+  // (and the endpoints behind them) stay admin-only.
+  const { isAdmin } = usePermissions();
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState('settings');
+  // Tab state. Derived, not just initialized: a role change (e.g. an admin
+  // starting role simulation) must not leave a non-admin on Settings.
+  const [selectedTab, setSelectedTab] = useState(isAdmin ? 'settings' : 'templates');
+  const activeTab = isAdmin ? selectedTab : 'templates';
+  const setActiveTab = setSelectedTab;
 
   // Settings & Test tab state
   const [emailConfig, setEmailConfig] = useState(null);
@@ -50,47 +56,19 @@ export default function EmailTestAdmin({ apiToken }) {
   const [templateDrafts, setTemplateDrafts] = useState({});
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [editSubject, setEditSubject] = useState('');
-  const [editBody, setEditBody] = useState('');
-  const [savingTemplate, setSavingTemplate] = useState(false);
-  const [confirmResetTemplate, setConfirmResetTemplate] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [editorView, setEditorView] = useState('template'); // 'template' or 'preview'
+  const [editorBusy, setEditorBusy] = useState(false);
   const filteredTemplates = templates.filter(template =>
     `${template.name} ${template.description || ''}`.toLowerCase().includes(templateSearch.trim().toLowerCase()) &&
     (!workflow || templateWorkflow(template.id) === workflow) &&
     (!customizedOnly || template.isCustomized)
   );
 
-  // Quill editor configuration
-  const quillModules = useMemo(() => ({
-    toolbar: [
-      [{ 'header': [1, 2, 3, false] }],
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ 'color': [] }, { 'background': [] }],
-      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-      [{ 'align': [] }],
-      ['link'],
-      ['clean']
-    ]
-  }), []);
-
-  const quillFormats = [
-    'header',
-    'bold', 'italic', 'underline', 'strike',
-    'color', 'background',
-    'list', 'bullet',
-    'align',
-    'link'
-  ];
-
   // Load email configuration on mount
   useEffect(() => {
-    if (apiToken) {
+    if (apiToken && isAdmin) {
       loadEmailConfig();
     }
-  }, [apiToken]);
+  }, [apiToken, isAdmin]);
 
   // Load templates when templates tab is active
   useEffect(() => {
@@ -231,146 +209,40 @@ export default function EmailTestAdmin({ apiToken }) {
 
   const handleSelectTemplate = (template) => {
     if (selectedTemplate?.id === template.id) return;
-    if (selectedTemplate) {
-      setTemplateDrafts(drafts => ({ ...drafts, [selectedTemplate.id]: { subject: editSubject, body: editBody } }));
-    }
-    const draft = templateDrafts[template.id];
     setSelectedTemplate(template);
-    setEditSubject(draft?.subject ?? template.subject);
-    setEditBody(draft?.body ?? template.body);
-    setConfirmResetTemplate(false);
-    setPreviewHtml(null);
-    setEditorView('template');
     setError(null);
   };
 
-  const handleSaveTemplate = async () => {
-    if (!selectedTemplate) return;
+  // Drafts live here, not in the editor, so switching templates and back keeps
+  // unsaved text. The editor reports every edit (null once clean).
+  const handleDraftChange = useCallback((id, draft) => {
+    setTemplateDrafts(drafts => {
+      if (!draft && !drafts[id]) return drafts;
+      const next = { ...drafts };
+      if (draft) next[id] = draft; else delete next[id];
+      return next;
+    });
+  }, []);
 
-    setSavingTemplate(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          subject: editSubject,
-          body: editBody
-        })
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        showSuccess('Template saved');
-        setTemplateDrafts(drafts => {
-          const next = { ...drafts };
-          delete next[selectedTemplate.id];
-          return next;
-        });
-        await loadTemplates();
-        // Update selected template with new data
-        if (result.template) {
-          setSelectedTemplate(result.template);
-        }
-      } else {
-        setError(result.error || 'Failed to save template');
-      }
-    } catch (err) {
-      logger.error('Error saving template:', err);
-      setError(`Failed to save template: ${err.message}`);
-    } finally {
-      setSavingTemplate(false);
-    }
+  const handleTemplateSaved = async (template) => {
+    handleDraftChange(template.id, null);
+    setSelectedTemplate(template);
+    await loadTemplates();
   };
 
-  const handleResetTemplate = async () => {
-    if (!selectedTemplate) return;
-
-    // Two-click confirmation (replaces window.confirm for iframe compatibility)
-    if (!confirmResetTemplate) {
-      setConfirmResetTemplate(true);
-      return;
-    }
-    setConfirmResetTemplate(false);
-
-    setSavingTemplate(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}/reset`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        showSuccess('Template reset to default');
-        setTemplateDrafts(drafts => {
-          const next = { ...drafts };
-          delete next[selectedTemplate.id];
-          return next;
-        });
-        setPreviewHtml(null);
-        setEditorView('template');
-        await loadTemplates();
-        // Update editor with default values
-        if (result.template) {
-          setSelectedTemplate(result.template);
-          setEditSubject(result.template.subject);
-          setEditBody(result.template.body);
-        }
-      } else {
-        setError(result.error || 'Failed to reset template');
-      }
-    } catch (err) {
-      logger.error('Error resetting template:', err);
-      setError(`Failed to reset template: ${err.message}`);
-    } finally {
-      setSavingTemplate(false);
-    }
-  };
-
-  const handlePreviewTemplate = async () => {
-    if (!selectedTemplate) return;
-
-    setPreviewLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}/preview`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          subject: editSubject,
-          body: editBody
-        })
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        setPreviewHtml(result.html);
-        setEditorView('preview');
-      } else {
-        setError(result.error || 'Failed to preview template');
-      }
-    } catch (err) {
-      logger.error('Error previewing template:', err);
-      setError(`Failed to preview template: ${err.message}`);
-    } finally {
-      setPreviewLoading(false);
-    }
+  // Email Management's preview renders the UNSAVED text against sample data.
+  const loadSamplePreview = async ({ subject, body }) => {
+    const response = await fetch(`${API_BASE_URL}/admin/email/templates/${selectedTemplate.id}/preview`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ subject, body })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to preview template');
+    return result.html;
   };
 
   const renderSettingsEditor = () => {
@@ -634,7 +506,7 @@ export default function EmailTestAdmin({ apiToken }) {
                   type="button"
                   key={template.id}
                   aria-pressed={selectedTemplate?.id === template.id}
-                  disabled={savingTemplate || previewLoading}
+                  disabled={editorBusy}
                   className={`template-item ${selectedTemplate?.id === template.id ? 'selected' : ''} ${template.isCustomized ? 'customized' : ''}`}
                   onClick={() => handleSelectTemplate(template)}
                 >
@@ -660,118 +532,18 @@ export default function EmailTestAdmin({ apiToken }) {
         {/* Template Editor */}
         <div className="template-editor-container">
           {selectedTemplate ? (
-            <>
-              <div className="template-editor-header">
-                <div className="template-editor-intro">
-                  <h3>{selectedTemplate.name}</h3>
-                  <p className="template-description">{selectedTemplate.description}</p>
-                </div>
-                <div className="template-header-actions">
-                  <button
-                    className={`reset-button${confirmResetTemplate ? ' confirm' : ''}`}
-                    onClick={handleResetTemplate}
-                    disabled={savingTemplate || !selectedTemplate.isCustomized}
-                  >
-                    {confirmResetTemplate ? 'Confirm?' : 'Reset to Default'}
-                  </button>
-                  <button
-                    className="save-button"
-                    onClick={handleSaveTemplate}
-                    disabled={savingTemplate || (editSubject === selectedTemplate.subject && editBody === selectedTemplate.body)}
-                  >
-                    {savingTemplate ? 'Saving...' : 'Save Template'}
-                  </button>
-                </div>
-              </div>
-
-              {selectedTemplate.updatedAt && (
-                <div className="settings-meta template-meta">
-                  Last updated: {new Date(selectedTemplate.updatedAt).toLocaleString()}
-                  {selectedTemplate.updatedBy && ` by ${selectedTemplate.updatedBy}`}
-                </div>
-              )}
-
-              {/* Editor View Tabs */}
-              <div className="editor-view-tabs">
-                <button
-                  className={`editor-view-tab ${editorView === 'template' ? 'active' : ''}`}
-                  onClick={() => setEditorView('template')}
-                >
-                  Template
-                </button>
-                <button
-                  className={`editor-view-tab ${editorView === 'preview' ? 'active' : ''}`}
-                  onClick={() => {
-                    if (!previewHtml) {
-                      handlePreviewTemplate();
-                    } else {
-                      setEditorView('preview');
-                    }
-                  }}
-                  disabled={previewLoading}
-                >
-                  {previewLoading ? 'Loading...' : 'Preview'}
-                </button>
-              </div>
-
-              {/* Template Editor View */}
-              {editorView === 'template' && (
-                <div className="template-editor">
-                  <div className="form-group">
-                    <label htmlFor="editSubject">Subject Line</label>
-                    <input
-                      type="text"
-                      id="editSubject"
-                      value={editSubject}
-                      onChange={(e) => {
-                        setEditSubject(e.target.value);
-                        setPreviewHtml(null); // Invalidate preview on change
-                      }}
-                      placeholder="Email subject"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Body</label>
-                    <div className="quill-editor-container">
-                      <ReactQuill
-                        theme="snow"
-                        value={editBody}
-                        onChange={(value) => {
-                          setEditBody(value);
-                          setPreviewHtml(null); // Invalidate preview on change
-                        }}
-                        modules={quillModules}
-                        formats={quillFormats}
-                        placeholder="Compose your email template..."
-                      />
-                    </div>
-                    <details className="template-variables-hint">
-                      <summary>Available variables</summary>
-                      To include dynamic content, type variables like {'{{'}<em>eventTitle</em>{'}}'}.
-                      Available: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
-                    </details>
-                  </div>
-                </div>
-              )}
-
-              {/* Preview View */}
-              {editorView === 'preview' && (
-                <div className="template-preview-panel">
-                  {previewHtml ? (
-                    <iframe
-                      srcDoc={previewHtml}
-                      title="Email Preview"
-                      className="preview-iframe"
-                    />
-                  ) : (
-                    <div className="preview-loading">
-                      <p>Loading preview...</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
+            <EmailTemplateEditor
+              // Remount per template AND per saved version, so a save or reset
+              // starts the editor clean from the stored text.
+              key={`${selectedTemplate.id}:${selectedTemplate.updatedAt || 'default'}`}
+              apiToken={apiToken}
+              template={selectedTemplate}
+              draft={templateDrafts[selectedTemplate.id] || null}
+              onDraftChange={(draft) => handleDraftChange(selectedTemplate.id, draft)}
+              onSaved={handleTemplateSaved}
+              onBusyChange={setEditorBusy}
+              loadPreview={loadSamplePreview}
+            />
           ) : (
             <div className="no-template-selected">
               <p>Select a template from the list to edit it.</p>
@@ -793,12 +565,14 @@ export default function EmailTestAdmin({ apiToken }) {
 
       {/* Tabs */}
       <div className="email-tabs">
-        <button
-          className={`email-tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          Settings & Test
-        </button>
+        {isAdmin && (
+          <button
+            className={`email-tab ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            Settings & Test
+          </button>
+        )}
         <button
           className={`email-tab ${activeTab === 'templates' ? 'active' : ''}`}
           onClick={() => setActiveTab('templates')}

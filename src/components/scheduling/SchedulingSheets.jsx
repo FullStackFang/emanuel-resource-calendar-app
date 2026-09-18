@@ -25,6 +25,7 @@ import { useLocationsQuery } from '../../hooks/useLocationsQuery';
 import { deriveListLoadingState } from '../../utils/listLoadingState';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
 import { PrinterIcon, MailIcon, CopyIcon } from '../shared/CalendarIcons';
@@ -72,6 +73,7 @@ function splitDayTabs(days) {
 export default function SchedulingSheets() {
   const { apiToken } = useAuth();
   const { showSuccess, showError, showWarning } = useNotification();
+  const { canEditEmailTemplates } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [selectedSheetId, setSelectedSheetId] = useState(() => searchParams.get('sheet') || null);
@@ -455,6 +457,37 @@ export default function SchedulingSheets() {
       return outcome;
     } catch (e) {
       logger.error('Schedule send failed:', e);
+      throw e;
+    }
+  };
+
+  // 'Send preview to me': the same PDF handling as a real send, so what lands
+  // in the sender's inbox is what recipients would get. The server addresses
+  // it to the signed-in user and records nothing, so no one reads as sent.
+  const testSendSchedule = async (body) => {
+    const { includePdf = true, ...request } = body || {};
+    let attachment = null;
+    if (includePdf) {
+      try {
+        attachment = await buildSchedulePdfAttachment(request.dayIds);
+      } catch (error) {
+        logger.error('Could not build the schedule PDF for the preview; sending without it', error);
+        showWarning(error.message || 'The schedule PDF could not be built and was not attached.');
+      }
+    }
+    try {
+      const outcome = await mutations.testSendSchedule.mutateAsync({ ...request, ...(attachment ? { attachment } : {}) });
+      if (outcome && outcome.skipped) {
+        showWarning('Email delivery is turned off in system settings, so the preview was not sent.');
+      } else {
+        showSuccess(`Preview sent to ${outcome && outcome.to ? outcome.to : 'you'}`);
+      }
+      if (outcome && outcome.attachmentWarning) showWarning(outcome.attachmentWarning);
+      if (outcome && outcome.calendarWarning) showWarning(outcome.calendarWarning);
+      return outcome;
+    } catch (e) {
+      logger.error('Schedule preview send failed:', e);
+      showError(e, { context: 'SchedulingSheets.testSendSchedule' });
       throw e;
     }
   };
@@ -846,6 +879,14 @@ export default function SchedulingSheets() {
           activeDay={activeDay}
           onClose={() => setEmailOpen(false)}
           onSend={sendSchedules}
+          apiToken={apiToken}
+          canEditTemplate={!!canEditEmailTemplates}
+          onLoadTemplate={mutations.loadScheduleTemplate}
+          // The sheet GET carries the resolved subject + body; refetch it so the
+          // panel's defaults follow the saved template.
+          onTemplateSaved={mutations.invalidate}
+          onPreview={(body) => mutations.previewSchedule.mutateAsync(body)}
+          onTestSend={testSendSchedule}
         />
       )}
     </div>

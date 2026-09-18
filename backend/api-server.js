@@ -20123,6 +20123,18 @@ async function requireAssignmentManager(req, res) {
   return user;
 }
 
+// Gate for the five email TEMPLATE routes (approver+). Role-only, no department
+// grant. The user is re-fetched, never trusted from token claims. Delivery
+// settings (/config, /settings, /test) stay on isAdmin.
+async function requireTemplateEditor(req, res) {
+  const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+  if (!getPermissions(user, req.user.email).canEditEmailTemplates) {
+    res.status(403).json({ error: 'Email template editing access required' });
+    return null;
+  }
+  return user;
+}
+
 /**
  * Reconcile a marker's Outlook (Graph) state after a create or update, per the
  * design.md "Marker → Graph state matrix". Markers always target the main
@@ -20755,17 +20767,23 @@ app.get('/api/scheduling-sheets/:id', verifyToken, async (req, res) => {
     // endpoint; it is a point read by _id, the cheapest operation Cosmos has.
     // Never fatal: a subject the panel cannot prefill is a worse default, not a
     // reason to fail opening the workbook.
+    // The resolved BODY rides along too, so the panel's read-only Message view
+    // works for every sender — including Events-department senders who may
+    // not call the (approver-gated) template API.
     let assignmentEmailSubject = '';
+    let assignmentEmailBody = '';
     try {
       const template = await emailTemplates.getTemplate(emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE);
       assignmentEmailSubject = (template && template.subject) || '';
+      assignmentEmailBody = (template && template.body) || '';
     } catch (templateError) {
-      logger.warn('Could not resolve the assignment email subject template:', templateError.message);
+      logger.warn('Could not resolve the assignment email template:', templateError.message);
     }
 
     res.json({
       ...sheet,
       assignmentEmailSubject,
+      assignmentEmailBody,
       days: days.map((d) => ({ ...d, emailStatus: buildDayEmailStatus(d) }))
     });
   } catch (error) {
@@ -21182,6 +21200,176 @@ const MAX_SCHEDULE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 // mailbox. Every schedule email goes out from the one sender mailbox.
 const SCHEDULE_EMAIL_CONCURRENCY = 4;
 
+// ---------------------------------------------------------------------------
+// Shared by the send, preview and test-send routes. The preview cannot drift
+// from what is sent because it runs these same steps, not a copy of them.
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional workbook printout, rendered by the CLIENT with the same generator
+ * the Download PDF button uses — the attachment has to be the artifact people
+ * already recognize, and jsPDF plus its embedded DM Sans faces live in the
+ * frontend bundle only. Never a hard failure: a bad or oversized attachment
+ * sends plain text rather than withholding everyone's schedule.
+ * @returns {{ pdfAttachment: object|null, attachmentWarning: string|null }}
+ */
+function parseScheduleAttachment(attachment) {
+  let pdfAttachment = null;
+  let attachmentWarning = null;
+  if (attachment && typeof attachment.contentBase64 === 'string') {
+    const b64 = attachment.contentBase64.trim();
+    const approxBytes = Math.floor(b64.length * 0.75);
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) {
+      attachmentWarning = 'The schedule PDF was not valid base64 and was not attached.';
+    } else if (approxBytes > MAX_SCHEDULE_ATTACHMENT_BYTES) {
+      attachmentWarning = `The schedule PDF is ${(approxBytes / 1048576).toFixed(1)}MB, over the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit, and was not attached.`;
+    } else {
+      // Basename only, forced .pdf: the name goes straight into a mail
+      // client's save dialog.
+      const rawName = String(attachment.fileName || 'scheduling-sheet.pdf').split(/[\\/]/).pop();
+      const safeName = rawName.replace(/[^A-Za-z0-9._ -]/g, '').replace(/\.pdf$/i, '') || 'scheduling-sheet';
+      pdfAttachment = { name: `${safeName}.pdf`, contentType: 'application/pdf', contentBase64: b64 };
+    }
+    if (attachmentWarning) logger.warn('Scheduling sheet email attachment rejected:', attachmentWarning);
+  }
+  return { pdfAttachment, attachmentWarning };
+}
+
+/**
+ * Resolve a schedule-email scope and group its people by address.
+ *
+ * Scope resolves in TWO reads, deliberately. The first is a cheap INDEX of the
+ * workbook's days (date and version only) for the pure planner to validate
+ * against: membership, duplicates, ordering, and the legacy single-day /
+ * whole-sheet forms. The second fetches full documents for exactly the planned
+ * days, and those are the ONE captured snapshot behind the version preflight,
+ * the email bodies and the calendar files — so the versions checked are the
+ * versions actually rendered.
+ *
+ * Because the index is scoped to this workbook, a day belonging to another
+ * workbook is simply absent from it and 404s identically to a nonexistent id.
+ * That is what stops the endpoint becoming a probe for other sheets.
+ *
+ * @returns {Promise<{ok:false,status:number,body:object} | {ok:true, plan, scopeDays,
+ *   namesOneDay:boolean, scopeLabel:string, placeholders:object[], byEmail:Map}>}
+ */
+async function loadScheduleScope(sheet, body) {
+  const dayIndex = await withCosmosRetry(() =>
+    schedulingSheetDaysCollection
+      .find({ sheetId: sheet._id }, { projection: { date: 1, _version: 1 } })
+      .sort({ date: 1 })
+      .toArray()
+  );
+
+  const planned = planScope(body || {}, dayIndex);
+  if (!planned.ok) return { ok: false, status: planned.status, body: scopeError(planned) };
+  const { plan } = planned;
+
+  const scopeDays = plan.dayIds.length
+    ? await withCosmosRetry(() =>
+        schedulingSheetDaysCollection
+          .find({ sheetId: sheet._id, _id: { $in: plan.dayIds.map((d) => new ObjectId(d)) } })
+          .toArray()
+      )
+    : [];
+
+  // $in does not preserve order; the plan's chronological order is the one
+  // the email body and the PDF both present.
+  const dayPosition = new Map(plan.dayIds.map((id, i) => [id, i]));
+  scopeDays.sort((a, b) => dayPosition.get(String(a._id)) - dayPosition.get(String(b._id)));
+
+  // A day deleted between the two reads is treated as never found, rather
+  // than quietly narrowing a send the caller asked for.
+  if (scopeDays.length !== plan.dayIds.length) {
+    return { ok: false, status: 404, body: { error: 'Day not found', code: 'DAY_NOT_FOUND' } };
+  }
+
+  // A scope that NAMES exactly one day is labelled by that day's own date,
+  // which is what a legacy dayId send has always used. Anything wider is named
+  // by the workbook, so a subset reads as the workbook name — true, and each
+  // body still lists the exact days that person is on.
+  //
+  // This reads plan.scopeKind rather than dayIds.length on purpose: a
+  // wholeSheet send at a workbook that happens to hold one day is still a
+  // statement about the SHEET and keeps the workbook name (SE-14, SP-17).
+  const namesOneDay = plan.scopeKind === 'days' && plan.dayIds.length === 1;
+  const scopeLabel = namesOneDay ? formatSheetDayLabel(scopeDays[0].date) : sheet.name;
+
+  const allEntries = scopeDays.flatMap((d) => extractDayAssignments(d));
+
+  // Placeholders have no address. They are reported, never a block.
+  const placeholders = allEntries.filter((e) => e.placeholder);
+
+  const byEmail = new Map();
+  for (const entry of allEntries) {
+    if (!entry.email || entry.placeholder) continue;
+    if (!byEmail.has(entry.email)) byEmail.set(entry.email, []);
+    byEmail.get(entry.email).push(entry);
+  }
+
+  return { ok: true, plan, scopeDays, namesOneDay, scopeLabel, placeholders, byEmail };
+}
+
+/**
+ * The ONE per-recipient render: subject + fully wrapped HTML for a person's
+ * chronologically sorted entries. `subjectOverride` is the sender's per-send
+ * subject (blank keeps the template's).
+ */
+function renderScheduleEmail({ scopeDays, namesOneDay, scopeLabel, entries, subjectOverride }) {
+  return emailTemplates.generateFromTemplate(
+    emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
+    {
+      recipientName: escapeAssignmentHtml(entries[0].name),
+      scopeLabel: escapeAssignmentHtml(scopeLabel),
+      sheetTitle: namesOneDay && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
+      assignmentSummary: escapeAssignmentHtml(buildAssignmentSummary(entries)),
+      assignmentsTable: buildAssignmentsHtml(entries),
+      eventUrl: buildMyAssignmentsUrl()
+    },
+    { subjectOverride }
+  );
+}
+
+/**
+ * The calendar file DIFFERS PER RECIPIENT — it carries only that person's
+ * assignments — so unlike the workbook PDF it is built per message. It shares
+ * the Graph message budget with the PDF (`pdfBytes`) rather than sitting
+ * outside it, and a file that throws or busts that budget warns and is
+ * dropped: the ASSIGNMENT_SCHEDULE body is self-contained, which is exactly
+ * why the PDF is already allowed to fail this way.
+ * @returns {{ attachment: object|null, warning: string|null }}
+ */
+function buildScheduleCalendarAttachment({ email, entries, dtstamp, scopeLabel, pdfBytes }) {
+  try {
+    // The same name the email body greets them by, so the greeting, the
+    // filename and the DESCRIPTION line all agree.
+    const recipientName = (entries[0] && entries[0].name) || '';
+    const ics = icsBuilder.buildAssignmentsCalendar(entries, { dtstamp, email, recipientName });
+    if (!ics) return { attachment: null, warning: null };
+    if (pdfBytes + Buffer.byteLength(ics, 'utf8') > MAX_SCHEDULE_ATTACHMENT_BYTES) {
+      const warning = `The calendar file did not fit under the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit and was not attached.`;
+      logger.warn('Scheduling sheet calendar attachment rejected:', warning);
+      return { attachment: null, warning };
+    }
+    return {
+      attachment: {
+        // Per RECIPIENT, unlike the workbook PDF beside it: this file holds
+        // only this person's shifts, so it must not share one name with the
+        // 30 other, different files going out in the same batch.
+        name: icsBuilder.buildCalendarFileName(scopeLabel, recipientName),
+        // The method= parameter is what prompts several clients to offer an
+        // inline 'Add to Calendar' affordance rather than a bare download.
+        contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+        contentBase64: Buffer.from(ics, 'utf8').toString('base64')
+      },
+      warning: null
+    };
+  } catch (calendarError) {
+    logger.error('Failed to build the schedule calendar attachment:', calendarError);
+    return { attachment: null, warning: 'The calendar attachment could not be generated and was not attached.' };
+  }
+}
+
 /**
  * POST /api/scheduling-sheets/:id/email — per-person schedule emails.
  * Body: { dayId? , wholeSheet?: true, recipients?: [emails],
@@ -21223,97 +21411,14 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     // reproduce exactly the behavior that existed before this feature.
     const wantCalendar = includeCalendar === true;
 
-    // Optional workbook printout, rendered by the CLIENT with the same
-    // generator the Download PDF button uses — that is the whole point: the
-    // attachment has to be the artifact people already recognize, and jsPDF
-    // plus its embedded DM Sans faces live in the frontend bundle only.
-    // Never a hard failure: a bad or oversized attachment sends plain text
-    // rather than withholding everyone's schedule.
-    let pdfAttachment = null;
-    let attachmentWarning = null;
-    if (attachment && typeof attachment.contentBase64 === 'string') {
-      const b64 = attachment.contentBase64.trim();
-      const approxBytes = Math.floor(b64.length * 0.75);
-      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) {
-        attachmentWarning = 'The schedule PDF was not valid base64 and was not attached.';
-      } else if (approxBytes > MAX_SCHEDULE_ATTACHMENT_BYTES) {
-        attachmentWarning = `The schedule PDF is ${(approxBytes / 1048576).toFixed(1)}MB, over the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit, and was not attached.`;
-      } else {
-        // Basename only, forced .pdf: the name goes straight into a mail
-        // client's save dialog.
-        const rawName = String(attachment.fileName || 'scheduling-sheet.pdf').split(/[\\/]/).pop();
-        const safeName = rawName.replace(/[^A-Za-z0-9._ -]/g, '').replace(/\.pdf$/i, '') || 'scheduling-sheet';
-        pdfAttachment = { name: `${safeName}.pdf`, contentType: 'application/pdf', contentBase64: b64 };
-      }
-      if (attachmentWarning) logger.warn('Scheduling sheet email attachment rejected:', attachmentWarning);
-    }
-    // Scope resolves in TWO reads, deliberately. The first is a cheap INDEX of
-    // the workbook's days (date and version only) for the pure planner to
-    // validate against: membership, duplicates, ordering, and the legacy
-    // single-day / whole-sheet forms. The second fetches full documents for
-    // exactly the planned days, and those are the ONE captured snapshot behind
-    // the version preflight, the email bodies and the calendar files — so the
-    // versions checked are the versions actually rendered.
-    //
-    // Because the index is scoped to this workbook, a day belonging to another
-    // workbook is simply absent from it and 404s identically to a nonexistent
-    // id. That is what stops the endpoint becoming a probe for other sheets.
-    const dayIndex = await withCosmosRetry(() =>
-      schedulingSheetDaysCollection
-        .find({ sheetId: sheet._id }, { projection: { date: 1, _version: 1 } })
-        .sort({ date: 1 })
-        .toArray()
-    );
+    const { pdfAttachment, attachmentWarning } = parseScheduleAttachment(attachment);
 
-    const planned = planScope(req.body || {}, dayIndex);
-    if (!planned.ok) return res.status(planned.status).json(scopeError(planned));
-    const { plan } = planned;
-
-    const scopeDays = plan.dayIds.length
-      ? await withCosmosRetry(() =>
-          schedulingSheetDaysCollection
-            .find({ sheetId: sheet._id, _id: { $in: plan.dayIds.map((d) => new ObjectId(d)) } })
-            .toArray()
-        )
-      : [];
-
-    // $in does not preserve order; the plan's chronological order is the one
-    // the email body and the PDF both present.
-    const dayPosition = new Map(plan.dayIds.map((id, i) => [id, i]));
-    scopeDays.sort((a, b) => dayPosition.get(String(a._id)) - dayPosition.get(String(b._id)));
-
-    // A day deleted between the two reads is treated as never found, rather
-    // than quietly narrowing a send the caller asked for.
-    if (scopeDays.length !== plan.dayIds.length) {
-      return res.status(404).json({ error: 'Day not found', code: 'DAY_NOT_FOUND' });
-    }
+    const scope = await loadScheduleScope(sheet, req.body);
+    if (!scope.ok) return res.status(scope.status).json(scope.body);
+    const { scopeDays, namesOneDay, scopeLabel, placeholders, byEmail } = scope;
 
     const versionCheck = checkDayVersions(scopeDays, (req.body || {}).expectedDayVersions);
     if (!versionCheck.ok) return res.status(versionCheck.status).json(scopeError(versionCheck));
-
-    // A scope that NAMES exactly one day is labelled by that day's own date,
-    // which is what a legacy dayId send has always used. Anything wider is named
-    // by the workbook, so a subset reads as the workbook name — true, and each
-    // body still lists the exact days that person is on.
-    //
-    // This reads plan.scopeKind rather than dayIds.length on purpose: a
-    // wholeSheet send at a workbook that happens to hold one day is still a
-    // statement about the SHEET and keeps the workbook name (SE-14, SP-17).
-    const namesOneDay = plan.scopeKind === 'days' && plan.dayIds.length === 1;
-    const scopeLabel = namesOneDay ? formatSheetDayLabel(scopeDays[0].date) : sheet.name;
-
-    const allEntries = scopeDays.flatMap((d) => extractDayAssignments(d));
-
-    // Placeholders have no address. They are reported, never a block — see the
-    // endpoint comment above.
-    const placeholders = allEntries.filter((e) => e.placeholder);
-
-    const byEmail = new Map();
-    for (const entry of allEntries) {
-      if (!entry.email || entry.placeholder) continue;
-      if (!byEmail.has(entry.email)) byEmail.set(entry.email, []);
-      byEmail.get(entry.email).push(entry);
-    }
 
     // Omitting recipients means everyone assigned in scope; an EXPLICIT empty
     // list is an error rather than a silent send-to-all, and an address that is
@@ -21329,50 +21434,21 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     if (!wanted.ok) return res.status(wanted.status).json(scopeError(wanted));
     const targetEmails = [...wanted.emails].sort();
 
-    const myAssignmentsUrl = buildMyAssignmentsUrl();
     const sentAt = new Date().toISOString();
     const senderEmail = (req.user.email || '').toLowerCase();
 
-    // The calendar file DIFFERS PER RECIPIENT — it carries only that person's
-    // assignments — so unlike the workbook PDF (one blob built once above and
-    // attached identically to all 31 messages) it is built INSIDE the
-    // fan-out. It shares the Graph message budget with the PDF rather than
-    // sitting outside it, and a file that throws or busts that budget warns
-    // and is dropped: the ASSIGNMENT_SCHEDULE body is self-contained, which is
-    // exactly why the PDF is already allowed to fail this way.
+    // PDF: one blob, attached identically to every message. Calendar: built
+    // per recipient inside the fan-out (see buildScheduleCalendarAttachment).
     const pdfBytes = pdfAttachment ? Math.floor(pdfAttachment.contentBase64.length * 0.75) : 0;
     let calendarWarning = null;
     let calendarAttached = false;
 
     const buildCalendarAttachment = (email, entries) => {
       if (!wantCalendar) return null;
-      try {
-        // The same name the email body greets them by, so the greeting, the
-        // filename and the DESCRIPTION line all agree.
-        const recipientName = (entries[0] && entries[0].name) || '';
-        const ics = icsBuilder.buildAssignmentsCalendar(entries, { dtstamp: sentAt, email, recipientName });
-        if (!ics) return null;
-        if (pdfBytes + Buffer.byteLength(ics, 'utf8') > MAX_SCHEDULE_ATTACHMENT_BYTES) {
-          calendarWarning = `The calendar file did not fit under the ${(MAX_SCHEDULE_ATTACHMENT_BYTES / 1048576).toFixed(0)}MB mail limit and was not attached.`;
-          logger.warn('Scheduling sheet calendar attachment rejected:', calendarWarning);
-          return null;
-        }
-        calendarAttached = true;
-        return {
-          // Per RECIPIENT, unlike the workbook PDF beside it: this file holds
-          // only this person's shifts, so it must not share one name with the
-          // 30 other, different files going out in the same batch.
-          name: icsBuilder.buildCalendarFileName(scopeLabel, recipientName),
-          // The method= parameter is what prompts several clients to offer an
-          // inline 'Add to Calendar' affordance rather than a bare download.
-          contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
-          contentBase64: Buffer.from(ics, 'utf8').toString('base64')
-        };
-      } catch (calendarError) {
-        logger.error('Failed to build the schedule calendar attachment:', calendarError);
-        calendarWarning = 'The calendar attachment could not be generated and was not attached.';
-        return null;
-      }
+      const built = buildScheduleCalendarAttachment({ email, entries, dtstamp: sentAt, scopeLabel, pdfBytes });
+      if (built.warning) calendarWarning = built.warning;
+      if (built.attachment) calendarAttached = true;
+      return built.attachment;
     };
 
     // Graph allows 4 concurrent requests per app per MAILBOX and 429s the
@@ -21384,18 +21460,9 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
       SCHEDULE_EMAIL_CONCURRENCY,
       async (email) => {
         const entries = sortAssignments(byEmail.get(email));
-        const { subject, html } = await emailTemplates.generateFromTemplate(
-          emailTemplates.TEMPLATE_IDS.ASSIGNMENT_SCHEDULE,
-          {
-            recipientName: escapeAssignmentHtml(entries[0].name),
-            scopeLabel: escapeAssignmentHtml(scopeLabel),
-            sheetTitle: namesOneDay && scopeDays[0].title ? escapeAssignmentHtml(scopeDays[0].title) : '',
-            assignmentSummary: escapeAssignmentHtml(buildAssignmentSummary(entries)),
-            assignmentsTable: buildAssignmentsHtml(entries),
-            eventUrl: myAssignmentsUrl
-          },
-          { subjectOverride }
-        );
+        const { subject, html } = await renderScheduleEmail({
+          scopeDays, namesOneDay, scopeLabel, entries, subjectOverride
+        });
         const attachments = [pdfAttachment, buildCalendarAttachment(email, entries)].filter(Boolean);
         const outcome = await withGraphRetry(() =>
           emailService.sendEmail(email, subject, html, {
@@ -21471,6 +21538,143 @@ app.post('/api/scheduling-sheets/:id/email', verifyToken, async (req, res) => {
     });
   } catch (error) {
     sheetOperationalError(res, error, 'send schedule emails');
+  }
+});
+
+/**
+ * Load a sheet + scope for one previewed recipient. Shared by preview and
+ * test-send so both refuse exactly the same requests. The recipient must be an
+ * assigned, non-placeholder person in the selected days (case-insensitive).
+ * Deliberately NO expectedDayVersions check: a preview is a read.
+ * @returns {Promise<{ok:false,status,body} | {ok:true, sheet, scope, email, entries}>}
+ */
+async function loadSchedulePreviewTarget(req) {
+  const { id } = req.params;
+  if (!ObjectId.isValid(id)) return { ok: false, status: 404, body: { error: 'Scheduling sheet not found' } };
+  const sheet = await withCosmosRetry(() => schedulingSheetsCollection.findOne({ _id: new ObjectId(id) }));
+  if (!sheet) return { ok: false, status: 404, body: { error: 'Scheduling sheet not found' } };
+
+  const scope = await loadScheduleScope(sheet, req.body);
+  if (!scope.ok) return scope;
+
+  const wanted = String((req.body || {}).recipientEmail || '').trim().toLowerCase();
+  const email = wanted && [...scope.byEmail.keys()].find((k) => k.toLowerCase() === wanted);
+  if (!email) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: 'That person is not assigned in the selected days', code: 'RECIPIENT_NOT_IN_SCOPE' }
+    };
+  }
+  return { ok: true, sheet, scope, email, entries: sortAssignments(scope.byEmail.get(email)) };
+}
+
+/**
+ * POST /api/scheduling-sheets/:id/email/preview — the exact email ONE
+ * recipient would receive for the selected days, through the send's own
+ * render (renderScheduleEmail). Body: { dayIds, subject?, recipientEmail }.
+ * Returns { subject, html, recipientName }; `html` is the fully wrapped email,
+ * ready for an iframe srcDoc. No writes, no mail.
+ */
+app.post('/api/scheduling-sheets/:id/email/preview', verifyToken, async (req, res) => {
+  try {
+    if (!(await requireAssignmentManager(req, res))) return;
+
+    const target = await loadSchedulePreviewTarget(req);
+    if (!target.ok) return res.status(target.status).json(target.body);
+    const { scope, entries } = target;
+
+    const { subject, html } = await renderScheduleEmail({
+      scopeDays: scope.scopeDays,
+      namesOneDay: scope.namesOneDay,
+      scopeLabel: scope.scopeLabel,
+      entries,
+      subjectOverride: (req.body || {}).subject
+    });
+    res.json({ subject, html, recipientName: entries[0].name || '' });
+  } catch (error) {
+    sheetOperationalError(res, error, 'preview schedule email');
+  }
+});
+
+/**
+ * POST /api/scheduling-sheets/:id/email/test-send — send the previewed
+ * recipient's email to the SIGNED-IN SENDER ONLY. Body: { dayIds, subject?,
+ * recipientEmail, includeCalendar?, attachment? }.
+ *
+ * The destination is req.user.email from the verified token; there is no `to`
+ * field and any `to` in the body is ignored. That is what makes previewing a
+ * real person's schedule safe. The subject is prefixed '[Preview] '. The
+ * .ics (when includeCalendar === true) is the PREVIEWED person's; the PDF is
+ * the same client-rendered attachment the real send accepts, with the same
+ * limit and warnings. No emailLog, no _version / lastModifiedAt change.
+ */
+app.post('/api/scheduling-sheets/:id/email/test-send', verifyToken, async (req, res) => {
+  try {
+    if (!(await requireAssignmentManager(req, res))) return;
+
+    const target = await loadSchedulePreviewTarget(req);
+    if (!target.ok) return res.status(target.status).json(target.body);
+    const { sheet, scope, email, entries } = target;
+    const { attachment, includeCalendar, subject: subjectOverride } = req.body || {};
+
+    const { pdfAttachment, attachmentWarning } = parseScheduleAttachment(attachment);
+    const rendered = await renderScheduleEmail({
+      scopeDays: scope.scopeDays,
+      namesOneDay: scope.namesOneDay,
+      scopeLabel: scope.scopeLabel,
+      entries,
+      subjectOverride
+    });
+    const subject = `[Preview] ${rendered.subject}`;
+
+    let calendar = { attachment: null, warning: null };
+    if (includeCalendar === true) {
+      calendar = buildScheduleCalendarAttachment({
+        email,
+        entries,
+        dtstamp: new Date().toISOString(),
+        scopeLabel: scope.scopeLabel,
+        pdfBytes: pdfAttachment ? Math.floor(pdfAttachment.contentBase64.length * 0.75) : 0
+      });
+    }
+
+    const to = req.user.email;
+    const attachments = [pdfAttachment, calendar.attachment].filter(Boolean);
+    const warnings = {
+      attached: !!pdfAttachment,
+      ...(attachmentWarning ? { attachmentWarning } : {}),
+      calendarAttached: !!calendar.attachment,
+      ...(calendar.warning ? { calendarWarning: calendar.warning } : {})
+    };
+
+    let outcome;
+    try {
+      outcome = await withGraphRetry(() =>
+        emailService.sendEmail(to, subject, rendered.html, {
+          reservationId: String(sheet._id),
+          ...(attachments.length ? { attachments } : {})
+        })
+      );
+    } catch (sendError) {
+      logger.warn('Scheduling sheet preview send failed:', sendError.message);
+      return res.status(502).json({
+        sent: false,
+        reason: sendFailureReason(sendError),
+        error: sendError.message || 'send failed',
+        to,
+        ...warnings
+      });
+    }
+
+    // Delivery disabled in System Settings resolves { skipped: true }; the
+    // panel must say so rather than report a send.
+    if (outcome && outcome.skipped) {
+      return res.json({ sent: false, skipped: true, to, subject, ...warnings });
+    }
+    res.json({ sent: true, to, subject, ...warnings });
+  } catch (error) {
+    sheetOperationalError(res, error, 'send schedule preview');
   }
 });
 
@@ -29041,15 +29245,7 @@ app.post('/api/admin/email/test', verifyToken, async (req, res) => {
  */
 app.get('/api/admin/email/templates', verifyToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
-
-    // Admin check
-    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    if (!(await requireTemplateEditor(req, res))) return;
 
     const templates = await emailTemplates.getAllTemplates();
     res.json({ templates });
@@ -29066,16 +29262,8 @@ app.get('/api/admin/email/templates', verifyToken, async (req, res) => {
  */
 app.get('/api/admin/email/templates/:templateId', verifyToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
     const { templateId } = req.params;
-
-    // Admin check
-    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    if (!(await requireTemplateEditor(req, res))) return;
 
     const template = await emailTemplates.getTemplate(templateId);
     if (!template) {
@@ -29100,13 +29288,7 @@ app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
     const { templateId } = req.params;
     const { subject, body } = req.body;
 
-    // Admin check
-    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    if (!(await requireTemplateEditor(req, res))) return;
 
     // Validate template exists
     const defaultTemplates = emailTemplates.getDefaultTemplates();
@@ -29117,6 +29299,34 @@ app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
     // Validate inputs
     if (!subject || !body) {
       return res.status(400).json({ error: 'Subject and body are required' });
+    }
+
+    // Stale-save guard (D9). Optional: an omitted field keeps last-write-wins
+    // for older clients. `null` means "the editor loaded the uncustomized
+    // default". updatedAt is written on every save, so it doubles as a version.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'expectedUpdatedAt')) {
+      const settings = db.collection('templeEvents__SystemSettings');
+      const current = await settings.findOne({ _id: `email-template-${templateId}` });
+      // Unparseable input compares as its raw string, i.e. a mismatch, not a 500.
+      const iso = (v) => {
+        if (!v) return null;
+        const d = new Date(v);
+        return Number.isNaN(d.getTime()) ? `invalid:${v}` : d.toISOString();
+      };
+      const stored = iso(current?.updatedAt);
+      const expected = iso(req.body.expectedUpdatedAt);
+      if (stored !== expected) {
+        return res.status(409).json({
+          error: 'Someone else saved this template',
+          code: 'TEMPLATE_CHANGED',
+          current: {
+            subject: current?.subject ?? null,
+            body: current?.body ?? null,
+            updatedAt: current?.updatedAt ?? null,
+            updatedBy: current?.updatedBy ?? null
+          }
+        });
+      }
     }
 
     // Save to database
@@ -29155,17 +29365,10 @@ app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
  */
 app.post('/api/admin/email/templates/:templateId/preview', verifyToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
     const { templateId } = req.params;
     const { subject: customSubject, body: customBody } = req.body;
 
-    // Admin check
-    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    if (!(await requireTemplateEditor(req, res))) return;
 
     const preview = await emailTemplates.previewTemplate(templateId, customSubject, customBody);
     res.json(preview);
@@ -29185,13 +29388,7 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
     const userEmail = req.user.email;
     const { templateId } = req.params;
 
-    // Admin check
-    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    if (!(await requireTemplateEditor(req, res))) return;
 
     // Validate template exists
     const defaultTemplates = emailTemplates.getDefaultTemplates();

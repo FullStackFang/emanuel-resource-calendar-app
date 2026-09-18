@@ -1,0 +1,179 @@
+/* EmailTemplateEditor — scoped under .email-template-editor so it renders the
+   same inside the Email Schedules panel, where the (lazily loaded) Email
+   Management stylesheet may never have been loaded, and so these rules
+   cannot leak into other screens. */
+
+.email-template-editor { min-width: 0; }
+
+.email-template-editor .template-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.email-template-editor .template-editor-intro { flex: 1; min-width: 0; }
+.email-template-editor .template-editor-intro h3 { margin: 0; }
+.email-template-editor .template-description {
+  margin: var(--space-1) 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.email-template-editor .template-header-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-left: auto;
+}
+
+.email-template-editor .save-button,
+.email-template-editor .reset-button,
+.email-template-editor .cancel-button {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.email-template-editor .save-button {
+  background: var(--color-primary-600);
+  color: var(--text-inverse);
+  border: none;
+}
+.email-template-editor .save-button:disabled {
+  background: var(--color-neutral-300);
+  cursor: not-allowed;
+}
+/* Saving the shared template changes every future send: warning-colored confirm. */
+.email-template-editor .save-button.confirm {
+  background: var(--color-warning-500);
+  animation: ete-pulse-confirm 1s ease-in-out infinite;
+}
+
+.email-template-editor .reset-button {
+  background: transparent;
+  color: var(--color-error-500);
+  border: 1px solid var(--color-error-300);
+}
+.email-template-editor .reset-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.email-template-editor .reset-button.confirm {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  border-color: var(--color-error-500);
+  animation: ete-pulse-confirm 1s ease-in-out infinite;
+}
+
+.email-template-editor .cancel-button {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.email-template-editor .template-meta {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.email-template-editor .ete-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning-500);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  font-size: var(--text-sm);
+}
+
+.email-template-editor .form-group { margin-bottom: var(--space-3); }
+.email-template-editor .form-group label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+.email-template-editor .form-group input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.email-template-editor .quill-editor-container {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+.email-template-editor .quill-editor-container .ql-toolbar {
+  border: none;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+}
+.email-template-editor .quill-editor-container .ql-container {
+  border: none;
+  font-size: var(--text-sm);
+  height: clamp(220px, 32vh, 480px);
+}
+
+.email-template-editor .template-variables-hint {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.email-template-editor .template-variables-hint summary {
+  cursor: pointer;
+  color: var(--color-primary-600);
+}
+
+.email-template-editor .editor-view-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.email-template-editor .editor-view-tab {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.email-template-editor .editor-view-tab.active {
+  background: var(--color-primary-600);
+  border-color: var(--color-primary-600);
+  color: var(--text-inverse);
+}
+
+.email-template-editor .template-preview-panel .preview-iframe,
+.email-template-editor .ete-message-frame {
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  display: block;
+  background: #fff;
+}
+
+@keyframes ete-pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .email-template-editor .save-button.confirm,
+  .email-template-editor .reset-button.confirm { animation: none; }
+}
