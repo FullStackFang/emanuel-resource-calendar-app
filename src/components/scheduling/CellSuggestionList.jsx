@@ -43,6 +43,7 @@ export default function CellSuggestionList({
   onPickTime,
   onAddPlaceholder,
   onUseAsText,
+  onAddDetail,
   onStartExternal,
   onChangeExternal,
   onAddExternal,
@@ -78,9 +79,9 @@ export default function CellSuggestionList({
     ...(flip ? { bottom: `${window.innerHeight - rect.top}px` } : { top: `${rect.bottom}px` }),
   };
 
-  const { choices, personOverflow, locationOverflow } = picker;
+  const { choices, personOverflow, locationOverflow, detailOverflow } = picker;
   const handlers = {
-    onPickTime, onPickPerson, onPickLocation, onAddPlaceholder, onStartExternal, onUseAsText,
+    onPickTime, onPickPerson, onPickLocation, onAddPlaceholder, onStartExternal, onUseAsText, onAddDetail,
   };
 
   return createPortal(
@@ -144,6 +145,8 @@ export default function CellSuggestionList({
                 )}
                 {choice.kind === 'external' && <>Not a user? Add name &amp; email</>}
                 {choice.kind === 'text' && <>Use &ldquo;{choice.payload}&rdquo; as free text</>}
+                {choice.kind === 'detail' && <>Add &ldquo;{choice.payload}&rdquo; as text</>}
+                {choice.kind === 'detailSuggestion' && <span className="ss-picker-name">{choice.name}</span>}
                 {(choice.kind === 'time' || choice.kind === 'person' || choice.kind === 'location') && (
                   <>
                     <span className="ss-picker-name">
@@ -161,6 +164,9 @@ export default function CellSuggestionList({
                 <div className="ss-picker-overflow">
                   {personOverflow} more {personOverflow === 1 ? 'match' : 'matches'}. Keep typing&hellip;
                 </div>
+              )}
+              {choice.kind === 'detailSuggestion' && detailOverflow > 0 && choices[index + 1]?.kind !== 'detailSuggestion' && (
+                <div className="ss-picker-overflow">{detailOverflow} more details. Keep typing&hellip;</div>
               )}
               {choice.kind === 'location' && locationOverflow > 0 && choices[index + 1]?.kind !== 'location' && (
                 <div className="ss-picker-overflow">{locationOverflow} more locations. Keep typing&hellip;</div>

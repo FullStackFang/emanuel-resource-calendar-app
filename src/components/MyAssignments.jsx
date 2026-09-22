@@ -65,6 +65,10 @@ function timeRange(a) {
   return [a.begins, a.ends].filter(Boolean).join(' – ');
 }
 
+function assignmentDetails(a) {
+  return (a.details || []).map((detail) => detail.type === 'text' ? detail.text : detail.name).filter(Boolean).join(' · ');
+}
+
 /**
  * The props that make a day card a highlight toggle. A real <button> would
  * swallow the block layout the card depends on, so this is the ARIA toggle
@@ -107,6 +111,7 @@ function AssignmentRow({ assignment: a }) {
           </span>
         </div>
         {a.note && <p className="ma-slot-note">{a.note}</p>}
+        {assignmentDetails(a) && <p className="ma-slot-note">{assignmentDetails(a)}</p>}
       </div>
     </div>
   );
@@ -167,6 +172,7 @@ function FeaturedDay({ group, selectedKey, onToggle }) {
           {first.note && (
             <span><span className="ma-feature-meta-label">Note</span>{first.note}</span>
           )}
+          {assignmentDetails(first) && <span><span className="ma-feature-meta-label">Details</span>{assignmentDetails(first)}</span>}
         </div>
       </div>
 

@@ -28,6 +28,7 @@ import useMentionPicker, {
   textSegment,
 } from './useMentionPicker';
 import CellSuggestionList from './CellSuggestionList';
+import { addToGroup, removeLastGroupPart, consumeMentionTokens, pendingGroupedInput } from './mentionGroups';
 
 /**
  * Removing a chip has to survive the input's blur-commit. mousedown moves
@@ -50,7 +51,7 @@ function RemoveButton({ label, onRemove }) {
   );
 }
 
-function InlineChip({ segment, index, onRemove }) {
+function InlineChip({ segment, index, onRemove, onRemoveDetail }) {
   if (segment.type === 'text') {
     return (
       <span className="ss-chip ss-chip-text" data-testid="inline-chip-text">
@@ -73,6 +74,12 @@ function InlineChip({ segment, index, onRemove }) {
       {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
       {segment.name}
       {segment.callTimeOverride && <span className="ss-chip-calltime">{segment.callTimeOverride}</span>}
+      {(segment.details || []).map((detail, detailIndex) => (
+        <span className="ss-chip-detail" key={detailIndex}>
+          {detail.type === 'text' ? detail.text : detail.name}
+          <RemoveButton label={detail.type === 'text' ? detail.text : detail.name} onRemove={() => onRemoveDetail(index, detailIndex)} />
+        </span>
+      ))}
       <RemoveButton label={segment.name} onRemove={() => onRemove(index)} />
     </span>
   );
@@ -82,6 +89,7 @@ export default function InlineCellEditor({
   cell,
   people,
   locations,
+  detailVocabulary = [],
   anchorRef,
   initialInput = '',
   clipboard = null,
@@ -93,6 +101,7 @@ export default function InlineCellEditor({
   // "restore" is real rather than a rollback of a partial write.
   const snapshotRef = useRef((cell && cell.segments ? [...cell.segments] : []));
   const [segments, setSegments] = useState(snapshotRef.current);
+  const [openGroupIndex, setOpenGroupIndex] = useState(null);
   const [input, setInput] = useState(initialInput);
   const [externalDraft, setExternalDraft] = useState(null); // { name, email }
   const inputRef = useRef(null);
@@ -101,17 +110,18 @@ export default function InlineCellEditor({
   // discard (unmount, focus moving on) cannot resurrect the edit as a commit.
   const doneRef = useRef(false);
 
-  const picker = useMentionPicker({ input, people, locations });
+  const picker = useMentionPicker({ input, people, locations, detailMode: openGroupIndex != null, detailVocabulary });
   const { mode, term, choices, pendingSegment } = picker;
 
   // What each suggestion row does. Defined once and handed to BOTH the list
   // (a click) and applyChoice (Enter on the highlighted row).
   const choiceHandlers = {
     onPickPerson: (person) => addSegment(personSegment(person)),
-    onPickLocation: (location) => addSegment(locationSegment(location)),
+    onPickLocation: (location) => addSegment(locationSegment(location), mode === 'mention'),
     onPickTime: (time) => addSegment(timeSegment(time)),
     onAddPlaceholder: () => addSegment(placeholderSegment(term)),
     onUseAsText: () => addSegment(textSegment(term.trim())),
+    onAddDetail: (value) => addSegment(textSegment(value), true),
     onStartExternal: () => setExternalDraft({ name: term.trim(), email: '' }),
   };
 
@@ -119,7 +129,7 @@ export default function InlineCellEditor({
   // yet', which is deliberately what an escape-hatch-only list starts at:
   // Enter on a term that matched nobody must still COMMIT the term rather
   // than silently open the add-an-outsider form.
-  const defaultActiveIndex = choices.length && MATCH_KINDS.has(choices[0].kind) ? 0 : -1;
+  const defaultActiveIndex = picker.defaultActiveIndex;
   const [activeIndex, setActiveIndex] = useState(defaultActiveIndex);
   const [renderedChoiceKey, setRenderedChoiceKey] = useState('');
   const choiceKey = choices.map((c) => c.key).join('|');
@@ -150,7 +160,7 @@ export default function InlineCellEditor({
     if (doneRef.current) return;
     doneRef.current = true;
     const pending = pendingSegment();
-    onCommit(buildCell(pending ? [...segments, pending] : segments), advance);
+    onCommit(buildCell(pendingGroupedInput(input, segments, openGroupIndex, people, locations, pending)), advance);
   };
 
   const cancel = () => {
@@ -162,8 +172,10 @@ export default function InlineCellEditor({
     onCancel();
   };
 
-  const addSegment = (segment) => {
-    setSegments((prev) => [...prev, segment]);
+  const addSegment = (segment, asDetail = false) => {
+    const next = addToGroup(segments, asDetail ? openGroupIndex : (segment.type === 'location' && mode === 'mention' ? openGroupIndex : null), segment);
+    setSegments(next.segments);
+    if (segment.type === 'person') setOpenGroupIndex(next.openIndex);
     setInput('');
     setExternalDraft(null);
     if (inputRef.current) inputRef.current.focus();
@@ -171,7 +183,15 @@ export default function InlineCellEditor({
 
   const removeSegment = (index) => {
     setSegments((prev) => prev.filter((_, i) => i !== index));
+    if (openGroupIndex === index) setOpenGroupIndex(null);
+    else if (openGroupIndex > index) setOpenGroupIndex(openGroupIndex - 1);
     if (inputRef.current) inputRef.current.focus();
+  };
+
+  const removeDetail = (index, detailIndex) => {
+    setSegments((prev) => prev.map((segment, i) => i === index
+      ? { ...segment, details: segment.details.filter((_, j) => j !== detailIndex) }
+      : segment));
   };
 
   const handleKeyDown = (e) => {
@@ -192,7 +212,7 @@ export default function InlineCellEditor({
         // Copy what a commit would write, so text still sitting in the box
         // travels with the chips instead of being silently dropped.
         const pending = pendingSegment();
-        onCopyCell(pending ? [...segments, pending] : segments);
+        onCopyCell(pendingGroupedInput(input, segments, openGroupIndex, people, locations, pending));
       }
       return;
     }
@@ -236,7 +256,9 @@ export default function InlineCellEditor({
       return;
     }
     if (e.key === 'Backspace' && !input && segments.length) {
-      setSegments((prev) => prev.slice(0, -1));
+      const next = removeLastGroupPart(segments, openGroupIndex);
+      setSegments(next.segments);
+      setOpenGroupIndex(next.openIndex);
     }
   };
 
@@ -250,7 +272,7 @@ export default function InlineCellEditor({
   return (
     <div className="ss-inline-cell-editor" data-testid="inline-cell-editor">
       {segments.map((seg, i) => (
-        <InlineChip key={i} segment={seg} index={i} onRemove={removeSegment} />
+        <InlineChip key={i} segment={seg} index={i} onRemove={removeSegment} onRemoveDetail={removeDetail} />
       ))}
       <input
         ref={inputRef}
@@ -258,7 +280,12 @@ export default function InlineCellEditor({
         data-testid="inline-cell-input"
         value={input}
         autoFocus
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => {
+          const next = consumeMentionTokens(e.target.value, segments, openGroupIndex, people, locations);
+          setSegments(next.segments);
+          setOpenGroupIndex(next.openIndex);
+          setInput(next.input);
+        }}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder="6pm, text, or @"

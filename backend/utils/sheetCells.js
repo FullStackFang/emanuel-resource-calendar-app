@@ -51,6 +51,7 @@ function validateCell(rawCell) {
   }
 
   const clean = [];
+  let segmentCount = segments.length;
   for (const seg of segments) {
     if (!seg || typeof seg !== 'object') return fail('segment must be an object');
     if (!SEGMENT_TYPES.includes(seg.type)) {
@@ -87,13 +88,40 @@ function validateCell(rawCell) {
         }
         callTimeOverride = seg.callTimeOverride;
       }
+      let details;
+      if (seg.details != null) {
+        if (!Array.isArray(seg.details)) return fail('person details must be an array');
+        if (seg.details.length > 10) return fail('person details exceeds the maximum of 10');
+        segmentCount += seg.details.length;
+        if (segmentCount > MAX_SEGMENTS_PER_CELL) {
+          return fail(`cell.segments exceeds the maximum of ${MAX_SEGMENTS_PER_CELL}`);
+        }
+        details = [];
+        for (const detail of seg.details) {
+          if (!detail || typeof detail !== 'object' || !['text', 'location'].includes(detail.type)) {
+            return fail('person details must contain only text or location segments');
+          }
+          if (detail.type === 'text') {
+            if (typeof detail.text !== 'string') return fail('text segment requires a string text');
+            if (detail.text.length > MAX_TEXT_LENGTH) return fail('text segment too long');
+            details.push({ type: 'text', text: detail.text });
+          } else {
+            if (typeof detail.name !== 'string' || !detail.name.trim()) {
+              return fail('location segment requires a non-empty name');
+            }
+            if (detail.name.length > MAX_NAME_LENGTH) return fail('location segment name too long');
+            details.push({ type: 'location', locationId: typeof detail.locationId === 'string' && detail.locationId ? detail.locationId : null, name: detail.name.trim() });
+          }
+        }
+      }
       clean.push({
         type: 'person',
         userId: typeof seg.userId === 'string' && seg.userId ? seg.userId : null,
         name: seg.name.trim(),
         email,
         placeholder,
-        callTimeOverride
+        callTimeOverride,
+        ...(details?.length ? { details } : {})
       });
       continue;
     }

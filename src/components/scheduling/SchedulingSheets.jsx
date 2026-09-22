@@ -30,6 +30,7 @@ import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyStateRefreshButton from '../shared/EmptyStateRefreshButton';
 import { PrinterIcon, MailIcon, CopyIcon } from '../shared/CalendarIcons';
 import SchedulingSheetGrid from './SchedulingSheetGrid';
+import { collectDetailVocabulary } from './useMentionPicker';
 import { toLocationNameArray } from './sheetEventUtils';
 import SeedDatePicker from './SeedDatePicker';
 import EmailSchedulesPanel from './EmailSchedulesPanel';
@@ -136,6 +137,7 @@ export default function SchedulingSheets() {
   const detailQuery = useSchedulingSheet(selectedSheetId);
   const sheet = detailQuery.data || null;
   const days = useMemo(() => (sheet && sheet.days) || [], [sheet]);
+  const detailVocabulary = useMemo(() => collectDetailVocabulary(sheet), [sheet]);
 
   // Settle on a day: deep link, else today or the next upcoming day, else last.
   useEffect(() => {
@@ -742,6 +744,7 @@ export default function SchedulingSheets() {
 
           <SchedulingSheetGrid
             day={activeDay}
+            detailVocabulary={detailVocabulary}
             canEdit
             people={userLookupQuery.data || []}
             onRefreshPeople={userLookupQuery.refetch}

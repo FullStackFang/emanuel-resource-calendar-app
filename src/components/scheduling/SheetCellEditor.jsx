@@ -25,8 +25,9 @@ import useMentionPicker, {
   placeholderSegment,
   externalPersonSegment,
 } from './useMentionPicker';
+import { addToGroup, removeLastGroupPart, consumeMentionTokens, pendingGroupedInput } from './mentionGroups';
 
-function PersonChip({ segment, onRemove, onSetCallTime, canEdit }) {
+function PersonChip({ segment, onRemove, onRemoveDetail, onSetCallTime, canEdit }) {
   const kind = segment.placeholder ? 'placeholder' : segment.userId ? 'user' : 'external';
   return (
     <span className={`ss-chip ss-chip-${kind}`} data-testid={`cell-chip-${kind}`}>
@@ -38,6 +39,12 @@ function PersonChip({ segment, onRemove, onSetCallTime, canEdit }) {
           {segment.callTimeOverride}
         </span>
       )}
+      {(segment.details || []).map((detail, index) => (
+        <span className="ss-chip-detail" key={index}>
+          {detail.type === 'text' ? detail.text : detail.name}
+          {canEdit && <button type="button" className="ss-chip-remove" aria-label={`Remove ${detail.type === 'text' ? detail.text : detail.name}`} onClick={() => onRemoveDetail(index)}>&times;</button>}
+        </span>
+      ))}
       {canEdit && !segment.placeholder && (
         <button
           type="button"
@@ -57,8 +64,9 @@ function PersonChip({ segment, onRemove, onSetCallTime, canEdit }) {
   );
 }
 
-export default function SheetCellEditor({ cell, people, locations, onSave, onClose }) {
+export default function SheetCellEditor({ cell, people, locations, detailVocabulary = [], onSave, onClose }) {
   const [segments, setSegments] = useState(() => (cell && cell.segments ? [...cell.segments] : []));
+  const [openGroupIndex, setOpenGroupIndex] = useState(null);
   const [note, setNote] = useState(cell && cell.note ? cell.note.text : '');
   const [showNote, setShowNote] = useState(!!(cell && cell.note));
   const [input, setInput] = useState('');
@@ -76,10 +84,14 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     timePreview,
     mentionTime,
     pendingSegment,
-  } = useMentionPicker({ input, people, locations });
+    choices,
+    detailOverflow,
+  } = useMentionPicker({ input, people, locations, detailMode: openGroupIndex != null, detailVocabulary });
 
   const addSegment = (segment) => {
-    setSegments((prev) => [...prev, segment]);
+    const next = addToGroup(segments, segment.type === 'person' ? null : (mode === 'mention' ? openGroupIndex : null), segment);
+    setSegments(next.segments);
+    if (segment.type === 'person') setOpenGroupIndex(next.openIndex);
     setInput('');
     setExternalDraft(null);
   };
@@ -93,12 +105,15 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     if (e.key === 'Enter') {
       e.preventDefault();
       if (mode === 'text') commitText();
+      else if (mode === 'mention' && openGroupIndex != null && term.trim()) addSegment({ type: 'text', text: mentionTime?.display || term.trim() });
       else if (mode === 'mention' && mentionTime) pickTime(mentionTime);
       else if (mode === 'mention' && personMatches.length) pickPerson(personMatches[0]);
       else if ((mode === 'mention' || mode === 'location') && locationMatches.length) pickLocation(locationMatches[0]);
     }
     if (e.key === 'Backspace' && !input && segments.length) {
-      setSegments((prev) => prev.slice(0, -1));
+      const next = removeLastGroupPart(segments, openGroupIndex);
+      setSegments(next.segments);
+      setOpenGroupIndex(next.openIndex);
     }
   };
 
@@ -114,7 +129,7 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
     const trimmedNote = note.trim();
     const pending = pendingSegment();
     onSave({
-      segments: pending ? [...segments, pending] : segments,
+      segments: pendingGroupedInput(input, segments, openGroupIndex, people, locations, pending),
       note: trimmedNote ? { text: trimmedNote, authorName: null, at: new Date().toISOString() } : null,
     });
   };
@@ -151,7 +166,8 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
                 key={i}
                 segment={seg}
                 canEdit
-                onRemove={() => setSegments((prev) => prev.filter((_, j) => j !== i))}
+                onRemove={() => { setSegments((prev) => prev.filter((_, j) => j !== i)); if (openGroupIndex === i) setOpenGroupIndex(null); }}
+                onRemoveDetail={(detailIndex) => setSegments((prev) => prev.map((s, j) => j === i ? { ...s, details: s.details.filter((_, k) => k !== detailIndex) } : s))}
                 onSetCallTime={() => { setCallTimeIndex(i); setCallTimeDraft(seg.callTimeOverride || ''); }}
               />
             );
@@ -193,7 +209,12 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
           data-testid="cell-editor-input"
           value={input}
           autoFocus
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            const next = consumeMentionTokens(e.target.value, segments, openGroupIndex, people, locations);
+            setSegments(next.segments);
+            setOpenGroupIndex(next.openIndex);
+            setInput(next.input);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Type a time (6pm), free text, or @ to tag a person or location"
         />
@@ -207,7 +228,14 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
 
         {mode === 'mention' && !externalDraft && (
           <div className="ss-picker" data-testid="person-picker">
-            {mentionTime && (
+            {openGroupIndex != null && choices.filter((choice) => choice.kind === 'detailSuggestion').map((choice) => (
+              <button type="button" key={choice.key} className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: choice.payload })}>{choice.name}</button>
+            ))}
+            {openGroupIndex != null && detailOverflow > 0 && <div className="ss-picker-overflow">{detailOverflow} more details. Keep typing&hellip;</div>}
+            {openGroupIndex != null && term.trim() && (
+              <button type="button" className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: mentionTime?.display || term.trim() })}>Add &ldquo;{mentionTime?.display || term.trim()}&rdquo; as text</button>
+            )}
+            {mentionTime && openGroupIndex == null && (
               <>
                 <div className="ss-picker-group">Time</div>
                 <button type="button" className="ss-picker-row" data-testid="mention-time-row" onClick={() => pickTime(mentionTime)}>
@@ -239,14 +267,14 @@ export default function SheetCellEditor({ cell, people, locations, onSave, onClo
                 )}
               </>
             )}
-            {personMatches.length === 0 && term.trim() && (
+            {openGroupIndex == null && personMatches.length === 0 && term.trim() && (
               <button type="button" className="ss-picker-row ss-picker-placeholder" onClick={addPlaceholder}>
                 Keep <strong>@{term.trim()}</strong> as an unassigned placeholder
               </button>
             )}
-            <button type="button" className="ss-picker-row ss-picker-escape" onClick={() => setExternalDraft({ name: term.trim(), email: '' })}>
+            {openGroupIndex == null && <button type="button" className="ss-picker-row ss-picker-escape" onClick={() => setExternalDraft({ name: term.trim(), email: '' })}>
               Not a user? Add name &amp; email
-            </button>
+            </button>}
           </div>
         )}
 

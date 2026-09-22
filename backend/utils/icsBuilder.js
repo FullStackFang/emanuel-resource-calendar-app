@@ -22,6 +22,7 @@
  */
 
 const DEFAULT_TIME_ZONE = 'America/New_York';
+const { formatDetails } = require('./sheetDetailFormat');
 const DEFAULT_PRODID = '-//Temple Emanu-El//Scheduling Sheets//EN';
 const DEFAULT_UID_DOMAIN = 'emanuelnyc.org';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -275,6 +276,8 @@ function buildDescription(entry, recipientName) {
   if (entry.callTime) lines.push(`Call time: ${entry.callTime}`);
   if (entry.begins) lines.push(`Begins: ${entry.begins}`);
   if (entry.ends) lines.push(`Ends: ${entry.ends}`);
+  const details = formatDetails(entry.details);
+  if (details) lines.push(`Details: ${details}`);
   if (entry.note) lines.push(`Note: ${entry.note}`);
   if (entry.dayTitle) lines.push(`Day: ${entry.dayTitle}`);
   return lines.join('\n');

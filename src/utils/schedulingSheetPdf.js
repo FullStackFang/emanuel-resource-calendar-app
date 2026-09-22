@@ -345,6 +345,9 @@ export function generateSchedulingSheetPdf({ sheet, liveEventsById = null, maxDa
           if (!isStaff) runs.push({ t: '  EXT', st: ST.personTag });
           if (seg.callTimeOverride) runs.push({ t: ` ${S(compactTime(seg.callTimeOverride))}`, st: ST.callTime });
         }
+        for (const detail of seg.details || []) {
+          runs.push({ t: ` · ${S(detail.type === 'text' ? detail.text : detail.name)}`, st: ST.text });
+        }
         blocks.push({
           kind: 'person',
           runs,

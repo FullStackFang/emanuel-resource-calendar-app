@@ -1533,3 +1533,20 @@ tr.ss-drop-target .ss-row-label {
   border-radius: 8px;
   background: #fff;
 }
+.ss-chip-detail {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35em;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.ss-chip-detail::before {
+  content: '·';
+  margin-right: 0.35em;
+}
+
+@media print {
+  .ss-chip-detail { opacity: 1; }
+  .ss-chip-detail .ss-chip-remove { display: none; }
+}

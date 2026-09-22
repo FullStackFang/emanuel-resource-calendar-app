@@ -10,6 +10,7 @@
 
 const escapeAssignmentHtml = require('escape-html');
 const { resolveEventWindow } = require('./icsBuilder');
+const { formatDetails } = require('./sheetDetailFormat');
 
 /**
  * Chronological order for one person's entries (as produced by
@@ -177,6 +178,10 @@ function buildAssignmentsHtml(entries) {
       const where = lines.length
         ? `<p style="margin: 0 0 ${e.note ? '8' : '0'}px; color: #4a5568; font-size: 14px; line-height: 1.5;">${lines.join('<br>')}</p>`
         : '';
+      const details = formatDetails(e.details);
+      const detailLine = details
+        ? `<p style="margin: 0 0 8px; color: #4a5568; font-size: 14px;">${esc(details)}</p>`
+        : '';
 
       const note = e.note
         ? `<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse: collapse;"><tr>
@@ -187,7 +192,7 @@ function buildAssignmentsHtml(entries) {
       return `<tr><td style="padding: 16px 0 15px; border-bottom: 1px solid #e6e9ed;">
         ${lead}
         <p style="margin: 0 0 3px; color: #1c2430; font-size: 16px; font-weight: bold;">${esc(title)}</p>
-        ${sub}${where}${note}
+        ${sub}${detailLine}${where}${note}
       </td></tr>`;
     });
 
@@ -206,6 +211,7 @@ module.exports = {
   formatSheetDayHeading,
   sheetDateYear,
   displaySheetClock,
+  formatDetails,
   buildAssignmentSummary,
   buildAssignmentsHtml
 };

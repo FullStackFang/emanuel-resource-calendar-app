@@ -99,6 +99,18 @@ const day = (over = {}) => ({
 
 const sheet = (over = {}) => ({ _id: 's1', name: '2026 High Holy Days', days: [day()], ...over });
 
+it('keeps a person and their details in the PDF block', () => {
+  const staffed = day({ columns: cols(1), cells: {
+    'r5:c1': { segments: [{ type: 'person', userId: 'u1', name: 'Stephen', email: 's@x.org', details: [
+      { type: 'text', text: '6:15 PM' }, { type: 'location', name: 'Greenwald' }
+    ] }] }
+  } });
+  generateSchedulingSheetPdf({ sheet: sheet({ days: [staffed] }) });
+  expect(drew('Stephen')).toBe(true);
+  expect(textCalls.join(' ')).toContain('6:15');
+  expect(textCalls.join(' ')).toContain('Greenwald');
+});
+
 // ---------------------------------------------------------------- planners
 
 describe('chunkColumns', () => {

@@ -21119,6 +21119,7 @@ function extractDayAssignments(day) {
         email: seg.email || null,
         name: seg.name,
         placeholder: !!seg.placeholder,
+        details: seg.details || [],
         dayId: day._id,
         sheetId: day.sheetId,
         // Calendar-attachment identity (icsBuilder design D6). Row and column

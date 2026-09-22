@@ -374,6 +374,25 @@ describe('Scheduling Sheets (SS-1 to SS-34)', () => {
     expect(res.body.cells[`${rowId}:c1`].segments[0].email).toBe('sarah@emanuelnyc.org');
   });
 
+  test('person details persist and nested people are rejected', async () => {
+    const sheet = await createSheet(adminToken);
+    const day = await createDay(adminToken, sheet._id, { date: '2027-09-11' });
+    const rowId = day.rows[0].id;
+    const person = { type: 'person', name: 'Stephen', email: 's@x.org' };
+    const details = [{ type: 'text', text: 'Usher' }, { type: 'location', name: 'Greenwald' }];
+    const saved = await putCell(adminToken, sheet._id, day._id, rowId, 'c1', {
+      segments: [{ ...person, details }]
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.cells[`${rowId}:c1`].segments[0].details).toEqual([
+      details[0], { type: 'location', locationId: null, name: 'Greenwald' }
+    ]);
+    const invalid = await putCell(adminToken, sheet._id, day._id, rowId, 'c1', {
+      segments: [{ ...person, details: [person] }]
+    });
+    expect(invalid.status).toBe(400);
+  });
+
   test('SS-16 invalid segment type is rejected and the cell is unchanged', async () => {
     const sheet = await createSheet(adminToken);
     const day = await createDay(adminToken, sheet._id, { date: '2027-09-11' });

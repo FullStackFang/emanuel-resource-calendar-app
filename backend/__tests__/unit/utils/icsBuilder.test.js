@@ -50,6 +50,15 @@ function entry(overrides = {}) {
   };
 }
 
+test('details appear in DESCRIPTION without changing event times', () => {
+  const base = entry({ callTime: '6:00 PM', ends: '8:00 PM' });
+  const original = buildAssignmentsCalendar([base], { dtstamp: '2026-09-01T00:00:00Z' });
+  const withDetails = buildAssignmentsCalendar([{ ...base, details: [{ type: 'text', text: 'Usher' }] }], { dtstamp: '2026-09-01T00:00:00Z' });
+  expect(withDetails.replace(/\r\n /g, '')).toContain('Details: Usher');
+  expect(withDetails.match(/DTSTART[^\r\n]*/)?.[0]).toBe(original.match(/DTSTART[^\r\n]*/)?.[0]);
+  expect(withDetails.match(/DTEND[^\r\n]*/)?.[0]).toBe(original.match(/DTEND[^\r\n]*/)?.[0]);
+});
+
 /** Unfold a generated file back into logical lines, so assertions read plainly. */
 function logicalLines(ics) {
   return ics.replace(/\r\n /g, '').split('\r\n');

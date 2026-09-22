@@ -158,6 +158,9 @@ function CellContent({ cell, doubleBooked }) {
             {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
             {seg.name}
             {seg.callTimeOverride && <span className="ss-chip-calltime">{seg.callTimeOverride}</span>}
+            {(seg.details || []).map((detail, detailIndex) => (
+              <span key={detailIndex} className="ss-chip-detail">{detail.type === 'text' ? detail.text : detail.name}</span>
+            ))}
             {warned && (
               <span className="ss-chip-warn" data-testid="double-booking-warning"
                 title="This person is also assigned to another post whose times overlap">
@@ -177,6 +180,7 @@ export default function SchedulingSheetGrid({
   canEdit,
   people,
   locations,
+  detailVocabulary = [],
   publishedEvents,
   liveEventsById,
   onCellSave,
@@ -835,6 +839,7 @@ export default function SchedulingSheetGrid({
                         cell={cell || null}
                         people={people}
                         locations={locations}
+                        detailVocabulary={detailVocabulary}
                         anchorRef={editingCellRef}
                         initialInput={editingCell.initialInput}
                         clipboard={clipboard ? clipboard.segments : null}
@@ -924,6 +929,7 @@ export default function SchedulingSheetGrid({
           cell={(day.cells || {})[cellKeyOf(expandedCell.rowId, expandedCell.colId)] || null}
           people={people}
           locations={locations}
+          detailVocabulary={detailVocabulary}
           onClose={() => setExpandedCell(null)}
           onSave={(cell) => {
             onCellSave(expandedCell.rowId, expandedCell.colId, cell);

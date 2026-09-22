@@ -134,6 +134,25 @@ describe('Scheduling Sheet emails (SE-1 to SE-51)', () => {
     expect(html).toContain('YP Dinner');
   });
 
+  test('person details stay with their own recipient in email and calendar', async () => {
+    const sheet = await createSheet();
+    let day = await createDay(sheet._id, { date: '2027-09-11' });
+    day = await addColumns(sheet._id, day, [{ id: 'c1', name: 'Erev Service' }]);
+    await putCell(sheet._id, day._id, day.rows[0].id, 'c1', { segments: [
+      { ...person('Stephen', 'stephen@x.org'), details: [{ type: 'text', text: 'Usher' }] },
+      { ...person('Dana', 'dana@x.org'), details: [{ type: 'text', text: 'Reader' }] }
+    ] });
+    const res = await sendSchedules(sheet._id, { dayId: day._id, includeCalendar: true });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(2);
+    const stephenCall = sendSpy.mock.calls.find(([to]) => to === 'stephen@x.org');
+    expect(stephenCall[2]).toContain('Usher');
+    expect(stephenCall[2]).not.toContain('Reader');
+    const calendar = calendarFrom(stephenCall).replace(/\r\n /g, '');
+    expect(calendar).toContain('Details: Usher');
+    expect(calendar).not.toContain('Reader');
+  });
+
   test('SE-2 whole-sheet scope sends one email covering all the persons days', async () => {
     const sheet = await createSheet();
     let day1 = await createDay(sheet._id, { date: '2027-09-11' });
@@ -791,22 +810,25 @@ describe('Scheduling Sheet emails (SE-1 to SE-51)', () => {
   // so without the destructuring guard in that handler, all four would leak
   // into a response whose contract predates this change. The key set below was
   // measured against HEAD before the extractor grew, not assumed.
-  test('SE-25 my-assignments returns exactly the fields it always has', async () => {
+  test('SE-25 my-assignments returns the 15 fields including grouped details', async () => {
     const sheet = await createSheet();
     const { day, rowId } = await dayWithMetadata(sheet, { date: '2099-09-11' });
     await putCell(sheet._id, day._id, rowId('Greeter'), 'c1', {
-      segments: [person('Events Coordinator', eventsRequesterUser.email)],
+      segments: [{ ...person('Events Coordinator', eventsRequesterUser.email), details: [{ type: 'text', text: 'Usher' }] }],
     });
 
     const res = await request(app).get('/api/my-assignments').set(auth(eventsRequesterToken));
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
+    expect(res.body[0].details).toEqual([{ type: 'text', text: 'Usher' }]);
+    // scheduling-sheet-grouped-mentions deliberately widens the SE-25 contract.
     expect(Object.keys(res.body[0]).sort()).toEqual(
       [
         'begins',
         'callTime',
         'columnName',
         'date',
+        'details',
         'dayId',
         'dayTitle',
         'email',

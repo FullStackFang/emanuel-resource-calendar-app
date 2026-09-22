@@ -96,6 +96,27 @@ describe('sheetCells', () => {
       expect(validateCell({ segments: [], note: { text: '' } }).valid).toBe(false);
       expect(validateCell({ segments: [], note: 'plain string' }).valid).toBe(false);
     });
+
+    test('person details normalize text and location in order without changing old segments', () => {
+      const person = { type: 'person', name: 'Stephen', email: 'Stephen@x.org' };
+      const details = [{ type: 'text', text: '6:15 PM' }, { type: 'location', locationId: 'room-1', name: ' Greenwald ' }];
+      const result = validateCell({ segments: [{ ...person, details }] });
+      expect(result.valid).toBe(true);
+      expect(result.cell.segments[0].details).toEqual([
+        { type: 'text', text: '6:15 PM' },
+        { type: 'location', locationId: 'room-1', name: 'Greenwald' }
+      ]);
+      expect(validateCell({ segments: [person] }).cell.segments[0]).not.toHaveProperty('details');
+      expect(validateCell({ segments: [{ ...person, details: [] }] }).cell.segments[0]).not.toHaveProperty('details');
+    });
+
+    test('person details reject nested people and both size limits', () => {
+      const person = { type: 'person', name: 'Stephen', email: 's@x.org' };
+      const detail = { type: 'text', text: 'Usher' };
+      expect(validateCell({ segments: [{ ...person, details: [person] }] }).valid).toBe(false);
+      expect(validateCell({ segments: [{ ...person, details: Array(11).fill(detail) }] }).valid).toBe(false);
+      expect(validateCell({ segments: [{ ...person, details: [detail] }, ...Array(49).fill(detail)] }).valid).toBe(false);
+    });
   });
 
   describe('extractTaggedEmails', () => {
@@ -126,6 +147,13 @@ describe('sheetCells', () => {
       // client-supplied taggedEmails array can never reach storage.
       expect(extractTaggedEmails({})).toEqual([]);
       expect(extractTaggedEmails(undefined)).toEqual([]);
+    });
+
+    test('nested details do not affect tagged emails', () => {
+      const person = { type: 'person', name: 'Stephen', email: 's@x.org' };
+      expect(extractTaggedEmails({ one: { segments: [person] } })).toEqual(
+        extractTaggedEmails({ one: { segments: [{ ...person, details: [{ type: 'text', text: 'Usher' }] }] } })
+      );
     });
   });
 

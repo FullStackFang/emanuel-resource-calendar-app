@@ -88,6 +88,81 @@ const focusCell = (key) => {
   fireEvent.keyDown(screen.getByTestId('inline-cell-input'), { key: 'Escape' });
 };
 
+describe('grouped person details', () => {
+  it('groups a typed line under the picked person and keeps plain text separate', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rCall:c1'));
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@Sarah @615pm @Greenwald @Usher' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Sarah Levine');
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('6:15 PM');
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Greenwald');
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Usher');
+    fireEvent.change(input, { target: { value: 'after kiddush' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCellSave.mock.calls.at(-1)[2].segments).toMatchObject([
+      { type: 'person', details: [{ text: '6:15 PM' }, { text: 'Greenwald' }, { text: 'Usher' }] },
+      { type: 'text', text: 'after kiddush' }
+    ]);
+  });
+
+  it('removes one detail without removing the person', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [{ type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: 'Usher' }, { type: 'text', text: 'Door' }] }] };
+    renderGrid({ day });
+    fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Usher' }));
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('SarahDoor');
+    expect(screen.getByTestId('inline-chip-user')).not.toHaveTextContent('Usher');
+  });
+
+  it('keeps a partial person name as text until that person row is picked', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rCall:c1'));
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@Sarah' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: '@Sa' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(1);
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Sa');
+    fireEvent.change(input, { target: { value: '@Sarah' } });
+    fireEvent.click(screen.getByRole('option', { name: /Sarah Levine/ }));
+    expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(2);
+  });
+
+  it('Backspace removes the last detail before the open person', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rCall:c1'));
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@Sarah @Usher' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(1);
+    expect(screen.getByTestId('inline-chip-user')).not.toHaveTextContent('Usher');
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(screen.queryByTestId('inline-chip-user')).not.toBeInTheDocument();
+  });
+
+  it('renders stored details inside one grid person chip', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [{ type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: '6:15 PM' }] }] };
+    renderGrid({ day, canEdit: false });
+    expect(screen.getByTestId('grid-chip-user')).toHaveTextContent('Sarah');
+    expect(screen.getByTestId('grid-chip-user')).toHaveTextContent('6:15 PM');
+  });
+
+  it('keeps an unmatched multi-token line as one text segment when no person is picked', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('cell-rCall:c1'));
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@Unknown @Another' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCellSave.mock.calls[0][2].segments).toEqual([{ type: 'text', text: '@Unknown @Another' }]);
+  });
+});
+
 describe('SchedulingSheetGrid - row creation', () => {
   it('SSI-26: the Add row button submits one trimmed custom row', () => {
     renderGrid();

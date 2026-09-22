@@ -19,6 +19,8 @@ import useMentionPicker, {
   placeholderSegment,
   externalPersonSegment,
   textSegment,
+  splitMentionTokens,
+  collectDetailVocabulary,
 } from '../../../../components/scheduling/useMentionPicker';
 
 const PEOPLE = [
@@ -42,6 +44,37 @@ const pick = (input, { people = PEOPLE, locations = LOCATIONS } = {}) =>
   renderHook(({ value }) => useMentionPicker({ input: value, people, locations }), {
     initialProps: { value: input },
   }).result;
+
+describe('grouped mention helpers', () => {
+  it('splits only on space-at, keeping multi-word terms and embedded at signs', () => {
+    expect(splitMentionTokens('@Stephen @after kiddush @a@b.com')).toEqual(['@Stephen', '@after kiddush', '@a@b.com']);
+  });
+
+  it('collects only text details from this sheet, merging case by frequency', () => {
+    const detail = (text) => ({ type: 'person', details: [{ type: 'text', text }] });
+    const sheet = { days: [{ cells: { a: { segments: [detail('Usher'), detail('usher')] } } },
+      { cells: { b: { segments: [detail('Usher'), { type: 'person', details: [{ type: 'location', name: 'Greenwald' }] }] } } }] };
+    expect(collectDetailVocabulary(sheet)).toEqual(['Usher']);
+  });
+
+  it('defaults a detail token to text while keeping people and locations pick-only', () => {
+    const { result } = renderHook(() => useMentionPicker({
+      input: '@sa', people: PEOPLE, locations: LOCATIONS, detailMode: true,
+      detailVocabulary: ['Sabbath', 'Sarah']
+    }));
+    expect(result.current.choices.slice(0, 3).map((c) => c.kind)).toEqual(['detailSuggestion', 'detailSuggestion', 'detail']);
+    expect(result.current.defaultActiveIndex).toBe(2);
+    expect(result.current.choices.some((c) => ['placeholder', 'external'].includes(c.kind))).toBe(false);
+    expect(renderHook(() => useMentionPicker({ input: '@615pm', detailMode: true })).result.current.choices[0].payload).toBe('6:15 PM');
+  });
+
+  it('caps matching sheet details at five and reports the remainder', () => {
+    const detailVocabulary = ['Usher 1', 'Usher 2', 'Usher 3', 'Usher 4', 'Usher 5', 'Usher 6'];
+    const { result } = renderHook(() => useMentionPicker({ input: '@usher', detailMode: true, detailVocabulary }));
+    expect(result.current.choices.filter((choice) => choice.kind === 'detailSuggestion')).toHaveLength(5);
+    expect(result.current.detailOverflow).toBe(1);
+  });
+});
 
 describe('useMentionPicker — mode detection', () => {
   it('UMP-1: a bare string is plain text mode with no matches offered', () => {

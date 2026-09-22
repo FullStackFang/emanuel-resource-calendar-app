@@ -14,6 +14,7 @@ const {
   buildAssignmentsHtml,
   buildAssignmentSummary,
   displaySheetClock,
+  formatDetails,
 } = require('../../../utils/assignmentSchedule');
 
 const entry = (over = {}) => ({
@@ -28,6 +29,13 @@ const entry = (over = {}) => ({
 });
 
 const names = (list) => list.map((e) => e.columnName);
+
+test('person details format in order and escape in itinerary', () => {
+  const details = [{ type: 'text', text: '6:15 PM' }, { type: 'location', name: 'Greenwald' }, { type: 'text', text: '<Usher>' }];
+  expect(formatDetails(details)).toBe('6:15 PM · Greenwald · <Usher>');
+  const html = buildAssignmentsHtml([entry({ details })]);
+  expect(html).toContain('6:15 PM · Greenwald · &lt;Usher&gt;');
+});
 
 describe('assignmentSchedule ordering (AO-1 to AO-8)', () => {
   test('AO-1 date sorts first, regardless of the times on each day', () => {

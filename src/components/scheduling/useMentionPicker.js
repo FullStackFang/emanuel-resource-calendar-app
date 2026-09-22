@@ -19,6 +19,33 @@ import { parseTimeToken } from './sheetEventUtils';
 
 export const MATCH_CAP = 5;
 
+export function splitMentionTokens(value) {
+  return String(value).split(/ (?=@)/);
+}
+
+export function collectDetailVocabulary(sheet) {
+  const counts = new Map();
+  for (const day of sheet?.days || []) {
+    for (const cell of Object.values(day.cells || {})) {
+      for (const seg of cell?.segments || []) {
+        if (seg.type !== 'person') continue;
+        for (const detail of seg.details || []) {
+          if (detail.type !== 'text' || !detail.text?.trim()) continue;
+          const value = detail.text.trim();
+          const key = value.toLowerCase();
+          const record = counts.get(key) || { total: 0, variants: new Map() };
+          record.total++;
+          record.variants.set(value, (record.variants.get(value) || 0) + 1);
+          counts.set(key, record);
+        }
+      }
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.total - a.total)
+    .map(({ variants }) => [...variants].sort((a, b) => b[1] - a[1])[0][0]);
+}
+
 // ── Segment builders ───────────────────────────────────────────────────────
 // The stored cell shape is a server contract; building it in one place keeps
 // both surfaces writing identical documents.
@@ -84,6 +111,8 @@ export function applyChoice(choice, handlers) {
     case 'placeholder': return handlers.onAddPlaceholder();
     case 'external': return handlers.onStartExternal();
     case 'text': return handlers.onUseAsText();
+    case 'detail': return handlers.onAddDetail(choice.payload);
+    case 'detailSuggestion': return handlers.onAddDetail(choice.payload);
     default: return undefined;
   }
 }
@@ -93,11 +122,11 @@ export const MATCH_KINDS = new Set(['time', 'person', 'location']);
 
 // ── The hook ───────────────────────────────────────────────────────────────
 
-export default function useMentionPicker({ input, people, locations }) {
+export default function useMentionPicker({ input, people, locations, detailMode = false, detailVocabulary = [] }) {
   const value = typeof input === 'string' ? input : '';
 
   const mode = value.startsWith('@') ? 'mention' : value.startsWith('#') ? 'location' : 'text';
-  const term = mode === 'text' ? value : value.slice(1);
+  const term = mode === 'mention' ? splitMentionTokens(value).at(-1).slice(1) : mode === 'text' ? value : value.slice(1);
 
   const allPersonMatches = useMemo(() => {
     if (mode !== 'mention') return [];
@@ -122,6 +151,10 @@ export default function useMentionPicker({ input, people, locations }) {
   // '@' is a lookup sigil, and a time has nothing to look up — so it is
   // optional here. Typing '@6pm' still works because people reach for it.
   const mentionTime = useMemo(() => (mode === 'mention' ? parseTimeToken(term) : null), [mode, term]);
+  const detailText = mentionTime?.display || term.trim();
+  const allDetailMatches = useMemo(() => mode === 'mention' && detailMode
+    ? detailVocabulary.filter((value) => value.toLowerCase().includes(term.trim().toLowerCase()) && value.toLowerCase() !== term.trim().toLowerCase())
+    : [], [mode, detailMode, detailVocabulary, term]);
 
   const personMatches = useMemo(() => allPersonMatches.slice(0, MATCH_CAP), [allPersonMatches]);
   const locationMatches = useMemo(() => allLocationMatches.slice(0, MATCH_CAP), [allLocationMatches]);
@@ -152,7 +185,13 @@ export default function useMentionPicker({ input, people, locations }) {
   const choices = useMemo(() => {
     const out = [];
     const trimmed = term.trim();
-    if (mode === 'mention' && mentionTime) {
+    if (mode === 'mention' && detailMode) {
+      for (const value of allDetailMatches.slice(0, MATCH_CAP)) {
+        out.push({ key: `detail:${value.toLowerCase()}`, kind: 'detailSuggestion', group: 'Used on this sheet', name: value, payload: value });
+      }
+      if (trimmed) out.push({ key: 'detail-text', kind: 'detail', name: detailText, payload: detailText });
+    }
+    if (mode === 'mention' && mentionTime && !detailMode) {
       out.push({
         key: 'time', kind: 'time', group: 'Time', icon: 'clock',
         testId: 'cell-suggestions-time-row', name: mentionTime.display, payload: mentionTime,
@@ -169,22 +208,24 @@ export default function useMentionPicker({ input, people, locations }) {
         group: mode === 'mention' ? 'Locations' : null, name: location.displayName, payload: location,
       });
     }
-    if (mode === 'mention' && personMatches.length === 0 && trimmed) {
+    if (mode === 'mention' && !detailMode && personMatches.length === 0 && trimmed) {
       out.push({ key: 'placeholder', kind: 'placeholder', className: 'ss-picker-placeholder', payload: trimmed });
     }
-    if (mode === 'mention') {
+    if (mode === 'mention' && !detailMode) {
       out.push({ key: 'external', kind: 'external', className: 'ss-picker-escape', payload: trimmed });
     }
     if (mode === 'location' && locationMatches.length === 0 && trimmed) {
       out.push({ key: 'text', kind: 'text', className: 'ss-picker-escape', payload: trimmed });
     }
     return out;
-  }, [mode, term, mentionTime, personMatches, locationMatches]);
+  }, [mode, term, mentionTime, personMatches, locationMatches, detailMode, detailText, allDetailMatches]);
 
   return {
     mode,
     term,
     choices,
+    defaultActiveIndex: detailMode && mode === 'mention' ? choices.findIndex((choice) => choice.kind === 'detail') : (choices.length && MATCH_KINDS.has(choices[0].kind) ? 0 : -1),
+    detailOverflow: Math.max(0, allDetailMatches.length - MATCH_CAP),
     personMatches,
     personOverflow: Math.max(0, allPersonMatches.length - MATCH_CAP),
     locationMatches,

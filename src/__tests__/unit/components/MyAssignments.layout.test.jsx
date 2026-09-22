@@ -47,6 +47,15 @@ beforeEach(() => {
 });
 
 describe('MyAssignments — day-card layout', () => {
+  it('shows the current person details on featured and later assignments', () => {
+    mockQuery = resolved([
+      assignment({ details: [{ type: 'text', text: '6:15 PM' }, { type: 'location', name: 'Greenwald' }] }),
+      assignment({ date: '2099-09-12', details: [{ type: 'text', text: 'Usher' }] })
+    ]);
+    render(<MyAssignments />);
+    expect(screen.getByTestId('assignment-day-2099-09-11')).toHaveTextContent('6:15 PM · Greenwald');
+    expect(screen.getByTestId('assignment-day-2099-09-12')).toHaveTextContent('Usher');
+  });
   it('MAL-1: the soonest day is the featured card, later days are not', () => {
     mockQuery = resolved([
       assignment({ date: '2099-09-20', dayTitle: 'Kol Nidre', columnName: 'Evening' }),
