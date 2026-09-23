@@ -15,7 +15,7 @@
 // The mention behavior itself lives in useMentionPicker, shared with the
 // in-cell editor so the two surfaces cannot drift.
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { parseTimeToken } from './sheetEventUtils';
 import useMentionPicker, {
@@ -27,39 +27,40 @@ import useMentionPicker, {
 } from './useMentionPicker';
 import { addToGroup, removeLastGroupPart, consumeMentionTokens, pendingGroupedInput } from './mentionGroups';
 
-function PersonChip({ segment, onRemove, onRemoveDetail, onSetCallTime, canEdit }) {
+function PersonChip({ segment, isActive, onEditDetails, onRemove, onRemoveDetail, onSetCallTime, canEdit }) {
   const kind = segment.placeholder ? 'placeholder' : segment.userId ? 'user' : 'external';
   return (
-    <span className={`ss-chip ss-chip-${kind}`} data-testid={`cell-chip-${kind}`}>
-      {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
-      <span className="ss-chip-name">{segment.name}</span>
-      {segment.email && kind === 'external' && <span className="ss-chip-sub">{segment.email}</span>}
-      {segment.callTimeOverride && (
-        <span className="ss-chip-calltime" title="Personal call time (overrides the column call time)">
-          {segment.callTimeOverride}
-        </span>
-      )}
-      {(segment.details || []).map((detail, index) => (
-        <span className="ss-chip-detail" key={index}>
-          {detail.type === 'text' ? detail.text : detail.name}
-          {canEdit && <button type="button" className="ss-chip-remove" aria-label={`Remove ${detail.type === 'text' ? detail.text : detail.name}`} onClick={() => onRemoveDetail(index)}>&times;</button>}
-        </span>
-      ))}
-      {canEdit && !segment.placeholder && (
-        <button
-          type="button"
-          className="ss-chip-action"
-          title="Set a personal call time for this person"
-          onClick={onSetCallTime}
-        >
-          &#128337;
-        </button>
-      )}
-      {canEdit && (
-        <button type="button" className="ss-chip-remove" aria-label={`Remove ${segment.name}`} onClick={onRemove}>
-          &times;
-        </button>
-      )}
+    <span className={`ss-person-roster ss-roster-${kind}${isActive ? ' ss-roster-active' : ''}`} data-testid={`cell-chip-${kind}`}>
+      <span className="ss-roster-name-row" data-testid="editor-roster-name">
+        {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9679;</span>}
+        <span className="ss-roster-name">{segment.name}</span>
+        {segment.email && kind === 'external' && <span className="ss-chip-sub">{segment.email}</span>}
+        {segment.callTimeOverride && (
+          <span className="ss-chip-calltime" title="Personal call time (overrides the column call time)">
+            {segment.callTimeOverride}
+          </span>
+        )}
+        {canEdit && <button type="button" className="ss-chip-edit-details" aria-label={`Edit details for ${segment.name}`}
+          aria-pressed={isActive} onClick={onEditDetails}>Edit</button>}
+        {canEdit && !segment.placeholder && (
+          <button type="button" className="ss-chip-action" title="Set a personal call time for this person" onClick={onSetCallTime}>
+            &#128337;
+          </button>
+        )}
+        {canEdit && (
+          <button type="button" className="ss-chip-remove" aria-label={`Remove ${segment.name}${segment.details?.length ? ' and all details' : ''}`} onClick={onRemove}>
+            &times;
+          </button>
+        )}
+      </span>
+      {segment.details?.length > 0 && <span className="ss-roster-details" data-testid="editor-group-details">
+        {(segment.details || []).map((detail, index) => (
+          <span className="ss-roster-detail" key={index}>
+            {detail.type === 'text' ? detail.text : detail.name}
+            {canEdit && <button type="button" className="ss-chip-remove" aria-label={`Remove ${detail.type === 'text' ? detail.text : detail.name}`} onClick={() => onRemoveDetail(index)}>&times;</button>}
+          </span>
+        ))}
+      </span>}
     </span>
   );
 }
@@ -73,6 +74,8 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
   const [externalDraft, setExternalDraft] = useState(null); // { name, email }
   const [callTimeIndex, setCallTimeIndex] = useState(null);
   const [callTimeDraft, setCallTimeDraft] = useState('');
+  const inputRef = useRef(null);
+  const activeGroup = openGroupIndex == null ? null : segments[openGroupIndex];
 
   const {
     mode,
@@ -96,6 +99,17 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
     setExternalDraft(null);
   };
 
+  const removeSegment = (index) => {
+    setSegments((prev) => prev.filter((_, i) => i !== index));
+    setOpenGroupIndex((current) => current === index ? null : current > index ? current - 1 : current);
+  };
+
+  const finishCurrentInput = () => {
+    if (!input.trim()) return;
+    setSegments(pendingGroupedInput(input, segments, openGroupIndex, people, locations, pendingSegment()));
+    setInput('');
+  };
+
   const commitText = () => {
     const segment = pendingSegment();
     if (segment) addSegment(segment);
@@ -104,7 +118,8 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (mode === 'text') commitText();
+      if (openGroupIndex != null && !input.trim()) setOpenGroupIndex(null);
+      else if (mode === 'text') commitText();
       else if (mode === 'mention' && openGroupIndex != null && term.trim()) addSegment({ type: 'text', text: mentionTime?.display || term.trim() });
       else if (mode === 'mention' && mentionTime) pickTime(mentionTime);
       else if (mode === 'mention' && personMatches.length) pickPerson(personMatches[0]);
@@ -144,7 +159,7 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
                 <span key={i} className="ss-chip ss-chip-text">
                   {seg.text}
                   <button type="button" className="ss-chip-remove" aria-label={`Remove ${seg.text}`}
-                    onClick={() => setSegments((prev) => prev.filter((_, j) => j !== i))}>
+                    onClick={() => removeSegment(i)}>
                     &times;
                   </button>
                 </span>
@@ -155,7 +170,7 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
                 <span key={i} className="ss-chip ss-chip-location">
                   <span aria-hidden="true">&#128205;</span> {seg.name}
                   <button type="button" className="ss-chip-remove" aria-label={`Remove ${seg.name}`}
-                    onClick={() => setSegments((prev) => prev.filter((_, j) => j !== i))}>
+                    onClick={() => removeSegment(i)}>
                     &times;
                   </button>
                 </span>
@@ -166,13 +181,20 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
                 key={i}
                 segment={seg}
                 canEdit
-                onRemove={() => { setSegments((prev) => prev.filter((_, j) => j !== i)); if (openGroupIndex === i) setOpenGroupIndex(null); }}
+                isActive={openGroupIndex === i}
+                onEditDetails={() => { finishCurrentInput(); setOpenGroupIndex(i); inputRef.current?.focus(); }}
+                onRemove={() => removeSegment(i)}
                 onRemoveDetail={(detailIndex) => setSegments((prev) => prev.map((s, j) => j === i ? { ...s, details: s.details.filter((_, k) => k !== detailIndex) } : s))}
                 onSetCallTime={() => { setCallTimeIndex(i); setCallTimeDraft(seg.callTimeOverride || ''); }}
               />
             );
           })}
         </div>
+
+        {activeGroup && <div className="ss-group-target" data-testid="editor-group-target">
+          Adding details to <strong>{activeGroup.name}</strong>
+          <button type="button" title="Or press Enter on an empty input" onClick={() => { finishCurrentInput(); setOpenGroupIndex(null); }}>Done</button>
+        </div>}
 
         {callTimeIndex !== null && (
           <div className="ss-editor-calltime" data-testid="call-time-editor">
@@ -205,6 +227,7 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
         )}
 
         <input
+          ref={inputRef}
           className="ss-editor-input"
           data-testid="cell-editor-input"
           value={input}
@@ -216,7 +239,7 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
             setInput(next.input);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Type a time (6pm), free text, or @ to tag a person or location"
+          placeholder={activeGroup ? `@detail for ${activeGroup.name}` : 'Type a time (6pm), free text, or @ to tag a person or location'}
         />
 
         {timePreview && (
@@ -229,11 +252,11 @@ export default function SheetCellEditor({ cell, people, locations, detailVocabul
         {mode === 'mention' && !externalDraft && (
           <div className="ss-picker" data-testid="person-picker">
             {openGroupIndex != null && choices.filter((choice) => choice.kind === 'detailSuggestion').map((choice) => (
-              <button type="button" key={choice.key} className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: choice.payload })}>{choice.name}</button>
+              <button type="button" key={choice.key} className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: choice.payload })}>Add {choice.name} to {activeGroup.name}</button>
             ))}
             {openGroupIndex != null && detailOverflow > 0 && <div className="ss-picker-overflow">{detailOverflow} more details. Keep typing&hellip;</div>}
             {openGroupIndex != null && term.trim() && (
-              <button type="button" className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: mentionTime?.display || term.trim() })}>Add &ldquo;{mentionTime?.display || term.trim()}&rdquo; as text</button>
+              <button type="button" className="ss-picker-row" onClick={() => addSegment({ type: 'text', text: mentionTime?.display || term.trim() })}>Add {mentionTime?.display || term.trim()} to {activeGroup.name}</button>
             )}
             {mentionTime && openGroupIndex == null && (
               <>

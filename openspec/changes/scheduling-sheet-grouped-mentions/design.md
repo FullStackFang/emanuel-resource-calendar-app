@@ -26,8 +26,8 @@ client already holds every cell of the sheet.
 ## Goals / Non-Goals
 
 **Goals:**
-- Attach times, rooms and free-text duties to the person they describe, as one
-  chip, typed on one line.
+- Let staff explicitly attach times, rooms and free-text duties to a person
+  while keeping ordinary cell entries separate by default.
 - Typing an `@` line never silently loses a tagged person again.
 - The person sees their own details wherever they read their schedule.
 - Consistent wording of free-text duties across a sheet, with no list to
@@ -72,20 +72,37 @@ or empty `details` normalizes to NO field (not `[]`), so cells written before
 this change round-trip byte-for-byte and existing tests that compare whole
 segments keep passing.
 
-### D2. The open group is the preview (refines the "preview under the input" idea)
+### D2. Editing a person's details is an explicit mode
 
-Picking a person appends their chip as today AND makes it the **open group**.
-While a group is open, each further `@` token is a **detail** and lands INSIDE
-that chip, visibly — the chip itself is the live preview. There is no separate
-preview widget to keep consistent with what will be saved.
+Picking a person appends their segment and leaves detail editing closed. The
+next `@` token therefore creates another ordinary cell entry by default.
+Activating Edit on a person's pill makes that person the **open group**. While
+it is open, each further `@` token is a **detail** on that person.
+The editor renders the person's name on one roster line and their details
+directly underneath, so the saved cell itself is the live preview. There is no
+separate preview widget to keep consistent with what will be saved.
 
-The group closes when the cell commits, or when another person is picked (who
-becomes the new open group). Plain text typed WITHOUT `@` still becomes a
+The group remains open after each added detail. Enter on an empty input or Done
+closes detail editing while leaving the cell editor open. The group also closes
+when the cell commits or another person is picked. Plain text typed WITHOUT `@` still becomes a
 top-level text chip, exactly as today — the escape hatch for a note that is
 about the post, not the person. Backspace on an empty input removes the open
 group's last detail, then the person, preserving today's "Backspace eats the
 last chip" feel. The expanded editor's existing per-chip controls (call time,
 remove) are unchanged; each detail gets its own remove ×.
+
+An existing person has an **Edit details** control in both editors. It
+reopens that person as the active group without removing or recreating the
+person; the editor names the active owner above the input and a Done control
+closes the group. In the grid and both editors, each person keeps a bordered
+pill with details on a separate line immediately below their name. The active
+editor changes that pill into a restrained rectangular editing surface. An editable saved roster
+line has an Edit action that opens that specific person for detail editing;
+individual remove controls appear only once the cell is being edited.
+
+The in-cell suggestion list is portaled to the body to escape grid clipping.
+It anchors below the input, stays below even near the viewport edge, and uses
+the same quiet border and selection styling as the rest of the sheet.
 
 *Alternative considered:* keep the whole line as text and parse it on commit,
 with a rendered preview. It needs caret-position token tracking and a memory
@@ -113,7 +130,7 @@ does not split.
 | Default highlighted row | first match, as today | **"Add '<term>' as text"** |
 | Time | Time row | folded into the text row (normalized: `615pm` → "6:15 PM") |
 | Locations | Locations group | Locations group, pick-only |
-| People | people | people, pick-only (starts a new group) |
+| People | people | people, pick-only (adds a separate person and closes detail mode) |
 | Placeholder / outsider rows | shown | **never** |
 | Sheet detail suggestions | — | listed above "Add as text" |
 
@@ -122,6 +139,8 @@ rule plain text already follows, so `@615pm` is stored as "6:15 PM" without a
 separate time row. Because the text row is the default, typed text never turns
 into a person or room without the user choosing one — the answer to "`@Al`
 meant as a word must not become Alan".
+The picker names the owner in its detail rows (for example, "Add Usher to
+Stephen") rather than describing the storage type as "text".
 
 ### D5. Detail suggestions are derived, not stored
 

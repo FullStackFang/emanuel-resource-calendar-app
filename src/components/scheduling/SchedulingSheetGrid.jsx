@@ -138,7 +138,7 @@ function EventMentionList({ term, events, onPick }) {
   );
 }
 
-function CellContent({ cell, doubleBooked }) {
+function CellContent({ cell, doubleBooked, onEditPerson }) {
   if (!cell || !cell.segments || cell.segments.length === 0) {
     return <span className="ss-cell-empty" aria-hidden="true" />;
   }
@@ -154,20 +154,27 @@ function CellContent({ cell, doubleBooked }) {
         const kind = seg.placeholder ? 'placeholder' : seg.userId ? 'user' : 'external';
         const warned = seg.email && doubleBooked.has(seg.email);
         return (
-          <span key={i} className={`ss-chip ss-chip-${kind}`} data-testid={`grid-chip-${kind}`}>
-            {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
-            {seg.name}
-            {seg.callTimeOverride && <span className="ss-chip-calltime">{seg.callTimeOverride}</span>}
-            {(seg.details || []).map((detail, detailIndex) => (
-              <span key={detailIndex} className="ss-chip-detail">{detail.type === 'text' ? detail.text : detail.name}</span>
-            ))}
-            {warned && (
-              <span className="ss-chip-warn" data-testid="double-booking-warning"
-                title="This person is also assigned to another post whose times overlap">
-                &#9888;
-              </span>
-            )}
-            {kind === 'placeholder' && <span className="ss-chip-sub">unassigned</span>}
+          <span key={i} className={`ss-person-roster ss-roster-${kind}`} data-testid={`grid-chip-${kind}`}>
+            <span className="ss-roster-name-row" data-testid="grid-roster-name">
+              {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9679;</span>}
+              <span className="ss-roster-name">{seg.name}</span>
+              {seg.callTimeOverride && <span className="ss-chip-calltime">{seg.callTimeOverride}</span>}
+              {onEditPerson && <button type="button" className="ss-chip-edit-details"
+                aria-label={`Edit details for ${seg.name}`}
+                onClick={(event) => { event.stopPropagation(); onEditPerson(i); }}>Edit</button>}
+              {warned && (
+                <span className="ss-chip-warn" data-testid="double-booking-warning"
+                  title="This person is also assigned to another post whose times overlap">
+                  &#9888;
+                </span>
+              )}
+              {kind === 'placeholder' && <span className="ss-chip-sub">unassigned</span>}
+            </span>
+            {seg.details?.length > 0 && <span className="ss-roster-details" data-testid="grid-group-details">
+              {seg.details.map((detail, detailIndex) => (
+                <span key={detailIndex} className="ss-roster-detail">{detail.type === 'text' ? detail.text : detail.name}</span>
+              ))}
+            </span>}
           </span>
         );
       })}
@@ -192,7 +199,7 @@ export default function SchedulingSheetGrid({
   // text caret. `focusedCell` is where the keyboard is; `editingCell` is the
   // one cell (if any) currently open for entry.
   const [focusedCell, setFocusedCell] = useState(null);   // { rowId, colId }
-  const [editingCell, setEditingCell] = useState(null);   // { rowId, colId, initialInput }
+  const [editingCell, setEditingCell] = useState(null);   // { rowId, colId, initialInput, initialGroupIndex }
   const [expandedCell, setExpandedCell] = useState(null); // { rowId, colId } — the modal
   const [openNoteKey, setOpenNoteKey] = useState(null);
   const [addingColumn, setAddingColumn] = useState(false);
@@ -219,7 +226,6 @@ export default function SchedulingSheetGrid({
   // ── In-cell editing ──────────────────────────────────────────────────────
 
   const cellRefs = useRef({});
-  const editingCellRef = useRef(null); // the anchor the suggestion list positions from
 
   const columnIds = (day.columns || []).map((c) => c.id);
   const rowIds = orderedRows.map((r) => r.id);
@@ -264,10 +270,10 @@ export default function SchedulingSheetGrid({
     if (el) el.focus();
   }, [canEdit, focusedCell, editingCell]);
 
-  const startEditing = (rowId, colId, initialInput = '') => {
+  const startEditing = (rowId, colId, initialInput = '', initialGroupIndex = null) => {
     if (!canEdit) return;
     setFocusedCell({ rowId, colId });
-    setEditingCell({ rowId, colId, initialInput });
+    setEditingCell({ rowId, colId, initialInput, initialGroupIndex });
     // Refresh the people directory on open — a tab held open across a backend
     // restart otherwise keeps a stale page-load snapshot, silently hiding
     // new/late users.
@@ -826,7 +832,6 @@ export default function SchedulingSheetGrid({
                     key={col.id}
                     ref={(el) => {
                       cellRefs.current[key] = el;
-                      if (isEditing) editingCellRef.current = el;
                     }}
                     className={`ss-cell ${canEdit ? 'editable' : ''}${isFocused && !isEditing ? ' ss-cell-focused' : ''}${isEditing ? ' ss-cell-editing' : ''}${clipboard && clipboard.sourceKey === key ? ' ss-cell-copied' : ''}`}
                     data-testid={`cell-${key}`}
@@ -840,8 +845,8 @@ export default function SchedulingSheetGrid({
                         people={people}
                         locations={locations}
                         detailVocabulary={detailVocabulary}
-                        anchorRef={editingCellRef}
                         initialInput={editingCell.initialInput}
+                        initialOpenGroupIndex={editingCell.initialGroupIndex}
                         clipboard={clipboard ? clipboard.segments : null}
                         onCopyCell={(segments) => setClipboard({
                           segments: segments.map((seg) => ({ ...seg })),
@@ -851,7 +856,8 @@ export default function SchedulingSheetGrid({
                         onCancel={cancelEditingCell}
                       />
                     ) : (
-                      <CellContent cell={cell} doubleBooked={doubleBooked} />
+                      <CellContent cell={cell} doubleBooked={doubleBooked}
+                        onEditPerson={canEdit ? (index) => startEditing(row.id, col.id, '', index) : null} />
                     )}
                     {canEdit && (
                       <button

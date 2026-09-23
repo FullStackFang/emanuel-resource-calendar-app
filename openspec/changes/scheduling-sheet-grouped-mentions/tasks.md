@@ -20,19 +20,23 @@
 
 ## 4. Editors (tests first)
 
-- [x] 4.1 Add failing `SchedulingSheetGrid.inlineEditing.test.jsx` cases: pick person then `@615pm`/`@Greenwald`/`@Task` → one grouped segment; second person starts a new group; plain text stays top-level; space-@ finalizes; paste of a multi-token line; Backspace removes details then the person; × removes one detail; Enter on `@Al` adds text not Alan
-- [x] 4.2 Implement the open group in `InlineCellEditor.jsx` (track open group index, route detail choices into it, space-@ finalize, paste, Backspace, render details inside the chip)
+- [x] 4.1 Add `SchedulingSheetGrid.inlineEditing.test.jsx` cases: later entries stay separate after picking a person; explicit Edit attaches details; another person closes detail mode; plain text stays top-level; space-@ finalizes; paste of a multi-token line; Backspace removes details then the person; × removes one detail; Enter on `@Al` adds text not Alan while editing details
+- [x] 4.2 Implement explicit open-group editing in `InlineCellEditor.jsx` (track selected person, route detail choices into it, space-@ finalize, paste, Backspace, render details inside the pill)
 - [x] 4.3 Apply the same behavior in `SheetCellEditor.jsx`, sharing pure group helpers so the two editors cannot drift; add its tests
 - [x] 4.4 Pass the sheet's detail vocabulary from `SchedulingSheetGrid.jsx` to both editors (memoized on sheet data)
+- [x] 4.5 Reopen an existing person group via Edit details in both editors, show the active owner, and replace the picker wording with owner-specific actions; add editor regression tests
 
 ## 5. Rendering
 
 - [x] 5.1 Render details inside the person chip in the grid (`SchedulingSheetGrid.jsx`) and style them in `SchedulingSheets.css`, including print; add a grid render test
 - [x] 5.2 Add a failing `schedulingSheetPdf.test.js` case, then append details to the person block in `src/utils/schedulingSheetPdf.js`
 - [x] 5.3 Show `details` on My Assignments entries; add a test to the My Assignments suite
+- [x] 5.4 Render each person in a bordered pill with roster lines for the name and their details in the grid and both editors
+- [x] 5.5 Keep entries separate after a person is picked; require Edit to begin adding details
+- [x] 5.6 Keep detail editing open across entries, close it with Done or Enter on empty input, and place a quieter suggestion list below the rectangular active editor
 
 ## 6. Verification
 
 - [x] 6.1 Run the touched backend suites (`sheetCells`, `schedulingSheets`, `schedulingSheetEmail`, `assignmentSchedule`, `icsBuilder`) and compare against a stash baseline (SE-30 / SS-31..33 are pre-existing reds)
 - [x] 6.2 Run the touched frontend suites and lint the touched files; compare against the stash baseline
-- [ ] 6.3 Manual on dev (live MSAL): type `@Stephen @615pm @Greenwald @Task` in a cell, confirm one grouped chip, reuse a detail from another day via suggestion, download the PDF, send a preview to self and confirm details in the email body and the `.ics` description with times unchanged
+- [ ] 6.3 Manual on dev (live MSAL): add `@Stephen @615pm` and confirm separate pill entries; click Edit on Stephen and confirm the active editor is rectangular with a compact suggestion list below the input; add `@Greenwald @Task` without reopening Edit, press Enter on an empty input to leave detail mode, confirm details inside his bordered pill, reuse a detail from another day via suggestion, download the PDF, send a preview to self and confirm details in the email body and the `.ics` description with times unchanged

@@ -10,9 +10,8 @@
 //      so the list needs a z-index above them or it renders behind the chrome
 //      it is supposed to float over.
 //
-// Positioning is `fixed`, derived from the anchor cell's rect, recomputed on
-// any scroll (capture phase, so the grid container's own scrolling counts) and
-// on window resize. Near the bottom of the viewport it flips above the cell.
+// Positioning follows the input on scroll and resize. The body portal keeps
+// the list below the input even at the viewport edge.
 //
 // Behavior comes entirely from useMentionPicker — this file is presentation.
 
@@ -21,21 +20,20 @@ import { createPortal } from 'react-dom';
 
 import { applyChoice } from './useMentionPicker';
 
-// Matches the max-height in SchedulingSheets.css. Used only to decide whether
-// there is room below the cell; the CSS remains the source of truth for size.
-const LIST_MAX_HEIGHT = 260;
 const MIN_WIDTH = 240;
+const GAP = 4;
 
 function measure(anchorRef) {
   const el = anchorRef && anchorRef.current;
   if (!el || typeof el.getBoundingClientRect !== 'function') return null;
   const r = el.getBoundingClientRect();
-  return { top: r.top, left: r.left, bottom: r.bottom, width: r.width };
+  return { left: r.left, bottom: r.bottom, width: r.width };
 }
 
 export default function CellSuggestionList({
   anchorRef,
   picker,
+  detailOwnerName,
   activeIndex = -1,
   externalDraft,
   onPickPerson,
@@ -68,15 +66,14 @@ export default function CellSuggestionList({
 
   if (!rect) return null;
 
-  const roomBelow = window.innerHeight - rect.bottom;
-  const flip = roomBelow < LIST_MAX_HEIGHT && rect.top > roomBelow;
-
+  const width = Math.min(Math.max(rect.width, MIN_WIDTH), window.innerWidth - 16);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
   const style = {
-    position: 'fixed',
-    left: `${rect.left}px`,
-    minWidth: `${Math.max(rect.width, MIN_WIDTH)}px`,
+    position: 'absolute',
+    left: `${window.scrollX + left}px`,
+    top: `${window.scrollY + rect.bottom + GAP}px`,
+    width: `${width}px`,
     zIndex: 60,
-    ...(flip ? { bottom: `${window.innerHeight - rect.top}px` } : { top: `${rect.bottom}px` }),
   };
 
   const { choices, personOverflow, locationOverflow, detailOverflow } = picker;
@@ -145,8 +142,8 @@ export default function CellSuggestionList({
                 )}
                 {choice.kind === 'external' && <>Not a user? Add name &amp; email</>}
                 {choice.kind === 'text' && <>Use &ldquo;{choice.payload}&rdquo; as free text</>}
-                {choice.kind === 'detail' && <>Add &ldquo;{choice.payload}&rdquo; as text</>}
-                {choice.kind === 'detailSuggestion' && <span className="ss-picker-name">{choice.name}</span>}
+                {choice.kind === 'detail' && <>Add {choice.payload} to {detailOwnerName}</>}
+                {choice.kind === 'detailSuggestion' && <span className="ss-picker-name">Add {choice.name} to {detailOwnerName}</span>}
                 {(choice.kind === 'time' || choice.kind === 'person' || choice.kind === 'location') && (
                   <>
                     <span className="ss-picker-name">

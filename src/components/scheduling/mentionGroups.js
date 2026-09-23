@@ -2,7 +2,7 @@ import { parseTimeToken } from './sheetEventUtils';
 import { locationSegment, personSegment, textSegment, splitMentionTokens } from './useMentionPicker';
 
 export function addToGroup(segments, openIndex, segment) {
-  if (segment.type === 'person') return { segments: [...segments, segment], openIndex: segments.length };
+  if (segment.type === 'person') return { segments: [...segments, segment], openIndex: null };
   if (openIndex != null && segment.type !== 'textTopLevel') {
     return { segments: segments.map((current, index) => index === openIndex
       ? { ...current, details: [...(current.details || []), segment] }

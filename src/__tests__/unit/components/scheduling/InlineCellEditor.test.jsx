@@ -54,6 +54,15 @@ const open = (cell = { segments: [], note: null }, initialInput = '', extra = {}
 };
 
 describe('InlineCellEditor — existing content', () => {
+  it('positions detail suggestions beneath the input rather than the whole cell', () => {
+    const input = open({ segments: [PERSON_SEG], note: null });
+    input.getBoundingClientRect = () => ({ top: 155, bottom: 180, left: 45, width: 230, height: 25, right: 275 });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details for Sarah Levine' }));
+    fireEvent.change(input, { target: { value: '@Usher' } });
+    fireEvent.scroll(window);
+    expect(screen.getByTestId('cell-suggestions').style.top).toBe('184px');
+  });
+
   it('ICE-1: existing segments render in their stored order', () => {
     open({ segments: [{ type: 'text', text: '6:00 PM' }, PERSON_SEG, { type: 'location', locationId: 'l1', name: 'Wise Hall' }], note: null });
     const editor = screen.getByTestId('inline-cell-editor');

@@ -3,7 +3,7 @@
 // The cell-anchored suggestion surface. Two structural facts drive every test
 // here: `.ss-grid-scroll` clips anything rendered inside a cell, and the grid's
 // sticky header row and label column sit at z-indexes 2-4 — so the list has to
-// live in a portal at document.body with fixed positioning. The second fact is
+// live in a portal at document.body below the input. The second fact is
 // event ordering: a pointer press inside the list must be suppressed, or the
 // input's blur commits the raw typed term before the click ever lands.
 //
@@ -173,22 +173,22 @@ describe('CellSuggestionList — positioning', () => {
     grid.remove();
   });
 
-  it('CSL-11: it is fixed-positioned above the sticky header row and label column', () => {
+  it('CSL-11: it is portaled below its anchor and above sticky grid chrome', () => {
     renderList({ anchorRef: anchorAt({ top: 100, height: 30, left: 50 }) });
     const list = screen.getByTestId('cell-suggestions');
-    expect(list.style.position).toBe('fixed');
-    expect(list.style.top).toBe('130px'); // directly under the anchor cell
+    expect(list.style.position).toBe('absolute');
+    expect(list.style.top).toBe('134px');
     expect(list.style.left).toBe('50px');
     // The grid's sticky chrome tops out at z-index 4.
     expect(Number(list.style.zIndex)).toBeGreaterThan(4);
   });
 
-  it('CSL-12: near the bottom of the viewport the list flips above its cell', () => {
+  it('CSL-12: near the bottom of the viewport the list stays below its anchor', () => {
     window.innerHeight = 300;
     renderList({ anchorRef: anchorAt({ top: 250, height: 30 }) });
     const list = screen.getByTestId('cell-suggestions');
-    expect(list.style.top).toBe('');
-    expect(list.style.bottom).toBe('50px'); // innerHeight - anchor top
+    expect(list.style.top).toBe('284px');
+    expect(list.style.bottom).toBe('');
   });
 
   it('CSL-13: it follows its cell when the grid scrolls or the window resizes', () => {
@@ -198,14 +198,25 @@ describe('CellSuggestionList — positioning', () => {
     document.body.appendChild(el);
 
     renderList({ anchorRef: { current: el } });
-    expect(screen.getByTestId('cell-suggestions').style.top).toBe('130px');
+    expect(screen.getByTestId('cell-suggestions').style.top).toBe('134px');
 
     top = 40;
     fireEvent.scroll(document.body);
-    expect(screen.getByTestId('cell-suggestions').style.top).toBe('70px');
+    expect(screen.getByTestId('cell-suggestions').style.top).toBe('74px');
 
     top = 200;
     fireEvent(window, new Event('resize'));
-    expect(screen.getByTestId('cell-suggestions').style.top).toBe('230px');
+    expect(screen.getByTestId('cell-suggestions').style.top).toBe('234px');
+  });
+
+  it('keeps document coordinates when the page is scrolled', () => {
+    const previousScrollY = window.scrollY;
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 120 });
+    try {
+      renderList({ anchorRef: anchorAt({ top: 100, height: 30 }) });
+      expect(screen.getByTestId('cell-suggestions').style.top).toBe('254px');
+    } finally {
+      Object.defineProperty(window, 'scrollY', { configurable: true, value: previousScrollY });
+    }
   });
 });

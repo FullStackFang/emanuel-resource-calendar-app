@@ -10,25 +10,27 @@ longer tagged, gets no email, and drops off My Assignments.
 
 ## What Changes
 
-- One typed line can carry several `@` tokens. The first person on the line
-  owns every token after it as a **detail**; a second explicitly-picked person
-  starts a second group. A line with no person behaves exactly as today.
-- The picker becomes **token-aware**: it acts on the token under the caret, not
-  the whole box. A detail token defaults to "Add '<term>' as text" and never
+- One typed line can carry several `@` tokens. Picking a person leaves later
+  entries separate by default. Activating Edit on that person's pill explicitly
+  starts adding **details** to them. A line with no person behaves as today.
+- The picker becomes **token-aware**: it handles each space-separated `@` token
+  in turn. While editing a person's details, a token defaults to adding the
+  typed value to that person and never
   offers the placeholder / outsider rows; time, location and person rows apply
   only when explicitly picked, so typed text never silently turns into a
   person or a room.
 - **Detail suggestions** come from text details already used on the same
-  sheet (deduplicated case-insensitively), listed above the "Add as text" row —
+  sheet (deduplicated case-insensitively), listed above the owner-specific add row —
   no new collection or admin list.
-- A **live preview** under the input shows how the line will be grouped before
-  it is committed.
+- The cell editor shows the person's name and details together as they are
+  entered, without a separate preview widget.
 - Person segments gain an optional `details` array (text and location segments
   only). `callTimeOverride`, `taggedEmails`, conflict warnings and `.ics`
   DTSTART/DTEND are untouched: details are labels, never inputs to any
   computation.
-- The group renders as one chip in the grid, both cell editors (a detail can be
-  removed individually), print, and the workbook PDF.
+- Each person renders in a bordered pill with details below their name in the
+  grid and both cell editors. A detail can be removed individually. Print and
+  the workbook PDF retain the grouping.
 - The person sees their own details in the schedule email itinerary, on My
   Assignments, and in their `.ics` DESCRIPTION.
 - `GET /api/my-assignments` entries gain a `details` field — a deliberate,

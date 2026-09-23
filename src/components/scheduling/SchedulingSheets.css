@@ -410,12 +410,11 @@
   padding-bottom: 8px;
 }
 
-.ss-inline-cell-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.ss-inline-cell-editor { display: block; }
 .ss-inline-cell-input {
-  /* Full cell width on its own row beneath any chips. Sharing the row with
-     them squeezed the input to its 60px basis, which clipped both the
-     placeholder and anything typed into it. */
-  flex: 1 1 100%;
+  /* Full cell width on its own row beneath any chips. */
+  display: block;
+  width: 100%;
   min-width: 0;
   padding: 3px 0;
   font: inherit;
@@ -858,7 +857,7 @@ tr.ss-drop-target .ss-row-label {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
 }
 
-.ss-editor-chips { display: flex; flex-wrap: wrap; margin-bottom: 8px; min-height: 26px; }
+.ss-editor-chips { display: block; margin-bottom: 8px; min-height: 26px; }
 .ss-editor-input {
   width: 100%;
   padding: 8px 10px;
@@ -899,18 +898,33 @@ tr.ss-drop-target .ss-row-label {
 .ss-picker-escape { color: var(--color-primary-500); }
 .ss-picker-placeholder { font-family: var(--font-mono, monospace); font-size: 12px; }
 
-/* The cell-anchored suggestion list. Portaled to document.body, so it needs
-   its own surface (the modal's .ss-picker inherits the dialog's) — and a
-   z-index above the grid's sticky header and label column, which top out at 4.
-   Positioning itself is inline: it is derived from the anchor cell's rect. */
+/* The input-anchored suggestion list is portaled outside the clipping grid. */
 .ss-cell-suggestions {
-  background: var(--bg-primary, #fff);
+  margin-top: 0;
+  padding: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   max-height: 260px;
   overflow-y: auto;
-  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.15));
+  box-shadow: var(--shadow-md);
   text-align: left;
   font-weight: 400;
 }
+.ss-cell-suggestions .ss-picker-row {
+  align-items: center;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.ss-cell-suggestions .ss-picker-row.ss-picker-active {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+  box-shadow: none;
+  font-weight: var(--font-semibold, 600);
+}
+.ss-cell-suggestions .ss-picker-group { padding: 8px 9px 4px; }
 .ss-cell-external { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
 .ss-cell-external input {
   flex: 1 1 140px;
@@ -1533,20 +1547,76 @@ tr.ss-drop-target .ss-row-label {
   border-radius: 8px;
   background: #fff;
 }
-.ss-chip-detail {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 0.35em;
-  color: inherit;
-  opacity: 0.8;
+.ss-person-roster {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 2px 0;
+  padding: 3px 9px 5px;
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: normal;
+}
+.ss-roster-user {
+  border-color: var(--color-primary-200, #c2d7ef);
+  background: var(--color-primary-50, #eef4fb);
+}
+.ss-roster-placeholder { border-style: dashed; }
+.ss-roster-name-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
+.ss-roster-name { font-weight: var(--font-semibold, 600); }
+.ss-roster-user .ss-roster-name, .ss-roster-user .ss-chip-glyph { color: var(--color-primary-700, #2a4d80); }
+.ss-roster-placeholder .ss-roster-name { color: var(--text-secondary); }
+.ss-roster-details {
+  display: block;
+  padding: 2px 0 0 12px;
+  color: var(--text-secondary);
+}
+.ss-roster-detail { display: inline; }
+.ss-roster-detail + .ss-roster-detail::before { content: ' · '; }
+.ss-roster-active {
+  width: 100%;
+  padding: 8px 10px;
+  border-color: var(--color-primary-500);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
 }
 
-.ss-chip-detail::before {
-  content: '·';
-  margin-right: 0.35em;
+.ss-chip-edit-details {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ss-group-target {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0;
+  padding: 2px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.ss-group-target button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
 }
 
 @media print {
-  .ss-chip-detail { opacity: 1; }
-  .ss-chip-detail .ss-chip-remove { display: none; }
+  .ss-roster-detail .ss-chip-remove { display: none; }
+  .ss-chip-edit-details, .ss-group-target { display: none; }
 }

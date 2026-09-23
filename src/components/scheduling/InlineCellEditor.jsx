@@ -51,7 +51,7 @@ function RemoveButton({ label, onRemove }) {
   );
 }
 
-function InlineChip({ segment, index, onRemove, onRemoveDetail }) {
+function InlineChip({ segment, index, isActive, onEditDetails, onRemove, onRemoveDetail }) {
   if (segment.type === 'text') {
     return (
       <span className="ss-chip ss-chip-text" data-testid="inline-chip-text">
@@ -70,17 +70,25 @@ function InlineChip({ segment, index, onRemove, onRemoveDetail }) {
   }
   const kind = segment.placeholder ? 'placeholder' : segment.userId ? 'user' : 'external';
   return (
-    <span className={`ss-chip ss-chip-${kind}`} data-testid={`inline-chip-${kind}`}>
-      {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9673;</span>}
-      {segment.name}
-      {segment.callTimeOverride && <span className="ss-chip-calltime">{segment.callTimeOverride}</span>}
-      {(segment.details || []).map((detail, detailIndex) => (
-        <span className="ss-chip-detail" key={detailIndex}>
-          {detail.type === 'text' ? detail.text : detail.name}
-          <RemoveButton label={detail.type === 'text' ? detail.text : detail.name} onRemove={() => onRemoveDetail(index, detailIndex)} />
-        </span>
-      ))}
-      <RemoveButton label={segment.name} onRemove={() => onRemove(index)} />
+    <span className={`ss-person-roster ss-roster-${kind}${isActive ? ' ss-roster-active' : ''}`} data-testid={`inline-chip-${kind}`}>
+      <span className="ss-roster-name-row" data-testid="inline-roster-name">
+        {kind === 'user' && <span className="ss-chip-glyph" aria-hidden="true">&#9679;</span>}
+        <span className="ss-roster-name">{segment.name}</span>
+        {segment.callTimeOverride && <span className="ss-chip-calltime">{segment.callTimeOverride}</span>}
+        <button type="button" className="ss-chip-edit-details" aria-label={`Edit details for ${segment.name}`}
+          aria-pressed={isActive} onMouseDown={(e) => e.preventDefault()} onClick={() => onEditDetails(index)}>
+          Edit
+        </button>
+        <RemoveButton label={segment.details?.length ? `${segment.name} and all details` : segment.name} onRemove={() => onRemove(index)} />
+      </span>
+      {segment.details?.length > 0 && <span className="ss-roster-details" data-testid="inline-group-details">
+        {(segment.details || []).map((detail, detailIndex) => (
+          <span className="ss-roster-detail" key={detailIndex}>
+            {detail.type === 'text' ? detail.text : detail.name}
+            <RemoveButton label={detail.type === 'text' ? detail.text : detail.name} onRemove={() => onRemoveDetail(index, detailIndex)} />
+          </span>
+        ))}
+      </span>}
     </span>
   );
 }
@@ -90,8 +98,8 @@ export default function InlineCellEditor({
   people,
   locations,
   detailVocabulary = [],
-  anchorRef,
   initialInput = '',
+  initialOpenGroupIndex = null,
   clipboard = null,
   onCopyCell,
   onCommit,
@@ -101,7 +109,7 @@ export default function InlineCellEditor({
   // "restore" is real rather than a rollback of a partial write.
   const snapshotRef = useRef((cell && cell.segments ? [...cell.segments] : []));
   const [segments, setSegments] = useState(snapshotRef.current);
-  const [openGroupIndex, setOpenGroupIndex] = useState(null);
+  const [openGroupIndex, setOpenGroupIndex] = useState(initialOpenGroupIndex);
   const [input, setInput] = useState(initialInput);
   const [externalDraft, setExternalDraft] = useState(null); // { name, email }
   const inputRef = useRef(null);
@@ -112,6 +120,7 @@ export default function InlineCellEditor({
 
   const picker = useMentionPicker({ input, people, locations, detailMode: openGroupIndex != null, detailVocabulary });
   const { mode, term, choices, pendingSegment } = picker;
+  const activeGroup = openGroupIndex == null ? null : segments[openGroupIndex];
 
   // What each suggestion row does. Defined once and handed to BOTH the list
   // (a click) and applyChoice (Enter on the highlighted row).
@@ -194,6 +203,12 @@ export default function InlineCellEditor({
       : segment));
   };
 
+  const finishCurrentInput = () => {
+    if (!input.trim()) return;
+    setSegments(pendingGroupedInput(input, segments, openGroupIndex, people, locations, pendingSegment()));
+    setInput('');
+  };
+
   const handleKeyDown = (e) => {
     // The grid owns arrow-key navigation between cells, but an editing cell
     // needs its arrows for the caret — so nothing typed in here reaches it.
@@ -240,10 +255,13 @@ export default function InlineCellEditor({
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      // A live suggestion list means Enter picks the highlighted row; only
-      // plain text (or a list of escape hatches nobody stepped onto) commits.
       const choice = activeIndex >= 0 ? choices[activeIndex] : null;
       if (choice) { applyChoice(choice, choiceHandlers); return; }
+      if (openGroupIndex != null) {
+        if (input.trim()) finishCurrentInput();
+        else setOpenGroupIndex(null);
+        return;
+      }
       commit('down');
       return;
     }
@@ -272,8 +290,14 @@ export default function InlineCellEditor({
   return (
     <div className="ss-inline-cell-editor" data-testid="inline-cell-editor">
       {segments.map((seg, i) => (
-        <InlineChip key={i} segment={seg} index={i} onRemove={removeSegment} onRemoveDetail={removeDetail} />
+        <InlineChip key={i} segment={seg} index={i} isActive={openGroupIndex === i}
+          onEditDetails={(index) => { finishCurrentInput(); setOpenGroupIndex(index); inputRef.current?.focus(); }}
+          onRemove={removeSegment} onRemoveDetail={removeDetail} />
       ))}
+      {activeGroup && <div className="ss-group-target" data-testid="inline-group-target">
+        Adding details to <strong>{activeGroup.name}</strong>
+        <button type="button" title="Or press Enter on an empty input" onMouseDown={(e) => e.preventDefault()} onClick={() => { finishCurrentInput(); setOpenGroupIndex(null); inputRef.current?.focus(); }}>Done</button>
+      </div>}
       <input
         ref={inputRef}
         className="ss-inline-cell-input"
@@ -288,7 +312,7 @@ export default function InlineCellEditor({
         }}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
-        placeholder="6pm, text, or @"
+        placeholder={activeGroup ? `@detail for ${activeGroup.name}` : '6pm, text, or @'}
         aria-label="Cell content"
         role="combobox"
         aria-expanded={choices.length > 0}
@@ -297,8 +321,9 @@ export default function InlineCellEditor({
       />
       {(mode !== 'text' || externalDraft) && (
         <CellSuggestionList
-          anchorRef={anchorRef}
+          anchorRef={inputRef}
           picker={picker}
+          detailOwnerName={activeGroup?.name}
           activeIndex={activeIndex}
           externalDraft={externalDraft}
           {...choiceHandlers}

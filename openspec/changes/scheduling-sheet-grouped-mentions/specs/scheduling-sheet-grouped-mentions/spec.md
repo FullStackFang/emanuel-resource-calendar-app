@@ -1,17 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: A picked person opens a group that collects details
-The system SHALL treat a person picked in a scheduling sheet cell editor as an open group, and SHALL attach each subsequent `@` token entered in that editor to that person as a detail until the group closes.
+### Requirement: Person details require an explicit edit action
+The system SHALL add a picked person as an ordinary cell entry without opening detail mode. It SHALL attach subsequent `@` tokens to that person only after the user explicitly activates Edit for that person.
 
-#### Scenario: Details attach to the person on one line
-- **WHEN** an editor user picks Stephen, then enters `@615pm`, `@Greenwald` and `@Task` as further tokens
-- **THEN** the cell SHALL hold one person segment for Stephen whose details are "6:15 PM", "Greenwald" and "Task" in that order
-- **AND** the cell SHALL NOT hold those three values as separate top-level segments
+#### Scenario: Later entries stay separate by default
+- **WHEN** an editor user picks Stephen, then enters `@615pm` without activating Edit for Stephen
+- **THEN** Stephen SHALL remain a person entry without details
+- **AND** "6:15 PM" SHALL be a separate top-level entry
 
-#### Scenario: A second picked person starts a new group
-- **WHEN** an editor user picks Stephen, adds `@6pm`, then picks Dana and adds `@7pm`
-- **THEN** Stephen's details SHALL be "6:00 PM" only
-- **AND** Dana's details SHALL be "7:00 PM" only
+#### Scenario: Edit explicitly attaches details to the selected person
+- **WHEN** an editor user picks Stephen, activates Edit for Stephen, then enters `@6pm`
+- **THEN** Stephen's details SHALL include "6:00 PM"
+- **AND** entering another person SHALL create a separate person and close detail mode
 
 #### Scenario: Plain text without @ stays a top-level segment
 - **WHEN** a group is open and the user types `after kiddush` without a leading `@` and commits
@@ -23,7 +23,7 @@ The system SHALL treat a person picked in a scheduling sheet cell editor as an o
 
 #### Scenario: The open group renders live
 - **WHEN** a detail is added to an open group
-- **THEN** the detail SHALL appear inside that person's chip in the editor immediately
+- **THEN** the detail SHALL appear beneath that person's name inside the bordered pill immediately
 
 #### Scenario: Backspace removes details before the person
 - **WHEN** the input is empty and the user presses Backspace with an open group that has details
@@ -34,12 +34,29 @@ The system SHALL treat a person picked in a scheduling sheet cell editor as an o
 - **WHEN** the user activates the remove control on one detail of a person chip
 - **THEN** only that detail SHALL be removed
 
+#### Scenario: An existing group can be edited
+
+- **WHEN** the user opens a cell holding Stephen with existing details and activates Edit details for Stephen
+- **THEN** Stephen SHALL become the active detail target without losing any stored detail
+- **AND** further `@` tokens SHALL join Stephen's existing group
+- **AND** the active detail target SHALL remain open after each added detail
+- **AND** Done or Enter on the emptied input SHALL close that detail target without deleting the group
+
+#### Scenario: Detail ownership is visible
+
+- **WHEN** a person has details
+- **THEN** the grid and both editors SHALL show the person in a bordered pill with their details directly underneath the name
+- **AND** an editable saved roster line SHALL offer an Edit action that opens that person as the active detail target
+- **AND** the active editor SHALL name the person receiving new details
+- **AND** the active person's editing surface SHALL be rectangular while saved person entries remain rounded pills
+- **AND** the in-cell suggestion list SHALL open below the input
+
 ### Requirement: A space followed by @ finalizes the current token
 The system SHALL apply the current token's default choice when the user types a space followed by `@`, and SHALL continue with a new token, so a full line can be typed without stopping.
 
 #### Scenario: Typing the whole line
-- **WHEN** the user types `@Stephen` (with Stephen highlighted), then ` @615pm @Greenwald @Task`, then presses Enter
-- **THEN** the cell SHALL hold Stephen with details "6:15 PM", "Greenwald" and "Task"
+- **WHEN** the user types `@Stephen @615pm` without activating Edit for Stephen
+- **THEN** the cell SHALL hold Stephen and a separate "6:15 PM" entry
 
 #### Scenario: Multi-word tokens stay whole
 - **WHEN** a group is open and the user enters `@after kiddush`
@@ -60,6 +77,7 @@ While a group is open, the suggestion list SHALL default to adding the typed ter
 - **WHEN** a group is open and the user types `@Task` and presses Enter
 - **THEN** "Task" SHALL be added as a text detail
 - **AND** no placeholder person SHALL be created
+- **AND** the picker SHALL say which person will receive the detail, without using storage terminology such as "as text"
 
 #### Scenario: Partial name is not resolved to a person
 - **WHEN** a group is open, a user named Alan exists, and the user types `@Al` and presses Enter

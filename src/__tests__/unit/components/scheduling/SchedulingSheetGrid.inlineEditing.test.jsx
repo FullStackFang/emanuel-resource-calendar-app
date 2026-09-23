@@ -89,22 +89,20 @@ const focusCell = (key) => {
 };
 
 describe('grouped person details', () => {
-  it('groups a typed line under the picked person and keeps plain text separate', () => {
+  it('keeps entries separate after picking a person until Edit is chosen', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('cell-rCall:c1'));
     const input = screen.getByTestId('inline-cell-input');
-    fireEvent.change(input, { target: { value: '@Sarah @615pm @Greenwald @Usher' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: '@Sarah @615pm' } });
     expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Sarah Levine');
-    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('6:15 PM');
-    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Greenwald');
-    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Usher');
-    fireEvent.change(input, { target: { value: 'after kiddush' } });
+    expect(screen.queryByTestId('inline-group-target')).not.toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCellSave.mock.calls.at(-1)[2].segments).toMatchObject([
-      { type: 'person', details: [{ text: '6:15 PM' }, { text: 'Greenwald' }, { text: 'Usher' }] },
-      { type: 'text', text: 'after kiddush' }
+      { type: 'person', name: 'Sarah Levine' },
+      { type: 'text', text: '6:15 PM' }
     ]);
+    expect(onCellSave.mock.calls.at(-1)[2].segments[0].details).toBeUndefined();
   });
 
   it('removes one detail without removing the person', () => {
@@ -113,11 +111,12 @@ describe('grouped person details', () => {
     renderGrid({ day });
     fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove Usher' }));
-    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('SarahDoor');
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Sarah');
+    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Door');
     expect(screen.getByTestId('inline-chip-user')).not.toHaveTextContent('Usher');
   });
 
-  it('keeps a partial person name as text until that person row is picked', () => {
+  it('offers another person as a separate entry when no group is being edited', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('cell-rCall:c1'));
     const input = screen.getByTestId('inline-cell-input');
@@ -125,18 +124,19 @@ describe('grouped person details', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.change(input, { target: { value: '@Sa' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(1);
-    expect(screen.getByTestId('inline-chip-user')).toHaveTextContent('Sa');
-    fireEvent.change(input, { target: { value: '@Sarah' } });
-    fireEvent.click(screen.getByRole('option', { name: /Sarah Levine/ }));
     expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(2);
+    expect(screen.getAllByTestId('inline-chip-user')[1]).toHaveTextContent('Sarah Levine');
+    expect(screen.queryByTestId('inline-group-target')).not.toBeInTheDocument();
   });
 
   it('Backspace removes the last detail before the open person', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('cell-rCall:c1'));
     const input = screen.getByTestId('inline-cell-input');
-    fireEvent.change(input, { target: { value: '@Sarah @Usher' } });
+    fireEvent.change(input, { target: { value: '@Sarah' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details for Sarah Levine' }));
+    fireEvent.change(input, { target: { value: '@Usher' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     fireEvent.keyDown(input, { key: 'Backspace' });
     expect(screen.getAllByTestId('inline-chip-user')).toHaveLength(1);
@@ -145,12 +145,89 @@ describe('grouped person details', () => {
     expect(screen.queryByTestId('inline-chip-user')).not.toBeInTheDocument();
   });
 
-  it('renders stored details inside one grid person chip', () => {
+  it('renders each person as a roster line with details beneath their name', () => {
     const day = buildDay();
-    day.cells['rUshers:c1'] = { segments: [{ type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: '6:15 PM' }] }] };
+    day.cells['rUshers:c1'] = { segments: [
+      { type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: '6:15 PM' }] },
+      { type: 'person', name: 'Dana', userId: 'u2', email: 'dana@x.org', details: [{ type: 'text', text: 'North door' }] }
+    ] };
     renderGrid({ day, canEdit: false });
-    expect(screen.getByTestId('grid-chip-user')).toHaveTextContent('Sarah');
-    expect(screen.getByTestId('grid-chip-user')).toHaveTextContent('6:15 PM');
+    const people = screen.getAllByTestId('grid-chip-user');
+    expect(people).toHaveLength(2);
+    expect(within(people[0]).getByTestId('grid-roster-name')).toHaveTextContent('Sarah');
+    expect(within(people[0]).getByTestId('grid-group-details')).toHaveTextContent('6:15 PM');
+    expect(within(people[1]).getByTestId('grid-roster-name')).toHaveTextContent('Dana');
+    expect(within(people[1]).getByTestId('grid-group-details')).toHaveTextContent('North door');
+    expect(people[0]).not.toHaveTextContent('Details');
+    expect(screen.queryByRole('button', { name: 'Edit details for Sarah' })).not.toBeInTheDocument();
+  });
+
+  it('shows saved details on a separate line while editing', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [{ type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: 'Usher' }] }] };
+    renderGrid({ day });
+    fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
+    const person = screen.getByTestId('inline-chip-user');
+    expect(within(person).getByTestId('inline-roster-name')).toHaveTextContent('Sarah');
+    expect(within(person).getByTestId('inline-group-details')).toHaveTextContent('Usher');
+    expect(person).not.toHaveTextContent('Details');
+  });
+
+  it('opens the selected saved roster line directly for editing its details', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [
+      { type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: 'Usher' }] },
+      { type: 'person', name: 'Dana', userId: 'u2', email: 'dana@x.org', details: [{ type: 'text', text: 'Reader' }] }
+    ] };
+    renderGrid({ day });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details for Dana' }));
+    expect(screen.getByTestId('inline-group-target')).toHaveTextContent('Adding details to Dana');
+    expect(screen.getByTestId('inline-cell-input')).toHaveFocus();
+  });
+
+  it('reopens an existing person group to add a detail without replacing it', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [{ type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: 'Usher' }] }] };
+    renderGrid({ day });
+    fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details for Sarah' }));
+    expect(screen.getByTestId('inline-group-target')).toHaveTextContent('Adding details to Sarah');
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@North door' } });
+    expect(screen.getByRole('option', { name: 'Add North door to Sarah' })).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('inline-group-target')).toHaveTextContent('Adding details to Sarah');
+    expect(screen.getByTestId('inline-cell-editor')).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '@Front door' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('inline-group-target')).toHaveTextContent('Adding details to Sarah');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByTestId('inline-group-target')).not.toBeInTheDocument();
+    expect(screen.getByTestId('inline-cell-editor')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCellSave.mock.calls.at(-1)[2].segments).toMatchObject([
+      { type: 'person', name: 'Sarah', details: [{ text: 'Usher' }, { text: 'North door' }, { text: 'Front door' }] }
+    ]);
+  });
+
+  it('adds to the selected saved person when a cell has two groups', () => {
+    const day = buildDay();
+    day.cells['rUshers:c1'] = { segments: [
+      { type: 'person', name: 'Sarah', userId: 'u1', email: 'sarah@x.org', details: [{ type: 'text', text: 'Usher' }] },
+      { type: 'person', name: 'Dana', userId: 'u2', email: 'dana@x.org', details: [{ type: 'text', text: 'Reader' }] }
+    ] };
+    renderGrid({ day });
+    fireEvent.click(screen.getByTestId('cell-rUshers:c1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details for Dana' }));
+    const input = screen.getByTestId('inline-cell-input');
+    fireEvent.change(input, { target: { value: '@7pm' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCellSave.mock.calls.at(-1)[2].segments).toMatchObject([
+      { name: 'Sarah', details: [{ text: 'Usher' }] },
+      { name: 'Dana', details: [{ text: 'Reader' }, { text: '7:00 PM' }] }
+    ]);
   });
 
   it('keeps an unmatched multi-token line as one text segment when no person is picked', () => {
