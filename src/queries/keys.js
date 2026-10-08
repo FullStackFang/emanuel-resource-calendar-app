@@ -80,6 +80,8 @@ export const keys = {
     report: (scope) => scope === undefined ? ['syncHealth', 'report'] : ['syncHealth', 'report', scope],
     // The reportable mailboxes (allowedDisplayCalendars from calendar-config).
     calendars: () => ['syncHealth', 'calendars'],
+    // Latest SCHEDULED run summary (nav badge + 'Last automatic run').
+    latest: () => ['syncHealth', 'latest'],
   },
 
   // Room conflict report. Keyed by its controls (window + calendar filter) so

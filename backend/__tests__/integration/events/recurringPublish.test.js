@@ -334,6 +334,43 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
     });
   });
 
+  describe('SX-1: Publish exclusion lookups are timezone-aware', () => {
+    it('asks Graph for each excluded date in the created event zone, one day either side', async () => {
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: 'occ-0407', start: { dateTime: '2026-04-07T14:00:00' } },
+        { id: 'occ-0414', start: { dateTime: '2026-04-14T14:00:00' } },
+      ]);
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly with Two Exclusions',
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+          exclusions: ['2026-04-07', '2026-04-14'],
+          additions: [],
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version, createCalendarEvent: true })
+        .expect(200);
+
+      const createdZone = graphApiMock.getCallHistory('createCalendarEvent')[0].eventData.start.timeZone;
+      const lookups = graphApiMock.getCallHistory('getRecurringEventInstances');
+      expect(lookups).toHaveLength(2);
+      expect(lookups.map(l => l.timeZone)).toEqual([createdZone, createdZone]);
+      expect(lookups.map(l => [l.startDateTime, l.endDateTime])).toEqual([
+        ['2026-04-06T00:00:00', '2026-04-08T23:59:59'],
+        ['2026-04-13T00:00:00', '2026-04-15T23:59:59'],
+      ]);
+      expect(graphApiMock.getCallHistory('deleteCalendarEvent').map(d => d.eventId)).toEqual(['occ-0407', 'occ-0414']);
+    });
+  });
+
   describe('RP-12: Additions trigger createCalendarEvent for single-instance events', () => {
     it('should create standalone events for addition dates', async () => {
       const additionDate = '2026-04-09';

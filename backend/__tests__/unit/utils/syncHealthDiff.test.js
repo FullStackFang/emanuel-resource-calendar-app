@@ -335,6 +335,89 @@ describe('syncHealthDiff — diffCalendar', () => {
     expect(result.untracked).toEqual([]);
   });
 
+  // BLIND SPOT (Kaiserman 11/19): a LIVE override child on an excluded date
+  // consumed the surviving Outlook instance as a normal match, so the
+  // exclusion check never saw it. The exclusion wins — the child is a
+  // leftover, not an expected event.
+  describe('live override child on an excluded date', () => {
+    const series = {
+      mongoId: 'm1', eventTitle: 'Weekly Standup', seriesGraphId: 'master1',
+      exclusions: ['2026-09-02'],
+    };
+
+    it('flags the surviving series instance when the child is unlinked', () => {
+      const result = diffCalendar({
+        ...emptyArgs,
+        appInstances: [appInstance({
+          mongoId: 'exc1', eventType: 'exception', date: '2026-09-02',
+          graphId: null, seriesGraphId: 'master1',
+        })],
+        trackedSeries: [series],
+        outlookInstances: [occurrenceOf('occ9', 'master1', '2026-09-02', { subject: 'Weekly Standup' })],
+      });
+
+      expect(result.shouldNotBeInOutlook).toEqual([{
+        graphId: 'occ9', subject: 'Weekly Standup', date: '2026-09-02',
+        reason: 'excluded date has a live override child',
+      }]);
+      expect(result.missingFromOutlook).toEqual([]);
+      expect(result.untracked).toEqual([]);
+      expect(result.counts).toEqual({ appExpected: 0, outlookFound: 1, matched: 0 });
+    });
+
+    it('flags an addition child linked to its own standalone Outlook event', () => {
+      const result = diffCalendar({
+        ...emptyArgs,
+        appInstances: [appInstance({
+          mongoId: 'add1', eventType: 'addition', date: '2026-09-02',
+          graphId: 'standalone-add', seriesGraphId: 'master1',
+        })],
+        trackedSeries: [series],
+        outlookInstances: [outlookEvent('standalone-add', '2026-09-02', { subject: 'Extra Rehearsal' })],
+      });
+
+      expect(result.shouldNotBeInOutlook).toEqual([{
+        graphId: 'standalone-add', subject: 'Extra Rehearsal', date: '2026-09-02',
+        reason: 'excluded date has a live override child',
+      }]);
+      expect(result.counts.matched).toBe(0);
+      expect(result.untracked).toEqual([]);
+    });
+
+    it('does not report the child as missing when Outlook already dropped the date', () => {
+      const result = diffCalendar({
+        ...emptyArgs,
+        appInstances: [appInstance({
+          mongoId: 'exc1', eventType: 'exception', date: '2026-09-02',
+          graphId: null, seriesGraphId: 'master1',
+        })],
+        trackedSeries: [series],
+        outlookInstances: [],
+      });
+
+      // Outlook is in the right state; re-creating the date there would be
+      // the wrong fix, which is what a missingFromOutlook row recommends.
+      expect(result.missingFromOutlook).toEqual([]);
+      expect(result.shouldNotBeInOutlook).toEqual([]);
+      expect(result.counts.appExpected).toBe(0);
+    });
+
+    it('leaves a child on a different date of the same series alone', () => {
+      const result = diffCalendar({
+        ...emptyArgs,
+        appInstances: [appInstance({
+          mongoId: 'exc2', eventType: 'exception', date: '2026-09-09',
+          graphId: null, seriesGraphId: 'master1',
+        })],
+        trackedSeries: [series],
+        outlookInstances: [occurrenceOf('occ10', 'master1', '2026-09-09')],
+      });
+
+      expect(result.shouldNotBeInOutlook).toEqual([]);
+      expect(result.counts).toEqual({ appExpected: 1, outlookFound: 1, matched: 1 });
+    });
+  });
+
   it('flags a deleted app event that is still present in Outlook', () => {
     const result = diffCalendar({
       ...emptyArgs,

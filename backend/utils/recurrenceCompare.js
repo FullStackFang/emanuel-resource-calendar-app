@@ -81,4 +81,13 @@ function exclusionsRemoved(oldR, newR) {
   return oldEx.map(String).filter(d => !newSet.has(d));
 }
 
-module.exports = { recurrenceEquals, exclusionsRemoved };
+/**
+ * Returns dates present in new.exclusions but not in old.exclusions — the dates
+ * a save or approval newly cancels, and so the Graph instances it must delete.
+ * Mirror of {@link exclusionsRemoved}.
+ */
+function exclusionsAdded(oldR, newR) {
+  return exclusionsRemoved(newR, oldR);
+}
+
+module.exports = { recurrenceEquals, exclusionsRemoved, exclusionsAdded };

@@ -19,6 +19,11 @@ vi.mock('../../../hooks/usePermissions', () => ({
   usePermissions: () => mockPermissions,
 }));
 
+// The Sync Health badge query (D6) is covered by its own suite.
+vi.mock('../../../hooks/useSyncHealthLatest', () => ({
+  useSyncHealthLatest: () => ({ data: null }),
+  actionableSyncHealthCount: () => 0,
+}));
 vi.mock('../../../hooks/usePolling', () => ({ usePolling: vi.fn() }));
 vi.mock('../../../hooks/useDataRefreshBus', () => ({ useDataRefreshBus: vi.fn() }));
 vi.mock('../../../hooks/useAuthenticatedFetch', () => ({

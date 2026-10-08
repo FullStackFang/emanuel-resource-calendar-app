@@ -223,10 +223,11 @@ async function getAccessToken() {
  * @param {string} seriesMasterId
  * @param {string} startDateTime
  * @param {string} endDateTime
+ * @param {string} [timeZone] - the Prefer: outlook.timezone the caller asked for
  * @returns {Promise<Array>}
  */
-async function getRecurringEventInstances(calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime) {
-  callHistory.getRecurringEventInstances.push({ calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime });
+async function getRecurringEventInstances(calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime, timeZone) {
+  callHistory.getRecurringEventInstances.push({ calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime, timeZone });
 
   if (mockErrors.getRecurringEventInstances) {
     throw mockErrors.getRecurringEventInstances;
@@ -374,6 +375,12 @@ function getCallHistory(method) {
 
 /**
  * Assert that a method was called with specific arguments
+ *
+ * NOTE: each listed key is compared by WHOLE-VALUE equality (objects via
+ * JSON.stringify), so `{ eventData: { subject } }` only matches a payload whose
+ * eventData is exactly `{ subject }`. For partial payload assertions, read
+ * getCallHistory(method) and assert on the fields you care about.
+ *
  * @param {string} method - Method name
  * @param {Object} expectedArgs - Expected arguments (partial match)
  */

@@ -226,8 +226,26 @@ function diffCalendar({ appInstances = [], trackedSeries = [], outlookInstances 
   // master would otherwise emit one row per pattern date and drown the report.
   const untetheredMongoIds = new Set();
 
-  const live = appInstances.filter(i => !i.isDeleted);
+  // An exception/addition child that is still live on a date its master
+  // EXCLUDES is a contradiction, and the exclusion wins: the child is a
+  // leftover, not an expected event. Counting it as expected made it consume
+  // the surviving Outlook instance as a normal match, so the exclusion check
+  // below never saw that instance.
+  const excludedSeriesDates = new Set();
+  for (const series of trackedSeries) {
+    if (!series.seriesGraphId) continue;
+    for (const excludedDate of series.exclusions || []) {
+      excludedSeriesDates.add(seriesDateKey(series.seriesGraphId, excludedDate));
+    }
+  }
+  const isOverrideOnExcludedDate = (i) =>
+    (i.eventType === 'exception' || i.eventType === 'addition')
+    && Boolean(i.seriesGraphId && i.date)
+    && excludedSeriesDates.has(seriesDateKey(i.seriesGraphId, i.date));
+
+  const live = appInstances.filter(i => !i.isDeleted && !isOverrideOnExcludedDate(i));
   const deleted = appInstances.filter(i => i.isDeleted);
+  const overridesOnExcludedDates = appInstances.filter(i => !i.isDeleted && isOverrideOnExcludedDate(i));
 
   let matched = 0;
 
@@ -281,6 +299,23 @@ function diffCalendar({ appInstances = [], trackedSeries = [], outlookInstances 
         subject: hit.subject,
         date: hit.date,
         reason: 'deleted in app but still in Outlook',
+      });
+    }
+  }
+
+  // A live override child on an excluded date that Outlook still shows. Runs
+  // BEFORE the plain exclusion check so the instance is reported with the
+  // reason that names the child, and so an addition's standalone event (which
+  // has no series-date key) is found through its own Graph ID. When Outlook
+  // already dropped the date there is nothing to fix in Outlook, so no finding.
+  for (const instance of overridesOnExcludedDates) {
+    const hit = consumeMatch(index, instance);
+    if (hit) {
+      shouldNotBeInOutlook.push({
+        graphId: hit.graphId,
+        subject: hit.subject,
+        date: hit.date,
+        reason: 'excluded date has a live override child',
       });
     }
   }

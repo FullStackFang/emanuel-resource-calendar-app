@@ -47,7 +47,7 @@ export function useEventReviewExperience({
   authFetch,
   onRefresh,
 }) {
-  const { showSuccess, showError } = useNotification();
+  const { showSuccess, showError, showWarning } = useNotification();
 
   // =========================================================================
   // SATELLITE STATE — declared first so wrappedOnSuccess can reference setters
@@ -87,6 +87,7 @@ export function useEventReviewExperience({
     selectedCalendarId,
     onSuccess: wrappedOnSuccess,
     onError,
+    onWarning: showWarning,
   });
 
   // Transform originalEventData to flat structure for inline diff comparison.

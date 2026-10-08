@@ -207,6 +207,13 @@
   animation: badgePulse 2s ease-in-out infinite;
 }
 
+/* Drift found by the scheduled sync health run. Steady, not pulsing: it is a
+   standing condition to fix, not a new arrival. */
+.nav-badge.sync-health {
+  background: var(--color-warning-500);
+  color: var(--text-inverse);
+}
+
 @keyframes badgePulse {
   0%, 100% {
     transform: scale(1);

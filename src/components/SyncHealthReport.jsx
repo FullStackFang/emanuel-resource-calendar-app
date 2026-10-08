@@ -9,7 +9,7 @@
 // rather than a spinner. deriveListLoadingState keeps the spinner up through
 // the `pending && idle` tick after the click so we never flash an empty result.
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { keys } from '../queries/keys';
 import { deriveListLoadingState } from '../utils/listLoadingState';
@@ -22,6 +22,7 @@ import {
 } from '../utils/syncHealthGrouping';
 import { useNotification } from '../context/NotificationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useSyncHealthLatest } from '../hooks/useSyncHealthLatest';
 import LoadingSpinner from './shared/LoadingSpinner';
 import DatePickerInput from './DatePickerInput';
 import APP_CONFIG from '../config/config';
@@ -849,10 +850,39 @@ function CalendarReport({ calendar, apiToken, canFix, onFixed }) {
   );
 }
 
+/**
+ * The scheduled run's status line (edit-request-approval-graph-sync D6).
+ * Errors keep the last good time visible: the server retains the last counts
+ * through a failed run, and so does this line.
+ */
+function LastAutomaticRun({ latest, loaded }) {
+  if (!loaded) return null;
+  if (!latest) {
+    return <p className="sync-health-last-run">No automatic run yet</p>;
+  }
+  return (
+    <div className="sync-health-last-run">
+      {latest.ranAt && <p>Last automatic run: {new Date(latest.ranAt).toLocaleString()}</p>}
+      {latest.error && (
+        <p className="sync-health-last-run-error" role="alert">
+          The last automatic run failed{latest.errorAt ? ` at ${new Date(latest.errorAt).toLocaleString()}` : ''}
+          {latest.errorMessage ? `: ${latest.errorMessage}` : ''}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function SyncHealthReport({ apiToken }) {
   const { showError } = useNotification();
   const { isAdmin } = usePermissions();
   const queryClient = useQueryClient();
+  // Same token-header fetch the calendars query below uses.
+  const tokenFetch = useCallback(
+    (url) => fetch(url, { headers: { Authorization: 'Bearer ' + apiToken } }),
+    [apiToken]
+  );
+  const { data: latestRun = null, isSuccess: latestLoaded } = useSyncHealthLatest({ authFetch: tokenFetch, enabled: !!apiToken });
   const [range, setRange] = useState(defaultWindow);
   // Bumped by every Run Check click so an unchanged date range still refetches.
   const [runVersion, setRunVersion] = useState(0);
@@ -993,6 +1023,7 @@ export default function SyncHealthReport({ apiToken }) {
           Compares what this app believes is published against what Outlook actually shows.
           Read-only — nothing is changed by running a check.
         </p>
+        <LastAutomaticRun latest={latestRun} loaded={latestLoaded} />
       </header>
 
       {/* DatePickerInput renders a bare <input type="date"> — it has NO label

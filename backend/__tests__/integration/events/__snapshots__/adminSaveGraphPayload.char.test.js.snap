@@ -1,0 +1,844 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-1: hold (no event times) gets a [Hold] subject 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "[Hold] Held Room",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "[Hold] Held Room",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-2: offsite builds the full Graph location 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "address": {
+        "city": "New York",
+        "countryOrRegion": "",
+        "postalCode": "",
+        "state": "NY 10022",
+        "street": "14 E 60th St",
+      },
+      "coordinates": {
+        "latitude": 40.7648,
+        "longitude": -73.9724,
+      },
+      "displayName": "Central Park (Offsite) - 14 E 60th St, New York, NY 10022",
+      "locationType": "default",
+    },
+    "locations": [
+      {
+        "address": {
+          "city": "New York",
+          "countryOrRegion": "",
+          "postalCode": "",
+          "state": "NY 10022",
+          "street": "14 E 60th St",
+        },
+        "coordinates": {
+          "latitude": 40.7648,
+          "longitude": -73.9724,
+        },
+        "displayName": "Central Park (Offsite) - 14 E 60th St, New York, NY 10022",
+        "locationType": "default",
+      },
+    ],
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Single",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "address": {
+            "city": "New York",
+            "countryOrRegion": "",
+            "postalCode": "",
+            "state": "NY 10022",
+            "street": "14 E 60th St",
+          },
+          "coordinates": {
+            "latitude": 40.7648,
+            "longitude": -73.9724,
+          },
+          "displayName": "Central Park (Offsite) - 14 E 60th St, New York, NY 10022",
+          "locationType": "default",
+        },
+        "locations": [
+          {
+            "address": {
+              "city": "New York",
+              "countryOrRegion": "",
+              "postalCode": "",
+              "state": "NY 10022",
+              "street": "14 E 60th St",
+            },
+            "coordinates": {
+              "latitude": 40.7648,
+              "longitude": -73.9724,
+            },
+            "displayName": "Central Park (Offsite) - 14 E 60th St, New York, NY 10022",
+            "locationType": "default",
+          },
+        ],
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Single",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-3: changed rooms resolve to display names 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Sanctuary; Greenwald Hall",
+      "locationType": "default",
+    },
+    "locations": [
+      {
+        "displayName": "Sanctuary",
+        "locationType": "default",
+      },
+      {
+        "displayName": "Greenwald Hall",
+        "locationType": "default",
+      },
+    ],
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Single",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Sanctuary; Greenwald Hall",
+          "locationType": "default",
+        },
+        "locations": [
+          {
+            "displayName": "Sanctuary",
+            "locationType": "default",
+          },
+          {
+            "displayName": "Greenwald Hall",
+            "locationType": "default",
+          },
+        ],
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Single",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-4: cleared rooms send the "Unspecified" placeholder 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Unspecified",
+      "locationType": "default",
+    },
+    "locations": [],
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Single",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Unspecified",
+          "locationType": "default",
+        },
+        "locations": [],
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Single",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-5: changed recurrence is sent and start/end aligned to range.startDate 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-03-17T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "iCalUId": "ical-AAMkChar-series",
+    "id": "AAMkChar-series",
+    "recurrence": {
+      "pattern": {
+        "daysOfWeek": [
+          "tuesday",
+        ],
+        "firstDayOfWeek": "sunday",
+        "interval": 1,
+        "type": "weekly",
+      },
+      "range": {
+        "endDate": "2026-07-28",
+        "recurrenceTimeZone": "Eastern Standard Time",
+        "startDate": "2026-03-17",
+        "type": "endDate",
+      },
+    },
+    "start": {
+      "dateTime": "2026-03-17T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Series",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-03-17T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "recurrence": {
+          "pattern": {
+            "daysOfWeek": [
+              "tuesday",
+            ],
+            "firstDayOfWeek": "sunday",
+            "interval": 1,
+            "type": "weekly",
+          },
+          "range": {
+            "endDate": "2026-07-28",
+            "recurrenceTimeZone": "Eastern Standard Time",
+            "startDate": "2026-03-17",
+            "type": "endDate",
+          },
+        },
+        "start": {
+          "dateTime": "2026-03-17T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Series",
+      },
+      "eventId": "AAMkChar-series",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-6: removed recurrence is sent as null 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-03-10T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "iCalUId": "ical-AAMkChar-series",
+    "id": "AAMkChar-series",
+    "recurrence": null,
+    "start": {
+      "dateTime": "2026-03-10T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Now A Single",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-03-10T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "recurrence": null,
+        "start": {
+          "dateTime": "2026-03-10T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Now A Single",
+      },
+      "eventId": "AAMkChar-series",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-7a: body object (text) maps to Graph Text 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "body": {
+      "content": "Plain body",
+      "contentType": "Text",
+    },
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Body Text",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "body": {
+          "content": "Plain body",
+          "contentType": "Text",
+        },
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Body Text",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-7b: eventDescription maps to Graph HTML body 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "body": {
+      "content": "<p>Rich</p>",
+      "contentType": "HTML",
+    },
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Single",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "body": {
+          "content": "<p>Rich</p>",
+          "contentType": "HTML",
+        },
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Single",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-7c: legacy description maps to Graph HTML body 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "body": {
+      "content": "Legacy text",
+      "contentType": "HTML",
+    },
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "With Legacy Desc",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "body": {
+          "content": "Legacy text",
+          "contentType": "HTML",
+        },
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "With Legacy Desc",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-8: categories fall back to graphData.categories when not sent 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "categories": [
+      "GraphCat",
+    ],
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-05-05T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Retitled",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "categories": [
+          "GraphCat",
+        ],
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Retitled",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-9: thisEvent with no resolvable instance skips Graph 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "test-change-key",
+    "end": {
+      "dateTime": "2026-03-10T11:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+    "iCalUId": "ical-AAMkChar-series",
+    "id": "AAMkChar-series",
+    "start": {
+      "dateTime": "2026-03-10T10:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Series",
+  },
+  "graphSynced": false,
+  "instanceLookups": 1,
+  "status": 200,
+  "updateCalls": [],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-10: a Graph throw still lets the Mongo write happen 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "end": {
+      "dateTime": "2026-05-05T11:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+  },
+  "graphSynced": false,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Saved Despite Graph",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-11: added date on a published series is materialized and created in Graph 1`] = `
+{
+  "createCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "body": {
+          "content": "Test event description",
+          "contentType": "html",
+        },
+        "categories": [
+          "Meeting",
+        ],
+        "end": {
+          "dateTime": "2026-03-12T11:00:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Room A",
+          "locationType": "default",
+        },
+        "locations": [
+          {
+            "displayName": "Room A",
+            "locationType": "default",
+          },
+        ],
+        "start": {
+          "dateTime": "2026-03-12T10:00:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Series",
+      },
+    },
+  ],
+  "deleteCalls": [],
+  "graphData": {
+    "changeKey": "changeKey-<ts>",
+    "end": {
+      "dateTime": "2026-03-10T11:00:00",
+      "timeZone": "America/New_York",
+    },
+    "iCalUId": "ical-AAMkChar-series",
+    "id": "AAMkChar-series",
+    "recurrence": {
+      "pattern": {
+        "daysOfWeek": [
+          "tuesday",
+        ],
+        "firstDayOfWeek": "sunday",
+        "interval": 1,
+        "type": "weekly",
+      },
+      "range": {
+        "endDate": "2026-06-30",
+        "recurrenceTimeZone": "Eastern Standard Time",
+        "startDate": "2026-03-10",
+        "type": "endDate",
+      },
+    },
+    "start": {
+      "dateTime": "2026-03-10T10:00:00",
+      "timeZone": "America/New_York",
+    },
+    "subject": "Char Series",
+  },
+  "graphSynced": true,
+  "instanceLookups": 0,
+  "status": 200,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-03-10T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "recurrence": {
+          "pattern": {
+            "daysOfWeek": [
+              "tuesday",
+            ],
+            "firstDayOfWeek": "sunday",
+            "interval": 1,
+            "type": "weekly",
+          },
+          "range": {
+            "endDate": "2026-06-30",
+            "recurrenceTimeZone": "Eastern Standard Time",
+            "startDate": "2026-03-10",
+            "type": "endDate",
+          },
+        },
+        "start": {
+          "dateTime": "2026-03-10T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Char Series",
+      },
+      "eventId": "AAMkChar-series",
+    },
+  ],
+}
+`;
+
+exports[`Admin Save Graph payload characterization (CHAR-1..13) CHAR-12: a 409 on the Mongo write happens AFTER Graph was patched (current behaviour) 1`] = `
+{
+  "createCalls": [],
+  "deleteCalls": [],
+  "graphData": {
+    "end": {
+      "dateTime": "2026-05-05T11:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+    "id": "AAMkChar-single",
+    "location": {
+      "displayName": "Graph Room",
+      "locationType": "default",
+    },
+    "start": {
+      "dateTime": "2026-05-05T10:00:00.0000000",
+      "timeZone": "America/New_York",
+    },
+  },
+  "instanceLookups": 0,
+  "status": 409,
+  "updateCalls": [
+    {
+      "calendarId": "test-calendar-id",
+      "calendarOwner": "templeeventssandbox@emanuelnyc.org",
+      "eventData": {
+        "end": {
+          "dateTime": "2026-05-05T11:00:00",
+          "timeZone": "America/New_York",
+        },
+        "location": {
+          "displayName": "Graph Room",
+          "locationType": "default",
+        },
+        "start": {
+          "dateTime": "2026-05-05T10:00:00",
+          "timeZone": "America/New_York",
+        },
+        "subject": "Lost Race",
+      },
+      "eventId": "AAMkChar-single",
+    },
+  ],
+}
+`;

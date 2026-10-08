@@ -47,7 +47,7 @@ const respondWith = (body, { allowed = ALLOWED } = {}) => {
 };
 
 const reportCalls = () =>
-  (global.fetch.mock?.calls || []).filter(([u]) => String(u).includes('/reports/sync-health'));
+  (global.fetch.mock?.calls || []).filter(([u]) => String(u).includes('/reports/sync-health') && !String(u).includes('/sync-health/latest'));
 
 describe('SyncHealthReport', () => {
   beforeEach(() => {

@@ -142,7 +142,7 @@ function computeItemGates(item) {
  * @param {Function} onSuccess - Callback after successful action
  * @param {Function} onError - Callback after error
  */
-export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
+export function useReviewModal({ apiToken, graphToken, onSuccess, onError, onWarning, selectedCalendarId }) {
   const { canCreateEvents, canSubmitReservation, isAdmin } = usePermissions();
   const authFetch = useAuthenticatedFetch();
   const [isOpen, setIsOpen] = useState(false);
@@ -212,6 +212,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
+
+  // An approval commits even when Outlook lags (graphSync.failed). Say so
+  // instead of a plain success, so the approver knows a re-save is needed.
+  const warnIfGraphSyncFailed = useCallback((result) => {
+    const failedCount = result?.graphSync?.failed?.length || 0;
+    if (failedCount > 0 && onWarning) {
+      onWarning(`Approved. Outlook update failed for ${failedCount} item(s); re-save to retry.`);
+    }
+  }, [onWarning]);
 
   // Wrapper: call onSuccess then immediately refresh nav badge counts
   const notifySuccess = useCallback((...args) => {
@@ -1640,6 +1649,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
                 const retryResponse = await approveEditRequestRaw(authFetch, editRequestDocId, buildBody({ acknowledgeSoftConflicts: true }));
                 if (retryResponse.ok) {
                   const retryResult = await retryResponse.json();
+                  warnIfGraphSyncFailed(retryResult);
                   await closeModal(true);
                   notifySuccess({ editRequestApproved: true, eventId });
                   return { success: true, data: retryResult };
@@ -1693,6 +1703,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
+      warnIfGraphSyncFailed(result);
       await closeModal(true);
       notifySuccess({ editRequestApproved: true, eventId });
       return { success: true, data: result };
@@ -1704,7 +1715,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setIsApprovingEditRequest(false);
       setPendingEditRequestApproveConfirmation(false);
     }
-  }, [currentItem, authFetch, fetchFreshVersion, notifySuccess, onError, closeModal, pendingEditRequestApproveConfirmation]);
+  }, [currentItem, authFetch, fetchFreshVersion, notifySuccess, onError, warnIfGraphSyncFailed, closeModal, pendingEditRequestApproveConfirmation]);
 
   const cancelEditRequestApproveConfirmation = useCallback(() => {
     setPendingEditRequestApproveConfirmation(false);

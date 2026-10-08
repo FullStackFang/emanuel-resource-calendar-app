@@ -25,6 +25,9 @@
   margin: 0.35rem 0 0; color: var(--color-neutral-600);
   font-size: 0.875rem; max-width: 62ch;
 }
+.sync-health-last-run,
+.sync-health-last-run p { margin: 0.35rem 0 0; font-size: 0.8125rem; color: var(--color-neutral-600); }
+.sync-health-last-run-error { color: var(--color-error-500); }
 
 /* ── controls ───────────────────────────────────────────────────────────── */
 .sync-health-controls {

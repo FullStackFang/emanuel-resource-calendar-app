@@ -1,4 +1,4 @@
-const { recurrenceEquals, exclusionsRemoved } = require('../../../utils/recurrenceCompare');
+const { recurrenceEquals, exclusionsRemoved, exclusionsAdded } = require('../../../utils/recurrenceCompare');
 
 describe('recurrenceEquals (backend)', () => {
   test('null vs null is equal', () => {
@@ -95,5 +95,35 @@ describe('exclusionsRemoved', () => {
     expect(exclusionsRemoved(null, null)).toEqual([]);
     expect(exclusionsRemoved(null, { exclusions: ['x'] })).toEqual([]);
     expect(exclusionsRemoved({ exclusions: ['x'] }, null)).toEqual(['x']);
+  });
+});
+
+describe('exclusionsAdded (backend)', () => {
+  test('RCX-1: returns dates present in new and absent from old', () => {
+    expect(exclusionsAdded(
+      { exclusions: ['2026-10-14'] },
+      { exclusions: ['2026-10-14', '2026-11-04'] }
+    )).toEqual(['2026-11-04']);
+  });
+
+  test('RCX-2: a null side or missing array is treated as empty', () => {
+    expect(exclusionsAdded(null, { exclusions: ['2026-10-14'] })).toEqual(['2026-10-14']);
+    expect(exclusionsAdded({ exclusions: ['2026-10-14'] }, null)).toEqual([]);
+    expect(exclusionsAdded({}, {})).toEqual([]);
+    expect(exclusionsAdded(undefined, undefined)).toEqual([]);
+  });
+
+  test('RCX-3: non-string entries are string-normalised before comparing', () => {
+    const asObject = { toString: () => '2026-10-14' };
+    expect(exclusionsAdded({ exclusions: [asObject] }, { exclusions: ['2026-10-14', '2026-10-21'] }))
+      .toEqual(['2026-10-21']);
+  });
+
+  test('RCX-4: inputs are not mutated', () => {
+    const oldR = { exclusions: ['2026-10-14'] };
+    const newR = { exclusions: ['2026-10-21', '2026-10-14'] };
+    exclusionsAdded(oldR, newR);
+    expect(oldR).toEqual({ exclusions: ['2026-10-14'] });
+    expect(newR).toEqual({ exclusions: ['2026-10-21', '2026-10-14'] });
   });
 });

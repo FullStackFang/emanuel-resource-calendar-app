@@ -19,6 +19,11 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 let mockPermissions = {};
+// The Sync Health badge query (D6) needs a QueryClient; covered by its own suite.
+vi.mock('../../../hooks/useSyncHealthLatest', () => ({
+  useSyncHealthLatest: () => ({ data: null }),
+  actionableSyncHealthCount: () => 0,
+}));
 vi.mock('../../../hooks/usePermissions', () => ({
   usePermissions: () => mockPermissions,
 }));

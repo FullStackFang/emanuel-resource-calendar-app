@@ -60,6 +60,7 @@ const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
 const syncHealthService = require('./services/syncHealthService');
+const syncHealthScheduler = require('./services/syncHealthScheduler');
 const conflictReportService = require('./services/conflictReportService');
 const syncReconcileService = require('./services/syncReconcileService');
 const { republishEventCore } = require('./services/republishCore');
@@ -2246,6 +2247,7 @@ function buildEffectiveEditData(event) {
 // buildGraphRecurrence extracted to backend/utils/recurrenceGraphMapping.js
 // so the rsched-import publish path can share the same implementation.
 const { buildGraphRecurrence } = require('./utils/recurrenceGraphMapping');
+const { buildMasterPatch, buildOccurrencePatch, reconcilePublishedSeries, recurrenceScheduleChanged } = require('./services/publishedMasterGraphSync');
 const { findGraphOccurrenceForDate: findGraphOccurrenceForDateShared } = require('./utils/graphOccurrenceLookup');
 
 /**
@@ -2286,48 +2288,48 @@ function buildGraphLocationFields(locationDisplayNames) {
 }
 
 /**
- * Sync recurrence exclusions and additions to Graph API after creating a recurring series.
- * Exclusions: Cancel specific occurrence instances via deleteCalendarEvent.
- * Additions: Create standalone single-instance events via createCalendarEvent.
+ * Cancel the Graph occurrence instance of a series for each given date.
+ *
+ * Each date is resolved through {@link findGraphOccurrenceForDate}, which asks
+ * Graph for instance times in the series' own zone over a window one day either
+ * side. The previous day-only, UTC-reported query missed evening occurrences
+ * (they read as the NEXT calendar day in UTC) and so left them uncancelled.
+ *
+ * A date with no instance is `notFound`: either already cancelled, or not an
+ * occurrence of the pattern. Both mean there is nothing to delete, so callers
+ * treat it as done. Never throws; a per-date Graph error lands in `failed`.
+ *
+ * Additions are not handled here — addition child documents are synced by
+ * {@link syncExceptionDocumentsToGraph}.
+ *
  * @param {string} calendarOwner - Calendar owner email
  * @param {string|null} calendarId - Calendar ID
  * @param {string} seriesId - Graph ID of the series master
- * @param {Object} recurrence - Internal recurrence { exclusions, additions, ... }
- * @param {Object} eventData - Graph event data (for building addition events)
- * @returns {Promise<{cancelledOccurrences: Array}>}
+ * @param {string[]} dates - YYYY-MM-DD dates to cancel
+ * @param {string} [timeZone] - The series' Graph timezone
+ * @returns {Promise<{cancelledOccurrences: Array<{date, graphId}>, notFound: string[], failed: Array<{date, error}>}>}
  */
-async function syncRecurrenceExclusionsToGraph(calendarOwner, calendarId, seriesId, recurrence) {
-  const results = { cancelledOccurrences: [] };
+async function syncRecurrenceExclusionsToGraph(calendarOwner, calendarId, seriesId, dates, timeZone) {
+  const results = { cancelledOccurrences: [], notFound: [], failed: [] };
 
-  // Cancel Graph occurrences for excluded dates
-  if (recurrence.exclusions?.length) {
-    for (const exclusionDate of recurrence.exclusions) {
-      try {
-        const dayStart = `${exclusionDate}T00:00:00`;
-        const dayEnd = `${exclusionDate}T23:59:59`;
-
-        const instances = await graphApiService.getRecurringEventInstances(
-          calendarOwner, calendarId, seriesId, dayStart, dayEnd
-        );
-
-        const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
-        const match = instanceList.find(inst =>
-          inst.start?.dateTime?.startsWith(exclusionDate)
-        );
-
-        if (match) {
-          await graphApiService.deleteCalendarEvent(calendarOwner, calendarId, match.id);
-          results.cancelledOccurrences.push({ date: exclusionDate, graphId: match.id });
-        } else {
-          logger.warn('No Graph occurrence found for exclusion date:', { exclusionDate, seriesId });
-        }
-      } catch (err) {
-        logger.warn('Failed to cancel Graph occurrence for exclusion:', { exclusionDate, error: err.message });
+  for (const exclusionDate of (Array.isArray(dates) ? dates : [])) {
+    try {
+      const match = await findGraphOccurrenceForDate(
+        calendarOwner, calendarId, seriesId, exclusionDate, timeZone
+      );
+      if (match) {
+        await graphApiService.deleteCalendarEvent(calendarOwner, calendarId, match.id);
+        results.cancelledOccurrences.push({ date: exclusionDate, graphId: match.id });
+      } else {
+        logger.warn('No Graph occurrence found for exclusion date:', { exclusionDate, seriesId });
+        results.notFound.push(exclusionDate);
       }
+    } catch (err) {
+      logger.warn('Failed to cancel Graph occurrence for exclusion:', { exclusionDate, error: err.message });
+      results.failed.push({ date: exclusionDate, error: err.message });
     }
   }
 
-  // Addition dates are handled by syncExceptionDocumentsToGraph (addition docs)
   return results;
 }
 
@@ -2536,6 +2538,27 @@ async function syncExceptionDocumentsToGraph(calendarOwner, calendarId, seriesMa
   }
 
   return results;
+}
+
+/**
+ * Dependencies for services/publishedMasterGraphSync.js — the module-private
+ * helpers it cannot require without a cycle. Built per call rather than once
+ * at connect time so it always carries the CURRENT graphApiService and
+ * collection (tests swap both in via setGraphApiService / setDatabase).
+ */
+function getPublishedMasterSyncDeps() {
+  return {
+    graphApi: graphApiService,
+    collection: unifiedEventsCollection,
+    logger,
+    syncExceptionDocumentsToGraph,
+    syncRecurrenceExclusionsToGraph,
+    findGraphOccurrenceForDate,
+    buildGraphSubject,
+    buildOffsiteGraphLocation,
+    buildGraphLocationFields,
+    ensureSeconds,
+  };
 }
 
 /**
@@ -12335,6 +12358,30 @@ app.get('/api/admin/reports/sync-health', verifyToken, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/reports/sync-health/latest
+ *
+ * The persisted summary of the last SCHEDULED sync health run (counts only),
+ * for the nav badge and the report's 'Last automatic run' line. Same gate as
+ * the report. `{ latest: null }` until a run has completed.
+ */
+app.get('/api/admin/reports/sync-health/latest', verifyToken, async (req, res) => {
+  try {
+    const user = await getCachedUser(req.user.userId);
+    const userEmail = req.user.email;
+    if (!isAdmin(user, userEmail) && !canApproveReservations(user, userEmail)) {
+      return res.status(403).json({ error: 'Admin or Approver access required' });
+    }
+    const doc = await systemSettingsCollection.findOne({ _id: syncHealthScheduler.LATEST_DOC_ID });
+    if (!doc || (!doc.ranAt && !doc.error)) return res.json({ latest: null });
+    const { _id, leasedBy, leasedAt, nextRunAt, ...latest } = doc;
+    res.json({ latest });
+  } catch (err) {
+    logger.error('sync-health latest error:', err);
+    res.status(500).json({ error: 'Failed to read latest sync health run' });
+  }
+});
+
+/**
  * GET /api/admin/reports/conflicts
  *
  * Every other conflict check in this system is one-vs-many: "given this
@@ -16803,7 +16850,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       if (draftRecurrence?.exclusions?.length) {
         try {
           draftRecurrenceSyncResults = await syncRecurrenceExclusionsToGraph(
-            calendarOwner, draft.calendarId || null, createdEvent.id, draftRecurrence
+            calendarOwner, draft.calendarId || null, createdEvent.id,
+            // The zone we SENT: createCalendarEvent has no Prefer header, so the
+            // response reports UTC, which shifts evening dates by a day.
+            draftRecurrence.exclusions, graphEventData.start?.timeZone || createdEvent.start?.timeZone
           );
         } catch (syncError) {
           logger.warn('Failed to sync recurrence exclusions to Graph on draft auto-publish:', syncError.message);
@@ -17238,7 +17288,9 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
           if (restoreRecurrence?.exclusions?.length) {
             try {
               const exclusionResults = await syncRecurrenceExclusionsToGraph(
-                calendarOwner, calendarId, createdEvent.id, restoreRecurrence
+                calendarOwner, calendarId, createdEvent.id,
+                // The zone we SENT (the create response reports UTC).
+                restoreRecurrence.exclusions, graphEventData.start?.timeZone || createdEvent.start?.timeZone
               );
               if (exclusionResults.cancelledOccurrences.length) {
                 await unifiedEventsCollection.updateOne(
@@ -17490,7 +17542,9 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
           if (adminRestoreRecurrence?.exclusions?.length) {
             try {
               const exclusionResults = await syncRecurrenceExclusionsToGraph(
-                calendarOwner, calendarId, createdEvent.id, adminRestoreRecurrence
+                calendarOwner, calendarId, createdEvent.id,
+                // The zone we SENT (the create response reports UTC).
+                adminRestoreRecurrence.exclusions, graphEventData.start?.timeZone || createdEvent.start?.timeZone
               );
               if (exclusionResults.cancelledOccurrences.length) {
                 await unifiedEventsCollection.updateOne(
@@ -22902,6 +22956,7 @@ function gracefulShutdown(signal) {
   logger.log(`${signal} received, shutting down gracefully`);
   // Close all SSE connections first
   sseService.stop();
+  syncHealthSchedulerHandle?.stop();
   // Force exit after 30s if graceful shutdown stalls
   const forceTimer = setTimeout(() => {
     logger.error('Graceful shutdown timed out after 30s, forcing exit');
@@ -23827,7 +23882,9 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         if (publishRecurrence?.exclusions?.length) {
           try {
             const exclusionResults = await syncRecurrenceExclusionsToGraph(
-              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id,
+              // The zone we SENT (the create response reports UTC).
+              publishRecurrence.exclusions, graphEventData.start?.timeZone || createdEvent.start?.timeZone
             );
             calendarEventResult.recurrenceSyncResults = exclusionResults;
           } catch (syncError) {
@@ -25605,13 +25662,17 @@ app.put('/api/edit-requests/:id/reject', verifyToken, async (req, res) => {
  * EditRequest is already approved at that point — admin must re-apply changes
  * to the now-current event version.
  *
- * Phase 1 scope:
+ * Scope:
  *   - Series-level (editScope null/'allEvents'): full apply via remapToCalendarData
- *   - Occurrence-scoped (editScope 'thisEvent'): write to occurrenceOverrides[]
- *     array (legacy pattern). Phase 2 swaps this to exceptionDocumentService.
- *   - Conflict detection: enforced unless `forcePublishEdit: true` (admin only)
- *   - Supersede sweep at the end for matching-scope co-pending requests
- *   - Graph sync: deferred to Phase 1c follow-up (legacy endpoint still handles)
+ *   - Occurrence-scoped (editScope 'thisEvent'): pre-validated before Write 1,
+ *     then an exception child document via exceptionDocumentService plus a
+ *     master conditionalUpdate (the OCC gate and the version bump)
+ *   - Conflict detection: enforced unless `forcePublishEdit: true` (admin only);
+ *     occurrence requests are checked on the occurrence's own date
+ *   - Exclusion removal is refused (EXCLUSION_REMOVAL_NOT_SUPPORTED), as on submit
+ *   - Graph sync: after Write 2 and before the response, via
+ *     services/publishedMasterGraphSync (shared with admin Save). Non-fatal;
+ *     the outcome is returned and audited as `graphSync`.
  *
  * Body: {
  *   notes, approverChanges, forcePublishEdit, acknowledgeSoftConflicts,
@@ -25669,6 +25730,22 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
     const finalChanges = approverChanges
       ? { ...proposedChanges, ...approverChanges }
       : { ...proposedChanges };
+    // What the requester/approver actually touched, captured BEFORE the Q3=A
+    // derivation below adds start/end keys. The Graph PATCH is gated on this.
+    const touchedFields = new Set(Object.keys(finalChanges));
+
+    // Q5=A — the submit path refuses exclusion removal (Graph cannot
+    // un-cancel); approverChanges must not smuggle one through. Before Write 1.
+    if (finalChanges.recurrence !== undefined && event.recurrence) {
+      const removed = exclusionsRemoved(event.recurrence, finalChanges.recurrence);
+      if (removed.length > 0) {
+        return res.status(400).json({
+          error: 'EXCLUSION_REMOVAL_NOT_SUPPORTED',
+          message: 'Removing previously-cancelled occurrences from a recurring series is not supported via edit request. Affected dates: ' + removed.join(', '),
+          removedExclusions: removed,
+        });
+      }
+    }
 
     // Q3=A — when recurrence supplied with range.startDate, derive master start/end dates
     if (finalChanges.recurrence && finalChanges.recurrence.range && finalChanges.recurrence.range.startDate) {
@@ -25683,9 +25760,58 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       if (!finalChanges.endDate) finalChanges.endDate = newEndDate;
     }
 
-    // Scheduling conflict check (mirrors legacy publish-edit)
+    const isOccurrenceScoped = editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate;
+
+    // ---- Occurrence pre-flight (D3): every way this can fail is checked
+    // BEFORE Write 1, so a refusal leaves the request pending, not split. ----
+    let occ = null;
+    if (isOccurrenceScoped) {
+      const dateKey = editRequest.occurrenceDate.split('T')[0];
+      let masterDoc;
+      try {
+        masterDoc = await resolveSeriesMaster(unifiedEventsCollection, event);
+      } catch (err) {
+        if (err.statusCode) {
+          return res.status(err.statusCode).json({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+      if (event.eventType !== EVENT_TYPE.ADDITION) {
+        const rangeCheck = validateOccurrenceDateInRange(dateKey, masterDoc.recurrence || masterDoc.calendarData?.recurrence);
+        if (!rangeCheck.valid) {
+          return res.status(400).json({ error: rangeCheck.error });
+        }
+      }
+      // Occurrence dates are immutable; extractOverrideData would silently
+      // drop a moved start date, so refuse it explicitly.
+      const proposedStartDate = finalChanges.startDate
+        || (finalChanges.startDateTime ? String(finalChanges.startDateTime).split('T')[0] : undefined);
+      if (proposedStartDate !== undefined && proposedStartDate !== dateKey) {
+        return res.status(400).json({
+          error: 'DATE_IMMUTABLE',
+          message: `Occurrence date ${dateKey} cannot be changed to ${proposedStartDate}`,
+        });
+      }
+      const { recurrence: _seriesOnly, ...occurrenceChanges } = finalChanges;
+      // Requests may carry only the combined datetime; the override stores HH:MM.
+      if (occurrenceChanges.startTime === undefined && occurrenceChanges.startDateTime) {
+        occurrenceChanges.startTime = String(occurrenceChanges.startDateTime).split('T')[1]?.substring(0, 5);
+      }
+      if (occurrenceChanges.endTime === undefined && occurrenceChanges.endDateTime) {
+        occurrenceChanges.endTime = String(occurrenceChanges.endDateTime).split('T')[1]?.substring(0, 5);
+      }
+      const resolvedLocations = await resolveLocationOverride(
+        locationsCollection, occurrenceChanges.requestedRooms || occurrenceChanges.locations
+      );
+      const overrideData = extractOverrideData(occurrenceChanges, resolvedLocations);
+      const existingException = await findExceptionForDate(unifiedEventsCollection, masterDoc.eventId, dateKey);
+      occ = { dateKey, masterDoc, overrideData, existingException };
+    }
+
+    // Scheduling conflict check
     const hasTimeOrRoomChange =
       finalChanges.startDateTime || finalChanges.endDateTime ||
+      finalChanges.startTime !== undefined || finalChanges.endTime !== undefined ||
       finalChanges.locations || finalChanges.requestedRooms ||
       finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined ||
       finalChanges.reservationStartMinutes !== undefined || finalChanges.reservationEndMinutes !== undefined ||
@@ -25693,26 +25819,28 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
 
     if (hasTimeOrRoomChange && !forcePublishEdit) {
       let conflictReservation;
-      if (editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate) {
-        const occDateKey = editRequest.occurrenceDate.split('T')[0];
-        const occOverride = (event.occurrenceOverrides || []).find((o) => o.occurrenceDate === occDateKey) || {};
-        const occBaseline = { ...(event.calendarData || {}), ...occOverride, ...finalChanges };
+      let excludeId = event._id.toString();
+      if (occ) {
+        // Whole-state check of the merged occurrence ON ITS OWN DATE (approve
+        // keeps the whole-state rule). The old check used the series' first
+        // date, so a rooms-only occurrence request was checked on the wrong day.
+        const masterCd = occ.masterDoc.calendarData || {};
+        const eff = mergeDefaultsWithOverrides(
+          occ.masterDoc, { ...(occ.existingException?.overrides || {}), ...occ.overrideData }, occ.dateKey
+        ).effectiveCalendarData;
         conflictReservation = {
           calendarOwner: event.calendarOwner || null,
-          startDateTime: occBaseline.startDateTime,
-          endDateTime: occBaseline.endDateTime,
-          setupTimeMinutes: occBaseline.setupTimeMinutes,
-          teardownTimeMinutes: occBaseline.teardownTimeMinutes,
           calendarData: {
-            locations: occBaseline.locations || occBaseline.requestedRooms,
-            startDateTime: occBaseline.startDateTime,
-            endDateTime: occBaseline.endDateTime,
-            setupTimeMinutes: occBaseline.setupTimeMinutes,
-            teardownTimeMinutes: occBaseline.teardownTimeMinutes,
+            ...eff,
+            setupTimeMinutes: masterCd.setupTimeMinutes,
+            teardownTimeMinutes: masterCd.teardownTimeMinutes,
+            reservationStartMinutes: masterCd.reservationStartMinutes,
+            reservationEndMinutes: masterCd.reservationEndMinutes,
           },
-          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
-          categories: occBaseline.categories || [],
+          isAllowedConcurrent: occ.masterDoc.isAllowedConcurrent ?? false,
+          categories: eff.categories || [],
         };
+        excludeId = occ.masterDoc._id.toString();
       } else {
         // Series-level: synthesize an event with the proposed pendingEditRequest shape
         // so buildEffectiveEditData yields the merged form.
@@ -25743,7 +25871,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         };
       }
 
-      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(conflictReservation, event._id.toString());
+      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(conflictReservation, excludeId);
       if (hardConflicts.length > 0) {
         return res.status(409).json({
           error: 'SchedulingConflict',
@@ -25811,35 +25939,90 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
 
     // ---- Write 2: apply changes to the event (OCC) ----
     const cd = event.calendarData || {};
-    const isOccurrenceScoped = editRequest.editScope === 'thisEvent' && editRequest.occurrenceDate;
+    const partialFailureBody = (err) => {
+      // Split-brain: request is approved but event update failed. Surface a
+      // distinct partial-failure response so the frontend can offer a
+      // "Re-apply Approved Changes" admin action.
+      const conflictBody = err.toJSON();
+      conflictBody.partialFailure = true;
+      conflictBody.compensationRequired = true;
+      conflictBody.editRequestId = editRequest.editRequestId;
+      conflictBody.editRequestApproved = true;
+      return conflictBody;
+    };
 
-    let updateFields = {};
     let updatedEvent = null;
+    let exceptionDoc = null;
+    const graphSync = { synced: [], failed: [], cancelledExclusions: [] };
+    const syncDeps = getPublishedMasterSyncDeps();
 
-    if (isOccurrenceScoped) {
-      // Phase 1: write to legacy occurrenceOverrides[] array on the master.
-      // Phase 2 swaps this to exceptionDocumentService.createExceptionDocument /
-      // updateExceptionDocument with proper child-document semantics.
-      const dateKey = editRequest.occurrenceDate.split('T')[0];
-      const existingOverrides = event.occurrenceOverrides || [];
-      const existingIdx = existingOverrides.findIndex((o) => o.occurrenceDate === dateKey);
-
-      const overrideEntry = { occurrenceDate: dateKey };
-      // Copy each non-recurrence finalChange into the override
-      for (const [k, v] of Object.entries(finalChanges)) {
-        if (k === 'recurrence') continue; // recurrence is series-level, not per-occurrence
-        overrideEntry[k] = v;
+    if (occ) {
+      // Master first: its conditionalUpdate is the OCC gate and the version
+      // bump the renderer keys on, so a stale eventVersion writes NOTHING.
+      try {
+        updatedEvent = await conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: occ.masterDoc._id },
+          {
+            $push: {
+              statusHistory: {
+                status: occ.masterDoc.status,
+                changedAt: now,
+                changedBy: userEmail,
+                reason: `Occurrence ${occ.dateKey} edited via approved request`,
+              },
+            },
+          },
+          {
+            expectedVersion: eventVersion != null ? eventVersion : null,
+            modifiedBy: userEmail,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS,
+          }
+        );
+      } catch (err) {
+        if (err.statusCode === 409) return res.status(409).json(partialFailureBody(err));
+        throw err;
       }
 
-      const newOverrides = existingIdx >= 0
-        ? existingOverrides.map((o, i) => (i === existingIdx ? { ...o, ...overrideEntry } : o))
-        : [...existingOverrides, overrideEntry];
+      // The child document is what the calendar renders (not occurrenceOverrides[]).
+      exceptionDoc = occ.existingException
+        ? await updateExceptionDocument(unifiedEventsCollection, occ.existingException, occ.masterDoc, occ.overrideData,
+          { modifiedBy: userEmail })
+        : await createExceptionDocument(unifiedEventsCollection, occ.masterDoc, occ.dateKey, occ.overrideData,
+          { createdBy: userEmail, createdByEmail: userEmail });
 
-      updateFields = { occurrenceOverrides: newOverrides };
+      // Graph: patch this one instance (non-fatal).
+      const masterGraphId = occ.masterDoc.graphData?.id;
+      if (masterGraphId && occ.masterDoc.calendarOwner) {
+        const patch = buildOccurrencePatch({ overrideData: occ.overrideData, exceptionDoc, event: occ.masterDoc, deps: syncDeps });
+        if (Object.keys(patch).length > 0) {
+          try {
+            let instanceId = exceptionDoc.graphEventId;
+            if (!instanceId) {
+              const match = await findGraphOccurrenceForDate(
+                occ.masterDoc.calendarOwner, occ.masterDoc.calendarId, masterGraphId, occ.dateKey,
+                occ.masterDoc.graphData?.start?.timeZone // TODO graphData-read
+              );
+              instanceId = match?.id || null;
+            }
+            if (!instanceId) {
+              graphSync.failed.push({ kind: 'occurrence', date: occ.dateKey, error: 'no matching Graph instance' });
+            } else {
+              await graphApiService.updateCalendarEvent(occ.masterDoc.calendarOwner, occ.masterDoc.calendarId, instanceId, patch);
+              if (exceptionDoc.graphEventId !== instanceId) {
+                await unifiedEventsCollection.updateOne({ _id: exceptionDoc._id }, { $set: { graphEventId: instanceId } });
+              }
+              graphSync.synced.push({ kind: 'occurrence', date: occ.dateKey, graphId: instanceId });
+            }
+          } catch (graphErr) {
+            logger.warn('Non-fatal: Graph sync for approved occurrence edit failed:', graphErr.message);
+            graphSync.failed.push({ kind: 'occurrence', date: occ.dateKey, error: graphErr.message });
+          }
+        }
+      }
     } else {
       // Series-level / non-recurring: remap calendar fields into calendarData.*
-      const remappedFields = remapToCalendarData(finalChanges);
-      updateFields = { ...remappedFields };
+      const updateFields = { ...remapToCalendarData(finalChanges) };
 
       // Recurrence is stored at top level (not in calendarData).
       if (finalChanges.recurrence !== undefined) {
@@ -25849,38 +26032,97 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
           updateFields.eventType = 'seriesMaster';
         }
       }
-    }
 
-    try {
-      updatedEvent = await conditionalUpdate(
-        unifiedEventsCollection,
-        { _id: event._id },
-        { $set: updateFields },
-        {
-          expectedVersion: eventVersion != null ? eventVersion : null,
-          modifiedBy: userEmail,
-          snapshotFields: CONFLICT_SNAPSHOT_FIELDS,
-        }
-      );
-    } catch (err) {
-      if (err.statusCode === 409) {
-        // Split-brain: request is approved but event update failed. Surface a
-        // distinct partial-failure response so the frontend can offer a
-        // "Re-apply Approved Changes" admin action.
-        const conflictBody = err.toJSON();
-        conflictBody.partialFailure = true;
-        conflictBody.compensationRequired = true;
-        conflictBody.editRequestId = editRequest.editRequestId;
-        conflictBody.editRequestApproved = true;
-        return res.status(409).json(conflictBody);
+      try {
+        updatedEvent = await conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: event._id },
+          { $set: updateFields },
+          {
+            expectedVersion: eventVersion != null ? eventVersion : null,
+            modifiedBy: userEmail,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS,
+          }
+        );
+      } catch (err) {
+        if (err.statusCode === 409) return res.status(409).json(partialFailureBody(err));
+        throw err;
       }
-      throw err;
+
+      // ---- Graph sync (D1/D4): after Write 2, before the response. Never
+      // un-approves; follow-up writes never bump _version. ----
+      const recurrenceRewritten = finalChanges.recurrence !== undefined
+        && recurrenceScheduleChanged(event.recurrence, finalChanges.recurrence);
+      const graphId = updatedEvent.graphData?.id;
+      if (graphId && updatedEvent.calendarOwner) {
+        try {
+          const ucd = updatedEvent.calendarData || {};
+          const effective = {
+            eventTitle: ucd.eventTitle,
+            eventDescription: ucd.eventDescription,
+            startDateTime: ucd.startDateTime,
+            endDateTime: ucd.endDateTime,
+            startTime: ucd.startTime,
+            endTime: ucd.endTime,
+            categories: ucd.categories,
+            locations: ucd.locations,
+            isOffsite: ucd.isOffsite,
+            offsiteName: ucd.offsiteName,
+            offsiteAddress: ucd.offsiteAddress,
+            offsiteLat: ucd.offsiteLat,
+            offsiteLon: ucd.offsiteLon,
+            recurrence: updatedEvent.recurrence,
+          };
+          let locations = [];
+          if (effective.isOffsite && effective.offsiteName && effective.offsiteAddress) {
+            locations = [{ displayName: `${effective.offsiteName} (Offsite) - ${effective.offsiteAddress}`, locationType: 'default' }];
+          } else if (Array.isArray(effective.locations) && effective.locations.length > 0) {
+            const resolved = await resolveLocationOverride(locationsCollection, effective.locations.map(String));
+            locations = String(resolved?.locationDisplayNames || '').split('; ').filter(Boolean)
+              .map(displayName => ({ displayName, locationType: 'default' }));
+          }
+          const patch = buildMasterPatch({
+            effective,
+            changedFields: touchedFields,
+            event: updatedEvent,
+            editScope: editRequest.editScope || null,
+            locations,
+            recurrenceRewritten,
+            deps: syncDeps,
+          });
+          if (Object.keys(patch).length > 0) {
+            const patched = await graphApiService.updateCalendarEvent(
+              updatedEvent.calendarOwner, updatedEvent.calendarId, graphId, patch
+            );
+            // Same merge Save does, but as a plain write: the eventVersion
+            // already returned by Write 2 must stay correct.
+            await unifiedEventsCollection.updateOne(
+              { _id: updatedEvent._id },
+              { $set: { graphData: { ...(updatedEvent.graphData || {}), ...patched } } }
+            );
+            graphSync.synced.push({ kind: 'master', date: null, graphId });
+          }
+        } catch (graphErr) {
+          logger.warn('Non-fatal: Graph PATCH for approved edit failed:', graphErr.message);
+          graphSync.failed.push({ kind: 'master', date: null, error: graphErr.message });
+        }
+      }
+
+      const reconciled = await reconcilePublishedSeries({
+        event,
+        updatedEvent,
+        editScope: editRequest.editScope || null,
+        recurrenceRewritten,
+        actor: userEmail,
+        deps: syncDeps,
+      });
+      graphSync.synced.push(...reconciled.synced);
+      graphSync.failed.push(...reconciled.failed);
+      graphSync.cancelledExclusions.push(...reconciled.cancelledExclusions);
     }
 
-    // No supersede sweep needed — the one-active-per-scope guard at submission
-    // time means there's at most one pending request per (eventId, editScope,
-    // occurrenceDate) tuple. Cross-scope auto-supersede (e.g., series-level
-    // approval invalidating a co-pending occurrence edit) is deferred to Phase 2.
+    // Re-read for the SSE payload: the sync wrote graphData / children.
+    const broadcastEvent = await unifiedEventsCollection.findOne({ _id: updatedEvent._id }) || updatedEvent;
 
     // Build the audit changes array eagerly so it's referenced in the
     // post-response logging below (Object.entries iteration is cheap).
@@ -25903,6 +26145,8 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       editRequestVersion: updatedRequest._version,
       eventVersion: updatedEvent._version,
       changesApplied: finalChanges,
+      graphSync,
+      ...(exceptionDoc ? { exceptionDocId: String(exceptionDoc._id) } : {}),
     });
 
     // Post-response side effects. Logged on failure but never blocks the
@@ -25925,6 +26169,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         ...(approverChanges && { originalProposedChanges: proposedChanges }),
         ...(editRequest.editScope && { editScope: editRequest.editScope }),
         ...(editRequest.occurrenceDate && { occurrenceDate: editRequest.occurrenceDate }),
+        graphSync,
       },
     }).catch((auditErr) => {
       logger.warn('Edit request approval audit insert failed (non-fatal):', { ...auditContext, error: auditErr.message });
@@ -25983,7 +26228,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
         action: 'edit-published',
         actorEmail: userEmail,
         requesterEmail: editRequest.requestedBy?.email,
-        event: updatedEvent,
+        event: broadcastEvent,
         oldStatus: 'published',
         newStatus: 'published',
       });
@@ -26781,36 +27026,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       if (storedGraphEventId && event.calendarOwner) {
         try {
           const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
-          const isOccurrenceHold = overrideData.startTime !== undefined && !overrideData.startTime
-            && overrideData.endTime !== undefined && !overrideData.endTime
-            && (overrideData.reservationStartTime || event.calendarData?.reservationStartTime);
-
-          const graphUpdate = {};
-          if (isOccurrenceHold) {
-            const rawTitle = overrideData.eventTitle || event.calendarData?.eventTitle || event.eventTitle || '';
-            const baseTitle = rawTitle.replace(/^(\[Hold\]\s*)+/, '');
-            graphUpdate.subject = `[Hold] ${baseTitle}`;
-          } else if (overrideData.eventTitle) {
-            graphUpdate.subject = overrideData.eventTitle;
-          }
-          if (overrideData.eventDescription !== undefined) {
-            graphUpdate.body = { contentType: 'html', content: overrideData.eventDescription || '' };
-          }
-          if (!isOccurrenceHold) {
-            if (exceptionDoc.startDateTime) {
-              graphUpdate.start = { dateTime: exceptionDoc.startDateTime + ':00', timeZone: graphTimezone };
-            }
-            if (exceptionDoc.endDateTime) {
-              graphUpdate.end = { dateTime: exceptionDoc.endDateTime + ':00', timeZone: graphTimezone };
-            }
-          }
-          if (overrideData.categories !== undefined) graphUpdate.categories = overrideData.categories;
-          if (overrideData.locationDisplayNames !== undefined) {
-            const locDispName = overrideData.locationDisplayNames || '';
-            graphUpdate.location = { displayName: locDispName, locationType: 'default' };
-            graphUpdate.locations = locDispName.split('; ').filter(Boolean)
-              .map(name => ({ displayName: name, locationType: 'default' }));
-          }
+          const graphUpdate = buildOccurrencePatch({
+            overrideData, exceptionDoc, event, deps: getPublishedMasterSyncDeps(),
+          });
 
           if (Object.keys(graphUpdate).length > 0) {
             // Use exception doc's graphEventId if available, or fall back to finding the Graph instance
@@ -27296,6 +27514,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Store the full Graph API response for syncing back to MongoDB
     let graphSyncResult = null;
+    // Whether this save PATCHed Graph recurrence (see reconcilePublishedSeries below).
+    let saveRecurrencePatched = false;
 
     // Sync with Graph when graphData.id exists (event was published to Outlook)
     // Uses app-only auth via graphApiService — requires calendarOwner
@@ -27336,190 +27556,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           logger.debug('Updating entire series', { seriesMasterId });
         }
 
-        // Pre-compute combined datetimes from separate date/time fields (frontend sends them separately)
-        // This must happen BEFORE building the Graph payload so the correct times are used
-        const graphTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
-        // Prioritize explicit date+time components (user's intent) over startDateTime (may be stale from graphData)
-        const resolvedStartDateTime = (updates.startDate && updates.startTime)
-          ? `${updates.startDate}T${updates.startTime}:00`
-          : (updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime);
-        const resolvedEndDateTime = (updates.endDate && updates.endTime)
-          ? `${updates.endDate}T${updates.endTime}:00`
-          : (updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime);
-
-        // Prepare Graph API update payload
-        // Build Graph API update with ONLY Graph-compatible fields
-        // Use calendarData (cd) as fallback source (defined earlier in this function)
-        graphUpdate = {
-          subject: buildGraphSubject(
-            updates.eventTitle || cd.eventTitle || event.graphData?.subject,
-            updates.startTime !== undefined ? updates.startTime : cd.startTime,
-            updates.endTime !== undefined ? updates.endTime : cd.endTime
-          ),
-          start: {
-            dateTime: resolvedStartDateTime,
-            timeZone: updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
-          },
-          end: {
-            dateTime: resolvedEndDateTime,
-            timeZone: updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
-          }
-        };
-
-        // Handle location field - send separate locations array to Graph API
-        if (processedLocationsArray.length > 0) {
-          if (updates.isOffsite) {
-            // Use complete Graph location object for offsite events with address/coordinates
-            graphUpdate.location = buildOffsiteGraphLocation(
-              updates.offsiteName,
-              updates.offsiteAddress,
-              updates.offsiteLat,
-              updates.offsiteLon
-            );
-            // For offsite, locations array has single offsite location
-            graphUpdate.locations = [graphUpdate.location];
-          } else {
-            // Use pre-processed locations array for separate location entries in Outlook
-            // location.displayName must be semicolon-joined, locations array has individual items
-            const joinedLocationDisplayName = processedLocationsArray
-              .map(loc => loc.displayName)
-              .join('; ');
-            graphUpdate.location = {
-              displayName: joinedLocationDisplayName,
-              locationType: 'default'
-            };
-            graphUpdate.locations = processedLocationsArray;
-          }
-        } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
-          // Handle locations that are already in Graph API format (array of {displayName, locationType} objects)
-          const locationsArray = updates.locations
-            .map(loc => {
-              if (typeof loc === 'string') {
-                return { displayName: loc, locationType: 'default' };
-              }
-              return {
-                displayName: loc.displayName || loc.name || '',
-                locationType: loc.locationType || 'default'
-              };
-            })
-            .filter(loc => loc.displayName);
-
-          if (locationsArray.length > 0) {
-            // location.displayName must be semicolon-joined for multiple locations
-            const joinedDisplayName = locationsArray.map(loc => loc.displayName).join('; ');
-            graphUpdate.location = {
-              displayName: joinedDisplayName,
-              locationType: 'default'
-            };
-            graphUpdate.locations = locationsArray;
-          }
-        } else if (
-          // User explicitly cleared all locations (sent empty array)
-          // IMPORTANT: This check must come BEFORE the legacy updates.location check
-          (Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0) ||
-          (Array.isArray(updates.locations) && updates.locations.length === 0)
-        ) {
-          // Clear location in Graph API - use "Unspecified" placeholder
-          // Graph API ignores empty strings/null, so we use a placeholder that it accepts
-          graphUpdate.location = { displayName: 'Unspecified', locationType: 'default' };
-          graphUpdate.locations = [];
-          logger.info('Clearing locations in Graph API - using "Unspecified" placeholder');
-        } else if (updates.location) {
-          // Legacy single location field (if it exists)
-          const singleLocation = {
-            displayName: typeof updates.location === 'string'
-              ? updates.location
-              : updates.location.displayName || updates.location.name || '',
-            locationType: 'default'
-          };
-          graphUpdate.location = singleLocation;
-          graphUpdate.locations = [singleLocation];
-        } else if (event.graphData?.location?.displayName) {
-          // Keep existing Graph location if not changed
-          graphUpdate.location = event.graphData.location;
-          // Also preserve existing locations array if it exists
-          if (event.graphData?.locations && Array.isArray(event.graphData.locations)) {
-            graphUpdate.locations = event.graphData.locations;
-          }
-        }
-
-        // Handle body/description - support multiple formats
-        if (updates.body?.content) {
-          // Handle Graph API body object format from frontend
-          graphUpdate.body = {
-            contentType: updates.body.contentType === 'text' ? 'Text' : 'HTML',
-            content: updates.body.content
-          };
-          // eventDescription sync moved below updateOperations declaration
-        } else if (updates.eventDescription) {
-          graphUpdate.body = {
-            contentType: 'HTML',
-            content: updates.eventDescription
-          };
-        } else if (updates.description) {
-          graphUpdate.body = {
-            contentType: 'HTML',
-            content: updates.description
-          };
-        }
-
-        // Add categories if they exist (Graph API supports this)
-        // Only 'categories' syncs to Outlook - 'mecCategories' is internal only
-        if (updates.categories && Array.isArray(updates.categories)) {
-          graphUpdate.categories = updates.categories;
-        } else if (event.graphData?.categories && Array.isArray(event.graphData.categories)) {
-          graphUpdate.categories = event.graphData.categories;
-        }
-
-        // Handle recurrence pattern updates. Apply whenever the master is the
-        // PATCH target — that's editScope === 'allEvents' OR null (default save).
-        // The 'thisEvent' branch targets an occurrence at line 24407, not the
-        // master; sending recurrence there would 400 from Graph. This gate
-        // mirrors the cascade-to-children gate at line 24597 so both halves of
-        // the master update stay consistent. They diverged previously, leaving
-        // a class of recurring edits where the subject propagated but
-        // recurrence changes were silently dropped on null-scope saves.
-        //
-        // Split into two inner branches so explicit null (removal) is sent to
-        // Graph as null — Graph ignores absent fields in PATCH, so omitting
-        // recurrence would silently leave the series intact instead of
-        // converting it to a singleInstance.
-        if (!editScope || editScope === 'allEvents') {
-          const recurrenceTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
-          if (updates.recurrence?.pattern && updates.recurrence?.range) {
-            const recurrenceUpdate = buildGraphRecurrence(updates.recurrence, recurrenceTimezone);
-            if (recurrenceUpdate) {
-              graphUpdate.recurrence = recurrenceUpdate;
-              logger.info('Added recurrence to Graph update:', recurrenceUpdate);
-
-              // Align start/end to range.startDate. Graph requires start.dateTime
-              // and end.dateTime to define the time-of-day for the FIRST
-              // occurrence (same calendar day, duration = one occurrence) — the
-              // series span lives in recurrence.range. Mongo stores
-              // calendarData.endDateTime as the series END (e.g. 2027-07-19),
-              // so sending it through unaligned makes Graph compute a 10-month
-              // event that would overlap each weekly repeat, returning
-              // 400 ErrorOccurrenceTimeSpanTooBig. Mirrors the alignment in
-              // graphEventBuilder.js:82-96 used by the publish and republish
-              // paths.
-              const rangeStart = recurrenceUpdate.range.startDate;
-              if (rangeStart && graphUpdate.start?.dateTime && graphUpdate.end?.dateTime) {
-                const startTimeOfDay = graphUpdate.start.dateTime.split('T')[1] || '00:00:00';
-                const endTimeOfDay = graphUpdate.end.dateTime.split('T')[1] || '23:59:00';
-                graphUpdate.start.dateTime = `${rangeStart}T${startTimeOfDay}`;
-                graphUpdate.end.dateTime = `${rangeStart}T${endTimeOfDay}`;
-                logger.info('Aligned start/end to recurrence range.startDate:', {
-                  alignedStart: graphUpdate.start.dateTime,
-                  alignedEnd: graphUpdate.end.dateTime,
-                });
-              }
-            }
-          } else if ('recurrence' in updates && !updates.recurrence) {
-            // Recurrence explicitly removed — null it out so Graph converts series → singleInstance
-            graphUpdate.recurrence = null;
-            logger.info('Removing recurrence from Graph event (series → singleInstance)');
-          }
-        }
+        graphUpdate = buildMasterPatch({
+          effective: updates,
+          changedFields: null,
+          event,
+          editScope,
+          locations: processedLocationsArray,
+          deps: getPublishedMasterSyncDeps(),
+        });
 
         // DEBUG: Log exactly what we're sending to Graph API
         logger.info('=== GRAPH API UPDATE PAYLOAD ===', {
@@ -27544,6 +27588,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             targetEventId,
             graphUpdate
           );
+          saveRecurrencePatched = !!graphUpdate.recurrence;
 
           logger.info('Graph API update successful via graphApiService:', {
             returnedId: graphSyncResult.id,
@@ -27552,109 +27597,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           });
         }
 
-        // CASCADE: When editing a series master (allEvents or no scope), also update
-        // addition events and occurrence overrides in Graph so changes propagate fully.
-        if (event.eventType === 'seriesMaster' && (!editScope || editScope === 'allEvents')) {
-          // Update addition events (standalone events linked via exceptionEventIds)
-          const additionEventIds = event.exceptionEventIds || [];
-          if (additionEventIds.length > 0) {
-            for (const addition of additionEventIds) {
-              try {
-                const additionPatch = {};
-                if (graphUpdate.subject) additionPatch.subject = graphUpdate.subject;
-                if (graphUpdate.body) additionPatch.body = graphUpdate.body;
-                if (graphUpdate.categories) additionPatch.categories = graphUpdate.categories;
-                if (graphUpdate.location) additionPatch.location = graphUpdate.location;
-                if (graphUpdate.locations) additionPatch.locations = graphUpdate.locations;
-                // Update time: keep the addition's own date but use the new time-of-day
-                if (resolvedStartDateTime && resolvedEndDateTime) {
-                  const startTimePart = resolvedStartDateTime.split('T')[1] || '09:00:00';
-                  const endTimePart = resolvedEndDateTime.split('T')[1] || '10:00:00';
-                  additionPatch.start = {
-                    dateTime: `${addition.date}T${startTimePart}`,
-                    timeZone: graphTimezone
-                  };
-                  additionPatch.end = {
-                    dateTime: `${addition.date}T${endTimePart}`,
-                    timeZone: graphTimezone
-                  };
-                }
-                // Apply occurrence override if present (overrides take precedence)
-                const override = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === addition.date);
-                if (override) {
-                  if (override.eventTitle) additionPatch.subject = override.eventTitle;
-                  if (override.startTime && override.endTime) {
-                    additionPatch.start = { dateTime: `${addition.date}T${override.startTime}:00`, timeZone: graphTimezone };
-                    additionPatch.end = { dateTime: `${addition.date}T${override.endTime}:00`, timeZone: graphTimezone };
-                  }
-                  if (override.locationDisplayNames !== undefined) {
-                    const locDispName = override.locationDisplayNames || '';
-                    additionPatch.location = { displayName: locDispName, locationType: 'default' };
-                    additionPatch.locations = locDispName.split('; ').filter(Boolean)
-                      .map(name => ({ displayName: name, locationType: 'default' }));
-                  }
-                  if (override.categories !== undefined) additionPatch.categories = override.categories;
-                }
-                if (Object.keys(additionPatch).length > 0) {
-                  await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, addition.graphId, additionPatch);
-                  logger.info('Cascaded master edit to addition event:', { date: addition.date, graphId: addition.graphId });
-                }
-              } catch (addErr) {
-                logger.warn('Non-fatal: failed to cascade edit to addition event:', { date: addition.date, error: addErr.message });
-              }
-            }
-          }
-
-          // Update occurrence overrides that have Graph exceptions (regular occurrences within the series)
-          const occurrenceOverrides = event.occurrenceOverrides || [];
-          if (occurrenceOverrides.length > 0 && storedGraphEventId) {
-            for (const override of occurrenceOverrides) {
-              // Skip additions — already handled above
-              if (additionEventIds.some(a => a.date === override.occurrenceDate)) continue;
-
-              try {
-                // Find the Graph occurrence for this date
-                const dayStart = `${override.occurrenceDate}T00:00:00`;
-                const dayEnd = `${override.occurrenceDate}T23:59:59`;
-                const instances = await graphApiService.getRecurringEventInstances(
-                  event.calendarOwner, event.calendarId, storedGraphEventId,
-                  dayStart, dayEnd
-                );
-                const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
-                const match = instanceList.find(occ =>
-                  occ.start?.dateTime?.startsWith(override.occurrenceDate)
-                );
-                if (match) {
-                  const occPatch = {};
-                  // Apply master-level changes first
-                  if (graphUpdate.subject) occPatch.subject = graphUpdate.subject;
-                  if (graphUpdate.location) occPatch.location = graphUpdate.location;
-                  if (graphUpdate.locations) occPatch.locations = graphUpdate.locations;
-                  if (graphUpdate.categories) occPatch.categories = graphUpdate.categories;
-                  // Then apply override-specific values (override takes precedence)
-                  if (override.eventTitle) occPatch.subject = override.eventTitle;
-                  if (override.startTime && override.endTime) {
-                    occPatch.start = { dateTime: `${override.occurrenceDate}T${override.startTime}:00`, timeZone: graphTimezone };
-                    occPatch.end = { dateTime: `${override.occurrenceDate}T${override.endTime}:00`, timeZone: graphTimezone };
-                  }
-                  if (override.locationDisplayNames !== undefined) {
-                    const locDispName = override.locationDisplayNames || '';
-                    occPatch.location = { displayName: locDispName, locationType: 'default' };
-                    occPatch.locations = locDispName.split('; ').filter(Boolean)
-                      .map(name => ({ displayName: name, locationType: 'default' }));
-                  }
-                  if (override.categories !== undefined) occPatch.categories = override.categories;
-                  if (Object.keys(occPatch).length > 0) {
-                    await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, match.id, occPatch);
-                    logger.info('Cascaded master edit to occurrence override:', { date: override.occurrenceDate });
-                  }
-                }
-              } catch (occErr) {
-                logger.warn('Non-fatal: failed to cascade edit to occurrence override:', { date: override.occurrenceDate, error: occErr.message });
-              }
-            }
-          }
-        }
       } catch (graphError) {
         logger.error('=== GRAPH SYNC FAILED ===', {
           eventId: id,
@@ -28136,55 +28078,29 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Ad-hoc dates added to an already-published series must reach Outlook.
+    // Post-write series reconciliation, shared with edit-request approval:
+    // added dates, newly excluded dates, unsynced children, and the cascade of
+    // master changes onto children already linked to Outlook. Runs after the
+    // write so a rejected save (OCC conflict) touches nothing. Non-fatal and
+    // idempotent, so the next save completes any partial work.
     //
-    // recurrence.additions[] holds bare date strings; the Graph sync is driven
-    // by addition child documents. Publish materializes them, but dates are
-    // usually added AFTER publish — and that path had no bridge, so the dates
-    // rendered in the app while Outlook never heard about them.
-    //
-    // Runs after the write so a rejected save (OCC conflict) materializes
-    // nothing, and reads updatedEventDoc so the new dates and field values are
-    // the ones inherited. Non-fatal: a Graph failure must not fail the save,
-    // and both halves are idempotent, so the next save completes the work.
-    if (updatedEventDoc?.eventType === EVENT_TYPE.SERIES_MASTER) {
-      try {
-        const materialized = await materializeAdditionDocuments(
-          unifiedEventsCollection, updatedEventDoc,
-          { createdBy: userEmail, createdByEmail: userEmail }
-        );
-
-        // Only sync documents that have no Graph event yet. Passing them as
-        // preloadedDocs keeps this from re-PATCHing every existing child, which
-        // the cascade block above has already handled.
-        if (updatedEventDoc.graphData?.id && updatedEventDoc.calendarOwner) {
-          const children = await getExceptionsForMaster(unifiedEventsCollection, updatedEventDoc.eventId);
-          const unsynced = children.filter(doc => !doc.graphEventId);
-          if (unsynced.length > 0) {
-            const graphTz = updatedEventDoc.graphData?.start?.timeZone || 'America/New_York';
-            const syncResults = await syncExceptionDocumentsToGraph(
-              updatedEventDoc.calendarOwner, updatedEventDoc.calendarId,
-              updatedEventDoc.graphData.id, updatedEventDoc.eventId,
-              { subject: updatedEventDoc.eventTitle, start: { timeZone: graphTz } },
-              { preloadedDocs: unsynced }
-            );
-            logger.info('Admin save: synced previously-unsynced occurrence documents to Graph', {
-              eventId: updatedEventDoc.eventId,
-              materialized: materialized.created,
-              synced: syncResults.synced.map(s => s.date),
-              failed: syncResults.failed,
-            });
-          }
-        } else if (materialized.created.length > 0) {
-          logger.warn('Admin save: materialized addition documents but cannot sync to Graph', {
-            eventId: updatedEventDoc.eventId,
-            dates: materialized.created,
-            reason: !updatedEventDoc.graphData?.id ? 'no graphData.id' : 'no calendarOwner',
-          });
-        }
-      } catch (additionSyncErr) {
-        logger.warn('Non-fatal: failed to sync added dates to Graph on admin save:', additionSyncErr.message);
-      }
+    // recurrenceRewritten: Save re-sends Graph recurrence on every recurring
+    // save. Until the D0 sandbox probe shows whether that resets Outlook's
+    // cancellations, treat any recurrence PATCH as a rewrite and re-cancel the
+    // full exclusion list (an already-cancelled date resolves to no instance,
+    // so this is a no-op lookup, never a wrong delete).
+    const saveGraphSync = await reconcilePublishedSeries({
+      event,
+      updatedEvent: updatedEventDoc,
+      editScope,
+      recurrenceRewritten: saveRecurrencePatched,
+      actor: userEmail,
+      deps: getPublishedMasterSyncDeps(),
+    });
+    if (saveGraphSync.failed.length > 0) {
+      logger.warn('Admin save: some series children did not sync to Graph', {
+        eventId: updatedEventDoc?.eventId, failed: saveGraphSync.failed,
+      });
     }
 
     // Send event updated notification for published events with key field changes (non-blocking)
@@ -30181,6 +30097,28 @@ app.use(errorHandler);
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+// Scheduled sync health run (edit-request-approval-graph-sync D6). Started
+// from startServer only, never at module load or under NODE_ENV=test, so the
+// test harness (createAppForTest) holds no timer handle.
+let syncHealthSchedulerHandle = null;
+function startSyncHealthScheduler() {
+  if (process.env.NODE_ENV === 'test') return;
+  const minutes = Number(process.env.SYNC_HEALTH_INTERVAL_MINUTES ?? 360);
+  syncHealthSchedulerHandle = syncHealthScheduler.start({
+    runCheck: (window) => syncHealthService.runSyncHealthCheck({
+      eventsCollection: unifiedEventsCollection,
+      graphApi: graphApiService,
+      ...window,
+    }),
+    resolveWindow: () => syncHealthService.resolveWindow({}),
+    store: syncHealthScheduler.createSettingsStore(systemSettingsCollection),
+    intervalMs: Number.isFinite(minutes) ? minutes * 60 * 1000 : 0,
+    instanceId: `${require('os').hostname()}:${process.pid}`,
+    logger,
+  });
+  if (syncHealthSchedulerHandle) logger.log(`Sync health scheduler on: every ${minutes} min`);
+}
+
 // Start the server
 let server;
 async function startServer() {
@@ -30192,6 +30130,8 @@ async function startServer() {
     logger.log(`Tenant ID: ${TENANT_ID}`);
     sseService.start();
   });
+
+  startSyncHealthScheduler();
 
   // Prevent hung requests from accumulating connections under load.
   // 2 min covers the slowest legitimate operations (CSV import, Graph API publish).

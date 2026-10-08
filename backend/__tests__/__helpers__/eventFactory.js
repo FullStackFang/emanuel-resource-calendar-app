@@ -409,6 +409,41 @@ function createRecurringSeriesMaster(options = {}) {
 }
 
 /**
+ * Create a PUBLISHED weekly series master that is synced to Outlook.
+ *
+ * createRecurringSeriesMaster has no graphData.id and createPublishedEventWithGraph
+ * is a singleInstance; Graph-sync tests on series need both. The first
+ * occurrence (Tuesday 2026-03-10, 10:00-11:00 local) sits on range.startDate,
+ * and graphData.start.timeZone is set because every sync path reads the
+ * series' zone from it.
+ *
+ * @param {Object} options - Event options (recurrence / graphId / graphData override)
+ * @returns {Object} Published series master with graphData.id
+ */
+function createPublishedSeriesMaster(options = {}) {
+  const graphId = options.graphId || `AAMkAGraphSeries${generateEventId()}`;
+  const timeZone = options.timeZone || 'America/New_York';
+  const { graphData: graphDataOverride, ...rest } = options;
+  return createRecurringSeriesMaster({
+    status: STATUS.PUBLISHED,
+    publishedAt: new Date(),
+    publishedBy: 'approver@emanuelnyc.org',
+    startDateTime: new Date(2026, 2, 10, 10, 0, 0),
+    endDateTime: new Date(2026, 2, 10, 11, 0, 0),
+    graphData: {
+      id: graphId,
+      iCalUId: `ical-${graphId}`,
+      changeKey: 'test-change-key',
+      subject: options.eventTitle || 'Weekly Series',
+      start: { dateTime: '2026-03-10T10:00:00.0000000', timeZone },
+      end: { dateTime: '2026-03-10T11:00:00.0000000', timeZone },
+      ...graphDataOverride,
+    },
+    ...rest,
+  });
+}
+
+/**
  * Shared builder for exception and addition test documents.
  * Uses mergeDefaultsWithOverrides from the service to ensure test docs
  * match production field inheritance and fallback behavior.
@@ -506,6 +541,7 @@ module.exports = {
   createRejectedEvent,
   createDeletedEvent,
   createRecurringSeriesMaster,
+  createPublishedSeriesMaster,
   createExceptionDocument,
   createAdditionDocument,
   createOwnerlessPublishedEvent,

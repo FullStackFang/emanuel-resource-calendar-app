@@ -5,6 +5,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { usePolling } from '../hooks/usePolling';
 import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { useAuthenticatedFetch } from '../hooks/useAuthenticatedFetch';
+import { useSyncHealthLatest, actionableSyncHealthCount } from '../hooks/useSyncHealthLatest';
 import { useAuth } from '../context/AuthContext';
 import APP_CONFIG from '../config/config';
 import './Navigation.css';
@@ -27,6 +28,12 @@ export default function Navigation() {
   const [approvalCount, setApprovalCount] = useState(0);
   const location = useLocation();
   const dropdownRef = useRef(null);
+  // Actionable findings from the last scheduled sync health run (D6).
+  const { data: syncHealthLatest } = useSyncHealthLatest({
+    authFetch,
+    enabled: !!apiToken && (isAdmin || canApproveReservations),
+  });
+  const syncHealthBadge = actionableSyncHealthCount(syncHealthLatest);
 
   // Fetch all badge counts sequentially to avoid Cosmos DB rate limiting
   // Uses authFetch for automatic 401 retry with token refresh
@@ -220,6 +227,7 @@ export default function Navigation() {
           <li>
             <NavLink to="/admin/sync-health" className={({ isActive }) => isActive ? 'active' : ''}>
               Sync Health
+              {syncHealthBadge > 0 && <span className="nav-badge sync-health" data-testid="sync-health-badge">{syncHealthBadge}</span>}
             </NavLink>
           </li>
         )}
@@ -319,6 +327,7 @@ export default function Navigation() {
                     onClick={handleDropdownLinkClick}
                   >
                     Sync Health
+                    {syncHealthBadge > 0 && <span className="nav-badge sync-health" data-testid="sync-health-badge">{syncHealthBadge}</span>}
                   </NavLink>
                 </li>
                 <li>

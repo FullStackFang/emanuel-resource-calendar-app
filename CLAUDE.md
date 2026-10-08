@@ -586,6 +586,99 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Edit-request approval Graph sync (implemented 2026-10-08)
+
+Spec: `openspec/changes/edit-request-approval-graph-sync/`. 39/43 tasks.
+Committed 2026-10-08. Outstanding: 0.1 (sandbox probe
+D0), 7.3-7.5 (manual on dev; includes eyeballing that the Cady series now
+starts 10/21 in Outlook).
+
+**Production repair DONE 2026-10-08:** 0.3 = 0 masters with non-empty
+`occurrenceOverrides[]`. The backfill cancelled 71 excluded dates across 26
+series (70 + Kaiserman 11/19 on a re-run after a bug fix: an UNLINKED
+exception child on an excluded date was soft-deleted but its series instance
+left in Outlook; now the lookup runs for it too — BXC-5, PMS-11). `--verify`
+0, Sync Health excluded-date findings 0.
+
+**Sync Health coverage:** it found only 60 of the 70. 9 were past its default
+window (30d back / 180d ahead, `syncHealthService` `DEFAULT_LOOKAHEAD_DAYS`) —
+acceptable, they roll into range months ahead. 1 (Kaiserman 11/19) was a
+classifier blind spot, now FIXED: a LIVE exception/addition child on an
+excluded date used to count as expected in `diffCalendar` and consume the
+surviving Outlook instance as a match. The exclusion now wins: such a child is
+not expected (not in `appExpected`), and if Outlook still has its instance
+(series-date OR its own Graph ID, so standalone additions are caught) it is a
+`shouldNotBeInOutlook` row with reason `excluded date has a live override
+child`. If Outlook already dropped the date there is NO finding (re-creating
+it would be the wrong fix). Reconcile caveat: when that child is LINKED via
+`graphEventId`, `deriveJustification` finds the live doc first and refuses the
+delete ('record was restored') — the backfill script is the fix for that
+case; the unlinked Kaiserman shape falls through to the exclusion
+justification and is fixable from the report. Tests SHD live-override block
+(4) in `syncHealthDiff.test.js`.
+
+**The bug:** `PUT /api/edit-requests/:id/approve` never reached Outlook (its
+Graph sync was "deferred" to an endpoint Phase 1c then deleted). Also no path
+cancelled a date excluded AFTER publish. Live instance:
+`evt-request-1780078660390-6l4gmxc9j` still shows 10/14 in Outlook.
+
+**Shipped:**
+- **`backend/services/publishedMasterGraphSync.js`** — `buildMasterPatch`
+  (moved verbatim from Save; `changedFields: null` = Save mode, a `Set` =
+  approval mode that gates each Graph key group on what the DELTA touched but
+  reads values from post-write state), `buildOccurrencePatch` (Save's
+  thisEvent payload), `reconcilePublishedSeries` (materialize additions →
+  cancel newly excluded dates → sync unsynced children → cascade master
+  changes to children WITH `graphEventId`). Private api-server helpers come in
+  via `getPublishedMasterSyncDeps()`, built per call so test swaps apply.
+  Locked by `publishedMasterGraphSync.source.test.js` (both handlers call it).
+- **Save** refactored onto it, PATCH still PRE-write (latent 409-after-Graph
+  bug documented by CHAR-12, not fixed). The dead `exceptionEventIds` /
+  `occurrenceOverrides` cascade is gone. **Characterization suite
+  `adminSaveGraphPayload.char.test.js` (14 snapshots) was captured on HEAD and
+  is byte-identical after the move** — a snapshot change IS a Save behaviour
+  change.
+- **Approval:** `EXCLUSION_REMOVAL_NOT_SUPPORTED` guard on `finalChanges`;
+  occurrence pre-flight BEFORE Write 1 (resolveSeriesMaster, range,
+  DATE_IMMUTABLE, whole-state conflict check on the OCCURRENCE's date — the old
+  check used the series' first date); occurrence Write 2 = master
+  `conditionalUpdate` FIRST (stale version writes nothing) then exception
+  child; series Graph PATCH + plain `updateOne` graphData merge (no `$inc`);
+  response + audit `metadata` carry `graphSync {synced, failed,
+  cancelledExclusions}`; Graph failure never un-approves. Frontend warns
+  ("Approved. Outlook update failed for N item(s); re-save to retry.") via a
+  new `onWarning` threaded from `useEventReviewExperience`.
+- **`syncRecurrenceExclusionsToGraph(owner, calId, seriesId, dates, tz)`** now
+  resolves via `findGraphOccurrenceForDate` (zone-aware, ±1 day). The create
+  paths pass the zone they SENT — `createCalendarEvent` has no Prefer header,
+  so its response reports UTC. Cancellations `$addToSet`, never `$set`.
+- **D0 not yet probed → conservative:** Save re-cancels the FULL exclusion
+  list whenever its PATCH carried recurrence (every recurring save); approval
+  uses the delta unless pattern/range changed. Flip Save's flag once 0.1 says
+  cancellations survive.
+- **`backend/backfill-exclusion-graph-cancellations.js`** (`--dry-run` prints
+  the timezone per lookup, `--verify`, batch 25/1s, idempotent).
+- **Scheduler** `backend/services/syncHealthScheduler.js`: lease on
+  SystemSettings `_id: 'sync-health-latest'` (findOneAndUpdate on `nextRunAt`),
+  boot tick at 60s, polls `min(interval, 15m)`, keeps last good counts on
+  failure. `SYNC_HEALTH_INTERVAL_MINUTES` (default 360, `0` disables; never
+  under `NODE_ENV=test`). There is NO `backend/.env.example` to document it in.
+  `GET /api/admin/reports/sync-health/latest` (report's gate). Nav badge =
+  `missingFromOutlook + shouldNotBeInOutlook + failedDeletion` —
+  `failedDeletion` is split OUT of `shouldNotBeInOutlook` by reason, it is not
+  a report category.
+
+**Follow-up found (S11):** removing a date from `recurrence.additions[]`
+deletes neither the addition child nor its Outlook event, and
+`reconcileOccurrenceOverrides`'s orphan Graph cleanup reads `graphData.id`
+where children store `graphEventId` (never fires). Recorded in proposal.md.
+
+**Tests:** backend ERG-1..20 (`editRequestsApprove.test.js`, two legacy
+occurrenceOverrides tests rewritten), CHAR-1..12, SRC-1..3, PMS-1..10,
+REX-1..5, SX-1, RCX-1..4, BXC-1..4, SHS-1..9, SHL-1..3; frontend ERW-1..3,
+SHB-1..4. Baselines live in the session scratchpad
+(`scripts/diff-jest-results.js before.json after.json` diffs by name).
+
 ### Schedule email template editing + preview (implemented 2026-09-18)
 
 Spec: `openspec/changes/schedule-email-template-editing/`. 23/24 tasks; only
