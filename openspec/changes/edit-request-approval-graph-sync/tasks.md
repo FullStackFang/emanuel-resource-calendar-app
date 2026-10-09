@@ -1,6 +1,7 @@
 ## 0. Probes (answer the open questions before code)
 
-- [ ] 0.1 Sandbox probe (test mailbox, live Graph): create a weekly series, cancel one instance, PATCH the master with (a) an identical `recurrence`, (b) a changed `range.endDate`; list instances after each. Record in design.md Open Questions whether cancellations survive. Selects the D2 delta-vs-full rule.
+- [x] 0.1 Sandbox probe (test mailbox, live Graph): create a weekly series, cancel one instance, PATCH the master with (a) an identical `recurrence`, (b) a changed `range.endDate`; list instances after each. Record in design.md Open Questions whether cancellations survive. Selects the D2 delta-vs-full rule.
+  - Result 2026-10-09: identical recurrence and a range change keep cancellations; a pattern change RESETS them. Details in design.md Open Questions.
 - [x] 0.2 Verify S11: grep for any handler that deletes a standalone Graph event when a date leaves `recurrence.additions[]`. Record the answer in design.md and, if it is a gap, add a follow-up line to proposal.md (out of scope here).
 - [x] 0.3 Production read-only count of published masters with a non-empty `occurrenceOverrides[]` (N4). Record the number in design.md Context.
   - Result 2026-10-08: 0 published masters with a non-empty `occurrenceOverrides[]`.
@@ -67,6 +68,7 @@
 - [x] 7.2 Frontend `npm run test:run`; compare to the documented baseline (11 failed / 4 files).
   - 11 failed / 4 files, identical to the baseline. Three route suites that render Navigation needed a useSyncHealthLatest mock (no QueryClient in their harness).
 - [ ] 7.3 Manual on dev (live MSAL, sandbox mailbox): as requester submit an edit request excluding one date and adding one on a published series; as approver approve; confirm the excluded date is gone and the added date exists in Outlook; approve an occurrence-scoped title change and confirm one instance renamed; note approval latency on the largest series available.
-- [ ] 7.4 If 0.1 showed cancellations reset: approve a range change on a series with a pre-existing exclusion and confirm the exclusion is still cancelled afterwards.
+- [x] 7.4 If 0.1 showed cancellations reset: approve a range change on a series with a pre-existing exclusion and confirm the exclusion is still cancelled afterwards.
+  - Not needed: 0.1 showed a range change does not reset cancellations. Only a pattern change does, and approval already re-cancels the full list for that.
 - [ ] 7.5 Open Sync Health after 5.3 and 6.2; confirm the excluded-date `shouldNotBeInOutlook` count is 0, the last-run line populates, and the badge reflects actionable counts only.
 - [x] 7.6 Update CLAUDE.md "Current In-Progress Work" and provide the commit message.

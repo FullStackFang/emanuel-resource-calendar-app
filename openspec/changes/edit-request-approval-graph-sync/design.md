@@ -153,7 +153,13 @@ New `GET /api/admin/reports/sync-health/latest` (same `isAdmin || canApproveRese
 
 ## Open Questions
 
-- **D0 result (fill in after task 0.1):** does a recurrence PATCH on a Graph series master reset instance cancellations? Identical recurrence: ___. Changed range: ___.
+- **D0 result (task 0.1, probed 2026-10-09 on templeeventssandbox@, series deleted after):** does a recurrence PATCH on a Graph series master reset instance cancellations? It depends on what the PATCH changes. Weekly Wed series 11/4-12/9, 11/18 instance DELETEd (the production cancel), then PATCHed in turn:
+  - Identical recurrence: **survives** (11/18 still gone).
+  - Changed `range.endDate` (12/9 → 12/16): **survives**; 12/16 added, 11/18 still gone.
+  - Changed `pattern.interval` (1 → 2, 11/18 still on-pattern): **RESET** — 11/18 came back.
+  - Subject-only PATCH afterwards: no further change.
+
+  Consequences: approval's rule (full re-cancel when pattern OR range changed, via `recurrenceScheduleChanged`) is correct; range is over-cautious but harmless (an already-cancelled date resolves to no instance). Save's conservative flag (full re-cancel on every PATCH carrying recurrence) is also correct, just costs one instance lookup per exclusion per recurring save. It could be narrowed to "pattern changed", but start/end TIME changes were not probed, so it stays as is until they are. Task 7.4 (range change) is answered here: no reset.
 - **S11 (answered 2026-10-08, task 0.2):** NO. Nothing deletes the standalone Graph event, or even the `addition` child, when a date leaves `recurrence.additions[]`. `reconcileOccurrenceOverrides` soft-deletes only orphaned `exception` children, and its Graph cleanup reads `orphan.graphData.id`, which children never carry (they store `graphEventId`, and `graphData` is null), so that cleanup never fires either. `findOrphanedOverrides` is imported by api-server but never called. Recorded as a follow-up in proposal.md.
 - `graphSync.failed` surfaces as a `showWarning` toast in `ReviewModal` (matches the `attachmentWarning` precedent); confirm the copy.
 - Interval default of 6 hours: fine for drift measured in weeks. Revisit if same-day detection is expected.

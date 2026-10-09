@@ -588,9 +588,9 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ### Edit-request approval Graph sync (implemented 2026-10-08)
 
-Spec: `openspec/changes/edit-request-approval-graph-sync/`. 39/43 tasks.
-Committed 2026-10-08. Outstanding: 0.1 (sandbox probe
-D0), 7.3-7.5 (manual on dev; includes eyeballing that the Cady series now
+Spec: `openspec/changes/edit-request-approval-graph-sync/`. 41/43 tasks.
+Committed + deployed 2026-10-09. D0 probed: identical/range recurrence PATCH
+keeps Outlook cancellations, a PATTERN change resets them (design.md). Outstanding: 7.3/7.5 (manual on dev; includes eyeballing that the Cady series now
 starts 10/21 in Outlook).
 
 **Production repair DONE 2026-10-08:** 0.3 = 0 masters with non-empty
@@ -652,10 +652,10 @@ cancelled a date excluded AFTER publish. Live instance:
   resolves via `findGraphOccurrenceForDate` (zone-aware, ±1 day). The create
   paths pass the zone they SENT — `createCalendarEvent` has no Prefer header,
   so its response reports UTC. Cancellations `$addToSet`, never `$set`.
-- **D0 not yet probed → conservative:** Save re-cancels the FULL exclusion
+- **D0 answered (pattern change resets, range does not) — kept conservative:** Save re-cancels the FULL exclusion
   list whenever its PATCH carried recurrence (every recurring save); approval
-  uses the delta unless pattern/range changed. Flip Save's flag once 0.1 says
-  cancellations survive.
+  uses the delta unless pattern/range changed. Narrowing Save to pattern-only
+  is safe for range/identical but start/end TIME changes are unprobed.
 - **`backend/backfill-exclusion-graph-cancellations.js`** (`--dry-run` prints
   the timezone per lookup, `--verify`, batch 25/1s, idempotent).
 - **Scheduler** `backend/services/syncHealthScheduler.js`: lease on
