@@ -541,7 +541,11 @@
   left: 0;
   right: 0;
   border-top: 2px solid var(--color-error-400);
-  z-index: 6;
+  /* Below every event block (layouts start at zIndex 5 and climb per overlap
+     column), so the line sits consistently behind events. At 6 it tied with
+     the second overlap column and lost to the third, so it crossed some
+     events and hid under others. */
+  z-index: 4;
   pointer-events: none;
 }
 
