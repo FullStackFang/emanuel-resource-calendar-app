@@ -586,6 +586,35 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### User record created on first sign-in (implemented 2026-10-09)
+
+Anyone who signs in gets a `role: 'viewer'` record in `templeEvents__Users`
+on their first authenticated load (`createdBy: 'sign-in'`); an admin then
+raises the role in User Management. No pre-provisioning. The app is
+single-tenant, so a valid token IS the Entra check (B2B guests invited to the
+tenant would get a viewer record too).
+
+`findOrCreateSignedInUser()` (beside `findUserByIdentity` in api-server.js)
+is called by BOTH `GET /api/users/current` (desktop Calendar only) and
+`GET /api/users/me/permissions` (`RoleSimulationContext`, every device incl.
+phones). They fire in parallel on a cold load; production's unique `userId`
+and `email` indexes make the loser E11000, and it re-reads the winner's record
+(SIP-3, mutation-checked). Email is stored lowercased because `emailQuery`
+matches exactly. An admin-created record is still matched by email and keeps
+its role (SIP-4). Tests: `integration/roles/userSignInProvisioning.test.js`
+(SIP-1..7). `viewerAccess` / `reviewerNotifications` are 17-failed before AND
+after (pre-existing).
+
+**Superseded:** the full Entra directory sync (scheduled pre-creation of all
+~380 staff, built the same day) was discarded once the dry run showed rooms,
+voicemail and shared inboxes and the user decided people who never sign in
+are not needed. It is kept as `git stash` 'entra-directory-user-sync (full
+pre-sync, discarded 2026-10-09)' (also a patch in that session's scratchpad).
+Reusable bits if ever revived: `graphApiService.listDirectoryMembers`, and the
+finding that legacy admin-created records carry fake non-GUID userIds like
+`<localpart><Date.now()>` (17 in production; `findUserByIdentity` reconciles
+them on sign-in by email).
+
 ### Edit-request approval Graph sync (DONE, archived 2026-10-09)
 
 Archived: `openspec/changes/archive/2026-10-09-edit-request-approval-graph-sync/`.

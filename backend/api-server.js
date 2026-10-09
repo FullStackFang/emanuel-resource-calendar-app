@@ -164,6 +164,40 @@ async function findUserByIdentity(collection, userId, email) {
   return user;
 }
 
+/**
+ * findUserByIdentity, creating a viewer record when the signed-in person has
+ * none. The app is single-tenant, so a valid token already proves an Entra
+ * account; the record exists so an admin can find them and raise their role.
+ *
+ * GET /users/current and GET /users/me/permissions both call this and fire in
+ * parallel on a cold load. Production has unique userId and email indexes, so
+ * the losing insert gets E11000 and re-reads the winner's record.
+ */
+async function findOrCreateSignedInUser(collection, { userId, email, name }) {
+  const user = await findUserByIdentity(collection, userId, email);
+  if (user || !userId || !email) return user;
+
+  const now = new Date();
+  const doc = {
+    userId,
+    email: email.toLowerCase(),
+    displayName: name || email.split('@')[0],
+    role: 'viewer',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: 'sign-in',
+  };
+  try {
+    await collection.insertOne(doc);
+    invalidateUserCache(userId);
+    logger.log(`Created viewer record on first sign-in for ${doc.email}`);
+    return doc;
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+    return findUserByIdentity(collection, userId, email);
+  }
+}
+
 // Initialize Sentry BEFORE creating Express app
 if (process.env.SENTRY_DSN) {
   Sentry.init({
@@ -14765,7 +14799,7 @@ app.get('/api/version', (req, res) => {
 // Get current user's permissions
 app.get('/api/users/me/permissions', verifyToken, async (req, res) => {
   try {
-    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+    const user = await findOrCreateSignedInUser(usersCollection, req.user);
     const permissions = getPermissions(user, req.user.email);
     res.json({
       userId: req.user.userId,
@@ -14783,7 +14817,7 @@ app.get('/api/users/current', verifyToken, async (req, res) => {
   try {
     logger.log('Getting current user for:', req.user.email);
 
-    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+    const user = await findOrCreateSignedInUser(usersCollection, req.user);
 
     if (!user) {
       logger.log('User not found, returning 404');
