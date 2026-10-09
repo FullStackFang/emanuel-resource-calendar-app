@@ -586,12 +586,16 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
-### Edit-request approval Graph sync (implemented 2026-10-08)
+### Edit-request approval Graph sync (DONE, archived 2026-10-09)
 
-Spec: `openspec/changes/edit-request-approval-graph-sync/`. 41/43 tasks.
-Committed + deployed 2026-10-09. D0 probed: identical/range recurrence PATCH
-keeps Outlook cancellations, a PATTERN change resets them (design.md). Outstanding: 7.3/7.5 (manual on dev; includes eyeballing that the Cady series now
-starts 10/21 in Outlook).
+Archived: `openspec/changes/archive/2026-10-09-edit-request-approval-graph-sync/`.
+Specs: `openspec/specs/edit-request-graph-sync`, `recurrence-exclusion-graph-sync`,
+`sync-health-scheduled-run`, plus one requirement in `sync-health-report`.
+43/43 tasks, deployed 2026-10-09 (backend reports commit a7063b0), manual
+7.3/7.5 passed. D0 probed: an identical or end-date recurrence PATCH keeps
+Outlook cancellations, a PATTERN change resets them (design.md). Open
+follow-up: S11 below. Separately, Sync Health showed 28 failed deletions on
+2026-10-09, untriaged.
 
 **Production repair DONE 2026-10-08:** 0.3 = 0 masters with non-empty
 `occurrenceOverrides[]`. The backfill cancelled 71 excluded dates across 26

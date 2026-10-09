@@ -67,8 +67,10 @@
   - Measured against the HEAD baseline captured in 1.2 (same list + editRequestsCreate, syncHealth): 0 regressed, 0 fixed; 324 passed / 60 failed vs 227 / 60. All 99 added tests pass.
 - [x] 7.2 Frontend `npm run test:run`; compare to the documented baseline (11 failed / 4 files).
   - 11 failed / 4 files, identical to the baseline. Three route suites that render Navigation needed a useSyncHealthLatest mock (no QueryClient in their harness).
-- [ ] 7.3 Manual on dev (live MSAL, sandbox mailbox): as requester submit an edit request excluding one date and adding one on a published series; as approver approve; confirm the excluded date is gone and the added date exists in Outlook; approve an occurrence-scoped title change and confirm one instance renamed; note approval latency on the largest series available.
+- [x] 7.3 Manual on dev (live MSAL, sandbox mailbox): as requester submit an edit request excluding one date and adding one on a published series; as approver approve; confirm the excluded date is gone and the added date exists in Outlook; approve an occurrence-scoped title change and confirm one instance renamed; note approval latency on the largest series available.
+  - Passed 2026-10-09 (Stephen): excluded date gone and added date present in Outlook; occurrence title change renamed one instance; Cady series starts 10/21. Approval latency not recorded.
 - [x] 7.4 If 0.1 showed cancellations reset: approve a range change on a series with a pre-existing exclusion and confirm the exclusion is still cancelled afterwards.
   - Not needed: 0.1 showed a range change does not reset cancellations. Only a pattern change does, and approval already re-cancels the full list for that.
-- [ ] 7.5 Open Sync Health after 5.3 and 6.2; confirm the excluded-date `shouldNotBeInOutlook` count is 0, the last-run line populates, and the badge reflects actionable counts only.
+- [x] 7.5 Open Sync Health after 5.3 and 6.2; confirm the excluded-date `shouldNotBeInOutlook` count is 0, the last-run line populates, and the badge reflects actionable counts only.
+  - Passed 2026-10-09 (Stephen). Last scheduled run: shouldNotBeInOutlook 0, missingFromOutlook 34, failedDeletion 28 (badge 62).
 - [x] 7.6 Update CLAUDE.md "Current In-Progress Work" and provide the commit message.
