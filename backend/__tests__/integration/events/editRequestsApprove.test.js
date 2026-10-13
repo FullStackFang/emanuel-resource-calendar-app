@@ -5,9 +5,11 @@
  *   Permission gates (approver/admin only; force requires admin)
  *   Status checks (must be pending)
  *   Two-write success: request → approved, event fields → updated
- *   Partial failure: Write 1 succeeds, Write 2 409 → partialFailure: true
+ *   Stale eventVersion is refused BEFORE Write 1 (request stays pending);
+ *   partialFailure is reserved for a true race (editRequestsTargetIdentity ETI-4)
  *   Approver overrides merged with proposedChanges
- *   Supersede sweep: matching-scope co-pending requests → superseded
+ *   (No supersede sweep: the handler never writes 'superseded'; co-pending
+ *   requests are prevented at submit by the one-active-per-scope guard)
  *   Series vs occurrence scope (occurrence writes an exception child document)
  *   Audit log + email shape
  *   Graph sync (ERG-1..20, edit-request-approval-graph-sync): master PATCH from
@@ -569,7 +571,7 @@ describe('PUT /api/edit-requests/:id/approve', () => {
       }));
     });
 
-    it('ERG-17: a stale eventVersion is a partial failure, as for series edits', async () => {
+    it('ERG-17: a stale eventVersion on an occurrence edit is refused before Write 1', async () => {
       const { savedEvent, editRequest } = await seedRequestOn(seriesMaster(), {
         proposedChanges: { eventTitle: 'Too Late' },
         editScope: 'thisEvent',
@@ -579,8 +581,11 @@ describe('PUT /api/edit-requests/:id/approve', () => {
 
       const res = await approve(editRequest, savedEvent, {}, 409);
 
-      expect(res.body.partialFailure).toBe(true);
-      expect(res.body.compensationRequired).toBe(true);
+      expect(res.body.details?.code).toBe('VERSION_CONFLICT');
+      expect(res.body.partialFailure).toBeUndefined();
+      const requestAfter = await db.collection(COLLECTIONS.EDIT_REQUESTS).findOne({ _id: editRequest._id });
+      expect(requestAfter.status).toBe('pending');
+      expect(await db.collection(COLLECTIONS.EVENTS).countDocuments({ eventType: 'exception' })).toBe(0);
     });
 
     it('ERG-18: an unresolvable instance still writes the child and reports the date', async () => {
@@ -640,10 +645,10 @@ describe('PUT /api/edit-requests/:id/approve', () => {
     });
   });
 
-  describe('partial failure — Write 1 succeeds, Write 2 409', () => {
-    it('returns partialFailure: true when event _version is stale', async () => {
+  describe('stale eventVersion — refused before Write 1', () => {
+    it('returns VERSION_CONFLICT with zero writes when event _version is stale', async () => {
       const { savedEvent, editRequest } = await seedPendingRequestOnEvent({
-        proposedChanges: { eventTitle: 'Will fail to apply' },
+        proposedChanges: { eventTitle: 'Will not apply' },
       });
 
       // Bump the event _version externally to simulate concurrent modification
@@ -661,17 +666,16 @@ describe('PUT /api/edit-requests/:id/approve', () => {
         })
         .expect(409);
 
-      expect(res.body.partialFailure).toBe(true);
-      expect(res.body.compensationRequired).toBe(true);
-      expect(res.body.editRequestApproved).toBe(true);
+      expect(res.body.details?.code).toBe('VERSION_CONFLICT');
+      expect(res.body.partialFailure).toBeUndefined();
 
-      // Edit request is approved (Write 1 succeeded)
+      // Edit request is still pending (Write 1 never ran)
       const editRequestAfter = await db
         .collection(COLLECTIONS.EDIT_REQUESTS)
         .findOne({ _id: editRequest._id });
-      expect(editRequestAfter.status).toBe('approved');
+      expect(editRequestAfter.status).toBe('pending');
 
-      // Event title is unchanged (Write 2 failed before applying)
+      // Event title is unchanged
       const eventAfter = await db
         .collection(COLLECTIONS.EVENTS)
         .findOne({ _id: savedEvent._id });

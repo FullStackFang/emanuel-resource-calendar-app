@@ -1552,10 +1552,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, onWar
 
     setIsSubmittingEditRequest(true);
     try {
-      // The new collection endpoint takes eventId in the body. Prefer eventId
-      // string when available, fall back to ObjectId form for legacy compat
-      // (resolveEventForEditRequest handles either shape on the backend).
+      // Anchor the request to the DOCUMENT the user opened. eventId is not
+      // unique (the Resource Scheduler import left sandbox and production
+      // copies sharing one), so the backend resolves eventObjectId first and
+      // only falls back to eventId for callers that do not send it.
       const eventIdentifier = currentItem.eventId || currentItem._id;
+      const eventObjectId = currentItem._id || undefined;
       const payload = buildEditRequestPayload(liveFormData, {
         eventVersion,
         editScope: effectiveEditScope,
@@ -1568,6 +1570,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, onWar
       try {
         const result = await createEditRequestApi(authFetch, {
           eventId: eventIdentifier,
+          ...(eventObjectId && { eventObjectId }),
           ...payload,
         });
         notifySuccess({ editRequestSubmitted: true });
@@ -1673,11 +1676,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, onWar
           return { success: false, error: 'SchedulingConflict', conflictData: errorData };
         }
 
-        // Partial failure: Write 1 succeeded but Write 2 (event update) hit a stale eventVersion.
-        // The request is now `approved` in the collection, but the event was not updated.
-        // Surface a distinct error so the UI can offer a 'Re-apply Approved Changes' admin action.
+        // Partial failure: the request was marked approved but the event write
+        // lost a version race after the server's pre-check. The server records
+        // an 'edit-request-approval-split' audit entry; there is no automatic
+        // re-apply, so tell the approver to apply the change directly.
         if (errorData.partialFailure) {
-          const message = 'Approval was recorded but the event update failed (event was modified concurrently). An administrator can re-apply the approved changes.';
+          const message = errorData.message
+            || 'The request was marked approved, but the event changed while it was being applied and the changes were not saved. Open the event and apply the changes directly.';
           if (onError) onError(message);
           return { success: false, error: 'PARTIAL_FAILURE', partialFailureData: errorData };
         }

@@ -24818,7 +24818,18 @@ app.put('/api/admin/events/:id/reassign', verifyToken, async (req, res) => {
  * Resolve an event by either its ObjectId or its string eventId.
  * Returns the event document or null.
  */
-async function resolveEventForEditRequest(eventIdentifier) {
+async function resolveEventForEditRequest(eventIdentifier, eventObjectId = null) {
+  // An explicit document _id wins. eventId is NOT unique: the Resource
+  // Scheduler import left a sandbox copy and a production copy sharing one
+  // eventId, and the string lookup returns whichever Cosmos finds first.
+  if (eventObjectId) {
+    try {
+      const byExplicitId = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventObjectId) });
+      if (byExplicitId) return byExplicitId;
+    } catch (_) {
+      // malformed eventObjectId — fall through to the identifier
+    }
+  }
   if (!eventIdentifier) return null;
   // ObjectId lookup first (most common case from frontend)
   try {
@@ -24828,6 +24839,24 @@ async function resolveEventForEditRequest(eventIdentifier) {
     // not a valid ObjectId — fall through to string lookup
   }
   return unifiedEventsCollection.findOne({ eventId: eventIdentifier });
+}
+
+/**
+ * The document an edit request was submitted against. `eventObjectId` is the
+ * canonical target (stored at submit); `eventId` is only a join key and is
+ * consulted for legacy requests that predate the field.
+ */
+async function findEditRequestTarget(editRequest) {
+  if (editRequest?.eventObjectId) {
+    try {
+      const byId = await unifiedEventsCollection.findOne({ _id: new ObjectId(editRequest.eventObjectId) });
+      if (byId) return byId;
+    } catch (_) {
+      // malformed stored id — fall back to eventId
+    }
+  }
+  if (!editRequest?.eventId) return null;
+  return unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
 }
 
 /**
@@ -24937,6 +24966,7 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
 
     const {
       eventId: eventIdentifier,
+      eventObjectId: eventObjectIdParam,
       eventTitle,
       eventDescription,
       startDateTime,
@@ -24975,13 +25005,13 @@ app.post('/api/edit-requests', verifyToken, async (req, res) => {
       seriesMasterId,
     } = req.body;
 
-    if (!eventIdentifier) {
+    if (!eventIdentifier && !eventObjectIdParam) {
       return res.status(400).json({ error: 'eventId is required' });
     }
 
     const requestedRooms = requestedRoomsParam || locationIds;
 
-    const originalEvent = await resolveEventForEditRequest(eventIdentifier);
+    const originalEvent = await resolveEventForEditRequest(eventIdentifier, eventObjectIdParam);
     if (!originalEvent) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -25419,9 +25449,7 @@ app.get('/api/edit-requests/:id', verifyToken, async (req, res) => {
     }
 
     // Look up parent event to compute stale-baseline advisory
-    const parentEvent = await unifiedEventsCollection.findOne({
-      eventId: editRequest.eventId,
-    });
+    const parentEvent = await findEditRequestTarget(editRequest);
 
     let baselineShifted = false;
     let event = null;
@@ -25653,7 +25681,7 @@ app.put('/api/edit-requests/:id/reject', verifyToken, async (req, res) => {
 
     // Look up the parent event for email payload (best-effort; non-blocking)
     try {
-      const parentEvent = await unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
+      const parentEvent = await findEditRequestTarget(editRequest);
       if (parentEvent) {
         const editRequestForEmail = buildEditRequestEmailPayload(parentEvent, editRequest);
         await emailService.sendEditRequestRejectedNotification(editRequestForEmail, reason.trim());
@@ -25754,8 +25782,10 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       });
     }
 
-    // Fetch event
-    const event = await unifiedEventsCollection.findOne({ eventId: editRequest.eventId });
+    // Fetch event — by the _id the request was submitted against. eventId is
+    // not unique (sandbox/production import duplicates), and a lookup by it
+    // used to apply approvals to a copy with no Outlook link.
+    const event = await findEditRequestTarget(editRequest);
     if (!event) {
       return res.status(404).json({ error: 'Parent event not found' });
     }
@@ -25930,6 +25960,14 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
       }
     }
 
+    // ---- OCC pre-check (zero writes): a stale eventVersion must never leave
+    // the request approved with the event untouched. Write 2's conditionalUpdate
+    // stays as the real gate; a 409 there is now a true race. ----
+    const versionTarget = occ ? occ.masterDoc : event;
+    if (eventVersion != null && versionTarget._version != null && Number(eventVersion) !== versionTarget._version) {
+      return res.status(409).json(buildVersionConflictBody(versionTarget));
+    }
+
     const now = new Date();
     const reviewer = {
       userId,
@@ -25973,11 +26011,42 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
 
     // ---- Write 2: apply changes to the event (OCC) ----
     const cd = event.calendarData || {};
-    const partialFailureBody = (err) => {
-      // Split-brain: request is approved but event update failed. Surface a
-      // distinct partial-failure response so the frontend can offer a
-      // "Re-apply Approved Changes" admin action.
+    const partialFailureBody = async (err) => {
+      // Split-brain: the request is approved but the event write lost a
+      // version race that the pre-check above did not see. There is no
+      // automatic re-apply; record it so it can be found and fixed by hand.
+      const expectedVersion = eventVersion != null ? Number(eventVersion) : null;
+      const currentVersion = err.details?.currentVersion ?? null;
+      logger.error('Edit request approved but event write lost a version race', {
+        editRequestId: editRequest.editRequestId, eventId: event.eventId,
+        eventObjectId: String(versionTarget._id), expectedVersion, currentVersion,
+      });
+      if (Sentry && typeof Sentry.captureMessage === 'function') {
+        Sentry.captureMessage('edit-request approval split', {
+          level: 'error',
+          extra: { editRequestId: editRequest.editRequestId, eventId: event.eventId, expectedVersion, currentVersion },
+        });
+      }
+      await eventAuditHistoryCollection.insertOne({
+        eventId: event.eventId,
+        reservationId: versionTarget._id,
+        action: 'edit-request-approval-split',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        timestamp: new Date(),
+        changes: [],
+        metadata: {
+          editRequestId: editRequest.editRequestId,
+          editRequestDocId: editRequest._id,
+          expectedVersion,
+          currentVersion,
+          proposedChanges: finalChanges,
+        },
+      }).catch((auditErr) => {
+        logger.warn('Approval-split audit insert failed (non-fatal):', { editRequestId: editRequest.editRequestId, error: auditErr.message });
+      });
       const conflictBody = err.toJSON();
+      conflictBody.message = 'The request was marked approved, but the event changed while it was being applied and the changes were not saved. Open the event, review it, and apply the changes directly.';
       conflictBody.partialFailure = true;
       conflictBody.compensationRequired = true;
       conflictBody.editRequestId = editRequest.editRequestId;
@@ -26014,7 +26083,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
           }
         );
       } catch (err) {
-        if (err.statusCode === 409) return res.status(409).json(partialFailureBody(err));
+        if (err.statusCode === 409) return res.status(409).json(await partialFailureBody(err));
         throw err;
       }
 
@@ -26079,7 +26148,7 @@ app.put('/api/edit-requests/:id/approve', verifyToken, async (req, res) => {
           }
         );
       } catch (err) {
-        if (err.statusCode === 409) return res.status(409).json(partialFailureBody(err));
+        if (err.statusCode === 409) return res.status(409).json(await partialFailureBody(err));
         throw err;
       }
 

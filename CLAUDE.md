@@ -586,6 +586,68 @@ Reference implementations (all consume `deriveListLoadingState`): `MyReservation
 
 ## Current In-Progress Work
 
+### Edit-request approvals misrouted to sandbox duplicates (implemented 2026-10-13)
+
+Spec: `openspec/changes/edit-request-approval-misrouting/`. Code done and
+green; rollout (tasks 4.x) outstanding — **deploy BEFORE running the script**.
+
+**`eventId` IS NOT UNIQUE in `templeEvents__Events`.** The Resource Scheduler
+import ran into both calendars, so every imported event exists twice with the
+same `eventId`: a sandbox copy (`calendarOwner: templeeventssandbox@`, no
+`graphData.id`) and the Outlook-linked production copy (`templeevents@`).
+`findOne({ eventId })` returns whichever Cosmos finds first (observed: the
+sandbox copy). Any lookup by `eventId` without `calendarOwner` or `_id` is a
+latent bug; `findExceptionForDate` / `resolveSeriesMaster` and
+`GET /api/events/:id/version`'s fallback still have it (separate change).
+
+**The bug:** submit anchored requests to the sandbox copy (frontend sent the
+`eventId` string; resolver fell through to `findOne({ eventId })`), and
+approve/hydration/reject looked up by `eventId` again. Approve compared the
+client's PRODUCTION version to the SANDBOX doc: mismatch → 409
+`partialFailure` AFTER the request was flipped to approved (no audit, no log,
+message promised a 're-apply' action that never existed); match (both v1) →
+wrote the sandbox copy, never Outlook. 53 approved requests on 35 events,
+2026-06-02..2026-10-13.
+
+**Shipped:** `findEditRequestTarget(editRequest)` (by `eventObjectId`,
+`eventId` only for legacy requests) used by approve, hydration and reject;
+`resolveEventForEditRequest(identifier, eventObjectId)` prefers the explicit
+id and the frontend now sends `eventObjectId: currentItem._id`; OCC pre-check
+BEFORE Write 1 (`buildVersionConflictBody`, zero writes — the request stays
+pending); a residual Write-2 race is recorded (`logger.error`,
+`Sentry.captureMessage`, audit `edit-request-approval-split` with both
+versions + proposed changes) and the message tells the approver to apply the
+change directly. **Behaviour change:** a stale `eventVersion` is no longer a
+`partialFailure`; ERG-17 and the old 'partial failure' describe were rewritten.
+
+**Existing records — `backend/reopen-misrouted-edit-requests.js`** (`--dry-run`,
+`--verify`, `--revert`, batch 25/1s, idempotent). Re-OPENS rather than
+re-applies: the stored `proposedChanges` were diffed against the SANDBOX copy
+while the user looked at production, so a script cannot trust them. Per event:
+re-point every request to the production `_id`; newest → `pending` with the
+chronological union of the group (later wins per field, fields already equal
+to production dropped, contact fields from the newest); older → stay approved,
+`repair.outcome: 'merged-into'`. Past events, deleted production copies and
+values already in production are only marked. Every request gets
+`repair.before` (full prior state) + an `edit-request-repaired` audit entry;
+`--revert` restores any request not acted on since. Dry run 2026-10-13:
+16 reopened / 13 merged-into / 5 already-in-production / 11 past-skipped /
+8 production-deleted. Review page with production links:
+https://claude.ai/artifact/KpeCnCuDusUcLo4MjJbQHK (classification JSON +
+`reopen-plan.json` in that session's scratchpad).
+
+**Tests:** `editRequestsTargetIdentity.test.js` (ETI-1..8),
+`reopenMisroutedEditRequests.test.js` (RMR-1..10, RMR-9 approves a re-opened
+request through the real endpoint), frontend
+`useReviewModal.targetIdentity.test.jsx` (ETI-F1..2). The six edit-request
+suites + `approvedEditCalendarDate` are 81/81; all `useReviewModal` suites
+33/33.
+
+**Follow-ups:** disposition of the sandbox duplicates (the only fix that makes
+`eventId` unique again); `calendarOwner`-scope the exception-document lookups;
+admin saves on an event write NO audit entry (seen on the 8/17 production save
+of `rssched--1999849151`).
+
 ### User record created on first sign-in (implemented 2026-10-09)
 
 Anyone who signs in gets a `role: 'viewer'` record in `templeEvents__Users`
